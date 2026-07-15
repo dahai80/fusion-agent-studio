@@ -1,0 +1,59 @@
+{
+  "id": "batch-processor-001",
+  "name": "Batch File Processor",
+  "description": "Process multiple files in a directory — read, transform, and save results",
+  "nodes": {
+    "start": {
+      "type": "start",
+      "label": "Start",
+      "system_prompt": "You are a batch file processing assistant. Process files according to user instructions.",
+      "x": 50, "y": 300
+    },
+    "tool_list": {
+      "type": "tool", "label": "List Files",
+      "tool_name": "file_list", "tool_params": {},
+      "x": 250, "y": 200
+    },
+    "llm_plan": {
+      "type": "llm", "label": "Plan Processing",
+      "model": "qwen3.5-9b", "temperature": 0.3, "max_tokens": 2048,
+      "x": 450, "y": 200
+    },
+    "tool_read": {
+      "type": "tool", "label": "Read File",
+      "tool_name": "file_read", "tool_params": {},
+      "x": 250, "y": 400
+    },
+    "llm_transform": {
+      "type": "llm", "label": "Transform Content",
+      "model": "qwen3.5-9b", "temperature": 0.5, "max_tokens": 4096,
+      "x": 450, "y": 400
+    },
+    "tool_save": {
+      "type": "tool", "label": "Save Result",
+      "tool_name": "file_write", "tool_params": {},
+      "x": 650, "y": 300
+    },
+    "cond": {
+      "type": "condition", "label": "More Files?",
+      "condition_expr": "iteration < 10",
+      "x": 650, "y": 450
+    },
+    "end": {
+      "type": "end", "label": "Done",
+      "x": 850, "y": 300
+    }
+  },
+  "edges": [
+    {"source_id": "start", "target_id": "tool_list"},
+    {"source_id": "tool_list", "target_id": "llm_plan"},
+    {"source_id": "llm_plan", "target_id": "tool_read"},
+    {"source_id": "tool_read", "target_id": "llm_transform"},
+    {"source_id": "llm_transform", "target_id": "tool_save"},
+    {"source_id": "tool_save", "target_id": "cond"},
+    {"source_id": "cond", "target_id": "tool_read", "label": "true"},
+    {"source_id": "cond", "target_id": "end", "label": "false"}
+  ],
+  "start_node_id": "start",
+  "version": "1.0"
+}

@@ -1,0 +1,52 @@
+{
+  "id": "scheduled-backup-001",
+  "name": "Scheduled Backup",
+  "description": "Cron-triggered backup — archive files, verify integrity, clean up old backups",
+  "nodes": {
+    "start": {
+      "type": "start",
+      "label": "Cron Trigger",
+      "system_prompt": "You are a backup automation assistant. Archive files and verify integrity.",
+      "x": 50, "y": 300
+    },
+    "tool_list": {
+      "type": "tool", "label": "List Source Files",
+      "tool_name": "file_list", "tool_params": {},
+      "x": 250, "y": 200
+    },
+    "llm_select": {
+      "type": "llm", "label": "Select Files to Backup",
+      "model": "qwen3.5-9b", "temperature": 0.2, "max_tokens": 1024,
+      "x": 450, "y": 200
+    },
+    "tool_zip": {
+      "type": "tool", "label": "Create Archive",
+      "tool_name": "zip", "tool_params": {"operation": "compress"},
+      "x": 450, "y": 350
+    },
+    "tool_hash": {
+      "type": "tool", "label": "Verify Checksum",
+      "tool_name": "hash", "tool_params": {"algorithm": "sha256"},
+      "x": 650, "y": 275
+    },
+    "llm_report": {
+      "type": "llm", "label": "Backup Report",
+      "model": "qwen3.5-9b", "temperature": 0.3, "max_tokens": 1024,
+      "x": 850, "y": 275
+    },
+    "end": {
+      "type": "end", "label": "Done",
+      "x": 1050, "y": 275
+    }
+  },
+  "edges": [
+    {"source_id": "start", "target_id": "tool_list"},
+    {"source_id": "tool_list", "target_id": "llm_select"},
+    {"source_id": "llm_select", "target_id": "tool_zip"},
+    {"source_id": "tool_zip", "target_id": "tool_hash"},
+    {"source_id": "tool_hash", "target_id": "llm_report"},
+    {"source_id": "llm_report", "target_id": "end"}
+  ],
+  "start_node_id": "start",
+  "version": "1.0"
+}

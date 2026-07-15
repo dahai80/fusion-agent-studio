@@ -1,0 +1,52 @@
+{
+  "id": "multi-agent-research-001",
+  "name": "Multi-Agent Research",
+  "description": "Master agent decomposes a research question, workers research subtopics in parallel, master summarizes",
+  "nodes": {
+    "start": {
+      "type": "start",
+      "label": "Start",
+      "system_prompt": "You are a research coordinator. Decompose questions and synthesize findings.",
+      "x": 50, "y": 300
+    },
+    "llm_decompose": {
+      "type": "llm", "label": "Decompose Question",
+      "model": "qwen3.5-9b", "temperature": 0.3, "max_tokens": 2048,
+      "x": 250, "y": 200
+    },
+    "parallel_start": {
+      "type": "loop", "label": "Research Workers", "max_iterations": 3,
+      "x": 450, "y": 200
+    },
+    "llm_worker": {
+      "type": "llm", "label": "Worker Research",
+      "model": "qwen3.5-9b", "temperature": 0.5, "max_tokens": 4096,
+      "x": 450, "y": 350
+    },
+    "cond_more": {
+      "type": "condition", "label": "More Workers?",
+      "condition_expr": "iteration < 3",
+      "x": 650, "y": 350
+    },
+    "llm_summarize": {
+      "type": "llm", "label": "Synthesize Results",
+      "model": "qwen3.5-9b", "temperature": 0.3, "max_tokens": 4096,
+      "x": 650, "y": 200
+    },
+    "end": {
+      "type": "end", "label": "Final Report",
+      "x": 850, "y": 200
+    }
+  },
+  "edges": [
+    {"source_id": "start", "target_id": "llm_decompose"},
+    {"source_id": "llm_decompose", "target_id": "parallel_start"},
+    {"source_id": "parallel_start", "target_id": "llm_worker"},
+    {"source_id": "llm_worker", "target_id": "cond_more"},
+    {"source_id": "cond_more", "target_id": "llm_worker", "label": "true"},
+    {"source_id": "cond_more", "target_id": "llm_summarize", "label": "false"},
+    {"source_id": "llm_summarize", "target_id": "end"}
+  ],
+  "start_node_id": "start",
+  "version": "1.0"
+}

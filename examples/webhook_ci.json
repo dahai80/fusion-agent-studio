@@ -1,0 +1,52 @@
+{
+  "id": "webhook-ci-001",
+  "name": "Webhook CI Pipeline",
+  "description": "Triggered by webhook — pulls latest code, runs tests, reports results",
+  "nodes": {
+    "start": {
+      "type": "start",
+      "label": "Webhook Received",
+      "system_prompt": "You are a CI pipeline assistant. Process code changes and run tests.",
+      "x": 50, "y": 300
+    },
+    "tool_git_pull": {
+      "type": "tool", "label": "Pull Latest Code",
+      "tool_name": "git", "tool_params": {"action": "pull"},
+      "x": 250, "y": 200
+    },
+    "tool_git_log": {
+      "type": "tool", "label": "Check Changes",
+      "tool_name": "git", "tool_params": {"action": "log", "max_results": 5},
+      "x": 250, "y": 350
+    },
+    "llm_review": {
+      "type": "llm", "label": "Review Changes",
+      "model": "qwen3.5-9b", "temperature": 0.3, "max_tokens": 2048,
+      "x": 450, "y": 275
+    },
+    "tool_test": {
+      "type": "tool", "label": "Run Tests",
+      "tool_name": "terminal", "tool_params": {"command": "pytest tests/", "timeout": 60},
+      "x": 650, "y": 200
+    },
+    "llm_report": {
+      "type": "llm", "label": "Generate Report",
+      "model": "qwen3.5-9b", "temperature": 0.3, "max_tokens": 2048,
+      "x": 650, "y": 400
+    },
+    "end": {
+      "type": "end", "label": "Report Sent",
+      "x": 850, "y": 300
+    }
+  },
+  "edges": [
+    {"source_id": "start", "target_id": "tool_git_pull"},
+    {"source_id": "tool_git_pull", "target_id": "tool_git_log"},
+    {"source_id": "tool_git_log", "target_id": "llm_review"},
+    {"source_id": "llm_review", "target_id": "tool_test"},
+    {"source_id": "tool_test", "target_id": "llm_report"},
+    {"source_id": "llm_report", "target_id": "end"}
+  ],
+  "start_node_id": "start",
+  "version": "1.0"
+}

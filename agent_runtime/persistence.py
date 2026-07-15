@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import sqlite3
 import time
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -56,6 +57,17 @@ class AgentStore:
             self._conn.row_factory = sqlite3.Row
         return self._conn
 
+    @contextmanager
+    def _cursor(self):
+        """Context manager for safe SQLite operations with auto-commit."""
+        conn = self._get_conn()
+        try:
+            yield conn
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+
     def _init_db(self) -> None:
         conn = self._get_conn()
         conn.executescript("""
@@ -98,81 +110,77 @@ class AgentStore:
 
     def save_graph(self, graph: AgentGraph) -> None:
         """Save or update an agent graph."""
-        conn = self._get_conn()
         now = time.time()
-        conn.execute(
-            """INSERT INTO graphs (id, name, description, data, version, created_at, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?)
-               ON CONFLICT(id) DO UPDATE SET
-                   name=excluded.name,
-                   description=excluded.description,
-                   data=excluded.data,
-                   version=excluded.version,
-                   updated_at=excluded.updated_at""",
-            (graph.id, graph.name, graph.description, graph.to_json(),
-             graph.version, now, now),
-        )
-        conn.commit()
+        with self._cursor() as conn:
+            conn.execute(
+                """INSERT INTO graphs (id, name, description, data, version, created_at, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)
+                   ON CONFLICT(id) DO UPDATE SET
+                       name=excluded.name,
+                       description=excluded.description,
+                       data=excluded.data,
+                       version=excluded.version,
+                       updated_at=excluded.updated_at""",
+                (graph.id, graph.name, graph.description, graph.to_json(),
+                 graph.version, now, now),
+            )
 
     def load_graph(self, graph_id: str) -> AgentGraph | None:
         """Load an agent graph by ID."""
-        conn = self._get_conn()
-        row = conn.execute("SELECT data FROM graphs WHERE id = ?", (graph_id,)).fetchone()
+        with self._cursor() as conn:
+            row = conn.execute("SELECT data FROM graphs WHERE id = ?", (graph_id,)).fetchone()
         if row is None:
             return None
         return AgentGraph.from_json(row["data"])
 
     def list_graphs(self) -> list[dict[str, Any]]:
         """List all saved graphs with metadata."""
-        conn = self._get_conn()
-        rows = conn.execute(
-            "SELECT id, name, description, version, created_at, updated_at FROM graphs ORDER BY updated_at DESC"
-        ).fetchall()
+        with self._cursor() as conn:
+            rows = conn.execute(
+                "SELECT id, name, description, version, created_at, updated_at FROM graphs ORDER BY updated_at DESC"
+            ).fetchall()
         return [dict(r) for r in rows]
 
     def delete_graph(self, graph_id: str) -> bool:
         """Delete a graph by ID. Returns True if deleted."""
-        conn = self._get_conn()
-        cursor = conn.execute("DELETE FROM graphs WHERE id = ?", (graph_id,))
-        conn.commit()
+        with self._cursor() as conn:
+            cursor = conn.execute("DELETE FROM graphs WHERE id = ?", (graph_id,))
         return cursor.rowcount > 0
 
     # ── Session Management ──
 
     def create_session(self, session_id: str, graph_id: str, name: str = "") -> None:
         """Create a new execution session."""
-        conn = self._get_conn()
-        conn.execute(
-            "INSERT INTO sessions (session_id, graph_id, name, status, created_at) VALUES (?, ?, ?, 'created', ?)",
-            (session_id, graph_id, name, time.time()),
-        )
-        conn.commit()
+        with self._cursor() as conn:
+            conn.execute(
+                "INSERT INTO sessions (session_id, graph_id, name, status, created_at) VALUES (?, ?, ?, 'created', ?)",
+                (session_id, graph_id, name, time.time()),
+            )
 
     def update_session_status(self, session_id: str, status: str) -> None:
         """Update session status ('running', 'completed', 'failed')."""
-        conn = self._get_conn()
         now = time.time()
         finished_at = now if status in ("completed", "failed") else None
-        conn.execute(
-            "UPDATE sessions SET status = ?, finished_at = ? WHERE session_id = ?",
-            (status, finished_at, session_id),
-        )
-        conn.commit()
+        with self._cursor() as conn:
+            conn.execute(
+                "UPDATE sessions SET status = ?, finished_at = ? WHERE session_id = ?",
+                (status, finished_at, session_id),
+            )
 
     def get_session(self, session_id: str) -> dict[str, Any] | None:
         """Get session metadata."""
-        conn = self._get_conn()
-        row = conn.execute(
-            "SELECT * FROM sessions WHERE session_id = ?", (session_id,)
-        ).fetchone()
+        with self._cursor() as conn:
+            row = conn.execute(
+                "SELECT * FROM sessions WHERE session_id = ?", (session_id,)
+            ).fetchone()
         return dict(row) if row else None
 
     def list_sessions(self, limit: int = 50) -> list[dict[str, Any]]:
         """List recent sessions."""
-        conn = self._get_conn()
-        rows = conn.execute(
-            "SELECT * FROM sessions ORDER BY created_at DESC LIMIT ?", (limit,)
-        ).fetchall()
+        with self._cursor() as conn:
+            rows = conn.execute(
+                "SELECT * FROM sessions ORDER BY created_at DESC LIMIT ?", (limit,)
+            ).fetchall()
         return [dict(r) for r in rows]
 
     # ── Checkpoint Management ──
@@ -180,25 +188,24 @@ class AgentStore:
     def save_checkpoint(self, session_id: str, context: AgentContext,
                         current_node_id: str) -> int:
         """Save an execution checkpoint. Returns checkpoint ID."""
-        conn = self._get_conn()
-        cursor = conn.execute(
-            """INSERT INTO checkpoints (session_id, context_json, current_node_id, iteration_count, created_at)
-               VALUES (?, ?, ?, ?, ?)""",
-            (session_id, json.dumps(context.to_dict()), current_node_id,
-             context.iteration_count, time.time()),
-        )
-        conn.commit()
+        with self._cursor() as conn:
+            cursor = conn.execute(
+                """INSERT INTO checkpoints (session_id, context_json, current_node_id, iteration_count, created_at)
+                   VALUES (?, ?, ?, ?, ?)""",
+                (session_id, json.dumps(context.to_dict()), current_node_id,
+                 context.iteration_count, time.time()),
+            )
         return cursor.lastrowid or 0
 
     def load_latest_checkpoint(self, session_id: str) -> Checkpoint | None:
         """Load the most recent checkpoint for a session."""
-        conn = self._get_conn()
-        row = conn.execute(
-            """SELECT * FROM checkpoints
-               WHERE session_id = ?
-               ORDER BY created_at DESC LIMIT 1""",
-            (session_id,),
-        ).fetchone()
+        with self._cursor() as conn:
+            row = conn.execute(
+                """SELECT * FROM checkpoints
+                   WHERE session_id = ?
+                   ORDER BY created_at DESC LIMIT 1""",
+                (session_id,),
+            ).fetchone()
         if row is None:
             return None
         return Checkpoint(
@@ -212,13 +219,13 @@ class AgentStore:
 
     def list_checkpoints(self, session_id: str) -> list[dict[str, Any]]:
         """List all checkpoints for a session."""
-        conn = self._get_conn()
-        rows = conn.execute(
-            """SELECT * FROM checkpoints
-               WHERE session_id = ?
-               ORDER BY created_at DESC""",
-            (session_id,),
-        ).fetchall()
+        with self._cursor() as conn:
+            rows = conn.execute(
+                """SELECT * FROM checkpoints
+                   WHERE session_id = ?
+                   ORDER BY created_at DESC""",
+                (session_id,),
+            ).fetchall()
         return [dict(r) for r in rows]
 
     def close(self) -> None:

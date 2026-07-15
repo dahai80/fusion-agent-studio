@@ -125,45 +125,47 @@ class MultiAgentOrchestrator:
         result = OrchestrationResult()
         import time
         start = time.time()
+        semaphore = asyncio.Semaphore(5)  # Max 5 concurrent agents
 
         async def run_single(agent_config: AgentConfig) -> dict[str, Any]:
-            try:
-                from .runtime import AgentRuntime
-                runtime = AgentRuntime(self.mlx, self.tools)
+            async with semaphore:
+                try:
+                    from .runtime import AgentRuntime
+                    runtime = AgentRuntime(self.mlx, self.tools)
 
-                ctx = AgentContext()
-                ctx.metadata["agent_name"] = agent_config.name
+                    ctx = AgentContext()
+                    ctx.metadata["agent_name"] = agent_config.name
 
-                events = []
-                async for event in runtime.execute_graph(agent_config.graph, input_template, ctx):
-                    events.append(event)
+                    events = []
+                    async for event in runtime.execute_graph(agent_config.graph, input_template, ctx):
+                        events.append(event)
 
-                final_content = ""
-                for ev in reversed(events):
-                    if ev.type == AgentEventType.RESULT:
-                        final_content = ev.content
-                        break
-                    if ev.type == AgentEventType.END:
-                        break
+                    final_content = ""
+                    for ev in reversed(events):
+                        if ev.type == AgentEventType.RESULT:
+                            final_content = ev.content
+                            break
+                        if ev.type == AgentEventType.END:
+                            break
 
-                return {
-                    "agent": agent_config.name,
-                    "output": final_content,
-                    "events": [e.to_dict() for e in events],
-                    "usage": ctx.token_usage(),
-                    "duration": ctx.elapsed_seconds(),
-                    "error": "",
-                }
-            except Exception as e:
-                logger.exception("Agent %s failed", agent_config.name)
-                return {
-                    "agent": agent_config.name,
-                    "output": "",
-                    "events": [],
-                    "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total": 0},
-                    "duration": 0.0,
-                    "error": str(e),
-                }
+                    return {
+                        "agent": agent_config.name,
+                        "output": final_content,
+                        "events": [e.to_dict() for e in events],
+                        "usage": ctx.token_usage(),
+                        "duration": ctx.elapsed_seconds(),
+                        "error": "",
+                    }
+                except Exception as e:
+                    logger.exception("Agent %s failed", agent_config.name)
+                    return {
+                        "agent": agent_config.name,
+                        "output": "",
+                        "events": [],
+                        "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total": 0},
+                        "duration": 0.0,
+                        "error": str(e),
+                    }
 
         tasks = [run_single(agent) for agent in agents]
         results = await asyncio.gather(*tasks)

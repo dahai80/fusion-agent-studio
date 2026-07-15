@@ -7,6 +7,7 @@ locally.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import time
@@ -175,12 +176,15 @@ class AgentRuntime:
         messages.extend(ctx.messages)
 
         try:
-            response = await self.mlx.chat(
-                model=model,
-                messages=messages,
-                tools=tools_schema if tools_schema else None,
-                temperature=node.temperature,
-                max_tokens=node.max_tokens,
+            response = await asyncio.wait_for(
+                self.mlx.chat(
+                    model=model,
+                    messages=messages,
+                    tools=tools_schema if tools_schema else None,
+                    temperature=node.temperature,
+                    max_tokens=node.max_tokens,
+                ),
+                timeout=120.0,  # 2-minute timeout per LLM call
             )
         except Exception as e:
             ctx.error = f"LLM call failed: {e}"
