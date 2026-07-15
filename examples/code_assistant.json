@@ -1,0 +1,54 @@
+{
+  "id": "code-assistant-001",
+  "name": "Code Assistant",
+  "description": "Reads source code, analyzes it, and suggests improvements",
+  "nodes": {
+    "start": {
+      "type": "start",
+      "label": "Start",
+      "system_prompt": "You are a senior code reviewer. Analyze code and suggest improvements.",
+      "x": 50,
+      "y": 300
+    },
+    "llm_read": {
+      "type": "llm",
+      "label": "Understand Code",
+      "model": "qwen3.5-9b",
+      "temperature": 0.3,
+      "max_tokens": 4096,
+      "x": 250,
+      "y": 200
+    },
+    "tool_read": {
+      "type": "tool",
+      "label": "Read File",
+      "tool_name": "file_read",
+      "tool_params": {},
+      "x": 250,
+      "y": 400
+    },
+    "llm_analyze": {
+      "type": "llm",
+      "label": "Analyze & Suggest",
+      "model": "qwen3.5-9b",
+      "temperature": 0.5,
+      "max_tokens": 4096,
+      "x": 450,
+      "y": 300
+    },
+    "end": {
+      "type": "end",
+      "label": "Output Result",
+      "x": 650,
+      "y": 300
+    }
+  },
+  "edges": [
+    {"source_id": "start", "target_id": "tool_read"},
+    {"source_id": "tool_read", "target_id": "llm_read"},
+    {"source_id": "llm_read", "target_id": "llm_analyze"},
+    {"source_id": "llm_analyze", "target_id": "end"}
+  ],
+  "start_node_id": "start",
+  "version": "1.0"
+}

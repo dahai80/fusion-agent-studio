@@ -1,0 +1,63 @@
+{
+  "id": "terminal-automation-001",
+  "name": "Terminal Automation",
+  "description": "Executes terminal commands based on natural language instructions",
+  "nodes": {
+    "start": {
+      "type": "start",
+      "label": "Start",
+      "system_prompt": "You are a terminal automation assistant. Convert user requests into shell commands and execute them safely.",
+      "x": 50,
+      "y": 300
+    },
+    "llm_plan": {
+      "type": "llm",
+      "label": "Plan Commands",
+      "model": "qwen3.5-9b",
+      "temperature": 0.2,
+      "max_tokens": 2048,
+      "x": 250,
+      "y": 200
+    },
+    "tool_execute": {
+      "type": "tool",
+      "label": "Run Command",
+      "tool_name": "terminal",
+      "tool_params": {},
+      "x": 250,
+      "y": 400
+    },
+    "llm_review": {
+      "type": "llm",
+      "label": "Review Output",
+      "model": "qwen3.5-9b",
+      "temperature": 0.3,
+      "max_tokens": 2048,
+      "x": 450,
+      "y": 300
+    },
+    "cond": {
+      "type": "condition",
+      "label": "Need More Steps?",
+      "condition_expr": "has_tool_calls",
+      "x": 450,
+      "y": 450
+    },
+    "end": {
+      "type": "end",
+      "label": "Done",
+      "x": 650,
+      "y": 300
+    }
+  },
+  "edges": [
+    {"source_id": "start", "target_id": "llm_plan"},
+    {"source_id": "llm_plan", "target_id": "tool_execute"},
+    {"source_id": "tool_execute", "target_id": "llm_review"},
+    {"source_id": "llm_review", "target_id": "cond"},
+    {"source_id": "cond", "target_id": "tool_execute", "label": "true"},
+    {"source_id": "cond", "target_id": "end", "label": "false"}
+  ],
+  "start_node_id": "start",
+  "version": "1.0"
+}

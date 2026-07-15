@@ -1,0 +1,53 @@
+{
+  "id": "file-organizer-001",
+  "name": "File Organizer",
+  "description": "Scans a directory, categorizes files, and organizes them into folders",
+  "nodes": {
+    "start": {
+      "type": "start",
+      "label": "Start",
+      "system_prompt": "You are a file organization assistant. Categorize files by type and suggest organization.",
+      "x": 50,
+      "y": 300
+    },
+    "tool_list": {
+      "type": "tool",
+      "label": "List Files",
+      "tool_name": "file_list",
+      "tool_params": {},
+      "x": 250,
+      "y": 200
+    },
+    "llm_categorize": {
+      "type": "llm",
+      "label": "Categorize Files",
+      "model": "qwen3.5-9b",
+      "temperature": 0.3,
+      "max_tokens": 2048,
+      "x": 450,
+      "y": 200
+    },
+    "cond": {
+      "type": "condition",
+      "label": "Has More Files?",
+      "condition_expr": "iteration < 3",
+      "x": 450,
+      "y": 400
+    },
+    "end": {
+      "type": "end",
+      "label": "Summary",
+      "x": 650,
+      "y": 300
+    }
+  },
+  "edges": [
+    {"source_id": "start", "target_id": "tool_list"},
+    {"source_id": "tool_list", "target_id": "llm_categorize"},
+    {"source_id": "llm_categorize", "target_id": "cond"},
+    {"source_id": "cond", "target_id": "tool_list", "label": "true"},
+    {"source_id": "cond", "target_id": "end", "label": "false"}
+  ],
+  "start_node_id": "start",
+  "version": "1.0"
+}
