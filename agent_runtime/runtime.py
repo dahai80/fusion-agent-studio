@@ -25,6 +25,7 @@ from .sub_graph import SubGraphRegistry
 from .variable_manager import VariableManager
 
 if TYPE_CHECKING:
+    from tools.base import BaseTool
     from server.fusion_mlx_client import FusionMLXClient
     from tools.registry import ToolRegistry
 
@@ -462,13 +463,17 @@ class AgentRuntime:
 
                 try:
                     tool = self.tools.get(func_name)
-                    result = await tool.execute(**func_args)
+                    if tool is None:
+                        raise KeyError(func_name)
+                    validated_args = self._validate_tool_args(tool, func_args)
+                    result = await tool.execute(**validated_args)
                 except KeyError:
                     result = f"Error: Tool '{func_name}' not found"
                 except Exception as e:
                     result = f"Error: {e}"
 
                 ctx.add_message("tool", result, tool_call_id=tc.get("id", ""))
+                ctx.messages[-1]["_node_id"] = node.label
 
                 yield AgentEvent(
                     type=AgentEventType.TOOL_RESULT,
@@ -476,6 +481,42 @@ class AgentRuntime:
                     name=func_name,
                     node_id=node.label,
                 )
+
+    def _validate_tool_args(self, tool: "BaseTool", args: dict) -> dict:
+        schema = tool.parameters
+        if not schema:
+            return args
+        validated = {}
+        for key, value in args.items():
+            if key not in schema:
+                logger.warning("Tool '%s': unexpected arg '%s' dropped", tool.name, key)
+                continue
+            prop = schema[key]
+            expected_type = prop.get("type", "")
+            if expected_type == "string" and not isinstance(value, str):
+                validated[key] = str(value)
+                logger.warning("Tool '%s': coerced arg '%s' to string", tool.name, key)
+            elif expected_type == "number" and not isinstance(value, (int, float)):
+                try:
+                    validated[key] = float(value)
+                except (ValueError, TypeError):
+                    validated[key] = value
+                    logger.warning("Tool '%s': could not coerce arg '%s' to number", tool.name, key)
+            elif expected_type == "integer" and not isinstance(value, int):
+                try:
+                    validated[key] = int(value)
+                except (ValueError, TypeError):
+                    validated[key] = value
+                    logger.warning("Tool '%s': could not coerce arg '%s' to integer", tool.name, key)
+            elif expected_type == "boolean" and not isinstance(value, bool):
+                validated[key] = bool(value)
+                logger.warning("Tool '%s': coerced arg '%s' to boolean", tool.name, key)
+            else:
+                validated[key] = value
+        for req_key in (tool.openai_schema().get("function", {}).get("parameters", {}).get("required", [])):
+            if req_key not in validated:
+                logger.warning("Tool '%s': missing required arg '%s'", tool.name, req_key)
+        return validated
 
     async def _execute_tool_node(
         self, ctx: AgentContext, node: NodeConfig, graph: AgentGraph
@@ -502,6 +543,7 @@ class AgentRuntime:
             result = f"Error: {e}"
 
         ctx.add_message("tool", str(result), tool_call_id=f"tool_{node.tool_name}")
+        ctx.messages[-1]["_node_id"] = node.label
 
         yield AgentEvent(
             type=AgentEventType.TOOL_RESULT,
@@ -565,6 +607,9 @@ class AgentRuntime:
             if isinstance(msg, dict) and msg.get("role") == "assistant":
                 break
             if isinstance(msg, dict) and msg.get("role") == "tool":
+                failed_node_id = msg.get("_node_id", "")
+                if failed_node_id:
+                    break
                 tool_call_id = msg.get("tool_call_id", "")
                 if tool_call_id.startswith("tool_"):
                     failed_node_id = tool_call_id[5:]
