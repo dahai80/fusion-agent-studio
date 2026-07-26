@@ -347,3 +347,125 @@ class TestAgentRuntime:
         ctx = AgentContext()
         vm = runtime.variables
         assert runtime.condition_engine.evaluate("unknown_expression", ctx, vm) == "false"
+
+
+class TestValidateToolArgs:
+    def test_valid_args_pass_through(self, mlx_client, tool_registry):
+        runtime = AgentRuntime(mlx_client, tool_registry)
+        tool = tool_registry.get("mock_tool")
+        result = runtime._validate_tool_args(tool, {"input": "hello"})
+        assert result == {"input": "hello"}
+
+    def test_unknown_args_dropped(self, mlx_client, tool_registry):
+        runtime = AgentRuntime(mlx_client, tool_registry)
+        tool = tool_registry.get("mock_tool")
+        result = runtime._validate_tool_args(tool, {"input": "hi", "extra": "bad"})
+        assert "extra" not in result
+        assert result["input"] == "hi"
+
+    def test_type_coercion_string(self, mlx_client, tool_registry):
+        class IntTool(BaseTool):
+            name = "int_tool"
+            description = "int tool"
+            parameters = {"count": {"type": "integer", "description": "count"}}
+            async def execute(self, **kwargs) -> str:
+                return str(kwargs.get("count", 0))
+
+        reg = ToolRegistry()
+        reg.register(IntTool())
+        runtime = AgentRuntime(mlx_client, reg)
+        tool = reg.get("int_tool")
+        result = runtime._validate_tool_args(tool, {"count": "5"})
+        assert result["count"] == 5
+
+    def test_type_coercion_to_string(self, mlx_client, tool_registry):
+        runtime = AgentRuntime(mlx_client, tool_registry)
+        tool = tool_registry.get("mock_tool")
+        result = runtime._validate_tool_args(tool, {"input": 42})
+        assert result["input"] == "42"
+
+    def test_missing_required_arg_warns(self, mlx_client, tool_registry):
+        runtime = AgentRuntime(mlx_client, tool_registry)
+        tool = tool_registry.get("mock_tool")
+        result = runtime._validate_tool_args(tool, {})
+        assert "input" not in result
+
+    def test_no_schema_returns_args_unchanged(self, mlx_client, tool_registry):
+        class NoSchemaTool(BaseTool):
+            name = "noschema"
+            description = "no schema"
+            parameters = {}
+            async def execute(self, **kwargs) -> str:
+                return "ok"
+
+        reg = ToolRegistry()
+        reg.register(NoSchemaTool())
+        runtime = AgentRuntime(mlx_client, reg)
+        tool = reg.get("noschema")
+        result = runtime._validate_tool_args(tool, {"anything": "goes"})
+        assert result == {"anything": "goes"}
+
+
+class TestErrorHandlerToolCallId:
+    async def test_error_handler_with_call_xxx_tool_call_id(self, mlx_client, tool_registry):
+        graph = AgentGraph()
+        start = NodeConfig(label="start", type="start")
+        tool1 = NodeConfig(label="tool1", type="tool", tool_name="mock_tool", tool_params={"input": "test"})
+        err = NodeConfig(label="err_handler", type="error_handler", max_retries=1, retry_delay=0)
+        end = NodeConfig(label="end", type="end")
+        graph.add_node("start", start)
+        graph.add_node("tool1", tool1)
+        graph.add_node("err_handler", err)
+        graph.add_node("end", end)
+        graph.add_edge("start", "tool1")
+        graph.add_edge("tool1", "end")
+
+        ctx = AgentContext()
+        ctx.error = "some error"
+        ctx.current_node_id = "tool1"
+        ctx.add_message("tool", "Error: Tool failed", tool_call_id="call_abc123")
+        ctx.messages[-1]["_node_id"] = "tool1"
+
+        runtime = AgentRuntime(mlx_client, tool_registry)
+        events = []
+        async for event in runtime._execute_error_handler_node(ctx, err, graph):
+            events.append(event)
+
+        assert ctx.error == ""
+
+    async def test_error_handler_with_tool_prefix_tool_call_id(self, mlx_client, tool_registry):
+        graph = AgentGraph()
+        start = NodeConfig(label="start", type="start")
+        tool1 = NodeConfig(label="tool1", type="tool", tool_name="mock_tool", tool_params={"input": "test"})
+        err = NodeConfig(label="err_handler", type="error_handler", max_retries=1, retry_delay=0)
+        end = NodeConfig(label="end", type="end")
+        graph.add_node("start", start)
+        graph.add_node("tool1", tool1)
+        graph.add_node("err_handler", err)
+        graph.add_node("end", end)
+        graph.add_edge("start", "tool1")
+        graph.add_edge("tool1", "end")
+
+        ctx = AgentContext()
+        ctx.error = "some error"
+        ctx.current_node_id = "tool1"
+        ctx.add_message("tool", "Error: Tool failed", tool_call_id="tool_mock_tool")
+
+        runtime = AgentRuntime(mlx_client, tool_registry)
+        events = []
+        async for event in runtime._execute_error_handler_node(ctx, err, graph):
+            events.append(event)
+
+        assert ctx.error == ""
+
+
+class TestExecutorCompatShim:
+    def test_node_executor_importable(self):
+        from agent_runtime.executor import NodeExecutor
+        assert NodeExecutor is not None
+
+    def test_node_executor_init_raises_on_handler(self, mlx_client, tool_registry):
+        from agent_runtime.executor import NodeExecutor
+        ne = NodeExecutor(mlx_client, tool_registry)
+        with pytest.raises(NotImplementedError):
+            ne.get_handler("llm")
