@@ -308,37 +308,42 @@ class TestAgentRuntime:
     def test_evaluate_condition_true(self, mlx_client, tool_registry):
         runtime = AgentRuntime(mlx_client, tool_registry)
         ctx = AgentContext()
-        assert runtime._evaluate_condition("true", ctx) == "true"
-        assert runtime._evaluate_condition("false", ctx) == "false"
+        vm = runtime.variables
+        assert runtime.condition_engine.evaluate("true", ctx, vm) == "true"
+        assert runtime.condition_engine.evaluate("false", ctx, vm) == "false"
 
     def test_evaluate_condition_has_tool_calls(self, mlx_client, tool_registry):
         runtime = AgentRuntime(mlx_client, tool_registry)
         ctx = AgentContext()
-        assert runtime._evaluate_condition("has_tool_calls", ctx) == "false"
+        vm = runtime.variables
+        assert runtime.condition_engine.evaluate("has_tool_calls", ctx, vm) == "false"
         ctx.add_message("assistant", "test", tool_calls=[{"id": "1"}])
-        assert runtime._evaluate_condition("has_tool_calls", ctx) == "true"
+        assert runtime.condition_engine.evaluate("has_tool_calls", ctx, vm) == "true"
 
     def test_evaluate_condition_has_error(self, mlx_client, tool_registry):
         runtime = AgentRuntime(mlx_client, tool_registry)
         ctx = AgentContext()
-        assert runtime._evaluate_condition("has_error", ctx) == "false"
+        vm = runtime.variables
+        assert runtime.condition_engine.evaluate("has_error", ctx, vm) == "false"
         ctx.error = "error"
-        assert runtime._evaluate_condition("has_error", ctx) == "true"
+        assert runtime.condition_engine.evaluate("has_error", ctx, vm) == "true"
 
     def test_evaluate_condition_iteration(self, mlx_client, tool_registry):
         runtime = AgentRuntime(mlx_client, tool_registry)
         ctx = AgentContext()
         ctx.iteration_count = 5
-        assert runtime._evaluate_condition("iteration >= 3", ctx) == "true"
-        assert runtime._evaluate_condition("iteration >= 10", ctx) == "false"
-        assert runtime._evaluate_condition("iteration <= 5", ctx) == "true"
-        assert runtime._evaluate_condition("iteration <= 3", ctx) == "false"
-        assert runtime._evaluate_condition("iteration > 3", ctx) == "true"
-        assert runtime._evaluate_condition("iteration < 5", ctx) == "false"
-        assert runtime._evaluate_condition("iteration == 5", ctx) == "true"
-        assert runtime._evaluate_condition("iteration == 3", ctx) == "false"
+        vm = runtime.variables
+        assert runtime.condition_engine.evaluate("iteration >= 3", ctx, vm) == "true"
+        assert runtime.condition_engine.evaluate("iteration >= 10", ctx, vm) == "false"
+        assert runtime.condition_engine.evaluate("iteration <= 5", ctx, vm) == "true"
+        assert runtime.condition_engine.evaluate("iteration <= 3", ctx, vm) == "false"
+        assert runtime.condition_engine.evaluate("iteration > 3", ctx, vm) == "true"
+        assert runtime.condition_engine.evaluate("iteration < 5", ctx, vm) == "false"
+        assert runtime.condition_engine.evaluate("iteration == 5", ctx, vm) == "true"
+        assert runtime.condition_engine.evaluate("iteration == 3", ctx, vm) == "false"
 
     def test_evaluate_condition_unknown(self, mlx_client, tool_registry):
         runtime = AgentRuntime(mlx_client, tool_registry)
         ctx = AgentContext()
-        assert runtime._evaluate_condition("unknown_expression", ctx) == "false"
+        vm = runtime.variables
+        assert runtime.condition_engine.evaluate("unknown_expression", ctx, vm) == "false"

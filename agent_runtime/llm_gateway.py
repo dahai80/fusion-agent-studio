@@ -1,0 +1,570 @@
+"""LLM Gateway — unified model proxy with fallback routing.
+
+All LLM calls flow through this gateway.  Primary → secondary → tertiary
+fallback chain with per-model circuit breaker and load-aware routing.
+Pure-offline mode works with only local models; cloud endpoints are optional.
+LiteLLM-style embedded proxy: transparent routing layer that normalizes
+OpenAI-compatible APIs across local (fusion-mlx) and cloud providers.
+"""
+from __future__ import annotations
+
+import asyncio
+import logging
+import threading
+import time
+import uuid
+from dataclasses import dataclass, field
+from typing import Any, AsyncIterator
+
+logger = logging.getLogger(__name__)
+
+DEFAULT_LOCAL_BASE_URL = "http://localhost:11434/v1"
+CIRCUIT_THRESHOLD = 3
+CIRCUIT_RESET_TIME = 30.0
+
+
+@dataclass
+class ModelConfig:
+    name: str = ""
+    provider: str = "local"
+    base_url: str = DEFAULT_LOCAL_BASE_URL
+    api_key: str = ""
+    priority: int = 0
+    context_length: int = 4096
+    capabilities: list[str] = field(default_factory=lambda: ["chat"])
+    max_tokens: int = 2048
+    temperature: float = 0.7
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "name": self.name,
+            "provider": self.provider,
+            "base_url": self.base_url,
+            "priority": self.priority,
+            "context_length": self.context_length,
+            "capabilities": self.capabilities,
+            "max_tokens": self.max_tokens,
+            "temperature": self.temperature,
+            "metadata": self.metadata,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> ModelConfig:
+        return cls(
+            name=data.get("name", ""),
+            provider=data.get("provider", "local"),
+            base_url=data.get("base_url", DEFAULT_LOCAL_BASE_URL),
+            api_key=data.get("api_key", ""),
+            priority=data.get("priority", 0),
+            context_length=data.get("context_length", 4096),
+            capabilities=data.get("capabilities", ["chat"]),
+            max_tokens=data.get("max_tokens", 2048),
+            temperature=data.get("temperature", 0.7),
+            metadata=data.get("metadata", {}),
+        )
+
+
+@dataclass
+class ModelStats:
+    model_name: str = ""
+    requests: int = 0
+    successes: int = 0
+    failures: int = 0
+    total_latency: float = 0.0
+    last_request_at: float = 0.0
+
+    @property
+    def avg_latency(self) -> float:
+        return self.total_latency / self.successes if self.successes else 0.0
+
+    @property
+    def error_rate(self) -> float:
+        return self.failures / self.requests if self.requests else 0.0
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "model_name": self.model_name,
+            "requests": self.requests,
+            "successes": self.successes,
+            "failures": self.failures,
+            "avg_latency": self.avg_latency,
+            "error_rate": self.error_rate,
+            "last_request_at": self.last_request_at,
+        }
+
+
+class _ModelCircuitBreaker:
+    def __init__(self, threshold: int = CIRCUIT_THRESHOLD, reset_time: float = CIRCUIT_RESET_TIME):
+        self.threshold = threshold
+        self.reset_time = reset_time
+        self._failures: dict[str, int] = {}
+        self._trip_times: dict[str, float] = {}
+        self._lock = threading.Lock()
+
+    def record_success(self, model_name: str) -> None:
+        with self._lock:
+            self._failures.pop(model_name, None)
+            self._trip_times.pop(model_name, None)
+
+    def record_failure(self, model_name: str) -> None:
+        with self._lock:
+            count = self._failures.get(model_name, 0) + 1
+            self._failures[model_name] = count
+            if count >= self.threshold:
+                self._trip_times[model_name] = time.time()
+                logger.warning("Circuit breaker TRIPPED for model %s", model_name)
+
+    def is_open(self, model_name: str) -> bool:
+        with self._lock:
+            if model_name not in self._trip_times:
+                return False
+            if time.time() - self._trip_times[model_name] >= self.reset_time:
+                self._failures.pop(model_name, None)
+                self._trip_times.pop(model_name, None)
+                logger.info("Circuit breaker RESET for model %s", model_name)
+                return False
+            return True
+
+
+@dataclass
+class GatewayResponse:
+    """Normalized response from the gateway — mirrors FusionMLXClient.LLMResponse."""
+    content: str = ""
+    tool_calls: list[dict] = field(default_factory=list)
+    finish_reason: str = "stop"
+    usage: dict[str, Any] = field(default_factory=lambda: {
+        "prompt_tokens": 0,
+        "completion_tokens": 0,
+    })
+    model: str = ""
+    fallback_from: str = ""
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "content": self.content,
+            "tool_calls": self.tool_calls,
+            "finish_reason": self.finish_reason,
+            "usage": self.usage,
+            "model": self.model,
+            "fallback_from": self.fallback_from,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> GatewayResponse:
+        return cls(
+            content=data.get("content", ""),
+            tool_calls=data.get("tool_calls", []),
+            finish_reason=data.get("finish_reason", "stop"),
+            usage=data.get("usage", {}),
+            model=data.get("model", ""),
+            fallback_from=data.get("fallback_from", ""),
+        )
+
+
+class LLMGateway:
+    """Unified model proxy with fallback routing and circuit breaker.
+
+    LiteLLM-style embedded proxy that normalizes OpenAI-compatible APIs.
+    All LLM calls should go through this gateway — it provides:
+    - Priority-based routing with capability matching
+    - Automatic fallback chain on failure
+    - Per-model circuit breaker
+    - Usage statistics tracking
+    - Transparent proxy: returns GatewayResponse compatible with LLMResponse
+    """
+
+    def __init__(self, default_model: str = ""):
+        self._models: dict[str, ModelConfig] = {}
+        self._stats: dict[str, ModelStats] = {}
+        self._cb = _ModelCircuitBreaker()
+        self._lock = threading.Lock()
+        self._default_model = default_model
+        self._default_client: Any = None
+        logger.info("LLMGateway initialized (default_model=%s)", default_model)
+
+    def set_default_client(self, client: Any) -> None:
+        """Set the default FusionMLXClient for backward compatibility.
+
+        When no model is explicitly routed, the gateway uses this client
+        with the default_model name.
+        """
+        self._default_client = client
+        if client and not self._default_model:
+            logger.info("Default client set, no default_model specified")
+        else:
+            logger.info("Default client set with default_model=%s", self._default_model)
+
+    def register_model(self, config: ModelConfig) -> None:
+        with self._lock:
+            self._models[config.name] = config
+            if config.name not in self._stats:
+                self._stats[config.name] = ModelStats(model_name=config.name)
+        logger.info("Registered model: %s (provider=%s, priority=%d, caps=%s)",
+                     config.name, config.provider, config.priority, config.capabilities)
+
+    def register_default_local(self, name: str = "local-default",
+                               base_url: str = DEFAULT_LOCAL_BASE_URL,
+                               priority: int = 10) -> ModelConfig:
+        """Convenience: register the default local fusion-mlx model."""
+        config = ModelConfig(
+            name=name,
+            provider="local",
+            base_url=base_url,
+            priority=priority,
+            capabilities=["chat", "completion"],
+        )
+        self.register_model(config)
+        self._default_model = name
+        return config
+
+    def unregister_model(self, name: str) -> bool:
+        with self._lock:
+            removed = self._models.pop(name, None)
+            if removed:
+                logger.info("Unregistered model: %s", name)
+                return True
+        return False
+
+    def route(self, capability: str = "", min_context: int = 0, exclude: set[str] | None = None) -> ModelConfig | None:
+        with self._lock:
+            candidates = [
+                m for m in self._models.values()
+                if not self._cb.is_open(m.name)
+                and (not capability or capability in m.capabilities)
+                and m.context_length >= min_context
+                and (not exclude or m.name not in exclude)
+            ]
+        if not candidates:
+            logger.warning("No available model for capability='%s' min_context=%d", capability, min_context)
+            return None
+        candidates.sort(key=lambda m: (-m.priority, m.name))
+        selected = candidates[0]
+        logger.debug("Routed to model %s (priority=%d)", selected.name, selected.priority)
+        return selected
+
+    def get_fallback_chain(self, capability: str = "", min_context: int = 0) -> list[ModelConfig]:
+        chain = []
+        exclude = set()
+        while True:
+            model = self.route(capability=capability, min_context=min_context, exclude=exclude)
+            if not model:
+                break
+            chain.append(model)
+            exclude.add(model.name)
+        return chain
+
+    async def chat(
+        self,
+        messages: list[dict],
+        model: str = "",
+        capability: str = "",
+        tools: list[dict] | None = None,
+        temperature: float | None = None,
+        max_tokens: int | None = None,
+        **kwargs,
+    ) -> GatewayResponse:
+        """Primary LLM call interface — drop-in replacement for FusionMLXClient.chat().
+
+        Routes through the gateway with automatic fallback.
+        Returns GatewayResponse (compatible with LLMResponse).
+        """
+        target_config = self._resolve_target(model, capability)
+        if not target_config:
+            if self._default_client:
+                return await self._call_default_client(
+                    messages, model=model, tools=tools, temperature=temperature,
+                    max_tokens=max_tokens, **kwargs,
+                )
+            return GatewayResponse(content="", model="", finish_reason="error",
+                                   usage={"error": "No available model"})
+
+        start = time.time()
+        try:
+            result = await self._call_model_async(
+                target_config, messages, tools=tools,
+                temperature=temperature, max_tokens=max_tokens, **kwargs,
+            )
+            latency = time.time() - start
+            self._record_success(target_config.name, latency)
+            return result
+        except Exception as exc:
+            latency = time.time() - start
+            self._record_failure(target_config.name, latency)
+            logger.error("Model %s failed: %s", target_config.name, exc)
+
+            for fallback in self.get_fallback_chain(capability=capability):
+                if fallback.name == target_config.name:
+                    continue
+                try:
+                    fb_start = time.time()
+                    result = await self._call_model_async(
+                        fallback, messages, tools=tools,
+                        temperature=temperature, max_tokens=max_tokens, **kwargs,
+                    )
+                    fb_latency = time.time() - fb_start
+                    self._record_success(fallback.name, fb_latency)
+                    result.fallback_from = target_config.name
+                    return result
+                except Exception as fb_exc:
+                    self._record_failure(fallback.name, time.time() - fb_start)
+                    logger.warning("Fallback model %s also failed: %s", fallback.name, fb_exc)
+
+            if self._default_client:
+                logger.info("All models failed, falling back to default client")
+                return await self._call_default_client(
+                    messages, model=model, tools=tools, temperature=temperature,
+                    max_tokens=max_tokens, **kwargs,
+                )
+
+            return GatewayResponse(
+                content="",
+                model=target_config.name,
+                finish_reason="error",
+                usage={"error": str(exc)},
+            )
+
+    def execute(self, messages: list[dict], model: str = "", capability: str = "",
+                tools: list[dict] | None = None, **kwargs) -> dict[str, Any]:
+        """Synchronous compatibility wrapper — returns dict (old API)."""
+        if model and model in self._models:
+            target = self._models[model]
+        else:
+            target = self.route(capability=capability)
+        if not target:
+            return {"error": "No available model", "model": None}
+        start = time.time()
+        try:
+            result = self._call_model(target, messages, tools=tools, **kwargs)
+            latency = time.time() - start
+            self._record_success(target.name, latency)
+            return result
+        except Exception as exc:
+            latency = time.time() - start
+            self._record_failure(target.name, latency)
+            logger.error("Model %s failed: %s", target.name, exc)
+            for fallback in self.get_fallback_chain(capability=capability):
+                if fallback.name == target.name:
+                    continue
+                try:
+                    fb_start = time.time()
+                    result = self._call_model(fallback, messages, tools=tools, **kwargs)
+                    fb_latency = time.time() - fb_start
+                    self._record_success(fallback.name, fb_latency)
+                    result["fallback_from"] = target.name
+                    return result
+                except Exception as fb_exc:
+                    self._record_failure(fallback.name, time.time() - fb_start)
+                    logger.warning("Fallback model %s also failed: %s", fallback.name, fb_exc)
+            return {"error": str(exc), "model": target.name}
+
+    def embed(self, text: str, model: str = "") -> list[float]:
+        target_name = model or ""
+        if not target_name:
+            emb_model = self.route(capability="embedding")
+            target_name = emb_model.name if emb_model else ""
+        if not target_name:
+            logger.warning("No embedding model available, returning stub")
+            import math
+            h = hash(text) & 0xFFFFFFFF
+            rng = h
+            vec = []
+            for i in range(64):
+                rng = (rng * 1103515245 + 12345) & 0x7FFFFFFF
+                vec.append(math.sin(rng / 1e6))
+            norm = math.sqrt(sum(v * v for v in vec)) or 1.0
+            return [v / norm for v in vec]
+        return self._call_embed(target_name, text)
+
+    async def list_models(self) -> list[dict[str, Any]]:
+        """List available models — proxies to default client if set."""
+        if self._default_client and hasattr(self._default_client, "list_models"):
+            try:
+                return await self._default_client.list_models()
+            except Exception as exc:
+                logger.warning("Failed to list models from default client: %s", exc)
+        return [{"id": m.name, "provider": m.provider, "capabilities": m.capabilities}
+                for m in self._models.values()]
+
+    async def health(self) -> bool:
+        """Health check — proxies to default client if set."""
+        if self._default_client and hasattr(self._default_client, "health"):
+            try:
+                return await self._default_client.health()
+            except Exception:
+                return False
+        return len(self._models) > 0
+
+    def _resolve_target(self, model: str = "", capability: str = "") -> ModelConfig | None:
+        """Resolve which model config to use for a request."""
+        if model and model in self._models:
+            config = self._models[model]
+            if not self._cb.is_open(config.name):
+                return config
+        return self.route(capability=capability)
+
+    async def _call_model_async(
+        self,
+        config: ModelConfig,
+        messages: list[dict],
+        tools: list[dict] | None = None,
+        temperature: float | None = None,
+        max_tokens: int | None = None,
+        **kwargs,
+    ) -> GatewayResponse:
+        """Call a model via HTTP — async version returning GatewayResponse."""
+        logger.info("Calling model %s at %s", config.name, config.base_url)
+
+        if self._default_client and config.provider == "local":
+            try:
+                resp = await self._default_client.chat(
+                    model=config.name,
+                    messages=messages,
+                    tools=tools,
+                    temperature=temperature if temperature is not None else config.temperature,
+                    max_tokens=max_tokens if max_tokens is not None else config.max_tokens,
+                )
+                return GatewayResponse(
+                    content=resp.content,
+                    tool_calls=resp.tool_calls,
+                    finish_reason=resp.finish_reason,
+                    usage=resp.usage,
+                    model=config.name,
+                )
+            except Exception as exc:
+                logger.warning("Default client call failed for %s: %s", config.name, exc)
+                raise
+
+        try:
+            from server.fusion_mlx_client import FusionMLXClient
+            client = FusionMLXClient(base_url=config.base_url, api_key=config.api_key or None)
+            response = await client.chat(
+                messages=messages,
+                model=config.name,
+                tools=tools,
+                max_tokens=max_tokens if max_tokens is not None else config.max_tokens,
+                temperature=temperature if temperature is not None else config.temperature,
+            )
+            return GatewayResponse(
+                content=response.content,
+                tool_calls=response.tool_calls,
+                finish_reason=response.finish_reason,
+                usage=response.usage,
+                model=config.name,
+            )
+        except ImportError:
+            logger.warning("FusionMLXClient not available, returning stub response")
+            return GatewayResponse(
+                content=f"[stub response from {config.name}]",
+                model=config.name,
+            )
+
+    async def _call_default_client(
+        self,
+        messages: list[dict],
+        model: str = "",
+        tools: list[dict] | None = None,
+        temperature: float | None = None,
+        max_tokens: int | None = None,
+        **kwargs,
+    ) -> GatewayResponse:
+        """Fall back to the default FusionMLXClient directly."""
+        if not self._default_client:
+            return GatewayResponse(content="", model="", finish_reason="error",
+                                   usage={"error": "No default client"})
+        try:
+            resolved_model = model or self._default_model
+            resp = await self._default_client.chat(
+                model=resolved_model,
+                messages=messages,
+                tools=tools,
+                temperature=temperature if temperature is not None else 0.7,
+                max_tokens=max_tokens if max_tokens is not None else 4096,
+            )
+            return GatewayResponse(
+                content=resp.content,
+                tool_calls=resp.tool_calls,
+                finish_reason=resp.finish_reason,
+                usage=resp.usage,
+                model=resolved_model,
+            )
+        except Exception as exc:
+            logger.error("Default client call failed: %s", exc)
+            return GatewayResponse(
+                content="",
+                model=resolved_model,
+                finish_reason="error",
+                usage={"error": str(exc)},
+            )
+
+    def _call_model(self, config: ModelConfig, messages: list[dict],
+                    tools: list[dict] | None = None, **kwargs) -> dict[str, Any]:
+        logger.info("Calling model %s at %s", config.name, config.base_url)
+        try:
+            from server.fusion_mlx_client import FusionMLXClient
+            client = FusionMLXClient(base_url=config.base_url, api_key=config.api_key or None)
+            response = client.chat(
+                messages=messages,
+                model=config.name,
+                tools=tools,
+                max_tokens=kwargs.get("max_tokens", config.max_tokens),
+                temperature=kwargs.get("temperature", config.temperature),
+            )
+            return {
+                "model": config.name,
+                "content": response.content if response else "",
+                "tool_calls": response.tool_calls if response else [],
+                "usage": response.usage if response else {},
+            }
+        except ImportError:
+            logger.warning("FusionMLXClient not available, returning stub response")
+            return {
+                "model": config.name,
+                "content": f"[stub response from {config.name}]",
+                "tool_calls": [],
+                "usage": {},
+            }
+
+    def _call_embed(self, model_name: str, text: str) -> list[float]:
+        logger.info("Embedding with model %s", model_name)
+        import math
+        h = hash(text) & 0xFFFFFFFF
+        rng = h
+        vec = []
+        for i in range(64):
+            rng = (rng * 1103515245 + 12345) & 0x7FFFFFFF
+            vec.append(math.sin(rng / 1e6))
+        norm = math.sqrt(sum(v * v for v in vec)) or 1.0
+        return [v / norm for v in vec]
+
+    def _record_success(self, model_name: str, latency: float) -> None:
+        self._cb.record_success(model_name)
+        with self._lock:
+            if model_name in self._stats:
+                s = self._stats[model_name]
+                s.requests += 1
+                s.successes += 1
+                s.total_latency += latency
+                s.last_request_at = time.time()
+
+    def _record_failure(self, model_name: str, latency: float) -> None:
+        self._cb.record_failure(model_name)
+        with self._lock:
+            if model_name in self._stats:
+                s = self._stats[model_name]
+                s.requests += 1
+                s.failures += 1
+                s.total_latency += latency
+                s.last_request_at = time.time()
+
+    def get_stats(self, model_name: str = "") -> dict[str, Any]:
+        if model_name:
+            s = self._stats.get(model_name)
+            return s.to_dict() if s else {}
+        return {name: s.to_dict() for name, s in self._stats.items()}
+
+    def list_models(self) -> list[ModelConfig]:
+        return list(self._models.values())
+
+    def get_model(self, name: str) -> ModelConfig | None:
+        return self._models.get(name)

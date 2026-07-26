@@ -475,21 +475,25 @@ class TestRuntimeErrorPaths:
 
     def test_condition_has_tool_calls_false(self):
         runtime = AgentRuntime(MagicMock(), ToolRegistry())
-        assert runtime._evaluate_condition("has_tool_calls", AgentContext()) == "false"
+        vm = runtime.variables
+        assert runtime.condition_engine.evaluate("has_tool_calls", AgentContext(), vm) == "false"
 
     def test_condition_has_error_false(self):
         runtime = AgentRuntime(MagicMock(), ToolRegistry())
-        assert runtime._evaluate_condition("has_error", AgentContext()) == "false"
+        vm = runtime.variables
+        assert runtime.condition_engine.evaluate("has_error", AgentContext(), vm) == "false"
 
     def test_condition_unknown(self):
         runtime = AgentRuntime(MagicMock(), ToolRegistry())
         ctx = AgentContext()
         ctx.iteration_count = 5
-        assert runtime._evaluate_condition("iteration", ctx) == "false"
+        vm = runtime.variables
+        assert runtime.condition_engine.evaluate("iteration", ctx, vm) == "false"
 
     def test_condition_malformed_iteration(self):
         runtime = AgentRuntime(MagicMock(), ToolRegistry())
-        assert runtime._evaluate_condition("iteration >", AgentContext()) == "false"
+        vm = runtime.variables
+        assert runtime.condition_engine.evaluate("iteration >", AgentContext(), vm) == "false"
 
 
 # ── Orchestrator error paths ──

@@ -7,7 +7,7 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Literal
 
-NodeType = Literal["start", "llm", "tool", "condition", "loop", "end", "error_handler"]
+NodeType = Literal["start", "llm", "tool", "condition", "loop", "end", "error_handler", "rag", "planner"]
 
 
 @dataclass
@@ -179,7 +179,16 @@ class AgentGraph:
 
     @classmethod
     def from_dict(cls, data: dict) -> AgentGraph:
-        nodes = {nid: NodeConfig.from_dict(n) for nid, n in data.get("nodes", {}).items()}
+        raw_nodes = data.get("nodes", {})
+        if isinstance(raw_nodes, dict):
+            nodes = {nid: NodeConfig.from_dict(n) for nid, n in raw_nodes.items()}
+        elif isinstance(raw_nodes, list):
+            nodes = {}
+            for n in raw_nodes:
+                node_id = n.get("id", f"node-{len(nodes)}")
+                nodes[node_id] = NodeConfig.from_dict(n)
+        else:
+            nodes = {}
         edges = [Edge.from_dict(e) for e in data.get("edges", [])]
         return cls(
             id=data.get("id", ""),

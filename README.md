@@ -9,7 +9,7 @@ Run, build, and orchestrate AI agents entirely on your Mac — no cloud, no API 
 [![Version](https://img.shields.io/badge/v0.1.0-blue.svg)]()
 [![Python](https://img.shields.io/badge/Python-3.11+-3776AB.svg)](https://www.python.org/)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/Tests-416-success.svg)](tests/)
+[![Tests](https://img.shields.io/badge/Tests-1246-success.svg)](tests/)
 
 [Quick Start](#quick-start) · [Architecture](#architecture) · [Documentation](docs/) · [Examples](examples/)
 
@@ -67,7 +67,7 @@ from server.fusion_mlx_client import FusionMLXClient
 
 async def main():
     # 1. Connect to fusion-mlx (must be running)
-    mlx = FusionMLXClient(base_url="http://localhost:8000/v1")
+    mlx = FusionMLXClient(base_url="http://localhost:11434/v1")
 
     # 2. Build a simple agent graph
     graph = AgentGraph(name="My First Agent")
@@ -90,7 +90,7 @@ asyncio.run(main())
 
 ```bash
 # Terminal 1: Start the model server
-fusion-mlx serve --model qwen3.5-9b --port 8000
+fusion-mlx serve --model qwen3.5-9b --port 11434
 
 # Terminal 2: Run your agent
 python my_agent.py
@@ -102,7 +102,13 @@ python my_agent.py
 
 ```
 ┌───────────────────────────────────────────────────────────────┐
-│                    Agent Studio                                │
+│  fusion-studio (SwiftUI GUI)                                  │
+│  IPCClient ──UDS JSON-RPC──> /tmp/fusion-studio.sock         │
+│  AgentBridge ──IPCClient──> graph.* / mlx.* / planner.* ...  │
+└──────────────────────────┬────────────────────────────────────┘
+                           │ UDS JSON-RPC 2.0
+┌──────────────────────────▼────────────────────────────────────┐
+│  fusion-agent-studio (Python daemon)                          │
 │                                                               │
 │  ┌─────────────────────┐   ┌─────────────────┐               │
 │  │  Agent Runtime      │   │  Tool System     │               │
@@ -116,9 +122,13 @@ python my_agent.py
 │  └──────────┼──────────┘                                     │
 │             │ HTTP API                                        │
 │  ┌──────────▼──────────────────────────────────────────────┐  │
-│  │  FusionMLX Client (httpx → localhost:8000)              │  │
+│  │  FusionMLX Client (httpx → localhost:11434)             │  │
 │  │  Never imports MLX/engine/pool — pure HTTP               │  │
 │  └─────────────────────────────────────────────────────────┘  │
+│                                                               │
+│  Daemon Server (UDS JSON-RPC 2.0)                             │
+│  graph.* / mlx.* / hardware.* / knowledge.* / env.* /        │
+│  planner.* / rag.* / memory.* / safety.* / template.* / deploy.* / agent.* / marketplace.* │
 └──────────────────────────┬────────────────────────────────────┘
                            │ HTTP
 ┌──────────────────────────▼────────────────────────────────────┐
@@ -132,7 +142,7 @@ python my_agent.py
 
 | Module | Description | Files |
 |--------|-------------|-------|
-| `agent_runtime/` | Core engine: graph, state machine, orchestrator, debugger, persistence | 12 files |
+| `agent_runtime/` | Core engine: graph, state machine, orchestrator, debugger, persistence, API server, daemon server (UDS JSON-RPC), templates, bridge, editor, metrics, marketplace, data ingestion, sandbox, aware, FMP, knowledge, gateway, swarm, plaza, planner, RAG pipeline | 32 files |
 | `tools/` | Built-in tool system: 19 tools + plugin system | 11 files |
 | `server/` | fusion-mlx HTTP client + process manager | 2 files |
 
@@ -142,7 +152,7 @@ python my_agent.py
 
 ### Agent Runtime
 - ✅ **State machine engine** — LLM → tool → observe → decide loop
-- ✅ **6+ node types** — Start, LLM, Tool, Condition, Loop, End, Error Handler
+- ✅ **9 node types** — Start, LLM, Tool, Condition, Loop, End, Error Handler, RAG, Planner
 - ✅ **Multi-agent orchestration** — Sequential, parallel, master-worker
 - ✅ **Step debugger** — Breakpoints, pause/resume, step-over
 - ✅ **Variable manager** — Cross-node variable passing with interpolation
@@ -151,6 +161,28 @@ python my_agent.py
 - ✅ **Checkpoint/resume** — SQLite persistence for long-running agents
 - ✅ **Python export** — Export graphs as standalone scripts
 - ✅ **Template system** — 8 preset templates (code review, file organizer, etc.)
+- ✅ **Fusion-code bridge** — Subprocess bridge to fusion-code CLI agent
+- ✅ **API server** — FastAPI + WebSocket for graph management and streaming execution
+- ✅ **Daemon server** — UDS JSON-RPC 2.0 server for fusion-studio GUI integration (graph.*, mlx.*, hardware.*, knowledge.*, env.*, planner.*, rag.*, memory.*, safety.*, template.*, deploy.*, agent.*, marketplace.*)
+- ✅ **SwiftUI end-to-end** — IPCClient (29 convenience methods) + AgentBridge (8 modules) + 4 new Views (PlannerView, MemoryView, SafetyView, DeployView) + RAGPipelineView/TemplateMarketView bridge integration + AgentStudioView (agent CRUD + configure + execute + BackendAgentDetailView + ConfigureAgentSheet)
+- ✅ **Graph editor** — DAG validation, auto-layout, visual editor backend (CRUD + duplicate)
+- ✅ **Metrics engine** — SQLite-backed inference/session metrics with aggregation queries
+- ✅ **Agent marketplace** — Import/export .fusion-agent packages, search, categories, install
+- ✅ **Data ingestion** — Document readers (txt/md/json/csv/html), ETL pipeline, chunking (fixed-size, sentence, markdown-heading)
+- ✅ **Cluster manager** — Moved to [fusion-multi-node](../fusion-multi-node/) — standalone multi-node cluster for Apple Silicon
+- ✅ **Code sandbox** — AST safety analysis, diff preview, macOS sandbox-exec isolation for code execution
+- ✅ **3-Tier aware engine** — Debounce → AST diff → LLM gate cascade for file-change significance detection
+- ✅ **FMP router v2** — @Mention routing, round-robin turns, per-agent circuit breaker, message dedup
+- ✅ **Knowledge engine** — SQLite-vec + FTS5 hybrid search, RRF fusion, scoped namespaces, auto-embedding
+- ✅ **LLM gateway** — Unified model proxy with priority routing, capability matching, fallback chain, per-model circuit breaker
+- ✅ **Swarm router** — Agent handoff with hop_count limit (max 3), task delegation, auto-escalation
+- ✅ **Plaza broadcast** — Multi-agent shared log stream with @Mention triggers, 3-round circuit breaker, human break-in, supervisor designate
+- ✅ **HITL L1/L2/L3 governance** — Autonomous (L1), diff preview (L2), gateway approval (L3) safety levels with category-based policies
+- ✅ **RAG pipeline** — KnowledgeEngine retrieval → context assembly → LLM generation, integrated as DAG node type
+- ✅ **Memory auto-compression** — Tiered memory (short_term/long_term/archive) with LLM-based summarization and age/importance promotion
+- ✅ **Planner node** — OpenDevin-style "plan-confirm-execute" workflow with risk assessment (low/medium/high)
+- ✅ **Data readers** — Web, GitHub, Notion, PDF, Directory readers for LlamaIndex-style document ingestion
+- ✅ **AgentPackage workspace** — Snapshot/restore workspace dirs, .git snapshots, source management, skill DAG import/export
 
 ### Tools (19 built-in)
 | Category | Tools |
@@ -196,6 +228,20 @@ fusion-agent-studio/
 │   ├── persistence.py      # SQLite persistence
 │   ├── exporter.py         # Python script export
 │   ├── templates.py        # Preset templates (8)
+│   ├── api_server.py       # FastAPI + WebSocket server
+│   ├── daemon_server.py    # UDS JSON-RPC 2.0 daemon for fusion-studio
+│   ├── fusion_code_bridge.py # fusion-code subprocess bridge
+│   ├── agent_templates.py  # 8 agent config templates
+│   ├── graph_editor.py     # DAG editor backend
+│   ├── metrics_engine.py   # Inference metrics
+│   ├── agent_marketplace.py# Agent marketplace
+│   ├── data_ingestion.py   # Document readers + ETL + chunking
+│   ├── code_sandbox.py     # AST check + diff + sandbox-exec
+│   ├── aware_engine.py     # 3-Tier aware cascade
+│   ├── fmp_router.py       # FMP v2 (@Mention + turns + dedup)
+│   ├── knowledge_engine.py # SQLite-vec + FTS5 hybrid search + RRF
+│   ├── llm_gateway.py      # Unified model proxy + fallback chain
+│   ├── swarm_router.py     # Agent handoff + hop limit + delegation
 │   ├── undo_manager.py     # Canvas undo/redo
 │   ├── variable_manager.py # Variable management
 │   ├── json_schema.py      # Structured output
@@ -221,11 +267,13 @@ fusion-agent-studio/
 ├── server/                 # fusion-mlx communication
 │   ├── fusion_mlx_client.py# HTTP client
 │   └── process_manager.py  # Process lifecycle
-├── tests/                  # 416 tests
+├── tests/                  # 1246 tests
 │   ├── test_runtime.py     # Runtime engine tests
 │   ├── test_graph.py       # Graph model tests
 │   ├── test_tools.py       # Tool tests
-│   └── ...                 # 12 test files total
+│   ├── test_business_scenarios.py # End-to-end business scenario tests
+│   ├── test_agent_handlers.py    # Agent/marketplace handler tests
+│   └── ...                 # 14+ test files total
 └── examples/               # Example graphs
     ├── code_assistant.json
     ├── file_organizer.json
@@ -267,9 +315,10 @@ python -c "from tools.plugin_manager import PluginManager; from tools.registry i
 ```
 
 ### Test Stats
-- **416 tests**, 0 failures
-- **95%+ statement coverage**
+- **1246 tests**, 0 failures
+- **94%+ statement coverage**
 - **Python 3.11+** compatible
+- **16 business scenario integration tests** covering: agent lifecycle (create→configure→execute→delete), skill management, soul management, marketplace (publish→search→install), memory (store→recall→delete), safety (check→evaluate→policy), planner, deploy export/import, templates, graph CRUD, agent filtering, env health, RAG, ping
 
 ---
 
