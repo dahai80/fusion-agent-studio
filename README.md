@@ -8,7 +8,7 @@ Run, build, and orchestrate AI agents entirely on your Mac — no cloud, no API 
 
 [![Version](https://img.shields.io/badge/v0.1.0-blue.svg)]()
 [![Python](https://img.shields.io/badge/Python-3.11+-3776AB.svg)](https://www.python.org/)
-[![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 [![Tests](https://img.shields.io/badge/Tests-1246-success.svg)](tests/)
 
 [Quick Start](#quick-start) · [Architecture](#architecture) · [Documentation](docs/) · [Examples](examples/)
@@ -309,7 +309,7 @@ python -c "from tools.plugin_manager import PluginManager; from tools.registry i
 
 ## License
 
-MIT
+Apache License 2.0
 
 ## Acknowledgments
 
