@@ -1,0 +1,15 @@
+__pycache__/
+*.pyc
+*.pyo
+.coverage
+coverage.json
+memory.db
+*.egg-info/
+dist/
+build/
+.venv/
+.claude/
+langflow/
+openworker/
+ar1.md
+ar2.md
