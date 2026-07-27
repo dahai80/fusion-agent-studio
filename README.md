@@ -17,21 +17,6 @@ Run, build, and orchestrate AI agents entirely on your Mac — no cloud, no API 
 
 ---
 
-## Why Fusion-MLX Agent Studio?
-
-| Feature | Agent Studio | Dify.AI | n8n | LangFlow |
-|---------|-------------|---------|-----|----------|
-| **Local-first** | ✅ 100% offline | ⚠️ Partial | ✅ | ✅ |
-| **Apple Silicon optimized** | ✅ MLX native | ❌ Ollama | ❌ | ❌ |
-| **macOS native app** | ✅ SwiftUI | ❌ Web | ❌ Web | ❌ Web |
-| **System tools** (file/shell/git) | ✅ Deep integration | ❌ | ⚠️ | ❌ |
-| **Multi-model concurrency** | ✅ EnginePool | ❌ | ❌ | ❌ |
-| **Quantization (40+ formats)** | ✅ 2-bit to FP8 | ❌ | ❌ | ❌ |
-| **Zero API cost** | ✅ | ❌ | ✅ | ✅ |
-| **Data privacy** | ✅ Never leaves device | ⚠️ Self-host | ✅ | ✅ |
-
-**One sentence:** Fusion-MLX Agent Studio = a local offline Dify + macOS-native depth + MLX inference performance.
-
 ---
 
 ## Quick Start
