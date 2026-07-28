@@ -606,6 +606,38 @@ class AgentRuntime:
 
                 content = "".join(content_parts)
                 tool_calls = list(current_tool_calls.values()) if current_tool_calls else []
+                for tc in tool_calls:
+                    args_str = tc.get("function", {}).get("arguments", "")
+                    if args_str:
+                        try:
+                            json.loads(args_str)
+                        except json.JSONDecodeError:
+                            logger.warning(
+                                "streaming tool_use incomplete arguments for %s, "
+                                "falling back to non-streaming",
+                                tc.get("function", {}).get("name", "?"),
+                            )
+                            try:
+                                gw_resp = await asyncio.wait_for(
+                                    self.llm_gateway.chat(
+                                        messages=messages,
+                                        model=model,
+                                        capability=capability,
+                                        tools=tools_schema if tools_schema else None,
+                                        max_tokens=node.max_tokens,
+                                        temperature=node.temperature,
+                                        effort=effort or None,
+                                    ),
+                                    timeout=120.0,
+                                )
+                                content = gw_resp.content or ""
+                                tool_calls = gw_resp.tool_calls or []
+                                if gw_resp.usage:
+                                    usage = gw_resp.usage
+                                if gw_resp.model:
+                                    resp_model = gw_resp.model
+                            except Exception as fallback_exc:
+                                logger.error("fallback non-streaming also failed: %s", fallback_exc)
             else:
                 logger.debug("LLM call via gateway, model=%s", model)
                 gw_resp = await asyncio.wait_for(

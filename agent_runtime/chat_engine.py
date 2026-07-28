@@ -74,7 +74,7 @@ class ChatEvent:
 class ChatMessage:
     id: str = ""
     role: str = "user"
-    content: str = ""
+    content: str | list[dict] = ""
     mode: str = ""
     tool_calls: list[dict] = field(default_factory=list)
     tool_call_id: str = ""
@@ -288,6 +288,7 @@ class ChatEngine:
         session_id: str,
         message: str,
         mode: str = "",
+        content: list[dict] | None = None,
     ) -> AsyncIterator[ChatEvent]:
         session = self.get_session(session_id)
         if not session:
@@ -295,7 +296,8 @@ class ChatEngine:
             return
 
         effective_mode = mode or session.mode
-        user_msg = ChatMessage(role="user", content=message, mode=effective_mode)
+        msg_content: str | list[dict] = content if content else message
+        user_msg = ChatMessage(role="user", content=msg_content, mode=effective_mode)
         parent_id = session.active_branch
         session.add_message(user_msg, parent_id=parent_id)
 

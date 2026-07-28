@@ -48,6 +48,7 @@ class DaemonServer:
         self._runtime: AgentRuntime | None = None
         self._mlx_process: subprocess.Popen | None = None
         self._active_executions: dict[str, asyncio.Task] = {}
+        self._code_tasks: dict[str, dict] = {}
         self._server: asyncio.Server | None = None
         self._running = False
         self._planner = None
@@ -210,6 +211,10 @@ class DaemonServer:
             "tool.get": self._handle_tool_get,
             "session.list": self._handle_session_list,
             "knowledge.search": self._handle_knowledge_search,
+            "knowledge.ingest": self._handle_knowledge_ingest,
+            "knowledge.delete": self._handle_knowledge_delete,
+            "knowledge.list": self._handle_knowledge_list,
+            "knowledge.count": self._handle_knowledge_count,
             "env.health_check": self._handle_env_health_check,
             "env.repair": self._handle_env_repair,
             "env.repair_all": self._handle_env_repair_all,
@@ -264,6 +269,10 @@ class DaemonServer:
             "agent.delete_skill": self._handle_agent_delete_skill,
             "agent.get_soul": self._handle_agent_get_soul,
             "agent.update_soul": self._handle_agent_update_soul,
+            "agent.submit_code_task": self._handle_agent_submit_code_task,
+            "agent.task_status": self._handle_agent_task_status,
+            "agent.cancel_task": self._handle_agent_cancel_task,
+            "agent.tasks": self._handle_agent_tasks,
             "marketplace.search": self._handle_marketplace_search,
             "marketplace.get": self._handle_marketplace_get,
             "marketplace.publish": self._handle_marketplace_publish,
@@ -648,6 +657,59 @@ class DaemonServer:
         except Exception as e:
             logger.warning("Knowledge search failed: %s", e)
             return {"results": [], "error": str(e)}
+
+    async def _handle_knowledge_ingest(self, params: dict) -> dict:
+        content = params.get("content", "")
+        scope = params.get("scope", "default")
+        metadata = params.get("metadata")
+        if not content:
+            return {"error": "content is required"}
+        try:
+            from .knowledge_engine import KnowledgeEngine
+            engine = KnowledgeEngine()
+            entry = engine.ingest(content, scope=scope, metadata=metadata)
+            logger.info("knowledge.ingest: entry_id=%s scope=%s", entry.id, scope)
+            return entry.to_dict()
+        except Exception as e:
+            logger.error("knowledge.ingest failed: %s", e)
+            return {"error": str(e)}
+
+    async def _handle_knowledge_delete(self, params: dict) -> dict:
+        entry_id = params.get("entry_id", "")
+        if not entry_id:
+            return {"error": "entry_id is required"}
+        try:
+            from .knowledge_engine import KnowledgeEngine
+            engine = KnowledgeEngine()
+            ok = engine.delete(entry_id)
+            logger.info("knowledge.delete: entry_id=%s ok=%s", entry_id, ok)
+            return {"deleted": ok}
+        except Exception as e:
+            logger.error("knowledge.delete failed: %s", e)
+            return {"error": str(e)}
+
+    async def _handle_knowledge_list(self, params: dict) -> dict:
+        scope = params.get("scope", "")
+        limit = params.get("limit", 100)
+        try:
+            from .knowledge_engine import KnowledgeEngine
+            engine = KnowledgeEngine()
+            entries = engine.list_entries(scope=scope, limit=limit)
+            return {"entries": [e.to_dict() for e in entries]}
+        except Exception as e:
+            logger.error("knowledge.list failed: %s", e)
+            return {"entries": [], "error": str(e)}
+
+    async def _handle_knowledge_count(self, params: dict) -> dict:
+        scope = params.get("scope", "")
+        try:
+            from .knowledge_engine import KnowledgeEngine
+            engine = KnowledgeEngine()
+            n = engine.count(scope=scope)
+            return {"count": n}
+        except Exception as e:
+            logger.error("knowledge.count failed: %s", e)
+            return {"count": 0, "error": str(e)}
 
     async def _handle_env_health_check(self, params: dict) -> dict:
         checks: dict[str, Any] = {}
@@ -1555,6 +1617,130 @@ class DaemonServer:
         logger.info("agent.update_soul: agent=%s len=%d", agent_id, len(soul))
         return {"updated": True}
 
+    # ── Agent task routing handlers ──
+
+    async def _handle_agent_submit_code_task(self, params: dict) -> dict:
+        agent_id = params.get("agent_id", "")
+        code = params.get("code", "")
+        language = params.get("language", "python")
+        timeout = params.get("timeout", 60)
+        if not agent_id:
+            return {"status": "error", "message": "agent_id parameter required"}
+        if not code:
+            return {"status": "error", "message": "code parameter required"}
+
+        import uuid
+        task_id = params.get("task_id") or str(uuid.uuid4())
+        task = {
+            "task_id": task_id,
+            "agent_id": agent_id,
+            "code": code,
+            "language": language,
+            "timeout": timeout,
+            "status": "pending",
+            "result": None,
+            "error": None,
+            "created_at": __import__("time").time(),
+        }
+        self._code_tasks[task_id] = task
+        logger.info("agent.submit_code_task: task=%s agent=%s", task_id, agent_id)
+
+        try:
+            task["status"] = "running"
+            import asyncio
+
+            async def _run():
+                try:
+                    result = await self._execute_code_task(task)
+                    task["status"] = "completed"
+                    task["result"] = result
+                except asyncio.CancelledError:
+                    task["status"] = "cancelled"
+                except Exception as exc:
+                    task["status"] = "failed"
+                    task["error"] = str(exc)
+                    logger.error("agent task %s failed: %s", task_id, exc)
+
+            handle = asyncio.ensure_future(_run())
+            task["_handle"] = handle
+            await asyncio.sleep(0)
+        except Exception as exc:
+            task["status"] = "failed"
+            task["error"] = str(exc)
+            logger.error("agent.submit_code_task: task=%s error=%s", task_id, exc)
+
+        return {
+            "task_id": task_id,
+            "status": task["status"],
+        }
+
+    async def _execute_code_task(self, task: dict):
+        agent_id = task["agent_id"]
+        code = task["code"]
+        language = task["language"]
+        logger.info("_execute_code_task: task=%s lang=%s", task["task_id"], language)
+        if language != "python":
+            return {"output": f"Unsupported language: {language}", "exit_code": 1}
+
+        local_vars: dict = {}
+        try:
+            exec(code, {"__builtins__": {}}, local_vars)
+            coro = local_vars.get("main")
+            if coro and hasattr(coro, "__await__"):
+                result = await asyncio.wait_for(coro, timeout=task.get("timeout", 60))
+                return {"output": str(result), "exit_code": 0}
+            return {"output": str(local_vars), "exit_code": 0}
+        except Exception as exc:
+            return {"output": str(exc), "exit_code": 1}
+
+    async def _handle_agent_task_status(self, params: dict) -> dict:
+        task_id = params.get("task_id", "")
+        if not task_id:
+            return {"status": "error", "message": "task_id parameter required"}
+        task = self._code_tasks.get(task_id)
+        if not task:
+            return {"status": "error", "message": f"Task not found: {task_id}"}
+        return {
+            "task_id": task_id,
+            "status": task["status"],
+            "result": task.get("result"),
+            "error": task.get("error"),
+        }
+
+    async def _handle_agent_cancel_task(self, params: dict) -> dict:
+        task_id = params.get("task_id", "")
+        if not task_id:
+            return {"status": "error", "message": "task_id parameter required"}
+        task = self._code_tasks.get(task_id)
+        if not task:
+            return {"status": "error", "message": f"Task not found: {task_id}"}
+        handle = task.get("_handle")
+        if handle and not handle.done():
+            handle.cancel()
+            task["status"] = "cancelled"
+            logger.info("agent.cancel_task: task=%s cancelled", task_id)
+        return {"task_id": task_id, "status": task["status"]}
+
+    async def _handle_agent_tasks(self, params: dict) -> dict:
+        agent_id = params.get("agent_id")
+        status_filter = params.get("status")
+        tasks = list(self._code_tasks.values())
+        if agent_id:
+            tasks = [t for t in tasks if t["agent_id"] == agent_id]
+        if status_filter:
+            tasks = [t for t in tasks if t["status"] == status_filter]
+        items = []
+        for t in tasks:
+            items.append({
+                "task_id": t["task_id"],
+                "agent_id": t["agent_id"],
+                "status": t["status"],
+                "language": t["language"],
+                "created_at": t["created_at"],
+                "error": t.get("error"),
+            })
+        return {"tasks": items}
+
     # ── Marketplace handlers ──
 
     async def _handle_marketplace_search(self, params: dict) -> dict:
@@ -1664,12 +1850,30 @@ class DaemonServer:
     async def _handle_chat_send(self, params: dict) -> dict:
         session_id = params.get("session_id", "")
         message = params.get("message", "")
+        content = params.get("content")
         mode = params.get("mode", "")
         engine = self._get_chat_engine()
 
+        if content and isinstance(content, list):
+            has_image = any(
+                isinstance(part, dict) and part.get("type") == "image_url"
+                for part in content
+            )
+            if has_image:
+                vision_models = {"llava", "qwen-vl", "phi-vision", "cogvlm", "internvl"}
+                model = getattr(engine, "_model", "") or ""
+                is_vision = any(vm in model.lower() for vm in vision_models)
+                if not is_vision:
+                    return {
+                        "status": "error",
+                        "message": "Image input requires a vision model (e.g., llava, qwen-vl). "
+                                   f"Current model: {model or 'unknown'}",
+                        "code": 422,
+                    }
+
         events = []
         full_content = ""
-        async for ev in engine.send(session_id, message, mode=mode):
+        async for ev in engine.send(session_id, message, mode=mode, content=content):
             ev_dict = ev.to_dict()
             events.append(ev_dict)
             if ev.type.value == "token":
@@ -1679,8 +1883,8 @@ class DaemonServer:
                 "event": ev_dict,
             })
 
-        logger.info("chat.send: session=%s events=%d content_len=%d",
-                     session_id, len(events), len(full_content))
+        logger.info("chat.send: session=%s events=%d content_len=%d multimodal=%s",
+                     session_id, len(events), len(full_content), bool(content))
         return {"events": events, "content": full_content}
 
     async def _handle_chat_branch(self, params: dict) -> dict:
