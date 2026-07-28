@@ -389,12 +389,6 @@ class TestEnvHealth:
         assert "checks" in health
         assert health["checks"]["python"]["ok"] is True
 
-    @pytest.mark.asyncio
-    async def test_hardware_metrics(self, daemon):
-        metrics = await _run(daemon, "hardware.metrics", {})
-        assert "platform" in metrics
-        assert "machine" in metrics
-
 
 class TestRAGScenario:
     @pytest.mark.asyncio

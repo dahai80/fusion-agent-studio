@@ -330,6 +330,34 @@ class FusionMLXClient:
         resp.raise_for_status()
         return resp.json()
 
+    async def embeddings(
+        self,
+        model: str,
+        input: str | list[str],
+        **kwargs,
+    ) -> list[list[float]]:
+        """Call fusion-mlx's /v1/embeddings endpoint.
+
+        Args:
+            model: Embedding model name.
+            input: Text or list of texts to embed.
+            **kwargs: Additional parameters.
+
+        Returns:
+            List of embedding vectors.
+        """
+        payload = {"model": model, "input": input}
+        payload.update(kwargs)
+
+        resp = await self.client.post("/embeddings", json=payload)
+        resp.raise_for_status()
+        data = resp.json()
+
+        embeddings = []
+        for item in data.get("data", []):
+            embeddings.append(item.get("embedding", []))
+        return embeddings
+
     async def mcp_list_resources(self, server_name: str = "") -> list[MCPResource]:
         """List available resources from an MCP server via fusion-mlx."""
         path = "/mcp/resources"

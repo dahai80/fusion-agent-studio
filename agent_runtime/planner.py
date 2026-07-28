@@ -119,10 +119,11 @@ class ExecutionPlan:
 
 class PlannerEngine:
 
-    def __init__(self, gateway: LLMGateway | None = None):
+    def __init__(self, gateway: LLMGateway | None = None, auto_verify: bool = False):
         self.gateway = gateway
+        self.auto_verify = auto_verify
         self._plans: dict[str, ExecutionPlan] = {}
-        logger.info("PlannerEngine initialized (gateway=%s)", "enabled" if gateway else "stub")
+        logger.info("PlannerEngine initialized (gateway=%s, auto_verify=%s)", "enabled" if gateway else "stub", auto_verify)
 
     async def create_plan(self, task: str, context: str = "", files: list[str] | None = None) -> ExecutionPlan:
         plan_id = str(uuid.uuid4())
@@ -144,8 +145,15 @@ class PlannerEngine:
             status="pending_approval",
             overall_risk=risk,
         )
+
+        if self.auto_verify:
+            verify_steps = self._generate_verify_steps(task, steps)
+            for vs in verify_steps:
+                plan.steps.append(vs)
+            logger.info("Added %d verification steps to plan %s", len(verify_steps), plan_id)
+
         self._plans[plan_id] = plan
-        logger.info("Plan %s created: %d steps, risk=%s", plan_id, len(steps), risk)
+        logger.info("Plan %s created: %d steps, risk=%s", plan_id, len(plan.steps), risk)
         return plan
 
     def get_plan(self, plan_id: str) -> ExecutionPlan | None:
@@ -301,6 +309,28 @@ class PlannerEngine:
             return "medium"
 
         return "low"
+
+    def _generate_verify_steps(self, task: str, steps: list[PlanStep]) -> list[PlanStep]:
+        verify_steps = []
+        for i, step in enumerate(steps):
+            if step.action in ("create", "modify"):
+                vstep = PlanStep(
+                    id=f"verify_{step.id}",
+                    description=f"Verify: {step.description}",
+                    target_files=step.target_files,
+                    action="verify",
+                    estimated_complexity="low",
+                    dependencies=[step.id],
+                    status="pending",
+                    metadata={
+                        "verify_target_step": step.id,
+                        "verify_type": "auto",
+                    },
+                )
+                verify_steps.append(vstep)
+        if verify_steps:
+            logger.info("Generated %d verification steps for task: %s", len(verify_steps), task[:60])
+        return verify_steps
 
     async def _generate_steps_with_llm(self, task: str, context: str, files: list[str]) -> list[PlanStep]:
         logger.info("Generating plan steps with LLM for task: %s", task[:80])

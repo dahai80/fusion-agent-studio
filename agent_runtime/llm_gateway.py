@@ -359,22 +359,63 @@ class LLMGateway:
             return {"error": str(exc), "model": target.name}
 
     def embed(self, text: str, model: str = "") -> list[float]:
+        import asyncio
+
         target_name = model or ""
         if not target_name:
             emb_model = self.route(capability="embedding")
             target_name = emb_model.name if emb_model else ""
-        if not target_name:
+
+        if not self._default_client:
             logger.warning("No embedding model available, returning stub")
-            import math
-            h = hash(text) & 0xFFFFFFFF
-            rng = h
-            vec = []
-            for i in range(64):
-                rng = (rng * 1103515245 + 12345) & 0x7FFFFFFF
-                vec.append(math.sin(rng / 1e6))
-            norm = math.sqrt(sum(v * v for v in vec)) or 1.0
-            return [v / norm for v in vec]
-        return self._call_embed(target_name, text)
+            return self._stub_embedding(text)
+
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            pass
+        else:
+            logger.warning("Event loop running; use aembed() instead of embed()")
+            return self._stub_embedding(text)
+
+        try:
+            return asyncio.run(self.aembed(text, model))
+        except Exception as exc:
+            logger.warning("Real embedding call failed, using stub: %s", exc)
+
+        logger.warning("No embedding model available, returning stub")
+        return self._stub_embedding(text)
+
+    async def aembed(self, text: str, model: str = "") -> list[float]:
+        """Async embedding — calls fusion-mlx /v1/embeddings API."""
+        target_name = model or ""
+        if not target_name:
+            emb_model = self.route(capability="embedding")
+            target_name = emb_model.name if emb_model else ""
+
+        if self._default_client:
+            try:
+                results = await self._default_client.embeddings(model=target_name, input=text)
+                if results and results[0]:
+                    logger.info("Real embedding returned, dims=%d", len(results[0]))
+                    return results[0]
+            except Exception as exc:
+                logger.warning("Real embedding call failed, using stub: %s", exc)
+
+        logger.warning("No embedding model available, returning stub")
+        return self._stub_embedding(text)
+
+    @staticmethod
+    def _stub_embedding(text: str) -> list[float]:
+        import math
+        h = hash(text) & 0xFFFFFFFF
+        rng = h
+        vec = []
+        for i in range(64):
+            rng = (rng * 1103515245 + 12345) & 0x7FFFFFFF
+            vec.append(math.sin(rng / 1e6))
+        norm = math.sqrt(sum(v * v for v in vec)) or 1.0
+        return [v / norm for v in vec]
 
     async def list_models(self) -> list[dict[str, Any]]:
         """List available models — proxies to default client if set."""
@@ -394,6 +435,71 @@ class LLMGateway:
             except Exception:
                 return False
         return len(self._models) > 0
+
+    async def chat_stream(
+        self,
+        messages: list[dict],
+        model: str = "",
+        capability: str = "",
+        tools: list[dict] | None = None,
+        temperature: float | None = None,
+        max_tokens: int | None = None,
+        timeout: float = 300.0,
+        **kwargs,
+    ) -> AsyncIterator[dict]:
+        """Streaming LLM call — yields SSE chunks as dicts.
+
+        Each yielded dict has: delta_content, delta_tool_calls, finish_reason.
+        Falls back to single-shot if streaming unavailable.
+        """
+        target_config = self._resolve_target(model, capability)
+
+        client = self._default_client
+        resolved_model = model or self._default_model
+
+        if target_config:
+            resolved_model = target_config.name
+            if target_config.provider != "local" or not client:
+                from server.fusion_mlx_client import FusionMLXClient
+                client = FusionMLXClient(
+                    base_url=target_config.base_url,
+                    api_key=target_config.api_key or None,
+                )
+
+        if not client:
+            yield {"delta_content": "", "delta_tool_calls": [], "finish_reason": "error",
+                   "error": "No available client"}
+            return
+
+        temp = temperature if temperature is not None else 0.7
+        mtokens = max_tokens if max_tokens is not None else 4096
+
+        try:
+            stream_iter = client.chat_stream(
+                model=resolved_model,
+                messages=messages,
+                tools=tools,
+                temperature=temp,
+                max_tokens=mtokens,
+                **kwargs,
+            )
+            start = asyncio.get_event_loop().time()
+            async for chunk in stream_iter:
+                elapsed = asyncio.get_event_loop().time() - start
+                if elapsed > timeout:
+                    logger.warning("chat_stream exceeded timeout %.0fs, aborting", timeout)
+                    yield {"delta_content": "", "delta_tool_calls": [], "finish_reason": "error",
+                           "error": f"Stream timeout after {timeout:.0f}s"}
+                    return
+                yield {
+                    "delta_content": chunk.delta_content,
+                    "delta_tool_calls": chunk.delta_tool_calls,
+                    "finish_reason": chunk.finish_reason,
+                }
+        except Exception as exc:
+            logger.error("chat_stream failed: %s", exc)
+            yield {"delta_content": "", "delta_tool_calls": [], "finish_reason": "error",
+                   "error": str(exc)}
 
     def _resolve_target(self, model: str = "", capability: str = "") -> ModelConfig | None:
         """Resolve which model config to use for a request."""
@@ -524,18 +630,6 @@ class LLMGateway:
                 "tool_calls": [],
                 "usage": {},
             }
-
-    def _call_embed(self, model_name: str, text: str) -> list[float]:
-        logger.info("Embedding with model %s", model_name)
-        import math
-        h = hash(text) & 0xFFFFFFFF
-        rng = h
-        vec = []
-        for i in range(64):
-            rng = (rng * 1103515245 + 12345) & 0x7FFFFFFF
-            vec.append(math.sin(rng / 1e6))
-        norm = math.sqrt(sum(v * v for v in vec)) or 1.0
-        return [v / norm for v in vec]
 
     def _record_success(self, model_name: str, latency: float) -> None:
         self._cb.record_success(model_name)

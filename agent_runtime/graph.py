@@ -7,7 +7,7 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Literal
 
-NodeType = Literal["start", "llm", "tool", "condition", "loop", "end", "error_handler", "rag", "planner"]
+NodeType = Literal["start", "llm", "tool", "condition", "loop", "end", "error_handler", "rag", "planner", "verify"]
 
 
 @dataclass
@@ -31,6 +31,12 @@ class NodeConfig:
     # Error handler node config
     max_retries: int = 3
     retry_delay: float = 1.0
+    # Self-repair retry for LLM tool_call errors
+    retry_on_error: bool = False
+    # Allow LLM to dynamically register/unregister tools at runtime
+    allow_dynamic_tools: bool = False
+    # Effort level for reasoning models
+    effort: str = ""
     # Canvas position
     x: float = 0.0
     y: float = 0.0
@@ -47,6 +53,9 @@ class NodeConfig:
             "tool_params": self.tool_params,
             "condition_expr": self.condition_expr,
             "max_iterations": self.max_iterations,
+            "retry_on_error": self.retry_on_error,
+            "allow_dynamic_tools": self.allow_dynamic_tools,
+            "effort": self.effort,
             "x": self.x,
             "y": self.y,
         }

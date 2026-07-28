@@ -19,6 +19,17 @@ class AgentEventType(str, Enum):
     ERROR = "error"
     START = "start"
     END = "end"
+    TOKEN = "token"
+    THINKING_TOKEN = "thinking_token"
+    TOOL_CALL_START = "tool_call_start"
+    TOOL_CALL_END = "tool_call_end"
+    SAFETY_APPROVAL = "safety_approval"
+    SAFETY_TIMEOUT = "safety_timeout"
+    CHECKPOINT = "checkpoint"
+    VERIFY = "verify"
+    TOKEN_BUDGET_EXCEEDED = "token_budget_exceeded"
+    RETRY = "retry"
+    RETRY_SUCCESS = "retry_success"
 
 
 @dataclass

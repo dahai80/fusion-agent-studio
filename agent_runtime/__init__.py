@@ -26,11 +26,15 @@ from .aware_engine import FileEvent, AwareResult, DebounceLayer, ASTDiffLayer, M
 from .fmp_router import AgentInfo, FMPMessageV2, AgentCircuitBreaker, MessageDedup, TurnManager, MentionRouter, FMProtocol
 from .knowledge_engine import KnowledgeEngine, KnowledgeEntry
 from .llm_gateway import LLMGateway, ModelConfig, ModelStats, GatewayResponse
-from .rag_pipeline import RAGPipeline, RAGConfig, RAGResult, RAGNodeMixin
+from .rag_pipeline import RAGPipeline, RAGConfig, RAGResult, RAGNodeMixin, VectorRetrievalStrategy
 from .swarm_router import SwarmRouter, SwarmAgent, TaskDelegation, HandoffContext
 from .plaza import Plaza, PlazaMessage, PlazaChannel
 from .planner import PlannerEngine, PlanStep, ExecutionPlan
+from .verifier import VerificationEngine, VerificationResult
 from .daemon_server import DaemonServer, run_daemon
+from .chat_engine import ChatEngine, ChatSession, ChatMessage, ChatEvent, ChatEventType, ChatMode
+from .triggers import Webhook, CronJob, CronExecution, WebhookManager, CronManager
+from .token_budget import TokenBudget
 
 __all__ = [
     "AgentGraph", "Edge", "NodeConfig", "NodeType",
@@ -63,9 +67,13 @@ __all__ = [
     "AgentInfo", "FMPMessageV2", "AgentCircuitBreaker", "MessageDedup", "TurnManager", "MentionRouter", "FMProtocol",
     "KnowledgeEngine", "KnowledgeEntry",
     "LLMGateway", "ModelConfig", "ModelStats", "GatewayResponse",
-    "RAGPipeline", "RAGConfig", "RAGResult", "RAGNodeMixin",
+    "RAGPipeline", "RAGConfig", "RAGResult", "RAGNodeMixin", "VectorRetrievalStrategy",
     "SwarmRouter", "SwarmAgent", "TaskDelegation", "HandoffContext",
     "Plaza", "PlazaMessage", "PlazaChannel",
     "PlannerEngine", "PlanStep", "ExecutionPlan",
+    "VerificationEngine", "VerificationResult",
     "DaemonServer", "run_daemon",
+    "ChatEngine", "ChatSession", "ChatMessage", "ChatEvent", "ChatEventType", "ChatMode",
+    "Webhook", "CronJob", "CronExecution", "WebhookManager", "CronManager",
+    "TokenBudget",
 ]

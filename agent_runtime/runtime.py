@@ -22,9 +22,12 @@ from .json_schema import JsonSchemaValidator
 from .llm_gateway import LLMGateway
 from .prompt_templates import PromptTemplateManager
 from .sub_graph import SubGraphRegistry
+from .token_budget import TokenBudget
 from .variable_manager import VariableManager
 
 if TYPE_CHECKING:
+    from .safety import SafetyGateway
+    from .persistence import AgentStore
     from tools.base import BaseTool
     from server.fusion_mlx_client import FusionMLXClient
     from tools.registry import ToolRegistry
@@ -32,6 +35,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 _MAX_TOOL_CALL_CHAIN = 10
+_MAX_RETRY_CONTEXT_MESSAGES = 20
 
 
 class ConditionEngine:
@@ -180,6 +184,10 @@ class AgentRuntime:
         sub_graphs: SubGraphRegistry | None = None,
         condition_engine: ConditionEngine | None = None,
         llm_gateway: LLMGateway | None = None,
+        safety_gateway: "SafetyGateway | None" = None,
+        store: "AgentStore | None" = None,
+        auto_checkpoint: bool = False,
+        memory_engine: "MemoryEngine | None" = None,
     ):
         self.mlx = mlx_client
         self.tools = tool_registry
@@ -189,7 +197,13 @@ class AgentRuntime:
         self.templates = templates or PromptTemplateManager()
         self.sub_graphs = sub_graphs or SubGraphRegistry()
         self.condition_engine = condition_engine or ConditionEngine()
+        self.safety_gateway = safety_gateway
+        self.store = store
+        self.auto_checkpoint = auto_checkpoint
+        self.memory_engine = memory_engine
         self._tool_call_chain_count = 0
+        self._safety_futures: dict[str, asyncio.Future[bool]] = {}
+        self._safety_timeout: float = 60.0
 
         if llm_gateway:
             self.llm_gateway = llm_gateway
@@ -211,12 +225,38 @@ class AgentRuntime:
         graph: AgentGraph,
         initial_input: str = "",
         context: AgentContext | None = None,
+        token_budget: TokenBudget | None = None,
     ) -> AsyncIterator[AgentEvent]:
-        """Execute a complete agent graph, yielding events as they occur."""
+        async for event in self._execute_graph_inner(
+            graph, initial_input, context, token_budget, stream=False
+        ):
+            yield event
+
+    async def execute_graph_stream(
+        self,
+        graph: AgentGraph,
+        initial_input: str = "",
+        context: AgentContext | None = None,
+        token_budget: TokenBudget | None = None,
+    ) -> AsyncIterator[AgentEvent]:
+        async for event in self._execute_graph_inner(
+            graph, initial_input, context, token_budget, stream=True
+        ):
+            yield event
+
+    async def _execute_graph_inner(
+        self,
+        graph: AgentGraph,
+        initial_input: str = "",
+        context: AgentContext | None = None,
+        token_budget: TokenBudget | None = None,
+        stream: bool = False,
+    ) -> AsyncIterator[AgentEvent]:
         ctx = context or AgentContext()
         ctx.started_at = time.time()
         ctx.max_iterations = self.max_iterations
         self._tool_call_chain_count = 0
+        self._safety_futures.clear()
 
         errors = graph.validate()
         if errors:
@@ -228,6 +268,12 @@ class AgentRuntime:
 
         initial_input = self.variables.interpolate(initial_input)
         ctx.add_message("user", initial_input)
+
+        if self.memory_engine and initial_input:
+            mem_ctx = await asyncio.to_thread(self.memory_engine.recall_relevant, initial_input, 5)
+            if mem_ctx:
+                ctx.add_message("system", f"[Relevant memory]: {mem_ctx}")
+                logger.info("Auto-loaded memory for input")
 
         start_node = graph.get_node(graph.start_node_id)
         system_prompt = ""
@@ -244,6 +290,8 @@ class AgentRuntime:
             return
 
         tools_schema = self.tools.to_openai_schemas()
+        if any(n.allow_dynamic_tools for n in graph.nodes.values()):
+            tools_schema.extend(self._dynamic_tool_schemas())
 
         current_node_id = graph.start_node_id
         ctx.current_node_id = current_node_id
@@ -268,10 +316,27 @@ class AgentRuntime:
 
             elif node.type == "llm":
                 async for event in self._execute_llm_node(
-                    ctx, node, graph, model, tools_schema, system_prompt
+                    ctx, node, graph, model, tools_schema, system_prompt, stream=stream
                 ):
                     yield event
                     if event.type == AgentEventType.ERROR:
+                        return
+
+                if self.auto_checkpoint:
+                    await self._save_checkpoint(ctx, graph)
+
+                if token_budget:
+                    usage = ctx.token_usage()
+                    token_budget.record_usage(usage.get("prompt_tokens", 0), usage.get("completion_tokens", 0))
+                    if token_budget.is_exceeded():
+                        mode = "stream" if stream else "batch"
+                        logger.warning("Token budget exceeded (%s): %d/%d", mode, token_budget.spent_tokens, token_budget.max_tokens)
+                        yield AgentEvent(
+                            type=AgentEventType.TOKEN_BUDGET_EXCEEDED,
+                            content=f"Token budget exceeded: {token_budget.spent_tokens}/{token_budget.max_tokens}",
+                            metadata=token_budget.status(),
+                        )
+                        ctx.finished_at = time.time()
                         return
 
                 last_msg = ctx.messages[-1] if ctx.messages else {}
@@ -285,6 +350,10 @@ class AgentRuntime:
             elif node.type == "tool":
                 async for event in self._execute_tool_node(ctx, node, graph):
                     yield event
+
+                if self.auto_checkpoint:
+                    await self._save_checkpoint(ctx, graph)
+
                 next_id = graph.get_next_node(current_node_id)
                 current_node_id = next_id or ""
 
@@ -316,7 +385,9 @@ class AgentRuntime:
                 current_node_id = next_id or ""
 
             elif node.type == "rag":
-                async for event in self._execute_rag_node(ctx, node, graph, model, tools_schema, system_prompt):
+                async for event in self._execute_rag_node(
+                    ctx, node, graph, model, tools_schema, system_prompt, stream=stream
+                ):
                     yield event
                     if event.type == AgentEventType.ERROR:
                         return
@@ -331,9 +402,18 @@ class AgentRuntime:
                 next_id = graph.get_next_node(current_node_id)
                 current_node_id = next_id or ""
 
+            elif node.type == "verify":
+                async for event in self._execute_verify_node(ctx, node, graph):
+                    yield event
+                    if event.type == AgentEventType.ERROR:
+                        return
+                next_id = graph.get_next_node(current_node_id)
+                current_node_id = next_id or ""
+
             elif node.type == "end":
                 yield AgentEvent(type=AgentEventType.END, content="Graph execution complete")
                 ctx.finished_at = time.time()
+                await self._auto_store_memory(ctx, graph)
                 return
 
         if ctx.is_max_iterations_reached():
@@ -341,6 +421,69 @@ class AgentRuntime:
             yield AgentEvent(type=AgentEventType.ERROR, content=ctx.error)
 
         ctx.finished_at = time.time()
+        await self._auto_store_memory(ctx, graph)
+
+    async def _save_checkpoint(self, ctx: AgentContext, graph: AgentGraph) -> None:
+        """Auto-save checkpoint if store is configured."""
+        if not self.store:
+            return
+        try:
+            self.store.save_checkpoint(
+                graph_id=graph.name,
+                session_id=ctx.session_id,
+                node_id=ctx.current_node_id or "",
+                state={
+                    "messages": ctx.messages,
+                    "iteration_count": ctx.iteration_count,
+                    "variables": self.variables.to_dict(),
+                    "tool_call_chain_count": self._tool_call_chain_count,
+                },
+            )
+            logger.debug("Checkpoint saved: graph=%s node=%s", graph.name, ctx.current_node_id)
+        except Exception as e:
+            logger.warning("Checkpoint save failed: %s", e)
+
+    async def resume_from_checkpoint(
+        self,
+        graph: AgentGraph,
+        session_id: str,
+        stream: bool = False,
+    ) -> AsyncIterator[AgentEvent]:
+        """Resume graph execution from the latest checkpoint."""
+        if not self.store:
+            yield AgentEvent(type=AgentEventType.ERROR, content="No store configured for checkpoint resume")
+            return
+
+        checkpoint = self.store.load_latest_checkpoint(graph_id=graph.name, session_id=session_id)
+        if not checkpoint:
+            yield AgentEvent(type=AgentEventType.ERROR, content=f"No checkpoint found for graph={graph.name} session={session_id}")
+            return
+
+        ctx = AgentContext(session_id=session_id)
+        state = checkpoint.get("state", {})
+        ctx.messages = state.get("messages", [])
+        ctx.iteration_count = state.get("iteration_count", 0)
+        ctx.current_node_id = checkpoint.get("node_id", graph.start_node_id)
+        self._tool_call_chain_count = state.get("tool_call_chain_count", 0)
+
+        saved_vars = state.get("variables", {})
+        for k, v in saved_vars.items():
+            self.variables.set(k, v)
+
+        logger.info(
+            "Resumed from checkpoint: graph=%s node=%s iteration=%d",
+            graph.name, ctx.current_node_id, ctx.iteration_count,
+        )
+
+        yield AgentEvent(
+            type=AgentEventType.CHECKPOINT,
+            content=f"Resumed from checkpoint at node '{ctx.current_node_id}'",
+            metadata={"checkpoint": checkpoint},
+        )
+
+        exec_fn = self.execute_graph_stream if stream else self.execute_graph
+        async for event in exec_fn(graph, "", context=ctx):
+            yield event
 
     async def _execute_llm_node(
         self,
@@ -350,8 +493,9 @@ class AgentRuntime:
         model: str,
         tools_schema: list[dict],
         system_prompt: str,
+        stream: bool = False,
     ) -> AsyncIterator[AgentEvent]:
-        """Execute an LLM node — call fusion-mlx via HTTP API."""
+        """Execute an LLM node — call fusion-mlx via HTTP API. Supports streaming."""
         messages = []
 
         node_prompt = node.system_prompt or system_prompt
@@ -377,26 +521,111 @@ class AgentRuntime:
                 else:
                     messages.insert(0, {"role": "system", "content": schema_instruction})
 
+        if self.safety_gateway:
+            safety_result = self.safety_gateway.evaluate_action(
+                category="llm_call",
+                content=str(messages[-1]) if messages else "",
+                context=f"model={model} node={node.label}",
+            )
+            if safety_result.action.value == "block" and not safety_result.requires_approval:
+                ctx.error = f"SafetyGateway blocked LLM call: {safety_result.reason}"
+                yield AgentEvent(
+                    type=AgentEventType.SAFETY_APPROVAL,
+                    content=safety_result.reason,
+                    metadata={"action": "blocked", "category": "llm_call"},
+                )
+                yield AgentEvent(type=AgentEventType.ERROR, content=ctx.error)
+                return
+            if safety_result.requires_approval:
+                async for evt in self._await_safety_approval(ctx, safety_result, "llm_call", node.label):
+                    yield evt
+                    if evt.type == AgentEventType.ERROR:
+                        return
+            else:
+                yield AgentEvent(
+                    type=AgentEventType.SAFETY_APPROVAL,
+                    content=safety_result.reason or "approved",
+                    metadata={"action": "approved", "category": "llm_call"},
+                )
+
+        capability = node.tool_params.get("capability", "")
+        effort = node.effort or ""
+
         try:
-            logger.debug("LLM call via gateway, model=%s", model)
-            capability = node.tool_params.get("capability", "")
-            gw_resp = await asyncio.wait_for(
-                self.llm_gateway.chat(
+            if stream:
+                content_parts: list[str] = []
+                tool_calls: list[dict] = []
+                usage: dict = {}
+                resp_model = model
+                current_tool_calls: dict[int, dict] = {}
+
+                async for chunk in self.llm_gateway.chat_stream(
                     messages=messages,
                     model=model,
                     capability=capability,
                     tools=tools_schema if tools_schema else None,
                     max_tokens=node.max_tokens,
                     temperature=node.temperature,
-                ),
-                timeout=120.0,
-            )
-            if gw_resp.finish_reason == "error" and gw_resp.usage.get("error"):
-                raise RuntimeError(gw_resp.usage["error"])
-            content = gw_resp.content
-            tool_calls = gw_resp.tool_calls or []
-            usage = gw_resp.usage
-            resp_model = gw_resp.model or model
+                    effort=effort or None,
+                ):
+                    delta_content = chunk.get("delta_content", "")
+                    delta_tool_calls = chunk.get("delta_tool_calls")
+                    finish_reason = chunk.get("finish_reason")
+
+                    if delta_content:
+                        content_parts.append(delta_content)
+                        yield AgentEvent(
+                            type=AgentEventType.TOKEN,
+                            content=delta_content,
+                            node_id=node.label,
+                        )
+
+                    if delta_tool_calls:
+                        for dtc in delta_tool_calls:
+                            idx = dtc.get("index", 0)
+                            if idx not in current_tool_calls:
+                                current_tool_calls[idx] = {
+                                    "id": dtc.get("id", f"call_{idx}"),
+                                    "type": "function",
+                                    "function": {"name": "", "arguments": ""},
+                                }
+                            tc = current_tool_calls[idx]
+                            if dtc.get("id"):
+                                tc["id"] = dtc["id"]
+                            func_delta = dtc.get("function", {})
+                            if func_delta.get("name"):
+                                tc["function"]["name"] += func_delta["name"]
+                            if func_delta.get("arguments"):
+                                tc["function"]["arguments"] += func_delta["arguments"]
+
+                    if finish_reason:
+                        if chunk.get("usage"):
+                            usage = chunk["usage"]
+                        if chunk.get("model"):
+                            resp_model = chunk["model"]
+
+                content = "".join(content_parts)
+                tool_calls = list(current_tool_calls.values()) if current_tool_calls else []
+            else:
+                logger.debug("LLM call via gateway, model=%s", model)
+                gw_resp = await asyncio.wait_for(
+                    self.llm_gateway.chat(
+                        messages=messages,
+                        model=model,
+                        capability=capability,
+                        tools=tools_schema if tools_schema else None,
+                        max_tokens=node.max_tokens,
+                        temperature=node.temperature,
+                        effort=effort or None,
+                    ),
+                    timeout=120.0,
+                )
+                if gw_resp.finish_reason == "error" and gw_resp.usage.get("error"):
+                    raise RuntimeError(gw_resp.usage["error"])
+                content = gw_resp.content
+                tool_calls = gw_resp.tool_calls or []
+                usage = gw_resp.usage
+                resp_model = gw_resp.model or model
         except Exception as e:
             ctx.error = f"LLM call failed: {e}"
             yield AgentEvent(type=AgentEventType.ERROR, content=str(e))
@@ -440,6 +669,8 @@ class AgentRuntime:
                 yield AgentEvent(type=AgentEventType.ERROR, content=ctx.error)
                 return
 
+            tool_errors: list[str] = []
+
             for tc in tool_calls:
                 try:
                     func_name = tc["function"]["name"]
@@ -452,6 +683,18 @@ class AgentRuntime:
                 if func_name == "__sub_graph__":
                     async for event in self._execute_sub_graph(ctx, func_args, node):
                         yield event
+                    continue
+
+                if func_name == "register_tool":
+                    result = self._dynamic_register_tool(func_args)
+                    ctx.add_message("tool", result, tool_call_id=tc.get("id", ""))
+                    yield AgentEvent(type=AgentEventType.TOOL_RESULT, content=result, name=func_name, node_id=node.label)
+                    continue
+
+                if func_name == "unregister_tool":
+                    result = self._dynamic_unregister_tool(func_args)
+                    ctx.add_message("tool", result, tool_call_id=tc.get("id", ""))
+                    yield AgentEvent(type=AgentEventType.TOOL_RESULT, content=result, name=func_name, node_id=node.label)
                     continue
 
                 yield AgentEvent(
@@ -481,6 +724,88 @@ class AgentRuntime:
                     name=func_name,
                     node_id=node.label,
                 )
+
+                if str(result).startswith("Error:"):
+                    tool_errors.append(f"{func_name}: {result}")
+
+            if tool_errors and node.retry_on_error and node.max_retries > 0:
+                max_retries = min(node.max_retries, 5)
+                for retry_count in range(1, max_retries + 1):
+                    logger.info("Self-repair retry %d/%d for node=%s", retry_count, max_retries, node.label)
+                    yield AgentEvent(
+                        type=AgentEventType.RETRY,
+                        content=f"Retrying due to tool errors (attempt {retry_count}/{max_retries})",
+                        metadata={"retry_count": retry_count, "errors": tool_errors},
+                        node_id=node.label,
+                    )
+
+                    retry_prompt = (
+                        f"[Self-repair] The previous tool calls failed:\n"
+                        + "\n".join(f"- {e}" for e in tool_errors)
+                        + "\n\nPlease try again with corrected arguments or a different approach."
+                    )
+                    ctx.add_message("system", retry_prompt)
+
+                    try:
+                        gw_resp = await asyncio.wait_for(
+                            self.llm_gateway.chat(
+                                messages=messages + ctx.messages[-_MAX_RETRY_CONTEXT_MESSAGES:],
+                                model=model,
+                                capability=node.tool_params.get("capability", ""),
+                                tools=tools_schema if tools_schema else None,
+                                max_tokens=node.max_tokens,
+                                temperature=node.temperature,
+                                effort=node.effort or None,
+                            ),
+                            timeout=120.0,
+                        )
+                    except Exception as e:
+                        logger.warning("Self-repair LLM call failed on retry %d: %s", retry_count, e)
+                        continue
+
+                    retry_content = gw_resp.content
+                    retry_tool_calls = gw_resp.tool_calls or []
+                    ctx.add_message("assistant", retry_content, tool_calls=retry_tool_calls or None)
+
+                    if not retry_tool_calls:
+                        yield AgentEvent(
+                            type=AgentEventType.RETRY_SUCCESS,
+                            content=f"Self-repair succeeded on attempt {retry_count} (no more tool calls)",
+                            metadata={"retry_count": retry_count},
+                            node_id=node.label,
+                        )
+                        break
+
+                    tool_errors = []
+                    for tc in retry_tool_calls:
+                        try:
+                            fn = tc["function"]["name"]
+                            fa = json.loads(tc["function"]["arguments"])
+                        except (KeyError, json.JSONDecodeError):
+                            continue
+
+                        yield AgentEvent(type=AgentEventType.TOOL_CALL, name=fn, args=fa, node_id=node.label)
+                        try:
+                            t = self.tools.get(fn)
+                            if t is None:
+                                raise KeyError(fn)
+                            r = await t.execute(**self._validate_tool_args(t, fa))
+                        except Exception as e:
+                            r = f"Error: {e}"
+
+                        ctx.add_message("tool", str(r), tool_call_id=tc.get("id", ""))
+                        yield AgentEvent(type=AgentEventType.TOOL_RESULT, content=str(r), name=fn, node_id=node.label)
+                        if str(r).startswith("Error:"):
+                            tool_errors.append(f"{fn}: {r}")
+
+                    if not tool_errors:
+                        yield AgentEvent(
+                            type=AgentEventType.RETRY_SUCCESS,
+                            content=f"Self-repair succeeded on attempt {retry_count}",
+                            metadata={"retry_count": retry_count},
+                            node_id=node.label,
+                        )
+                        break
 
     def _validate_tool_args(self, tool: "BaseTool", args: dict) -> dict:
         schema = tool.parameters
@@ -518,6 +843,232 @@ class AgentRuntime:
                 logger.warning("Tool '%s': missing required arg '%s'", tool.name, req_key)
         return validated
 
+    @staticmethod
+    def _dynamic_tool_schemas() -> list[dict]:
+        return [
+            {
+                "type": "function",
+                "function": {
+                    "name": "register_tool",
+                    "description": "Register a new tool dynamically during execution. Creates a tool that can be used in subsequent steps.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "name": {"type": "string", "description": "Unique name for the tool"},
+                            "type": {"type": "string", "description": "Tool type (all types use safe subprocess execution)", "default": "custom"},
+                            "description": {"type": "string", "description": "What this tool does"},
+                            "parameters": {"type": "object", "description": "OpenAI-style parameter definitions"},
+                        },
+                        "required": ["name"],
+                    },
+                },
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "unregister_tool",
+                    "description": "Remove a tool from the registry. It will no longer be available for subsequent steps.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "name": {"type": "string", "description": "Name of the tool to remove"},
+                        },
+                        "required": ["name"],
+                    },
+                },
+            },
+        ]
+
+    _SAFE_TOOL_NAME_RE = __import__("re").compile(r"^[a-zA-Z_][a-zA-Z0-9_]{0,63}$")
+
+    def _dynamic_register_tool(self, args: dict) -> str:
+        if not self.tools:
+            return "Error: No tool registry available"
+        tool_name = args.get("name", "")
+        tool_type = args.get("type", "terminal")
+        tool_description = args.get("description", "")
+        tool_params = args.get("parameters", {})
+
+        if not tool_name:
+            return "Error: 'name' parameter required for register_tool"
+
+        if not self._SAFE_TOOL_NAME_RE.match(tool_name):
+            return f"Error: invalid tool name '{tool_name}' — must match [a-zA-Z_][a-zA-Z0-9_]*"
+
+        if self.tools.has(tool_name):
+            return f"Tool '{tool_name}' already registered"
+
+        from tools.base import BaseTool
+        from types import new_class
+
+        param_dict = {}
+        if isinstance(tool_params, dict):
+            for pk, pv in tool_params.items():
+                if isinstance(pv, dict):
+                    param_dict[pk] = pv
+                elif isinstance(pv, str):
+                    param_dict[pk] = {"type": "string", "description": pv}
+
+        safe_name = f"Dynamic_{self._SAFE_TOOL_NAME_RE.match(tool_name).group()}"
+        dyn_cls = new_class(safe_name, (BaseTool,), {})
+        dyn_cls.name = tool_name
+        dyn_cls.description = tool_description or f"Dynamic tool: {tool_name}"
+        dyn_cls.parameters = param_dict
+
+        async def _dyn_execute(self_inner, **kwargs) -> str:
+            cmd = kwargs.get("command", kwargs.get("url", kwargs.get("query", "")))
+            if cmd:
+                import asyncio
+                import shlex
+                try:
+                    split_args = shlex.split(str(cmd))
+                except ValueError:
+                    return f"Error: invalid command: {cmd[:100]}"
+                if not split_args:
+                    return "Error: empty command"
+                proc = await asyncio.create_subprocess_exec(
+                    split_args[0],
+                    *split_args[1:],
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                )
+                stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=30)
+                output = stdout.decode("utf-8", errors="replace")
+                if stderr:
+                    output += f"\n[STDERR] {stderr.decode('utf-8', errors='replace')}"
+                return output.strip() or "Done"
+            return "No command provided"
+
+        dyn_cls.execute = _dyn_execute
+        new_tool = dyn_cls()
+
+        self.tools.register(new_tool)
+        logger.info("Dynamic tool registered: %s (type=%s)", tool_name, tool_type)
+        return f"Tool '{tool_name}' registered successfully"
+
+    def _dynamic_unregister_tool(self, args: dict) -> str:
+        if not self.tools:
+            return "Error: No tool registry available"
+        tool_name = args.get("name", "")
+        if not tool_name:
+            return "Error: 'name' parameter required for unregister_tool"
+        if not self.tools.has(tool_name):
+            return f"Tool '{tool_name}' not found"
+        self.tools.unregister(tool_name)
+        logger.info("Dynamic tool unregistered: %s", tool_name)
+        return f"Tool '{tool_name}' unregistered successfully"
+
+    def approve_action(self, action_id: str) -> bool:
+        if self.safety_gateway:
+            ok = self.safety_gateway.approve_action(action_id)
+            if ok and action_id in self._safety_futures:
+                fut = self._safety_futures.pop(action_id, None)
+                if fut and not fut.done():
+                    fut.set_result(True)
+            logger.info("Runtime approve_action: action_id=%s ok=%s", action_id, ok)
+            return ok
+        if action_id in self._safety_futures:
+            fut = self._safety_futures.pop(action_id, None)
+            if fut and not fut.done():
+                fut.set_result(True)
+            return True
+        return False
+
+    def reject_action(self, action_id: str) -> bool:
+        if self.safety_gateway:
+            ok = self.safety_gateway.reject_action(action_id)
+            if ok and action_id in self._safety_futures:
+                fut = self._safety_futures.pop(action_id, None)
+                if fut and not fut.done():
+                    fut.set_result(False)
+            logger.info("Runtime reject_action: action_id=%s ok=%s", action_id, ok)
+            return ok
+        if action_id in self._safety_futures:
+            fut = self._safety_futures.pop(action_id, None)
+            if fut and not fut.done():
+                fut.set_result(False)
+            return True
+        return False
+
+    async def _await_safety_approval(
+        self, ctx: AgentContext, safety_result, category: str, node_label: str
+    ) -> AsyncIterator[AgentEvent] | None:
+        if not safety_result.requires_approval:
+            yield AgentEvent(
+                type=AgentEventType.SAFETY_APPROVAL,
+                content=safety_result.reason or "approved",
+                metadata={"action": "approved", "category": category},
+                node_id=node_label,
+            )
+            return
+
+        action_id = safety_result.metadata.get("action_id", "")
+        if not action_id:
+            action_id = str(__import__("uuid").uuid4())
+            safety_result.metadata["action_id"] = action_id
+
+        loop = asyncio.get_running_loop()
+        future: asyncio.Future[bool] = loop.create_future()
+        self._safety_futures[action_id] = future
+
+        if self.safety_gateway:
+            with self.safety_gateway._lock:
+                self.safety_gateway._pending_action_approvals.setdefault(action_id, {
+                    "category": category,
+                    "content": safety_result.reason,
+                    "level": safety_result.metadata.get("level", "L2"),
+                    "status": "pending",
+                })
+            self.safety_gateway._pending_approvals[action_id] = future
+
+        yield AgentEvent(
+            type=AgentEventType.SAFETY_APPROVAL,
+            content=safety_result.reason,
+            metadata={
+                "action": "pending_approval",
+                "category": category,
+                "action_id": action_id,
+                "level": safety_result.metadata.get("level", ""),
+                "diff_preview": safety_result.diff_preview.to_dict() if safety_result.diff_preview else None,
+            },
+            node_id=node_label,
+        )
+
+        try:
+            approved = await asyncio.wait_for(future, timeout=self._safety_timeout)
+        except asyncio.TimeoutError:
+            self._safety_futures.pop(action_id, None)
+            logger.warning("Safety approval timed out: action_id=%s", action_id)
+            yield AgentEvent(
+                type=AgentEventType.SAFETY_TIMEOUT,
+                content=f"Safety approval timed out for {category}",
+                metadata={"action_id": action_id, "category": category},
+                node_id=node_label,
+            )
+            ctx.error = f"SafetyGateway: approval timed out for {category}"
+            yield AgentEvent(type=AgentEventType.ERROR, content=ctx.error)
+            return
+
+        self._safety_futures.pop(action_id, None)
+
+        if not approved:
+            ctx.error = f"SafetyGateway: {category} rejected — {safety_result.reason}"
+            yield AgentEvent(
+                type=AgentEventType.SAFETY_APPROVAL,
+                content=safety_result.reason,
+                metadata={"action": "rejected", "category": category, "action_id": action_id},
+                node_id=node_label,
+            )
+            yield AgentEvent(type=AgentEventType.ERROR, content=ctx.error)
+            return
+
+        yield AgentEvent(
+            type=AgentEventType.SAFETY_APPROVAL,
+            content=safety_result.reason or "approved",
+            metadata={"action": "approved", "category": category, "action_id": action_id},
+            node_id=node_label,
+        )
+
     async def _execute_tool_node(
         self, ctx: AgentContext, node: NodeConfig, graph: AgentGraph
     ) -> AsyncIterator[AgentEvent]:
@@ -533,6 +1084,33 @@ class AgentRuntime:
                 params[k] = self.variables.interpolate(v)
             else:
                 params[k] = v
+
+        if self.safety_gateway:
+            safety_result = self.safety_gateway.evaluate_action(
+                category="tool_call",
+                content=f"{node.tool_name}({params})",
+                context=f"tool={node.tool_name} node={node.label}",
+            )
+            if safety_result.action.value == "block" and not safety_result.requires_approval:
+                ctx.error = f"SafetyGateway blocked tool call: {safety_result.reason}"
+                yield AgentEvent(
+                    type=AgentEventType.SAFETY_APPROVAL,
+                    content=safety_result.reason,
+                    metadata={"action": "blocked", "category": "tool_call"},
+                )
+                yield AgentEvent(type=AgentEventType.ERROR, content=ctx.error)
+                return
+            if safety_result.requires_approval:
+                async for evt in self._await_safety_approval(ctx, safety_result, "tool_call", node.label):
+                    yield evt
+                    if evt.type == AgentEventType.ERROR:
+                        return
+            else:
+                yield AgentEvent(
+                    type=AgentEventType.SAFETY_APPROVAL,
+                    content=safety_result.reason or "approved",
+                    metadata={"action": "approved", "category": "tool_call"},
+                )
 
         try:
             tool = self.tools.get(node.tool_name)
@@ -640,6 +1218,8 @@ class AgentRuntime:
                 elif failed_node.type == "llm":
                     model = graph.find_llm_model()
                     tools_schema = self.tools.to_openai_schemas()
+                    if any(n.allow_dynamic_tools for n in graph.nodes.values()):
+                        tools_schema.extend(self._dynamic_tool_schemas())
                     async for event in self._execute_llm_node(
                         ctx, failed_node, graph, model, tools_schema, ""
                     ):
@@ -870,7 +1450,105 @@ class AgentRuntime:
             },
         )
 
+    async def _execute_verify_node(
+        self,
+        ctx: AgentContext,
+        node: NodeConfig,
+        graph: AgentGraph,
+    ) -> AsyncIterator[AgentEvent]:
+        try:
+            from .verifier import VerificationEngine
+        except ImportError:
+            yield AgentEvent(type=AgentEventType.ERROR, content="Verification engine not available")
+            return
+
+        task = node.tool_params.get("task", "")
+        if not task:
+            for msg in reversed(ctx.messages):
+                if isinstance(msg, dict) and msg.get("role") == "user":
+                    task = msg.get("content", "")
+                    break
+
+        output = node.tool_params.get("output", "")
+        if not output:
+            for msg in reversed(ctx.messages):
+                if isinstance(msg, dict) and msg.get("role") == "assistant":
+                    output = msg.get("content", "")
+                    break
+
+        criteria = node.tool_params.get("criteria", "")
+        context_text = node.tool_params.get("context", "")
+        max_attempts = node.tool_params.get("max_attempts", 3)
+
+        engine = VerificationEngine(gateway=self.llm_gateway, max_attempts=max_attempts)
+        result = await engine.verify(
+            task=task,
+            output=output,
+            criteria=criteria,
+            context=context_text,
+            max_attempts=max_attempts,
+        )
+
+        self.variables.set("verify_passed", result.passed)
+        self.variables.set("verify_score", result.score)
+        self.variables.set("verify_attempt", result.attempt)
+
+        yield AgentEvent(
+            type=AgentEventType.VERIFY,
+            content=f"Verification {'passed' if result.passed else 'failed'} (score={result.score:.2f}, attempt={result.attempt}/{result.max_attempts})",
+            name="verifier",
+            node_id=node.label,
+            metadata=result.to_dict(),
+        )
+
+        if not result.passed and result.issues:
+            yield AgentEvent(
+                type=AgentEventType.THINK,
+                content=f"Verification issues: {'; '.join(result.issues)}",
+                node_id=node.label,
+                metadata={"suggestion": result.suggestion},
+            )
+
+    async def _auto_store_memory(self, ctx: AgentContext, graph: AgentGraph) -> None:
+        if not self.memory_engine:
+            return
+        user_msgs = [m.get("content", "") for m in ctx.messages if m.get("role") == "user"]
+        assistant_msgs = [m.get("content", "") for m in ctx.messages if m.get("role") == "assistant"]
+        if not user_msgs and not assistant_msgs:
+            return
+        last_user = user_msgs[-1] if user_msgs else ""
+        last_assistant = assistant_msgs[-1] if assistant_msgs else ""
+        scope = f"graph:{graph.name}"
+        await asyncio.to_thread(
+            self.memory_engine.store,
+            content=f"Q: {last_user[:200]} A: {last_assistant[:500]}",
+            scope=scope,
+            tags="auto-store",
+            importance=7 if not ctx.error else 3,
+            metadata={"graph_id": graph.id, "error": ctx.error, "iterations": ctx.iteration_count},
+        )
+        logger.info("Auto-stored execution result to memory (scope=%s)", scope)
+
     def set_knowledge_engine(self, engine: Any) -> None:
-        """Set the knowledge engine for RAG nodes."""
+        if hasattr(engine, "embedding_fn") and engine.embedding_fn is None and self.llm_gateway:
+            import asyncio
+            import concurrent.futures
+
+            def _sync_embed(text: str) -> list[float]:
+                try:
+                    asyncio.get_running_loop()
+                    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                        return pool.submit(asyncio.run, self.llm_gateway.aembed(text)).result()
+                except RuntimeError:
+                    return asyncio.run(self.llm_gateway.aembed(text))
+
+            try:
+                test_emb = _sync_embed("test")
+                if test_emb and len(test_emb) > 0:
+                    engine.embedding_fn = _sync_embed
+                    logger.info("Wired real embedding_fn to KnowledgeEngine")
+            except Exception as e:
+                logger.warning("Could not wire embedding_fn: %s", e)
+
         self._knowledge_engine = engine
         logger.info("Knowledge engine set on runtime")

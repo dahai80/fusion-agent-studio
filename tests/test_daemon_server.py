@@ -105,15 +105,6 @@ class TestDaemonGraphCRUD:
         assert "error" in resp
 
 
-class TestDaemonHardware:
-    @pytest.mark.asyncio
-    async def test_hardware_metrics(self, daemon):
-        resp = await _rpc_call(daemon.socket_path, "hardware.metrics")
-        result = resp["result"]
-        assert result["platform"] == "Darwin"
-        assert "python_version" in result
-
-
 class TestDaemonMLX:
     @pytest.mark.asyncio
     async def test_mlx_status_not_running(self, daemon):

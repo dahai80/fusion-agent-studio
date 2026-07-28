@@ -30,10 +30,12 @@ from .llm_gateway import LLMGateway
 from .persistence import AgentStore
 from .rag_pipeline import RAGConfig, RAGPipeline
 from .runtime import AgentRuntime
+from .chat_engine import ChatEngine
 
 logger = logging.getLogger(__name__)
 
 SOCKET_PATH = "/tmp/fusion-studio.sock"
+WS_PORT = 11435
 MLX_PORT = 11434
 MLX_BASE_URL = f"http://127.0.0.1:{MLX_PORT}/v1"
 
@@ -54,6 +56,9 @@ class DaemonServer:
         self._rag: RAGPipeline | None = None
         self._agents: dict[str, dict] = {}
         self._marketplace = None
+        self._chat_engine: ChatEngine | None = None
+        self._ws_clients: list[asyncio.StreamWriter] = []
+        self._ws_server: asyncio.Server | None = None
 
     def _get_runtime(self) -> AgentRuntime:
         if self._runtime is None:
@@ -63,6 +68,12 @@ class DaemonServer:
             logger.info("AgentRuntime created with %d tools", len(registry._tools))
         return self._runtime
 
+    def _get_chat_engine(self) -> ChatEngine:
+        if self._chat_engine is None:
+            self._chat_engine = ChatEngine(runtime=self._get_runtime(), store=self.store)
+            logger.info("ChatEngine created")
+        return self._chat_engine
+
     async def start(self) -> None:
         if os.path.exists(self.socket_path):
             os.unlink(self.socket_path)
@@ -71,17 +82,29 @@ class DaemonServer:
             self._handle_client, path=self.socket_path
         )
         os.chmod(self.socket_path, 0o666)
+
+        self._ws_server = await asyncio.start_server(
+            self._handle_ws_client, "127.0.0.1", WS_PORT
+        )
+
         self._running = True
-        logger.info("Daemon listening on %s", self.socket_path)
+        logger.info("Daemon listening on %s + WS on %d", self.socket_path, WS_PORT)
 
     async def stop(self) -> None:
         self._running = False
         for task in self._active_executions.values():
             if not task.done():
                 task.cancel()
+        if hasattr(self, "_cron_manager") and self._cron_manager:
+            self._cron_manager.close()
+        if hasattr(self, "_vector_strategy") and self._vector_strategy:
+            await self._vector_strategy.close()
         if self._server:
             self._server.close()
             await self._server.wait_closed()
+        if self._ws_server:
+            self._ws_server.close()
+            await self._ws_server.wait_closed()
         if self._mlx_process and self._mlx_process.poll() is None:
             self._mlx_process.terminate()
             self._mlx_process = None
@@ -182,7 +205,10 @@ class DaemonServer:
             "graph.get": self._handle_graph_get,
             "graph.delete": self._handle_graph_delete,
             "graph.execute": self._handle_graph_execute,
-            "hardware.metrics": self._handle_hardware_metrics,
+            "graph.update": self._handle_graph_update,
+            "tool.list": self._handle_tool_list,
+            "tool.get": self._handle_tool_get,
+            "session.list": self._handle_session_list,
             "knowledge.search": self._handle_knowledge_search,
             "env.health_check": self._handle_env_health_check,
             "env.repair": self._handle_env_repair,
@@ -195,8 +221,16 @@ class DaemonServer:
             "planner.execute_plan": self._handle_planner_execute_plan,
             "planner.list_plans": self._handle_planner_list_plans,
             "planner.cancel_plan": self._handle_planner_cancel_plan,
+            "verify.verify": self._handle_verify_verify,
             "rag.query": self._handle_rag_query,
             "rag.retrieve": self._handle_rag_retrieve,
+            "rag.vector_search": self._handle_rag_vector_search,
+            "cron.register": self._handle_cron_register,
+            "cron.unregister": self._handle_cron_unregister,
+            "cron.list": self._handle_cron_list,
+            "cron.list_executions": self._handle_cron_list_executions,
+            "tool.dynamic_register": self._handle_tool_dynamic_register,
+            "tool.dynamic_unregister": self._handle_tool_dynamic_unregister,
             "memory.store": self._handle_memory_store,
             "memory.recall": self._handle_memory_recall,
             "memory.list_recent": self._handle_memory_list_recent,
@@ -204,6 +238,8 @@ class DaemonServer:
             "memory.delete": self._handle_memory_delete,
             "memory.delete_scope": self._handle_memory_delete_scope,
             "memory.count": self._handle_memory_count,
+            "memory.recall_relevant": self._handle_memory_recall_relevant,
+            "memory.auto_forget": self._handle_memory_auto_forget,
             "safety.check": self._handle_safety_check,
             "safety.evaluate_action": self._handle_safety_evaluate_action,
             "safety.approve_action": self._handle_safety_approve_action,
@@ -234,6 +270,21 @@ class DaemonServer:
             "marketplace.unpublish": self._handle_marketplace_unpublish,
             "marketplace.list_categories": self._handle_marketplace_list_categories,
             "marketplace.install": self._handle_marketplace_install,
+            "marketplace.uninstall": self._handle_marketplace_uninstall,
+            "chat.create": self._handle_chat_create,
+            "chat.get": self._handle_chat_get,
+            "chat.list": self._handle_chat_list,
+            "chat.delete": self._handle_chat_delete,
+            "chat.send": self._handle_chat_send,
+            "chat.branch": self._handle_chat_branch,
+            "chat.edit": self._handle_chat_edit,
+            "chat.switch_branch": self._handle_chat_switch_branch,
+            "chat.branches": self._handle_chat_branches,
+            "chat.message_tree": self._handle_chat_message_tree,
+            "budget.set": self._handle_budget_set,
+            "budget.status": self._handle_budget_status,
+            "safety.approve": self._handle_safety_approve,
+            "safety.reject": self._handle_safety_reject,
         }
         return handlers.get(method)
 
@@ -456,7 +507,94 @@ class DaemonServer:
             "status": "completed",
         }
 
-    async def _handle_hardware_metrics(self, params: dict) -> dict:
+    async def _handle_graph_update(self, params: dict) -> dict:
+        graph_id = params.get("graph_id", "")
+        graph = self.store.load_graph(graph_id)
+        if graph is None:
+            raise ValueError(f"Graph not found: {graph_id}")
+
+        if "name" in params:
+            graph.name = params["name"]
+        if "description" in params:
+            graph.description = params["description"]
+
+        nodes_data = params.get("nodes")
+        if nodes_data is not None:
+            graph.nodes.clear()
+            graph.edges.clear()
+            for n in nodes_data:
+                nid = n.get("id", "")
+                if not nid:
+                    continue
+                node_config = NodeConfig(
+                    type=n.get("type", "llm"),
+                    label=n.get("label", ""),
+                    model=n.get("model", ""),
+                    system_prompt=n.get("system_prompt", ""),
+                )
+                graph.add_node(nid, node_config)
+
+        edges_data = params.get("edges")
+        if edges_data is not None:
+            graph.edges.clear()
+            for e in edges_data:
+                source_id = e.get("source_id", e.get("source", ""))
+                target_id = e.get("target_id", e.get("target", ""))
+                if source_id and target_id:
+                    graph.add_edge(source_id, target_id, label=e.get("label", e.get("condition", "")))
+
+        self.store.save_graph(graph)
+        logger.info("Updated graph %s: %s", graph.id, graph.name)
+        return {
+            "graph_id": graph.id,
+            "name": graph.name,
+            "description": graph.description,
+            "nodes": {nid: n.to_dict() for nid, n in graph.nodes.items()},
+            "edges": [e.to_dict() for e in graph.edges],
+        }
+
+    def _get_tool_registry(self):
+        from tools import create_default_registry
+        if not hasattr(self, "_cached_tool_registry") or self._cached_tool_registry is None:
+            self._cached_tool_registry = create_default_registry()
+            logger.info("Cached default tool registry with %d tools", len(self._cached_tool_registry.tools))
+        return self._cached_tool_registry
+
+    async def _handle_tool_list(self, params: dict) -> dict:
+        registry = self._get_tool_registry()
+        tools = []
+        for name, tool in registry.tools.items():
+            schema = tool.get_schema()
+            tools.append({
+                "name": name,
+                "description": schema.get("description", ""),
+                "parameters": schema.get("parameters", {}),
+                "category": getattr(tool, "category", "built-in"),
+                "enabled": True,
+            })
+        logger.info("Listed %d tools", len(tools))
+        return {"tools": tools}
+
+    async def _handle_tool_get(self, params: dict) -> dict:
+        tool_name = params.get("name", "")
+        registry = self._get_tool_registry()
+        tool = registry.tools.get(tool_name)
+        if tool is None:
+            raise ValueError(f"Tool not found: {tool_name}")
+        schema = tool.get_schema()
+        return {
+            "name": tool_name,
+            "description": schema.get("description", ""),
+            "parameters": schema.get("parameters", {}),
+            "category": getattr(tool, "category", "built-in"),
+            "enabled": True,
+        }
+
+    async def _handle_session_list(self, params: dict) -> dict:
+        limit = params.get("limit", 50)
+        sessions = self.store.list_sessions(limit=limit)
+        return {"sessions": sessions}
+
         metrics: dict[str, Any] = {
             "platform": platform.system(),
             "machine": platform.machine(),
@@ -657,6 +795,20 @@ class DaemonServer:
         ok = planner.cancel_plan(plan_id)
         return {"cancelled": ok}
 
+    # ── Verify handlers ──
+
+    async def _handle_verify_verify(self, params: dict) -> dict:
+        from .verifier import VerificationEngine
+        task = params.get("task", "")
+        output = params.get("output", "")
+        criteria = params.get("criteria", "")
+        context = params.get("context", "")
+        max_attempts = params.get("max_attempts", 3)
+        gateway = self._gateway
+        engine = VerificationEngine(gateway=gateway, max_attempts=max_attempts)
+        result = await engine.verify(task=task, output=output, criteria=criteria, context=context, max_attempts=max_attempts)
+        return result.to_dict()
+
     # ── RAG handlers ──
 
     async def _handle_rag_query(self, params: dict) -> dict:
@@ -692,6 +844,149 @@ class DaemonServer:
             ],
             "metadata": rag_result.metadata,
         }
+
+    def _get_vector_strategy(self, base_url: str = "http://localhost:8900"):
+        from .rag_pipeline import VectorRetrievalStrategy
+        if not hasattr(self, "_vector_strategy") or self._vector_strategy is None:
+            self._vector_strategy = VectorRetrievalStrategy(base_url=base_url)
+            logger.info("Created cached VectorRetrievalStrategy for %s", base_url)
+        elif self._vector_strategy.base_url != base_url.rstrip("/"):
+            logger.warning("VectorRetrievalStrategy base_url mismatch: cached=%s requested=%s, re-creating",
+                           self._vector_strategy.base_url, base_url)
+            self._vector_strategy = VectorRetrievalStrategy(base_url=base_url)
+        return self._vector_strategy
+
+    async def _handle_rag_vector_search(self, params: dict) -> dict:
+        query = params.get("query", "")
+        if not query:
+            return {"status": "error", "message": "query parameter required"}
+        base_url = params.get("base_url", "http://localhost:8900")
+        strategy = self._get_vector_strategy(base_url)
+        available = await strategy.is_available()
+        if not available:
+            return {"status": "error", "message": f"fusion-kb not reachable at {base_url}"}
+        top_k = params.get("top_k", 5)
+        scope = params.get("scope", "")
+        entries = await strategy.search(query, top_k=top_k, scope=scope)
+        return {
+            "query": query,
+            "results": [
+                {"id": e.id, "content": e.content[:500], "scope": e.scope, "source": e.source}
+                for e in entries
+            ],
+            "count": len(entries),
+        }
+
+    # ── Cron handlers ──
+
+    def _get_cron_manager(self):
+        from .triggers import CronManager, CronJob
+        if not hasattr(self, "_cron_manager") or self._cron_manager is None:
+            import os
+            db_path = os.path.expanduser("~/.fusion-agent-studio/cron.db")
+            self._cron_manager = CronManager(db_path=db_path)
+        return self._cron_manager
+
+    async def _handle_cron_register(self, params: dict) -> dict:
+        from .triggers import CronJob
+        cm = self._get_cron_manager()
+        job_id = params.get("id", f"cron_{int(time.time())}")
+        job = CronJob(
+            id=job_id,
+            name=params.get("name", ""),
+            expression=params.get("expression", "* * * * *"),
+            graph_id=params.get("graph_id", ""),
+            enabled=params.get("enabled", True),
+            input_data=params.get("input_data", ""),
+            max_retries=params.get("max_retries", 0),
+        )
+        await cm.aregister(job)
+        return {"status": "ok", "job": job.to_dict()}
+
+    async def _handle_cron_unregister(self, params: dict) -> dict:
+        job_id = params.get("id", "")
+        if not job_id:
+            return {"status": "error", "message": "id parameter required"}
+        cm = self._get_cron_manager()
+        await cm.aunregister(job_id)
+        return {"status": "ok", "unregistered": job_id}
+
+    async def _handle_cron_list(self, params: dict) -> dict:
+        cm = self._get_cron_manager()
+        return {"jobs": cm.list()}
+
+    async def _handle_cron_list_executions(self, params: dict) -> dict:
+        cm = self._get_cron_manager()
+        job_id = params.get("job_id", "")
+        limit = params.get("limit", 20)
+        return {"executions": await cm.alist_executions(job_id=job_id, limit=limit)}
+
+    # ── Dynamic tool handlers ──
+
+    _SAFE_TOOL_NAME_RE = __import__("re").compile(r"^[a-zA-Z_][a-zA-Z0-9_]{0,63}$")
+
+    async def _handle_tool_dynamic_register(self, params: dict) -> dict:
+        from tools import ToolRegistry
+        if not hasattr(self, "_dynamic_registry"):
+            self._dynamic_registry = ToolRegistry()
+        name = params.get("name", "")
+        if not name:
+            return {"status": "error", "message": "name parameter required"}
+        if not self._SAFE_TOOL_NAME_RE.match(name):
+            return {"status": "error", "message": f"invalid tool name '{name}'"}
+        tool_type = params.get("type", "terminal")
+        description = params.get("description", "")
+        tool_params = params.get("parameters", {})
+
+        from tools.base import BaseTool
+        from types import new_class
+
+        param_dict = {}
+        if isinstance(tool_params, dict):
+            for pk, pv in tool_params.items():
+                param_dict[pk] = pv if isinstance(pv, dict) else {"type": "string", "description": str(pv)}
+
+        safe_name = f"Dynamic_{self._SAFE_TOOL_NAME_RE.match(name).group()}"
+        dyn_cls = new_class(safe_name, (BaseTool,), {})
+        dyn_cls.name = name
+        dyn_cls.description = description or f"Dynamic tool: {name}"
+        dyn_cls.parameters = param_dict
+        async def _exec(self_inner, **kw):
+            import asyncio
+            import shlex
+            cmd = kw.get("command", kw.get("url", kw.get("query", "")))
+            if cmd:
+                try:
+                    split_args = shlex.split(str(cmd))
+                except ValueError:
+                    return f"Error: invalid command: {str(cmd)[:100]}"
+                if not split_args:
+                    return "Error: empty command"
+                proc = await asyncio.create_subprocess_exec(
+                    split_args[0], *split_args[1:],
+                    stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+                )
+                out, err = await asyncio.wait_for(proc.communicate(), timeout=30)
+                result = out.decode("utf-8", errors="replace").strip()
+                if err:
+                    result += f"\n[STDERR] {err.decode('utf-8', errors='replace')}"
+                return result or "Done"
+            return "No command"
+        dyn_cls.execute = _exec
+        new_tool = dyn_cls()
+
+        self._dynamic_registry.register(new_tool)
+        logger.info("Dynamic tool registered via daemon: %s", name)
+        return {"status": "ok", "tool": name}
+
+    async def _handle_tool_dynamic_unregister(self, params: dict) -> dict:
+        name = params.get("name", "")
+        if not name:
+            return {"status": "error", "message": "name parameter required"}
+        if hasattr(self, "_dynamic_registry") and self._dynamic_registry.has(name):
+            self._dynamic_registry.unregister(name)
+            return {"status": "ok", "unregistered": name}
+        return {"status": "error", "message": f"Tool '{name}' not found in dynamic registry"}
 
     # ── Memory handlers ──
 
@@ -759,6 +1054,21 @@ class DaemonServer:
         mem = self._get_memory()
         count = mem.count(scope=params.get("scope", ""), tier=params.get("tier", ""))
         return {"count": count}
+
+    async def _handle_memory_recall_relevant(self, params: dict) -> dict:
+        mem = self._get_memory()
+        query = params.get("query", "")
+        limit = params.get("limit", 5)
+        scope = params.get("scope", "")
+        result = mem.recall_relevant(query=query, limit=limit, scope=scope)
+        return {"context": result}
+
+    async def _handle_memory_auto_forget(self, params: dict) -> dict:
+        mem = self._get_memory()
+        max_entries = params.get("max_entries", 1000)
+        min_importance = params.get("min_importance", 3)
+        removed = mem.auto_forget(max_entries=max_entries, min_importance=min_importance)
+        return {"removed": removed}
 
     # ── Safety handlers ──
 
@@ -1306,6 +1616,209 @@ class DaemonServer:
             return {"status": "error", "message": f"Install failed for: {entry_id}"}
         logger.info("marketplace.install: id=%s path=%s", entry_id, result)
         return {"installed": True, "path": str(result)}
+
+    async def _handle_marketplace_uninstall(self, params: dict) -> dict:
+        entry_id = params.get("entry_id", "")
+        if not entry_id:
+            return {"status": "error", "message": "entry_id parameter required"}
+        mp = self._get_marketplace()
+        entry = mp.get(entry_id)
+        if not entry:
+            return {"success": False, "message": f"Entry not found: {entry_id}"}
+        ok = mp.unpublish(entry_id)
+        logger.info("marketplace.uninstall: id=%s success=%s", entry_id, ok)
+        return {"success": ok}
+
+    # ── Chat Session Handlers ──
+
+    async def _handle_chat_create(self, params: dict) -> dict:
+        engine = self._get_chat_engine()
+        session = engine.create_session(
+            mode=params.get("mode", "simple"),
+            title=params.get("title", ""),
+            graph_id=params.get("graph_id", ""),
+            metadata=params.get("metadata"),
+        )
+        logger.info("chat.create: id=%s mode=%s", session.id, session.mode)
+        return session.to_dict()
+
+    async def _handle_chat_get(self, params: dict) -> dict:
+        session_id = params.get("session_id", "")
+        engine = self._get_chat_engine()
+        session = engine.get_session(session_id)
+        if session is None:
+            return {"status": "error", "message": f"Session {session_id} not found"}
+        return session.to_dict()
+
+    async def _handle_chat_list(self, params: dict) -> dict:
+        engine = self._get_chat_engine()
+        sessions = engine.list_sessions()
+        return {"sessions": [s.to_dict() for s in sessions]}
+
+    async def _handle_chat_delete(self, params: dict) -> dict:
+        session_id = params.get("session_id", "")
+        engine = self._get_chat_engine()
+        deleted = engine.delete_session(session_id)
+        return {"deleted": deleted}
+
+    async def _handle_chat_send(self, params: dict) -> dict:
+        session_id = params.get("session_id", "")
+        message = params.get("message", "")
+        mode = params.get("mode", "")
+        engine = self._get_chat_engine()
+
+        events = []
+        full_content = ""
+        async for ev in engine.send(session_id, message, mode=mode):
+            ev_dict = ev.to_dict()
+            events.append(ev_dict)
+            if ev.type.value == "token":
+                full_content += ev.content
+            await self._broadcast_event("chat_event", {
+                "session_id": session_id,
+                "event": ev_dict,
+            })
+
+        logger.info("chat.send: session=%s events=%d content_len=%d",
+                     session_id, len(events), len(full_content))
+        return {"events": events, "content": full_content}
+
+    async def _handle_chat_branch(self, params: dict) -> dict:
+        session_id = params.get("session_id", "")
+        message_id = params.get("message_id", "")
+        engine = self._get_chat_engine()
+        branched = engine.branch(session_id, message_id)
+        if branched is None:
+            return {"status": "error", "message": "Branch failed"}
+        return branched.to_dict()
+
+    async def _handle_chat_edit(self, params: dict) -> dict:
+        session_id = params.get("session_id", "")
+        message_id = params.get("message_id", "")
+        new_content = params.get("content", "")
+        engine = self._get_chat_engine()
+        edited = engine.edit(session_id, message_id, new_content)
+        if edited is None:
+            return {"status": "error", "message": "Edit failed"}
+        return edited.to_dict()
+
+    async def _handle_chat_switch_branch(self, params: dict) -> dict:
+        session_id = params.get("session_id", "")
+        message_id = params.get("message_id", "")
+        engine = self._get_chat_engine()
+        ok = engine.switch_branch(session_id, message_id)
+        return {"status": "ok" if ok else "error", "session_id": session_id, "active_branch": message_id}
+
+    async def _handle_chat_branches(self, params: dict) -> dict:
+        session_id = params.get("session_id", "")
+        message_id = params.get("message_id", "")
+        engine = self._get_chat_engine()
+        branches = engine.get_branches(session_id, message_id)
+        return {"branches": branches}
+
+    async def _handle_chat_message_tree(self, params: dict) -> dict:
+        session_id = params.get("session_id", "")
+        engine = self._get_chat_engine()
+        tree = engine.get_message_tree(session_id)
+        return tree
+
+    async def _handle_budget_set(self, params: dict) -> dict:
+        from .token_budget import TokenBudget
+        max_tokens = params.get("max_tokens", 0)
+        budget = TokenBudget(max_tokens=max_tokens)
+        self._token_budget = budget
+        logger.info("Token budget set: max_tokens=%d", max_tokens)
+        return budget.status()
+
+    async def _handle_budget_status(self, params: dict) -> dict:
+        if not hasattr(self, "_token_budget") or not self._token_budget:
+            return {"max_tokens": 0, "spent_tokens": 0, "exceeded": False}
+        return self._token_budget.status()
+
+    async def _handle_safety_approve(self, params: dict) -> dict:
+        action_id = params.get("action_id", "")
+        if self._runtime and hasattr(self._runtime, "approve_action"):
+            ok = self._runtime.approve_action(action_id)
+            return {"status": "ok" if ok else "not_found", "action_id": action_id}
+        return {"status": "error", "message": "No runtime available"}
+
+    async def _handle_safety_reject(self, params: dict) -> dict:
+        action_id = params.get("action_id", "")
+        if self._runtime and hasattr(self._runtime, "reject_action"):
+            ok = self._runtime.reject_action(action_id)
+            return {"status": "ok" if ok else "not_found", "action_id": action_id}
+        return {"status": "error", "message": "No runtime available"}
+
+    # ── WebSocket Streaming ──
+
+    async def _handle_ws_client(
+        self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter
+    ) -> None:
+        self._ws_clients.append(writer)
+        peer = writer.get_extra_info("peername")
+        logger.info("WS client connected: %s", peer)
+        try:
+            while self._running:
+                data = await reader.readline()
+                if not data:
+                    break
+                try:
+                    msg = json.loads(data.decode().strip())
+                    await self._handle_ws_message(writer, msg)
+                except json.JSONDecodeError:
+                    pass
+        except Exception:
+            pass
+        finally:
+            if writer in self._ws_clients:
+                self._ws_clients.remove(writer)
+            writer.close()
+            logger.info("WS client disconnected: %s", peer)
+
+    async def _handle_ws_message(self, writer: asyncio.StreamWriter, msg: dict) -> None:
+        action = msg.get("action", "")
+        if action == "chat.stream":
+            session_id = msg.get("session_id", "")
+            message = msg.get("message", "")
+            mode = msg.get("mode", "")
+            engine = self._get_chat_engine()
+            async for ev in engine.send(session_id, message, mode=mode):
+                payload = json.dumps({
+                    "type": "chat_event",
+                    "session_id": session_id,
+                    "event": ev.to_dict(),
+                }) + "\n"
+                writer.write(payload.encode())
+                await writer.drain()
+            done_payload = json.dumps({
+                "type": "chat_done",
+                "session_id": session_id,
+            }) + "\n"
+            writer.write(done_payload.encode())
+            await writer.drain()
+        elif action == "subscribe":
+            writer.write((json.dumps({"type": "subscribed"}) + "\n").encode())
+            await writer.drain()
+
+    async def _broadcast_event(self, event_type: str, data: dict) -> None:
+        if not self._ws_clients:
+            return
+        payload = json.dumps({"type": event_type, **data}) + "\n"
+        encoded = payload.encode()
+
+        async def _send(client):
+            try:
+                client.write(encoded)
+                await client.drain()
+                return None
+            except Exception:
+                return client
+
+        results = await asyncio.gather(*[_send(c) for c in self._ws_clients])
+        dead = [r for r in results if r is not None]
+        for d in dead:
+            if d in self._ws_clients:
+                self._ws_clients.remove(d)
 
     # ── MLX helpers ──
 

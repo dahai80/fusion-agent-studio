@@ -12,6 +12,7 @@ from typing import Any
 
 from .context import AgentContext
 from .graph import AgentGraph
+from .chat_engine import ChatSession
 
 
 @dataclass
@@ -103,6 +104,18 @@ class AgentStore:
 
             CREATE INDEX IF NOT EXISTS idx_checkpoints_session
                 ON checkpoints(session_id, created_at DESC);
+
+            CREATE TABLE IF NOT EXISTS chat_sessions (
+                id TEXT PRIMARY KEY,
+                title TEXT DEFAULT '',
+                mode TEXT DEFAULT 'simple',
+                messages_json TEXT DEFAULT '[]',
+                active_branch TEXT DEFAULT '',
+                graph_id TEXT DEFAULT '',
+                metadata_json TEXT DEFAULT '{}',
+                created_at REAL NOT NULL,
+                updated_at REAL NOT NULL
+            );
         """)
         conn.commit()
 
@@ -227,6 +240,76 @@ class AgentStore:
                 (session_id,),
             ).fetchall()
         return [dict(r) for r in rows]
+
+    # ── Chat Session CRUD ──
+
+    def save_chat_session(self, session: ChatSession) -> None:
+        now = time.time()
+        session.updated_at = now
+        with self._cursor() as conn:
+            conn.execute(
+                """INSERT INTO chat_sessions (id, title, mode, messages_json, active_branch, graph_id, metadata_json, created_at, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                   ON CONFLICT(id) DO UPDATE SET
+                       title=excluded.title,
+                       mode=excluded.mode,
+                       messages_json=excluded.messages_json,
+                       active_branch=excluded.active_branch,
+                       graph_id=excluded.graph_id,
+                       metadata_json=excluded.metadata_json,
+                       updated_at=excluded.updated_at""",
+                (session.id, session.title, session.mode,
+                 json.dumps([m.to_dict() for m in session.messages]),
+                 session.active_branch, session.graph_id,
+                 json.dumps(session.metadata),
+                 session.created_at, session.updated_at),
+            )
+
+    def load_chat_session(self, session_id: str) -> ChatSession | None:
+        with self._cursor() as conn:
+            row = conn.execute("SELECT * FROM chat_sessions WHERE id = ?", (session_id,)).fetchone()
+        if row is None:
+            return None
+        data = {
+            "id": row["id"],
+            "title": row["title"],
+            "mode": row["mode"],
+            "messages": json.loads(row["messages_json"]),
+            "active_branch": row["active_branch"],
+            "graph_id": row["graph_id"],
+            "metadata": json.loads(row["metadata_json"]),
+            "created_at": row["created_at"],
+            "updated_at": row["updated_at"],
+        }
+        return ChatSession.from_dict(data)
+
+    def list_chat_sessions(self, limit: int = 50) -> list[ChatSession]:
+        with self._cursor() as conn:
+            rows = conn.execute(
+                "SELECT id, title, mode, active_branch, graph_id, "
+                "metadata_json, created_at, updated_at "
+                "FROM chat_sessions ORDER BY updated_at DESC LIMIT ?", (limit,)
+            ).fetchall()
+        sessions = []
+        for row in rows:
+            data = {
+                "id": row["id"],
+                "title": row["title"],
+                "mode": row["mode"],
+                "messages": [],
+                "active_branch": row["active_branch"],
+                "graph_id": row["graph_id"],
+                "metadata": json.loads(row["metadata_json"]),
+                "created_at": row["created_at"],
+                "updated_at": row["updated_at"],
+            }
+            sessions.append(ChatSession.from_dict(data))
+        return sessions
+
+    def delete_chat_session(self, session_id: str) -> bool:
+        with self._cursor() as conn:
+            cursor = conn.execute("DELETE FROM chat_sessions WHERE id = ?", (session_id,))
+        return cursor.rowcount > 0
 
     def close(self) -> None:
         """Close the database connection."""

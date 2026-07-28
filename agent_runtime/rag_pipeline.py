@@ -101,14 +101,104 @@ def _assemble_context(documents: list[KnowledgeEntry], max_tokens: int) -> tuple
     return context_text, scores
 
 
+class VectorRetrievalStrategy:
+    """Retrieve documents from fusion-kb vector API. Falls back to FTS on failure."""
+
+    def __init__(self, base_url: str = "http://localhost:8900", timeout: float = 10.0):
+        self.base_url = base_url.rstrip("/")
+        self.timeout = timeout
+        self._available: bool | None = None
+        self._session = None
+
+    async def _get_session(self):
+        import aiohttp
+        if self._session is None or self._session.closed:
+            self._session = aiohttp.ClientSession()
+            logger.info("Created shared aiohttp session for VectorRetrievalStrategy")
+        return self._session
+
+    async def close(self):
+        if self._session and not self._session.closed:
+            await self._session.close()
+            self._session = None
+            logger.info("Closed aiohttp session for VectorRetrievalStrategy")
+
+    async def is_available(self) -> bool:
+        if self._available is not None:
+            return self._available
+        try:
+            import aiohttp
+            session = await self._get_session()
+            async with session.get(f"{self.base_url}/health", timeout=aiohttp.ClientTimeout(total=3)) as resp:
+                self._available = resp.status == 200
+                logger.info("fusion-kb availability check: %s", self._available)
+        except Exception as e:
+            logger.warning("fusion-kb not reachable at %s: %s", self.base_url, e)
+            self._available = False
+        return self._available
+
+    async def search(self, query: str, top_k: int = 5, scope: str = "") -> list[KnowledgeEntry]:
+        try:
+            import aiohttp
+            params: dict[str, Any] = {"query": query, "limit": top_k}
+            if scope:
+                params["scope"] = scope
+            session = await self._get_session()
+            async with session.post(
+                f"{self.base_url}/v1/search",
+                json=params,
+                timeout=aiohttp.ClientTimeout(total=self.timeout),
+            ) as resp:
+                if resp.status != 200:
+                    logger.warning("fusion-kb search returned status %d", resp.status)
+                    return []
+                data = await resp.json()
+                entries = []
+                for item in data.get("results", []):
+                    entries.append(KnowledgeEntry(
+                        id=item.get("id", ""),
+                        content=item.get("content", ""),
+                        scope=item.get("scope", scope),
+                        source=item.get("source", "fusion-kb"),
+                        created_at=item.get("created_at", 0),
+                        metadata=item.get("metadata", {}),
+                    ))
+                logger.info("fusion-kb search returned %d entries for query=%r", len(entries), query)
+                return entries
+        except Exception as e:
+            logger.error("fusion-kb search failed: %s", e)
+            return []
+
+    def reset_availability(self) -> None:
+        self._available = None
+
+
 class RAGPipeline:
-    def __init__(self, knowledge_engine: KnowledgeEngine | None = None, gateway: LLMGateway | None = None):
+    def __init__(
+        self,
+        knowledge_engine: KnowledgeEngine | None = None,
+        gateway: LLMGateway | None = None,
+        vector_strategy: VectorRetrievalStrategy | None = None,
+    ):
         self.knowledge = knowledge_engine
         self.gateway = gateway
+        self.vector_strategy = vector_strategy
 
     def retrieve(self, query: str, config: RAGConfig | None = None) -> RAGResult:
         cfg = config or RAGConfig()
         logger.info("RAG retrieve: query=%r mode=%s top_k=%d scope=%r", query, cfg.mode, cfg.top_k, cfg.scope)
+
+        if cfg.mode == "vector" or cfg.mode == "hybrid_vector":
+            try:
+                loop = asyncio.get_running_loop()
+                logger.warning("retrieve() is sync but event loop is running; "
+                               "vector retrieval skipped — use aretrieve() instead")
+                result = None
+            except RuntimeError:
+                result = asyncio.run(self._retrieve_vector(query, cfg))
+            if result is not None:
+                return result
+            logger.info("Vector retrieval unavailable, falling back to FTS")
 
         if not self.knowledge:
             logger.warning("RAG retrieve: no knowledge engine, returning empty result")
@@ -150,6 +240,39 @@ class RAGPipeline:
                 "top_k": cfg.top_k,
                 "rerank": cfg.rerank,
                 "retrieved_at": time.time(),
+            },
+        )
+
+    async def _retrieve_vector(self, query: str, cfg: RAGConfig) -> RAGResult | None:
+        if not self.vector_strategy:
+            logger.debug("No vector strategy configured")
+            return None
+        available = await self.vector_strategy.is_available()
+        if not available:
+            return None
+        documents = await self.vector_strategy.search(query, top_k=cfg.top_k, scope=cfg.scope)
+        if not documents:
+            logger.info("Vector search returned 0 results, falling back")
+            self.vector_strategy.reset_availability()
+            return None
+
+        if cfg.rerank and len(documents) > cfg.top_k:
+            documents = self._rerank(documents, query)[: cfg.top_k]
+
+        context_text, scores = _assemble_context(documents, cfg.max_context_tokens)
+        logger.info("Vector retrieve: %d docs, tokens~%d", len(documents), _estimate_tokens(context_text))
+        return RAGResult(
+            query=query,
+            documents=documents,
+            context_text=context_text,
+            scores=scores,
+            metadata={
+                "mode": cfg.mode,
+                "scope": cfg.scope,
+                "top_k": cfg.top_k,
+                "rerank": cfg.rerank,
+                "retrieved_at": time.time(),
+                "source": "fusion-kb",
             },
         )
 

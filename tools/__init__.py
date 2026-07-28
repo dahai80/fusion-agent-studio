@@ -11,6 +11,7 @@ from .code_tools import CodeExecuteTool
 from .data_tools import JsonParseTool, CsvParseTool, Base64Tool
 from .utility_tools import DateTimeTool, UuidTool, HashTool, PathOpsTool, ZipTool
 from .db_tools import SqliteQueryTool, AnnotationNode
+from .computer_use_tools import ScreenCaptureTool, MouseTool, KeyboardTool, ClipboardTool
 
 __all__ = [
     "BaseTool", "ToolResult",
@@ -23,6 +24,7 @@ __all__ = [
     "JsonParseTool", "CsvParseTool", "Base64Tool",
     "DateTimeTool", "UuidTool", "HashTool", "PathOpsTool", "ZipTool",
     "SqliteQueryTool", "AnnotationNode",
+    "ScreenCaptureTool", "MouseTool", "KeyboardTool", "ClipboardTool",
 ]
 
 
@@ -48,4 +50,8 @@ def create_default_registry() -> ToolRegistry:
     registry.register(ZipTool())
     registry.register(SqliteQueryTool())
     registry.register(AnnotationNode())
+    registry.register(ScreenCaptureTool())
+    registry.register(MouseTool())
+    registry.register(KeyboardTool())
+    registry.register(ClipboardTool())
     return registry

@@ -81,14 +81,23 @@ def _stub_embedding(text: str, dim: int = EMBEDDING_DIM) -> list[float]:
 class KnowledgeEngine:
     """Hybrid vector + FTS5 search with RRF fusion over SQLite."""
 
-    def __init__(self, db_path: str = DEFAULT_DB_PATH, embedding_dim: int = EMBEDDING_DIM):
+    def __init__(
+        self,
+        db_path: str = DEFAULT_DB_PATH,
+        embedding_dim: int = EMBEDDING_DIM,
+        embedding_fn: Any | None = None,
+    ):
         self.db_path = db_path
         self.embedding_dim = embedding_dim
+        self.embedding_fn = embedding_fn
         self._vec_available = False
         Path(db_path).parent.mkdir(parents=True, exist_ok=True)
         self._conn = self._open_db()
         self._init_schema()
-        logger.info("KnowledgeEngine initialized: db=%s vec=%s", db_path, self._vec_available)
+        logger.info(
+            "KnowledgeEngine initialized: db=%s vec=%s embedding=%s",
+            db_path, self._vec_available, "real" if embedding_fn else "stub",
+        )
 
     def _open_db(self) -> sqlite3.Connection:
         conn = sqlite3.connect(self.db_path, check_same_thread=False)
@@ -133,10 +142,12 @@ class KnowledgeEngine:
         self._conn.commit()
 
     def ingest(self, content: str, scope: str = "default", metadata: dict | None = None, embedding: list[float] | None = None) -> KnowledgeEntry:
+        if embedding is None:
+            embedding = self._get_embedding(content)
         entry = KnowledgeEntry(
             content=content,
             scope=scope,
-            embedding=embedding or _stub_embedding(content, self.embedding_dim),
+            embedding=embedding,
             metadata=metadata or {},
         )
         emb_blob = self._encode_embedding(entry.embedding)
@@ -192,7 +203,7 @@ class KnowledgeEngine:
         if not self._vec_available:
             logger.warning("Vector search unavailable, falling back to FTS5")
             return self._search_fts(query, scope, limit)
-        q_emb = _stub_embedding(query, self.embedding_dim)
+        q_emb = self._get_embedding(query)
         q_blob = self._encode_embedding(q_emb)
         sql = """
             SELECT ke.id, ke.content, ke.scope, ke.metadata, ke.created_at, ke.updated_at,
@@ -261,6 +272,18 @@ class KnowledgeEngine:
             created_at=row[4],
             updated_at=row[5],
         )
+
+    def _get_embedding(self, text: str) -> list[float]:
+        if self.embedding_fn:
+            try:
+                result = self.embedding_fn(text)
+                if isinstance(result, list) and len(result) > 0:
+                    self.embedding_dim = len(result)
+                    return result
+                logger.warning("embedding_fn returned empty, falling back to stub")
+            except Exception as e:
+                logger.warning("embedding_fn failed: %s, falling back to stub", e)
+        return _stub_embedding(text, self.embedding_dim)
 
     def _encode_embedding(self, vec: list[float]) -> bytes:
         import struct

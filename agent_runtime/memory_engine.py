@@ -765,6 +765,36 @@ class MemoryEngine:
             tier=tier,
         )
 
+    def recall_relevant(self, query: str, limit: int = 5, scope: str = "") -> str:
+        entries = self.recall(query=query, scope=scope, limit=limit, min_importance=5)
+        if not entries:
+            return ""
+        parts = []
+        for e in entries:
+            ts = time.strftime("%Y-%m-%d", time.localtime(e.created_at))
+            parts.append(f"[{ts}] {e.content}")
+        return "\n".join(parts)
+
+    def auto_forget(self, max_entries: int = 1000, min_importance: int = 3) -> int:
+        total = self.count()
+        if total <= max_entries:
+            return 0
+        c = self.conn.cursor()
+        c.execute(
+            "SELECT COUNT(*) FROM memories WHERE importance < ?",
+            (min_importance,),
+        )
+        low_count = c.fetchone()[0]
+        if low_count == 0:
+            return 0
+        c.execute(
+            "DELETE FROM memories WHERE importance < ? ORDER BY created_at ASC LIMIT ?",
+            (min_importance, low_count),
+        )
+        self.conn.commit()
+        logger.info("auto_forget: removed %d low-importance memories (was %d total)", c.rowcount, total)
+        return c.rowcount
+
     def close(self) -> None:
         if self._conn:
             self._conn.close()
