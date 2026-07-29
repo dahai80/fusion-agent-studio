@@ -1342,7 +1342,7 @@ class DaemonServer:
             description=params.get("description", ""),
         )
         pkg = AgentPackage(agent_dir)
-        pkg.init(manifest=manifest, soul=params.get("soul", ""))
+        pkg.init(manifest=manifest, soul=params.get("soul", ""), memory=params.get("memory", ""), agents_md=params.get("agents_md", ""))
 
         self._agents[agent_id] = manifest.to_dict()
         self._agents[agent_id]["id"] = agent_id
