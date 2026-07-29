@@ -33,6 +33,7 @@ FUSION_AGENT_DIR = ".fusion-agent"
 MANIFEST_FILE = "manifest.json"
 SOUL_FILE = "soul.md"
 MEMORY_FILE = "memory.md"
+AGENTS_FILE = "agents.md"
 KNOWLEDGE_DIR = "knowledge"
 SKILLS_DIR = "skills"
 WORKSPACE_DIR = "workspace"
@@ -124,6 +125,10 @@ class AgentPackage:
         return self.pkg_path / MEMORY_FILE
 
     @property
+    def agents_path(self) -> Path:
+        return self.pkg_path / AGENTS_FILE
+
+    @property
     def knowledge_path(self) -> Path:
         return self.pkg_path / KNOWLEDGE_DIR
 
@@ -139,7 +144,7 @@ class AgentPackage:
     def sources_path(self) -> Path:
         return self.pkg_path / KNOWLEDGE_DIR / SOURCES_FILE
 
-    def init(self, manifest: AgentManifest | None = None, soul: str = "") -> None:
+    def init(self, manifest: AgentManifest | None = None, soul: str = "", memory: str = "", agents_md: str = "") -> None:
         """Initialize a new .fusion-agent package directory."""
         self.pkg_path.mkdir(parents=True, exist_ok=True)
         (self.pkg_path / KNOWLEDGE_DIR).mkdir(exist_ok=True)
@@ -156,8 +161,13 @@ class AgentPackage:
         elif not self.soul_path.exists():
             self.save_soul("# Agent Soul\n\nDefine your agent's personality here.\n")
 
-        if not self.memory_path.exists():
+        if memory:
+            self.save_memory(memory)
+        elif not self.memory_path.exists():
             self.save_memory("")
+
+        if agents_md:
+            self.save_agents(agents_md)
 
         logger.info("Initialized .fusion-agent package at %s", self.pkg_path)
 
@@ -205,6 +215,18 @@ class AgentPackage:
         existing = self.load_memory()
         updated = f"{existing}\n{entry}" if existing else entry
         self.save_memory(updated)
+
+    def load_agents(self) -> str:
+        """Load agents.md from the package."""
+        if not self.agents_path.exists():
+            return ""
+        return self.agents_path.read_text(encoding="utf-8")
+
+    def save_agents(self, content: str) -> None:
+        """Save agents.md to the package."""
+        self.pkg_path.mkdir(parents=True, exist_ok=True)
+        self.agents_path.write_text(content, encoding="utf-8")
+        logger.info("Saved agents.md")
 
     def list_skills(self) -> list[str]:
         """List skill names in the package."""
