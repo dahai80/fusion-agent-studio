@@ -524,8 +524,30 @@ class ChatEngine:
             graph.add_edge("llm", "end")
 
         try:
-            from .context import AgentEventType
-            async for event in self.runtime.execute_graph_stream(graph, initial_input=message):
+            from .context import AgentEventType, AgentContext
+            # 预加载会话历史，避免 agent 模式丢失上下文 (bug2/3/4)
+            # send() 已追加新 user 消息 + 空 assistant 消息，排除最后两条，
+            # 否则与 initial_input=message 重复
+            history = self._build_llm_history(session)
+            if len(history) >= 2:
+                history = history[:-2]
+            else:
+                history = []
+            ctx = AgentContext()
+            for msg in history:
+                ctx.add_message(
+                    msg.get("role", "user"),
+                    msg.get("content", ""),
+                    tool_calls=msg.get("tool_calls"),
+                    tool_call_id=msg.get("tool_call_id", ""),
+                )
+            logger.info(
+                "ChatEngine _execute_agent session=%s preloaded %d history msgs",
+                session.id, len(history),
+            )
+            async for event in self.runtime.execute_graph_stream(
+                graph, initial_input=message, context=ctx
+            ):
                 if event.type == AgentEventType.TOKEN:
                     yield ChatEvent(type=ChatEventType.TOKEN, content=event.content)
                 elif event.type == AgentEventType.THINKING_TOKEN:
