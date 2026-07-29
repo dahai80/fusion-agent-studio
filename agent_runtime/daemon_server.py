@@ -315,6 +315,14 @@ class DaemonServer:
         if self._mlx_process and self._mlx_process.poll() is None:
             return {"status": "already_running", "port": MLX_PORT}
 
+        # 复用已在运行的 fusion-mlx (如 fusion-studio start.sh 启动的)，
+        # 避免在已占用端口上再起子进程导致冲突 (bug1 联动)
+        if await self._check_mlx_health():
+            self._attach_mlx_client()
+            logger.info("Reusing already-running fusion-mlx on port %d", MLX_PORT)
+            return {"status": "already_running", "port": MLX_PORT,
+                    "model": model, "external": True}
+
         cmd = [sys.executable, "-m", "fusion_mlx", "serve", "--port", str(MLX_PORT)]
         if model:
             cmd.append(model)
@@ -2029,8 +2037,12 @@ class DaemonServer:
     async def _check_mlx_health(self) -> bool:
         try:
             import httpx
+            # 携带 fusion-mlx 配置的 api_key，否则开启鉴权时 /models 返回 401
+            # 被误判为不健康 (bug6 一直显示检测中)
+            key = self._read_mlx_api_key()
+            headers = {"Authorization": f"Bearer {key}"} if key else {}
             async with httpx.AsyncClient(timeout=2.0) as client:
-                resp = await client.get(f"{MLX_BASE_URL}/models")
+                resp = await client.get(f"{MLX_BASE_URL}/models", headers=headers)
                 return resp.status_code == 200
         except Exception:
             return False
@@ -2038,8 +2050,10 @@ class DaemonServer:
     async def _list_mlx_models(self) -> list[dict[str, Any]]:
         try:
             import httpx
+            key = self._read_mlx_api_key()
+            headers = {"Authorization": f"Bearer {key}"} if key else {}
             async with httpx.AsyncClient(timeout=5.0) as client:
-                resp = await client.get(f"{MLX_BASE_URL}/models")
+                resp = await client.get(f"{MLX_BASE_URL}/models", headers=headers)
                 resp.raise_for_status()
                 data = resp.json()
                 return data.get("data", [])
@@ -2056,9 +2070,78 @@ class DaemonServer:
 
     def _attach_mlx_client(self) -> None:
         from server.fusion_mlx_client import FusionMLXClient
-        client = FusionMLXClient(base_url=MLX_BASE_URL)
+        api_key = self._read_mlx_api_key()
+        client = FusionMLXClient(base_url=MLX_BASE_URL, api_key=api_key)
         self._gateway.set_default_client(client)
-        logger.info("MLX client attached to gateway")
+        loaded = self._discover_mlx_model_id(api_key)
+        if loaded:
+            self._gateway._default_model = loaded
+        logger.info(
+            "MLX client attached to gateway (api_key=%s, default_model=%s)",
+            "set" if api_key else "none", self._gateway._default_model,
+        )
+
+    def _read_mlx_api_key(self) -> str:
+        # 读取 fusion-mlx 配置的 api_key，避免硬编码 (bug1 联动)。
+        # 优先级对齐 fusion-mlx server.py::_resolve_api_key：
+        #   环境变量 FUSION_MLX_API_KEY > settings.json 的 auth.api_key > 顶层 api_key。
+        env_key = os.environ.get("FUSION_MLX_API_KEY")
+        if env_key:
+            return env_key
+        candidates = [
+            os.path.expanduser("~/.fusion-mlx/settings.json"),
+            os.path.expanduser("~/Library/Application Support/fusion-mlx/settings.json"),
+        ]
+        for path in candidates:
+            try:
+                with open(path) as f:
+                    data = json.load(f)
+                # 实际密钥存放在嵌套的 auth.api_key (顶层 api_key 通常为空)
+                key = (data.get("auth") or {}).get("api_key") or data.get("api_key")
+                if key:
+                    return key
+            except Exception as exc:
+                logger.debug("read mlx api_key from %s failed: %s", path, exc)
+                continue
+        return ""
+
+    def _discover_mlx_model_id(self, api_key: str) -> str:
+        # 查询已运行 fusion-mlx 的模型目录，作为 gateway 默认模型 (bug1 联动)。
+        # /v1/models 返回目录内全部模型，含图像/视频/编码器组件，
+        # 需过滤出对话模型并优先 Qwen3 9B 级 (对齐 bug1 默认 Qwen3.6-9B-4bit)。
+        try:
+            import urllib.request
+            headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
+            req = urllib.request.Request(f"{MLX_BASE_URL}/models", headers=headers)
+            with urllib.request.urlopen(req, timeout=5.0) as resp:
+                data = json.loads(resp.read())
+            models = data.get("data", []) if isinstance(data, dict) else []
+            ids = [m.get("id", "") for m in models if m.get("id")]
+            excluded = (
+                "flux", "vae", "transformer", "text_encoder", "siglip",
+                "oldt5", "wan", "skyreels", "ltx", "tts",
+            )
+            chat_ids = [i for i in ids if not any(x in i.lower() for x in excluded)]
+            if not chat_ids:
+                return ids[0] if ids else ""
+            preferred = (
+                "Qwen3.6-9B-4bit", "Qwen3.5-9B-4bit", "Qwen3.6-27B-mxfp8",
+                "Qwen3.6-27B-mixed_3_4", "Qwen3.6-27B-bf16",
+            )
+            for want in preferred:
+                for cid in chat_ids:
+                    if cid == want:
+                        logger.info("select mlx default model (preferred): %s", cid)
+                        return cid
+            for cid in chat_ids:
+                if "qwen" in cid.lower():
+                    logger.info("select mlx default model (qwen fallback): %s", cid)
+                    return cid
+            logger.info("select mlx default model (first chat): %s", chat_ids[0])
+            return chat_ids[0]
+        except Exception as exc:
+            logger.warning("discover mlx model id failed: %s", exc)
+        return ""
 
     def _detach_mlx_client(self) -> None:
         self._gateway._default_client = None
