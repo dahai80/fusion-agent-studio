@@ -515,11 +515,11 @@ class ChatEngine:
             graph = self.runtime.store.load_graph(graph_id)
 
         if not graph:
-            from .graph import AgentGraph, NodeConfig, NodeType
+            from .graph import AgentGraph, NodeConfig
             graph = AgentGraph(name=f"chat-agent-{session.id}")
-            graph.add_node("start", NodeConfig(type=NodeType.START, system_prompt="You are a helpful assistant."))
-            graph.add_node("llm", NodeConfig(type=NodeType.LLM, model="default"))
-            graph.add_node("end", NodeConfig(type=NodeType.END))
+            graph.add_node("start", NodeConfig(type="start", system_prompt="You are a helpful assistant."))
+            graph.add_node("llm", NodeConfig(type="llm", model="default"))
+            graph.add_node("end", NodeConfig(type="end"))
             graph.add_edge("start", "llm")
             graph.add_edge("llm", "end")
 
