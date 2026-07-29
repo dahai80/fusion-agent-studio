@@ -455,7 +455,7 @@ class LLMGateway:
         target_config = self._resolve_target(model, capability)
 
         client = self._default_client
-        resolved_model = model or self._default_model
+        resolved_model = self._default_model if model in ("", "default") else model
 
         if target_config:
             resolved_model = target_config.name
@@ -579,7 +579,7 @@ class LLMGateway:
             return GatewayResponse(content="", model="", finish_reason="error",
                                    usage={"error": "No default client"})
         try:
-            resolved_model = model or self._default_model
+            resolved_model = self._default_model if model in ("", "default") else model
             resp = await self._default_client.chat(
                 model=resolved_model,
                 messages=messages,
