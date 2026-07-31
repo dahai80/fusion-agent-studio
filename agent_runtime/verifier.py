@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import time
@@ -224,3 +225,56 @@ class VerificationEngine:
         except Exception as e:
             logger.error("Verification LLM call failed: %s", e)
             return None
+
+    async def adversarial_verify(
+        self,
+        claim: str,
+        context: str = "",
+        voter_count: int = 3,
+        threshold: float = 0.6,
+    ) -> dict:
+        logger.info("Adversarial verify: claim=%s voters=%d threshold=%.1f", claim[:60], voter_count, threshold)
+        prompts = []
+        for i in range(voter_count):
+            prompt = (
+                f"You are skeptic #{i + 1}. Your job is to TRY TO REFUTE the following claim. "
+                f"Be thorough and look for flaws, unsupported assertions, logical errors.\n\n"
+                f"Claim: {claim}\nContext: {context}\n\n"
+                f"Respond with JSON: {{\"refuted\": true/false, \"reason\": \"why it is or is not refuted\"}}"
+            )
+            prompts.append(prompt)
+
+        tasks = [self._call_llm(p, i + 1, voter_count) for i, p in enumerate(prompts)]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        votes = []
+        refuted_count = 0
+        survived_count = 0
+        for i, r in enumerate(results):
+            if isinstance(r, Exception):
+                votes.append({"voter": i, "verdict": "error", "reason": str(r)})
+                refuted_count += 1
+            elif r is None:
+                votes.append({"voter": i, "verdict": "error", "reason": "LLM returned None"})
+                refuted_count += 1
+            else:
+                is_refuted = not r.passed or r.score < 0.5
+                if is_refuted:
+                    refuted_count += 1
+                    votes.append({"voter": i, "verdict": "refuted", "reason": r.suggestion or "Score too low"})
+                else:
+                    survived_count += 1
+                    votes.append({"voter": i, "verdict": "survived", "reason": r.issues or "No issues found"})
+
+        passes = (survived_count / max(voter_count, 1)) >= threshold
+        logger.info(
+            "Adversarial verify result: survived=%d refuted=%d passes=%s",
+            survived_count, refuted_count, passes,
+        )
+        return {
+            "passes": passes,
+            "survived": survived_count,
+            "refuted": refuted_count,
+            "threshold": threshold,
+            "votes": votes,
+        }

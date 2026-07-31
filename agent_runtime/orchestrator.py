@@ -94,6 +94,7 @@ class MultiAgentOrchestrator:
         self.compactor = Compactor()
         if hasattr(self.llm_gateway, "set_compactor"):
             self.llm_gateway.set_compactor(self.compactor)
+        self._limits = {"max_concurrent": max_concurrent, "max_depth": 10}
 
         logger.info(
             "MultiAgentOrchestrator init, mlx_client=%s, llm_gateway=%s",
@@ -626,3 +627,15 @@ class MultiAgentOrchestrator:
                     lines = [line.strip() for line in content.split("\n") if line.strip()]
                     return lines[:expected_count]
         return [f"Sub-task {i+1}" for i in range(expected_count)]
+
+    def set_limits(self, max_concurrent: int | None = None, max_depth: int | None = None) -> dict:
+        if max_concurrent is not None:
+            self._limits["max_concurrent"] = max_concurrent
+            self.max_concurrent = max_concurrent
+        if max_depth is not None:
+            self._limits["max_depth"] = max_depth
+        logger.info("Orchestrator limits set: %s", self._limits)
+        return dict(self._limits)
+
+    def get_limits(self) -> dict:
+        return dict(self._limits)

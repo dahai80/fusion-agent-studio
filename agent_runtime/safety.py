@@ -549,6 +549,81 @@ class SafetyGateway:
         self.level = level
         logger.info("Safety level changed: %s -> %s", old, level)
 
+    def classify_action(self, action: str, context: str = "") -> dict[str, Any]:
+        action_lower = action.lower()
+        high_risk_keywords = ["delete", "drop", "rm ", "format", "shutdown", "reboot", "fork bomb", "eval(", "exec("]
+        medium_risk_keywords = ["write", "edit", "modify", "update", "push", "deploy", "install", "pip install", "npm install"]
+
+        risk_score = 0.0
+        risk_factors = []
+
+        for kw in high_risk_keywords:
+            if kw in action_lower:
+                risk_score += 0.3
+                risk_factors.append(f"high_risk_keyword:{kw}")
+
+        for kw in medium_risk_keywords:
+            if kw in action_lower:
+                risk_score += 0.15
+                risk_factors.append(f"medium_risk_keyword:{kw}")
+
+        if context:
+            context_lower = context.lower()
+            for kw in high_risk_keywords:
+                if kw in context_lower:
+                    risk_score += 0.1
+                    risk_factors.append(f"context_risk:{kw}")
+
+        risk_score = min(risk_score, 1.0)
+
+        if risk_score >= 0.5:
+            classification = "human_approve"
+        elif risk_score >= 0.2:
+            classification = "preview"
+        else:
+            classification = "auto_approve"
+
+        logger.info("Action classified: score=%.2f class=%s factors=%s", risk_score, classification, risk_factors)
+        return {
+            "classification": classification,
+            "risk_score": risk_score,
+            "risk_factors": risk_factors,
+            "action": action[:200],
+        }
+
+    def set_auto_mode(self, enabled: bool, threshold: float = 0.2) -> None:
+        if enabled:
+            self.level = SafetyLevel.L1
+            logger.info("Auto-mode enabled, threshold=%.2f, level=L1", threshold)
+        else:
+            self.level = SafetyLevel.L2
+            logger.info("Auto-mode disabled, level=L2")
+
+    def set_network_policy(self, policy: dict[str, Any]) -> None:
+        allowlist = policy.get("allowlist", [])
+        denylist = policy.get("denylist", [])
+        net_policy = SafetyPolicy(
+            category=CAT_NETWORK_ACCESS,
+            default_level=SafetyLevel.L2,
+            requires_diff=False,
+            description=f"Network: allow={allowlist}, deny={denylist}",
+        )
+        if denylist:
+            for domain in denylist:
+                self.custom_rules.append(SafetyRule(
+                    name=f"network_deny_{domain}",
+                    pattern=re.escape(domain),
+                    action=SafetyAction.BLOCK,
+                    reason=f"Network access to {domain} blocked by policy",
+                    scope="network",
+                ))
+        self.add_policy(net_policy)
+        self._network_policy = policy
+        logger.info("Network policy set: allowlist=%d denylist=%d", len(allowlist), len(denylist))
+
+    def get_network_policy(self) -> dict[str, Any]:
+        return getattr(self, "_network_policy", {"allowlist": [], "denylist": []})
+
     @staticmethod
     def _level_ord(level: SafetyLevel) -> int:
         return {SafetyLevel.L1: 1, SafetyLevel.L2: 2, SafetyLevel.L3: 3}[level]

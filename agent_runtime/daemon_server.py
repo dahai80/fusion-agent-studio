@@ -648,6 +648,19 @@ class DaemonServer:
             "sdk.list_types": self._handle_sdk_list_types,
             "sdk.verify": self._handle_sdk_verify,
             "sdk.scaffold": self._handle_sdk_scaffold,
+            "safety.classify_action": self._handle_safety_classify_action,
+            "safety.set_auto_mode": self._handle_safety_set_auto_mode,
+            "safety.set_network_policy": self._handle_safety_set_network_policy,
+            "safety.get_network_policy": self._handle_safety_get_network_policy,
+            "team.set_limits": self._handle_team_set_limits,
+            "team.get_limits": self._handle_team_get_limits,
+            "verify.adversarial_verify": self._handle_verify_adversarial_verify,
+            "tool.set_timeout": self._handle_tool_set_timeout,
+            "tool.background_status": self._handle_tool_background_status,
+            "mlx.switch_model_mid_turn": self._handle_mlx_switch_model_mid_turn,
+            "session.set_accessibility": self._handle_session_set_accessibility,
+            "session.get_accessibility": self._handle_session_get_accessibility,
+            "tool.get_schema": self._handle_tool_get_schema,
         }
         return handlers.get(method)
 
@@ -3413,6 +3426,108 @@ class DaemonServer:
             output_dir=params.get("output_dir", ""),
         )
         return result
+
+    async def _handle_safety_classify_action(self, params: dict) -> dict:
+        gateway = self._safety if self._safety else self._get_runtime()._safety
+        action = params.get("action", "")
+        context = params.get("context", "")
+        result = gateway.classify_action(action, context)
+        return result
+
+    async def _handle_safety_set_auto_mode(self, params: dict) -> dict:
+        gateway = self._safety if self._safety else self._get_runtime()._safety
+        enabled = params.get("enabled", True)
+        threshold = params.get("threshold", 0.2)
+        gateway.set_auto_mode(enabled, threshold)
+        return {"auto_mode": enabled, "threshold": threshold}
+
+    async def _handle_safety_set_network_policy(self, params: dict) -> dict:
+        gateway = self._safety if self._safety else self._get_runtime()._safety
+        gateway.set_network_policy(params)
+        return {"set": True}
+
+    async def _handle_safety_get_network_policy(self, params: dict) -> dict:
+        gateway = self._safety if self._safety else self._get_runtime()._safety
+        return gateway.get_network_policy()
+
+    async def _handle_team_set_limits(self, params: dict) -> dict:
+        orch = self._get_orchestrator()
+        result = orch.set_limits(
+            max_concurrent=params.get("max_concurrent"),
+            max_depth=params.get("max_depth"),
+        )
+        return result
+
+    async def _handle_team_get_limits(self, params: dict) -> dict:
+        orch = self._get_orchestrator()
+        return orch.get_limits()
+
+    async def _handle_verify_adversarial_verify(self, params: dict) -> dict:
+        from .verifier import VerificationEngine
+        gateway = self._gateway
+        engine = VerificationEngine(gateway=gateway)
+        claim = params.get("claim", "")
+        context = params.get("context", "")
+        voter_count = params.get("voter_count", 3)
+        threshold = params.get("threshold", 0.6)
+        result = await engine.adversarial_verify(claim, context, voter_count, threshold)
+        return result
+
+    async def _handle_tool_set_timeout(self, params: dict) -> dict:
+        tool_name = params.get("tool_name", "")
+        timeout_ms = params.get("timeout_ms", 30000)
+        if not hasattr(self, "_tool_timeouts"):
+            self._tool_timeouts = {}
+        self._tool_timeouts[tool_name] = timeout_ms
+        logger.info("Tool timeout set: %s=%dms", tool_name, timeout_ms)
+        return {"tool_name": tool_name, "timeout_ms": timeout_ms}
+
+    async def _handle_tool_background_status(self, params: dict) -> dict:
+        task_id = params.get("task_id", "")
+        code_tasks = getattr(self, "_code_tasks", {})
+        task_info = code_tasks.get(task_id)
+        if task_info:
+            return {"task_id": task_id, "status": task_info.get("status", "unknown"), "result": task_info.get("result")}
+        return {"task_id": task_id, "status": "not_found"}
+
+    async def _handle_mlx_switch_model_mid_turn(self, params: dict) -> dict:
+        model = params.get("model", "")
+        if not model:
+            return {"error": "model parameter required"}
+        try:
+            self._gateway.set_default_model(model)
+            logger.info("Mid-turn model switch to: %s", model)
+            return {"switched": True, "model": model}
+        except Exception as e:
+            return {"switched": False, "error": str(e)}
+
+    async def _handle_session_set_accessibility(self, params: dict) -> dict:
+        if not hasattr(self, "_accessibility"):
+            self._accessibility = {"screen_reader": False, "high_contrast": False, "reduced_motion": False}
+        if "screen_reader" in params:
+            self._accessibility["screen_reader"] = params["screen_reader"]
+        if "high_contrast" in params:
+            self._accessibility["high_contrast"] = params["high_contrast"]
+        if "reduced_motion" in params:
+            self._accessibility["reduced_motion"] = params["reduced_motion"]
+        logger.info("Accessibility settings: %s", self._accessibility)
+        return dict(self._accessibility)
+
+    async def _handle_session_get_accessibility(self, params: dict) -> dict:
+        if not hasattr(self, "_accessibility"):
+            self._accessibility = {"screen_reader": False, "high_contrast": False, "reduced_motion": False}
+        return dict(self._accessibility)
+
+    async def _handle_tool_get_schema(self, params: dict) -> dict:
+        tool_name = params.get("tool_name", "")
+        registry = self._get_runtime()._tool_registry
+        if not registry:
+            return {"error": "No tool registry available"}
+        tool = registry.get_tool(tool_name)
+        if not tool:
+            return {"error": f"Tool not found: {tool_name}"}
+        schema = tool.get_schema() if hasattr(tool, "get_schema") else {"name": tool_name}
+        return {"tool_name": tool_name, "schema": schema}
 
 
 def run_daemon(socket_path: str = SOCKET_PATH):
