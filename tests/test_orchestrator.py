@@ -166,7 +166,7 @@ class TestHandoffPattern:
         assert result.results[0]["agent"] == "a1"
 
     async def test_handoff_error_stops_chain(self):
-        from unittest.mock import AsyncMock, patch
+        from unittest.mock import patch
         from agent_runtime.runtime import AgentRuntime
 
         reg = ToolRegistry()
@@ -350,7 +350,6 @@ class TestSupervisorPattern:
         from server.fusion_mlx_client import LLMResponse
         from unittest.mock import patch
         from agent_runtime.runtime import AgentRuntime
-        from agent_runtime.context import AgentEvent, AgentEventType
 
         mlx = MockMLXClient(responses=[
             LLMResponse(content='{"worker": "w1", "instruction": "do it", "done": false}', tool_calls=[]),

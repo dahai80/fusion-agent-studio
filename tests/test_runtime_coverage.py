@@ -1,19 +1,16 @@
 """Comprehensive tests for agent_runtime.runtime to achieve 90%+ coverage."""
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
 
-import pytest
-from unittest.mock import MagicMock, AsyncMock, patch
+from unittest.mock import MagicMock, AsyncMock
 
-from agent_runtime.context import AgentContext, AgentEvent, AgentEventType
+from agent_runtime.context import AgentContext, AgentEventType
 from agent_runtime.debugger import StepDebugger
 from agent_runtime.graph import AgentGraph, NodeConfig
 from agent_runtime.prompt_templates import PromptTemplate, PromptTemplateManager
 from agent_runtime.runtime import AgentRuntime, ConditionEngine, _MAX_TOOL_CALL_CHAIN
-from agent_runtime.sub_graph import SubGraphRegistry
 from agent_runtime.variable_manager import VariableManager
 from server.fusion_mlx_client import LLMResponse
 
@@ -812,7 +809,7 @@ class TestExecuteConditionNodeException:
 # ---------------------------------------------------------------------------
 class TestExecuteLoopNodeFull:
     async def test_loop_var_non_numeric_uses_iteration_count(self):
-        eng = ConditionEngine()
+        _eng = ConditionEngine()
         ctx = AgentContext()
         ctx.iteration_count = 2
         vm = VariableManager()
@@ -1262,7 +1259,7 @@ class TestExecuteGraphSystemPromptInterpolation:
         async for ev in runtime.execute_graph(g, "hi"):
             events.append(ev)
         assert mlx.call_count == 1
-        call_messages = mlx.call_args_messages if hasattr(mlx, "call_args_messages") else []
+        _call_messages = mlx.call_args_messages if hasattr(mlx, "call_args_messages") else []
 
 
 # Lines 236-238: node not found in execute_graph

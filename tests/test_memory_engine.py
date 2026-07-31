@@ -347,7 +347,7 @@ class TestRecallWithTier:
 
 class TestLLMGatewayIntegration:
     def test_gateway_none_uses_stub(self, engine):
-        mid = engine.store("Test memory for summary", importance=3)
+        _mid = engine.store("Test memory for summary", importance=3)
         result = engine._generate_summary(["entry1", "entry2", "entry3"], "test")
         assert "[Auto-summary of 3 memories in 'test']" in result
 

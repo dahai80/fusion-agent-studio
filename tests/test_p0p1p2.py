@@ -7,32 +7,26 @@ Schemas: GatewayResponse, PlazaMessage, ExecutionPlan, PlanStep, RAGResult, Memo
 SafetyPolicy, DiffPreviewRequest, Document. User instruction: "把所有P0，P1和P2全部落地"
 """
 
-import asyncio
-import json
-import os
 import shutil
 import tempfile
 import time
 
-import pytest
 
 from agent_runtime.plaza import Plaza, PlazaMessage, PlazaChannel
 from agent_runtime.safety import (
-    SafetyGateway, SafetyLevel, SafetyAction, SafetyVerdict,
-    SafetyPolicy, DiffPreviewRequest,
+    SafetyGateway, SafetyLevel, SafetyAction, SafetyPolicy, DiffPreviewRequest,
     CAT_CODE_ANALYSIS, CAT_DOC_RETRIEVAL, CAT_FILE_WRITE,
     CAT_SHELL_EXEC, CAT_GIT_PUSH, CAT_CODE_EDIT,
 )
 from agent_runtime.rag_pipeline import RAGPipeline, RAGConfig, RAGResult
-from agent_runtime.memory_engine import MemoryEngine, MemoryEntry, MemoryTier
+from agent_runtime.memory_engine import MemoryEngine, MemoryTier
 from agent_runtime.planner import PlannerEngine, ExecutionPlan, PlanStep
 from agent_runtime.data_ingestion import (
     WebReader, GitHubReader, NotionReader, PDFReader, DirectoryReader,
-    Document, Chunk, DocumentReader, ETLPipeline, FixedSizeChunker,
 )
 from agent_runtime.agent_package import AgentPackage, AgentManifest
 from agent_runtime.llm_gateway import LLMGateway, ModelConfig, GatewayResponse
-from agent_runtime.graph import AgentGraph, NodeConfig, NodeType
+from agent_runtime.graph import AgentGraph, NodeConfig
 from agent_runtime.runtime import AgentRuntime
 
 
@@ -688,7 +682,7 @@ class TestNodeTypeExtensions:
 
 class TestRuntimeNewNodes:
     def test_set_knowledge_engine(self):
-        gw = LLMGateway()
+        _gw = LLMGateway()
         runtime = AgentRuntime.__new__(AgentRuntime)
         runtime.set_knowledge_engine("mock_engine")
         assert runtime._knowledge_engine == "mock_engine"

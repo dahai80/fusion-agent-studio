@@ -1,7 +1,6 @@
 """Tests for SafetyGateway — 3-level Human-in-the-Loop safety system."""
 
 import asyncio
-import pytest
 import threading
 
 from agent_runtime.safety import (

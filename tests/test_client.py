@@ -1,7 +1,6 @@
 """Tests for fusion-mlx HTTP client."""
 from __future__ import annotations
 
-import pytest
 
 from server.fusion_mlx_client import FusionMLXClient, LLMResponse
 

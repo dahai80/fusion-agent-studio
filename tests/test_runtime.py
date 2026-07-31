@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import pytest
 
-from agent_runtime.context import AgentContext, AgentEvent, AgentEventType
+from agent_runtime.context import AgentContext, AgentEventType
 from agent_runtime.graph import AgentGraph, NodeConfig
 from agent_runtime.runtime import AgentRuntime
 from tools.registry import ToolRegistry

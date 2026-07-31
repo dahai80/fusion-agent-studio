@@ -4,14 +4,14 @@ from __future__ import annotations
 import asyncio
 import tempfile
 from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
 import pytest
 
 from tools.base import BaseTool
 from tools.terminal_tools import TerminalTool
 from tools.file_tools import FileReadTool, FileWriteTool, FileListTool
-from tools.text_tools import TextProcessTool, TextSearchTool
+from tools.text_tools import TextSearchTool
 from tools.git_tools import GitTool
 
 

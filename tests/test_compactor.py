@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-import pytest
 
 from agent_runtime.compactor import Compactor, CompactionConfig
-from agent_runtime.context import AgentEvent, AgentEventType
+from agent_runtime.context import AgentEventType
 from agent_runtime.graph import AgentGraph, NodeConfig
 from agent_runtime.runtime import AgentRuntime
 from tools.base import BaseTool

@@ -1,16 +1,13 @@
 """Tests for Phase 7, 8, 9 modules."""
 from __future__ import annotations
 
-import os
 import asyncio
-import tempfile
-import time
 
 import pytest
 
-from agent_runtime.knowledge_engine import KnowledgeEngine, KnowledgeEntry, _stub_embedding, EMBEDDING_DIM, RRF_K
+from agent_runtime.knowledge_engine import KnowledgeEngine, KnowledgeEntry, _stub_embedding, EMBEDDING_DIM
 from agent_runtime.llm_gateway import LLMGateway, ModelConfig, ModelStats, _ModelCircuitBreaker
-from agent_runtime.swarm_router import SwarmRouter, SwarmAgent, TaskDelegation, HandoffContext, MAX_HOPS
+from agent_runtime.swarm_router import SwarmRouter, SwarmAgent, TaskDelegation, HandoffContext
 
 
 class TestKnowledgeEntry:

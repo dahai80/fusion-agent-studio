@@ -1,7 +1,6 @@
 """Tests for fusion-mlx process manager."""
 from __future__ import annotations
 
-import pytest
 
 from server.process_manager import FusionMLXProcessManager
 

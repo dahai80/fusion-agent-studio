@@ -1,11 +1,14 @@
 """Tests for new P0 capabilities: tools, undo_manager, error_handler, templates."""
 from __future__ import annotations
 
+import hashlib
+from unittest.mock import MagicMock
+
 import pytest
 from agent_runtime.undo_manager import UndoManager, CanvasSnapshot
 from agent_runtime.graph import AgentGraph, NodeConfig
 from agent_runtime.runtime import AgentRuntime
-from agent_runtime.context import AgentContext, AgentEventType
+from agent_runtime.context import AgentEventType
 from agent_runtime.templates import TemplateManager, register_default_templates
 from tools.registry import ToolRegistry
 from tools.http_tools import HttpRequestTool
@@ -425,7 +428,3 @@ class TestTemplates:
         register_default_templates()
         assert TemplateManager.has("code-assistant") is True
         assert TemplateManager.has("nonexistent") is False
-
-
-import hashlib
-from unittest.mock import MagicMock

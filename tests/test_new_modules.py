@@ -2,8 +2,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
-import os
 import pytest
 
 from agent_runtime.fusion_code_bridge import FusionCodeBridge, CodeTask, CodeResult
@@ -91,7 +89,7 @@ class TestFusionCodeBridge:
         async for line in bridge.execute_stream(task):
             lines.append(line)
         assert len(lines) >= 1
-        assert any("stream-test" in l for l in lines)
+        assert any("stream-test" in line for line in lines)
 
     @pytest.mark.asyncio
     async def test_cancel_running_process(self):

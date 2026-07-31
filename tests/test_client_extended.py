@@ -1,12 +1,10 @@
 """Tests for extended FusionMLXClient features: streaming, OpenClaw sessions, MCP."""
 from __future__ import annotations
 
-import json
 
-import pytest
 
 from server.fusion_mlx_client import (
-    FusionMLXClient, LLMResponse, StreamChunk, MCPTool, MCPResource,
+    FusionMLXClient, StreamChunk, MCPTool, MCPResource,
 )
 
 
@@ -378,7 +376,7 @@ class TestMCPProtocol:
         mock_http_client.post = AsyncMock(return_value=mock_resp)
         client._client = mock_http_client
 
-        result = await client.mcp_call_tool("calc", {"expr": "1+1"}, server_name="math_server")
+        await client.mcp_call_tool("calc", {"expr": "1+1"}, server_name="math_server")
         call_args = mock_http_client.post.call_args
         payload = call_args[1]["json"]
         assert payload["server"] == "math_server"

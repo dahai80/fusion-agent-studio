@@ -352,7 +352,7 @@ class TestDaemonMemory:
             {"content": "Test memory content", "scope": "test", "importance": 7},
         )
         assert "entry_id" in store_resp["result"]
-        entry_id = store_resp["result"]["entry_id"]
+        _entry_id = store_resp["result"]["entry_id"]
 
         recall_resp = await _rpc_call(
             daemon.socket_path, "memory.recall",

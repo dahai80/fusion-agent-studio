@@ -1,16 +1,11 @@
 """Tests for AgentPackage and AgentManifest — .fusion-agent package system."""
 
-import json
 import pytest
 import tempfile
 
 from agent_runtime.agent_package import (
     AgentManifest,
     AgentPackage,
-    FUSION_AGENT_DIR,
-    MANIFEST_FILE,
-    SOUL_FILE,
-    MEMORY_FILE,
 )
 
 

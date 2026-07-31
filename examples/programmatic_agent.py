@@ -13,16 +13,15 @@ Run this with a running fusion-mlx server:
 """
 
 import asyncio
-import json
 import sys
 from pathlib import Path
 
 # Add parent directory to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from agent_runtime import AgentRuntime, AgentGraph, NodeConfig, AgentContext
+from agent_runtime import AgentRuntime, AgentGraph, NodeConfig
 from agent_runtime.variable_manager import VariableManager
-from agent_runtime.debugger import StepDebugger, DebuggerState
+from agent_runtime.debugger import StepDebugger
 from agent_runtime.json_schema import JsonSchemaValidator
 from agent_runtime.exporter import GraphExporter
 from agent_runtime.templates import TemplateManager, register_default_templates

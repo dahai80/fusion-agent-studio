@@ -1,6 +1,4 @@
 """Tests for agent.* and marketplace.* daemon handlers."""
-import asyncio
-import json
 from pathlib import Path
 
 import pytest

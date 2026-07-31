@@ -2,14 +2,13 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from agent_runtime.debugger import Breakpoint, DebugEvent, DebuggerState, StepDebugger
+from agent_runtime.debugger import DebuggerState, StepDebugger
 from agent_runtime.json_schema import JsonSchemaValidator
 from agent_runtime.triggers import CronJob, CronManager, Webhook, WebhookManager
 

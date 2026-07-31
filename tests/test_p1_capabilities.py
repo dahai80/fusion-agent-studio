@@ -1,15 +1,13 @@
 """Tests for P1 capabilities: plugin, debugger, variable, schema, prompt, subgraph, deploy."""
 from __future__ import annotations
 
-import json
 import tempfile
 from pathlib import Path
-from unittest.mock import MagicMock, patch
 
 import pytest
 
 from agent_runtime.variable_manager import VariableManager
-from agent_runtime.debugger import StepDebugger, DebuggerState, Breakpoint
+from agent_runtime.debugger import StepDebugger, DebuggerState
 from agent_runtime.json_schema import JsonSchemaValidator
 from agent_runtime.prompt_templates import PromptTemplate, PromptTemplateManager, register_default_prompt_templates
 from agent_runtime.sub_graph import SubGraphNode, SubGraphRegistry

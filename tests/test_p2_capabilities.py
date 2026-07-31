@@ -4,14 +4,13 @@ from __future__ import annotations
 import json
 import tempfile
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock
 
 import pytest
 
 from agent_runtime.triggers import WebhookManager, CronManager, Webhook, CronJob
 from agent_runtime.i18n import I18n
 from tools.db_tools import SqliteQueryTool, AnnotationNode, PerformanceMonitor
-from tools.registry import ToolRegistry
 
 
 # ── WebhookManager ──
@@ -194,7 +193,8 @@ class TestSqliteQueryTool:
 
     @pytest.mark.asyncio
     async def test_select(self):
-        import tempfile, os
+        import tempfile
+        import os
         with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
             db_path = f.name
         try:
@@ -212,7 +212,8 @@ class TestSqliteQueryTool:
 
     @pytest.mark.asyncio
     async def test_select_empty(self):
-        import tempfile, os
+        import tempfile
+        import os
         with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
             db_path = f.name
         try:

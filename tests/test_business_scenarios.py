@@ -22,9 +22,7 @@ Scenarios:
 14. RAG retrieve (graceful without model)
 15. Ping
 """
-import json
 import tempfile
-import time
 from pathlib import Path
 
 import pytest
