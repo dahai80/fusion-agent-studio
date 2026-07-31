@@ -220,6 +220,90 @@ def run_server(host: str = "0.0.0.0", port: int = 8000):
     uvicorn.run(app, host=host, port=port, log_level="info")
 
 
+# ── Agent REST endpoints (#29, #30, #31, #34) ──
+# Callers: fusion-studio GUI, external API clients.
+# Affected API: GET /agents/published, /agents/{id}/definition|status|history|artifacts
+# Data schemas: AgentStatusTracker, ArtifactManager.
+# User instruction: "后续功能也要马上启动落地实施"
+
+_status_tracker = None
+_artifact_mgr = None
+
+
+def _get_status_tracker():
+    global _status_tracker
+    if _status_tracker is None:
+        from agent_runtime.agent_api import AgentStatusTracker
+        _status_tracker = AgentStatusTracker()
+    return _status_tracker
+
+
+def _get_artifact_mgr():
+    global _artifact_mgr
+    if _artifact_mgr is None:
+        from agent_runtime.artifact_tools import ArtifactManager
+        _artifact_mgr = ArtifactManager()
+    return _artifact_mgr
+
+
+@app.get("/agents/published")
+async def list_published_agents():
+    import json
+    from pathlib import Path
+    idx_path = Path.home() / ".fusion-agent-studio" / "agents" / "index.json"
+    agents_index = {}
+    if idx_path.exists():
+        try:
+            with open(idx_path) as f:
+                agents_index = json.load(f)
+        except Exception:
+            pass
+    tracker = _get_status_tracker()
+    agents = tracker.list_published(agents_index)
+    return {"agents": agents}
+
+
+@app.get("/agents/{agent_id}/definition")
+async def get_agent_definition(agent_id: str):
+    import json
+    from pathlib import Path
+    idx_path = Path.home() / ".fusion-agent-studio" / "agents" / "index.json"
+    agents_index = {}
+    if idx_path.exists():
+        try:
+            with open(idx_path) as f:
+                agents_index = json.load(f)
+        except Exception:
+            pass
+    manifest_data = agents_index.get(agent_id)
+    if not manifest_data:
+        raise HTTPException(status_code=404, detail=f"Agent {agent_id} not found")
+    tracker = _get_status_tracker()
+    result = tracker.get_definition(manifest_data)
+    return result
+
+
+@app.get("/agents/{agent_id}/status")
+async def get_agent_status(agent_id: str):
+    tracker = _get_status_tracker()
+    status = tracker.get_status(agent_id)
+    return {"agent_id": agent_id, "status": status.to_dict() if hasattr(status, "to_dict") else status}
+
+
+@app.get("/agents/{agent_id}/history")
+async def get_agent_history(agent_id: str, limit: int = 20):
+    tracker = _get_status_tracker()
+    history = tracker.get_history(agent_id, limit=limit)
+    return {"agent_id": agent_id, "history": [h.to_dict() if hasattr(h, "to_dict") else h for h in history]}
+
+
+@app.get("/agents/{agent_id}/artifacts")
+async def list_agent_artifacts(agent_id: str):
+    mgr = _get_artifact_mgr()
+    artifacts = mgr.list_artifacts(agent_id=agent_id)
+    return {"artifacts": artifacts}
+
+
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
     run_server()

@@ -72,6 +72,10 @@ class DaemonServer:
         self._workflow_engine = None
         self._session_manager = None
         self._telemetry_engine = None
+        self._status_tracker = None
+        self._cowork_manager = None
+        self._langgraph_engine = None
+        self._artifact_manager = None
 
     def _get_runtime(self) -> AgentRuntime:
         if self._runtime is None:
@@ -189,6 +193,34 @@ class DaemonServer:
             self._telemetry_engine = TelemetryEngine()
             logger.info("TelemetryEngine created")
         return self._telemetry_engine
+
+    def _get_status_tracker(self):
+        if self._status_tracker is None:
+            from .agent_api import AgentStatusTracker
+            self._status_tracker = AgentStatusTracker()
+            logger.info("AgentStatusTracker created")
+        return self._status_tracker
+
+    def _get_cowork_manager(self):
+        if self._cowork_manager is None:
+            from .cowork_manager import CoworkManager
+            self._cowork_manager = CoworkManager()
+            logger.info("CoworkManager created")
+        return self._cowork_manager
+
+    def _get_langgraph_engine(self):
+        if self._langgraph_engine is None:
+            from .langgraph_engine import LangGraphEngine
+            self._langgraph_engine = LangGraphEngine()
+            logger.info("LangGraphEngine created")
+        return self._langgraph_engine
+
+    def _get_artifact_manager(self):
+        if self._artifact_manager is None:
+            from .artifact_tools import ArtifactManager
+            self._artifact_manager = ArtifactManager()
+            logger.info("ArtifactManager created")
+        return self._artifact_manager
 
     def _serialize(self, obj):
         if obj is None:
@@ -661,6 +693,32 @@ class DaemonServer:
             "session.set_accessibility": self._handle_session_set_accessibility,
             "session.get_accessibility": self._handle_session_get_accessibility,
             "tool.get_schema": self._handle_tool_get_schema,
+            "agent.published_list": self._handle_agent_published_list,
+            "agent.get_definition": self._handle_agent_get_definition,
+            "agent.status": self._handle_agent_status,
+            "agent.history": self._handle_agent_history,
+            "agent.cowork.list": self._handle_agent_cowork_list,
+            "agent.cowork.add": self._handle_agent_cowork_add,
+            "agent.cowork.remove": self._handle_agent_cowork_remove,
+            "agent.cowork.call": self._handle_agent_cowork_call,
+            "agent.cowork.status": self._handle_agent_cowork_status,
+            "agent.context_inject": self._handle_agent_context_inject,
+            "langgraph.create": self._handle_langgraph_create,
+            "langgraph.get": self._handle_langgraph_get,
+            "langgraph.list": self._handle_langgraph_list,
+            "langgraph.delete": self._handle_langgraph_delete,
+            "langgraph.run": self._handle_langgraph_run,
+            "langgraph.approve": self._handle_langgraph_approve,
+            "langgraph.cancel": self._handle_langgraph_cancel,
+            "langgraph.get_run": self._handle_langgraph_get_run,
+            "artifact.create": self._handle_artifact_create,
+            "artifact.update": self._handle_artifact_update,
+            "artifact.search": self._handle_artifact_search,
+            "artifact.get": self._handle_artifact_get,
+            "artifact.list": self._handle_artifact_list,
+            "artifact.delete": self._handle_artifact_delete,
+            "artifact.export": self._handle_artifact_export,
+            "artifact.context": self._handle_artifact_context,
         }
         return handlers.get(method)
 
@@ -3528,6 +3586,202 @@ class DaemonServer:
             return {"error": f"Tool not found: {tool_name}"}
         schema = tool.get_schema() if hasattr(tool, "get_schema") else {"name": tool_name}
         return {"tool_name": tool_name, "schema": schema}
+
+    # ── Agent API handlers (#29, #31) ──
+
+    async def _handle_agent_published_list(self, params: dict) -> dict:
+        tracker = self._get_status_tracker()
+        agents = tracker.list_published(self._agents)
+        return {"agents": agents}
+
+    async def _handle_agent_get_definition(self, params: dict) -> dict:
+        agent_id = params.get("agent_id", "")
+        if not agent_id:
+            return {"status": "error", "message": "agent_id parameter required"}
+        tracker = self._get_status_tracker()
+        manifest_data = self._agents.get(agent_id)
+        if not manifest_data:
+            self._load_agents_index()
+            manifest_data = self._agents.get(agent_id)
+        if not manifest_data:
+            return {"status": "error", "message": f"Agent {agent_id} not found"}
+        result = tracker.get_definition(manifest_data)
+        return result
+
+    async def _handle_agent_status(self, params: dict) -> dict:
+        agent_id = params.get("agent_id", "")
+        tracker = self._get_status_tracker()
+        status = tracker.get_status(agent_id)
+        return {"agent_id": agent_id, "status": status.to_dict() if hasattr(status, "to_dict") else status}
+
+    async def _handle_agent_history(self, params: dict) -> dict:
+        agent_id = params.get("agent_id", "")
+        limit = params.get("limit", 20)
+        tracker = self._get_status_tracker()
+        history = tracker.get_history(agent_id, limit=limit)
+        return {"agent_id": agent_id, "history": [h.to_dict() if hasattr(h, "to_dict") else h for h in history]}
+
+    # ── Agent Cowork handlers (#36, #37) ──
+
+    async def _handle_agent_cowork_list(self, params: dict) -> dict:
+        space_id = params.get("space_id", "")
+        mgr = self._get_cowork_manager()
+        agents = mgr.list_agents(space_id)
+        return {"agents": agents}
+
+    async def _handle_agent_cowork_add(self, params: dict) -> dict:
+        space_id = params.get("space_id", "")
+        agent_id = params.get("agent_id", "")
+        role = params.get("role", "member")
+        permission = params.get("permission", "all_member")
+        mgr = self._get_cowork_manager()
+        result = mgr.add_agent(space_id, agent_id, role=role, permission=permission)
+        logger.info("agent.cowork.add: space=%s agent=%s", space_id, agent_id)
+        return result
+
+    async def _handle_agent_cowork_remove(self, params: dict) -> dict:
+        space_id = params.get("space_id", "")
+        agent_id = params.get("agent_id", "")
+        mgr = self._get_cowork_manager()
+        result = mgr.remove_agent(space_id, agent_id)
+        logger.info("agent.cowork.remove: space=%s agent=%s", space_id, agent_id)
+        return result
+
+    async def _handle_agent_cowork_call(self, params: dict) -> dict:
+        space_id = params.get("space_id", "")
+        agent_id = params.get("agent_id", "")
+        caller_id = params.get("caller_id", "")
+        message = params.get("message", "")
+        mgr = self._get_cowork_manager()
+        result = await mgr.call_agent(space_id, agent_id, caller_id=caller_id, message=message)
+        logger.info("agent.cowork.call: space=%s agent=%s caller=%s", space_id, agent_id, caller_id)
+        return result
+
+    async def _handle_agent_cowork_status(self, params: dict) -> dict:
+        space_id = params.get("space_id", "")
+        agent_id = params.get("agent_id", "")
+        mgr = self._get_cowork_manager()
+        status = mgr.get_agent_status(space_id, agent_id)
+        return {"status": status}
+
+    async def _handle_agent_context_inject(self, params: dict) -> dict:
+        space_id = params.get("space_id", "")
+        agent_id = params.get("agent_id", "")
+        mode = params.get("mode", "recent_n")
+        recent_n = params.get("recent_n", 10)
+        mgr = self._get_cowork_manager()
+        context = mgr.inject_context(space_id, agent_id, mode=mode, recent_n=recent_n)
+        return {"context": context}
+
+    # ── LangGraph handlers (#35) ──
+
+    async def _handle_langgraph_create(self, params: dict) -> dict:
+        from .langgraph_engine import WorkflowDefinition
+        engine = self._get_langgraph_engine()
+        wf = WorkflowDefinition.from_dict(params)
+        result = engine.create_workflow(wf)
+        logger.info("langgraph.create: wf_id=%s name=%s", result.get("wf_id", ""), params.get("name", ""))
+        return result
+
+    async def _handle_langgraph_get(self, params: dict) -> dict:
+        wf_id = params.get("wf_id", "")
+        engine = self._get_langgraph_engine()
+        return engine.get_workflow(wf_id)
+
+    async def _handle_langgraph_list(self, params: dict) -> dict:
+        engine = self._get_langgraph_engine()
+        workflows = engine.list_workflows()
+        return {"workflows": workflows}
+
+    async def _handle_langgraph_delete(self, params: dict) -> dict:
+        wf_id = params.get("wf_id", "")
+        engine = self._get_langgraph_engine()
+        return engine.delete_workflow(wf_id)
+
+    async def _handle_langgraph_run(self, params: dict) -> dict:
+        wf_id = params.get("wf_id", "")
+        trigger_type = params.get("trigger_type", "manual")
+        input_data = params.get("input_data")
+        engine = self._get_langgraph_engine()
+        result = await engine.run_workflow(wf_id, trigger_type=trigger_type, input_data=input_data)
+        logger.info("langgraph.run: wf_id=%s status=%s", wf_id, result.get("status"))
+        return result
+
+    async def _handle_langgraph_approve(self, params: dict) -> dict:
+        run_id = params.get("run_id", "")
+        action = params.get("action", "approve")
+        reviewer = params.get("reviewer", "")
+        comment = params.get("comment", "")
+        engine = self._get_langgraph_engine()
+        result = engine.approve_run(run_id, action=action, reviewer=reviewer, comment=comment)
+        logger.info("langgraph.approve: run_id=%s action=%s", run_id, action)
+        return result
+
+    async def _handle_langgraph_cancel(self, params: dict) -> dict:
+        run_id = params.get("run_id", "")
+        engine = self._get_langgraph_engine()
+        return engine.cancel_run(run_id)
+
+    async def _handle_langgraph_get_run(self, params: dict) -> dict:
+        run_id = params.get("run_id", "")
+        engine = self._get_langgraph_engine()
+        return engine.get_run(run_id)
+
+    # ── Artifact handlers (#32, #33, #34) ──
+
+    async def _handle_artifact_create(self, params: dict) -> dict:
+        agent_id = params.get("agent_id", "")
+        name = params.get("name", "")
+        artifact_type = params.get("artifact_type", "document")
+        content = params.get("content", "")
+        metadata = params.get("metadata")
+        mgr = self._get_artifact_manager()
+        return mgr.create_artifact(agent_id, name, artifact_type=artifact_type, content=content, metadata=metadata)
+
+    async def _handle_artifact_update(self, params: dict) -> dict:
+        artifact_id = params.get("artifact_id", "")
+        agent_id = params.get("agent_id", "")
+        content = params.get("content")
+        metadata = params.get("metadata")
+        mgr = self._get_artifact_manager()
+        return mgr.update_artifact(artifact_id, agent_id, content=content, metadata=metadata)
+
+    async def _handle_artifact_search(self, params: dict) -> dict:
+        query = params.get("query", "")
+        artifact_type = params.get("artifact_type", "")
+        owner_agent_id = params.get("owner_agent_id", "")
+        mgr = self._get_artifact_manager()
+        results = mgr.search_artifacts(query=query, artifact_type=artifact_type, owner_agent_id=owner_agent_id)
+        return {"results": results}
+
+    async def _handle_artifact_get(self, params: dict) -> dict:
+        artifact_id = params.get("artifact_id", "")
+        mgr = self._get_artifact_manager()
+        return mgr.get_artifact(artifact_id)
+
+    async def _handle_artifact_list(self, params: dict) -> dict:
+        agent_id = params.get("agent_id", "")
+        mgr = self._get_artifact_manager()
+        artifacts = mgr.list_artifacts(agent_id=agent_id)
+        return {"artifacts": artifacts}
+
+    async def _handle_artifact_delete(self, params: dict) -> dict:
+        artifact_id = params.get("artifact_id", "")
+        agent_id = params.get("agent_id", "")
+        mgr = self._get_artifact_manager()
+        return mgr.delete_artifact(artifact_id, agent_id=agent_id)
+
+    async def _handle_artifact_export(self, params: dict) -> dict:
+        artifact_id = params.get("artifact_id", "")
+        mgr = self._get_artifact_manager()
+        return mgr.export_artifact(artifact_id)
+
+    async def _handle_artifact_context(self, params: dict) -> dict:
+        agent_id = params.get("agent_id", "")
+        limit = params.get("limit", 5)
+        mgr = self._get_artifact_manager()
+        context = mgr.get_active_artifacts_context(agent_id, limit=limit)
+        return {"context": context}
 
 
 def run_daemon(socket_path: str = SOCKET_PATH):
