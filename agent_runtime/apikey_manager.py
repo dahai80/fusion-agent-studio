@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import os
 import secrets
 import time
 from dataclasses import dataclass, field
@@ -13,6 +14,7 @@ logger = logging.getLogger(__name__)
 
 APIKEYS_DIR = "apikeys"
 APIKEYS_INDEX = "apikeys_index.json"
+_PBKDF2_ITERS = 100_000
 
 
 @dataclass
@@ -57,8 +59,24 @@ class ApiKeyConfig:
         )
 
 
-def _hash_key(key: str) -> str:
-    return hashlib.sha256(key.encode()).hexdigest()
+def _hash_key(key: str, salt: str | None = None) -> str:
+    if salt is None:
+        salt = secrets.token_hex(16)
+    derived = hashlib.pbkdf2_hmac("sha256", key.encode(), salt.encode(), _PBKDF2_ITERS)
+    return f"pbkdf2${_PBKDF2_ITERS}${salt}${derived.hex()}"
+
+
+def _verify_key(key: str, stored: str) -> bool:
+    if not stored:
+        return False
+    if stored.startswith("pbkdf2$"):
+        try:
+            _, iters_s, salt, hash_hex = stored.split("$")
+            derived = hashlib.pbkdf2_hmac("sha256", key.encode(), salt.encode(), int(iters_s))
+            return secrets.compare_digest(derived.hex(), hash_hex)
+        except (ValueError, TypeError):
+            return False
+    return secrets.compare_digest(hashlib.sha256(key.encode()).hexdigest(), stored)
 
 
 class ApiKeyManager:
@@ -86,6 +104,10 @@ class ApiKeyManager:
 
     def _persist_index(self) -> None:
         self.base_path.mkdir(parents=True, exist_ok=True)
+        try:
+            os.chmod(self.base_path, 0o700)
+        except OSError as exc:
+            logger.warning("Could not set apikeys dir perms: %s", exc)
         data = []
         for k in self._keys.values():
             d = k.to_dict()
@@ -93,6 +115,10 @@ class ApiKeyManager:
             data.append(d)
         with open(self.index_path, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=4, ensure_ascii=False)
+        try:
+            os.chmod(self.index_path, 0o600)
+        except OSError as exc:
+            logger.warning("Could not set apikeys index perms: %s", exc)
         logger.debug("Persisted API keys index: %d entries", len(data))
 
     def create(self, name: str, permissions: list[str] | None = None,
@@ -155,9 +181,8 @@ class ApiKeyManager:
         return {"updated": True, "key": cfg.to_dict()}
 
     def validate(self, raw_key: str, agent_id: str | None = None, client_ip: str | None = None) -> dict[str, Any]:
-        key_hash = _hash_key(raw_key)
         for cfg in self._keys.values():
-            if cfg.key_hash == key_hash:
+            if _verify_key(raw_key, cfg.key_hash):
                 if cfg.expires_at and time.time() > cfg.expires_at:
                     return {"valid": False, "reason": "key_expired"}
                 if cfg.allowed_agent_ids and agent_id and agent_id not in cfg.allowed_agent_ids:

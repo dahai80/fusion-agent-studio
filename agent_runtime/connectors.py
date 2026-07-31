@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -95,9 +96,17 @@ class ConnectorManager:
 
     def _persist_index(self) -> None:
         self.base_path.mkdir(parents=True, exist_ok=True)
+        try:
+            os.chmod(self.base_path, 0o700)
+        except OSError as exc:
+            logger.warning("Could not set connectors dir perms: %s", exc)
         data = [c.to_dict_full() for c in self._connectors.values()]
         with open(self.index_path, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=4, ensure_ascii=False)
+        try:
+            os.chmod(self.index_path, 0o600)
+        except OSError as exc:
+            logger.warning("Could not set connectors index perms: %s", exc)
         logger.debug("Persisted connectors index: %d entries", len(data))
 
     def list_connectors(self) -> list[dict[str, Any]]:
