@@ -2,12 +2,10 @@
 
 from __future__ import annotations
 
-import json
 import time
 import uuid
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any
 
 
 class AgentEventType(str, Enum):

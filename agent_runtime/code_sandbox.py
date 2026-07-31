@@ -174,8 +174,8 @@ class DiffPreview:
             tofile=f"b/{file_path}",
         ))
         diff_text = "".join(diff_lines)
-        additions = sum(1 for l in diff_lines if l.startswith("+") and not l.startswith("+++"))
-        deletions = sum(1 for l in diff_lines if l.startswith("-") and not l.startswith("---"))
+        additions = sum(1 for line in diff_lines if line.startswith("+") and not line.startswith("+++"))
+        deletions = sum(1 for line in diff_lines if line.startswith("-") and not line.startswith("---"))
         has_changes = bool(diff_text)
 
         logger.debug("Diff: %s +%d/-%d lines", file_path, additions, deletions)

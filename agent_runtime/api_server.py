@@ -6,10 +6,8 @@ WebSocket for real-time event streaming during graph execution.
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 import uuid
-from dataclasses import dataclass, field
 from typing import Any
 
 from contextlib import asynccontextmanager
@@ -18,6 +16,7 @@ from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
+from agent_runtime.persistence import AgentStore
 from agent_runtime.runtime import AgentRuntime
 
 logger = logging.getLogger(__name__)
@@ -33,7 +32,7 @@ async def lifespan(application: FastAPI):
     logger.info("Fusion Agent Studio API shutting down")
 
 
-app = FastAPI(title="Fusion Agent Studio API", version="0.1.0", lifespan=lifespan)
+app = FastAPI(title="Fusion Agent Studio API", version="0.1.4", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -70,8 +69,6 @@ class ExecutionResponse(BaseModel):
     status: str
 
 
-from agent_runtime.persistence import AgentStore
-
 _store: AgentStore | None = None
 _runtime: AgentRuntime | None = None
 _active_sessions: dict[str, asyncio.Task] = {}
@@ -93,8 +90,8 @@ def _get_runtime() -> AgentRuntime:
 
 @app.get("/health")
 async def health():
-    store = _get_store()
-    return {"status": "ok", "version": "0.1.0", "persistence": "sqlite"}
+    _store = _get_store()
+    return {"status": "ok", "version": "0.1.4", "persistence": "sqlite"}
 
 
 @app.post("/graphs", response_model=GraphResponse)
@@ -167,7 +164,7 @@ async def execute_graph(graph_id: str, req: GraphExecuteRequest):
         async for event in rt.execute_graph(graph, req.input_text):
             ev_dict = event.to_dict() if hasattr(event, "to_dict") else {"type": str(event)}
             events.append(ev_dict)
-    except Exception as e:
+    except Exception:
         logger.exception("Graph execution failed: %s", graph_id)
         return ExecutionResponse(session_id=session_id, events=events, status="error")
 

@@ -1,7 +1,6 @@
 """Database tools — SQLite and PostgreSQL query execution."""
 from __future__ import annotations
 
-import json
 from .base import BaseTool
 
 

@@ -190,7 +190,7 @@ class RAGPipeline:
 
         if cfg.mode == "vector" or cfg.mode == "hybrid_vector":
             try:
-                loop = asyncio.get_running_loop()
+                _loop = asyncio.get_running_loop()
                 logger.warning("retrieve() is sync but event loop is running; "
                                "vector retrieval skipped — use aretrieve() instead")
                 result = None

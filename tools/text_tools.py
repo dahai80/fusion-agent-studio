@@ -52,7 +52,7 @@ class TextProcessTool(BaseTool):
             return f"Word count: {len(words)}"
         elif operation == "count_lines":
             lines = text.split("\n")
-            non_empty = sum(1 for l in lines if l.strip())
+            non_empty = sum(1 for line in lines if line.strip())
             return f"Total lines: {len(lines)}, Non-empty: {non_empty}"
         elif operation == "count_chars":
             return f"Character count: {len(text)} (with spaces: {len(text)})"

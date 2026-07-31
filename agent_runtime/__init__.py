@@ -27,7 +27,7 @@ from .fmp_router import AgentInfo, FMPMessageV2, AgentCircuitBreaker, MessageDed
 from .knowledge_engine import KnowledgeEngine, KnowledgeEntry
 from .llm_gateway import LLMGateway, ModelConfig, ModelStats, GatewayResponse
 from .rag_pipeline import RAGPipeline, RAGConfig, RAGResult, RAGNodeMixin, VectorRetrievalStrategy
-from .swarm_router import SwarmRouter, SwarmAgent, TaskDelegation, HandoffContext
+from .swarm_router import SwarmRouter, SwarmAgent, TaskDelegation
 from .plaza import Plaza, PlazaMessage, PlazaChannel
 from .planner import PlannerEngine, PlanStep, ExecutionPlan
 from .verifier import VerificationEngine, VerificationResult
@@ -68,7 +68,7 @@ __all__ = [
     "KnowledgeEngine", "KnowledgeEntry",
     "LLMGateway", "ModelConfig", "ModelStats", "GatewayResponse",
     "RAGPipeline", "RAGConfig", "RAGResult", "RAGNodeMixin", "VectorRetrievalStrategy",
-    "SwarmRouter", "SwarmAgent", "TaskDelegation", "HandoffContext",
+    "SwarmRouter", "SwarmAgent", "TaskDelegation",
     "Plaza", "PlazaMessage", "PlazaChannel",
     "PlannerEngine", "PlanStep", "ExecutionPlan",
     "VerificationEngine", "VerificationResult",

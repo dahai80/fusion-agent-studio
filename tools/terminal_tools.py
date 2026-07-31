@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import shlex
 
 from .base import BaseTool
 
@@ -72,7 +71,7 @@ class TerminalTool(BaseTool):
                     return f"{prefix}:\n{result}"
                 return prefix
 
-            return result if result else f"Command completed (exit code 0, no output)"
+            return result if result else "Command completed (exit code 0, no output)"
 
         except FileNotFoundError:
             return f"Error: Command not found: {command.split()[0]}"

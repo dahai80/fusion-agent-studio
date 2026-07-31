@@ -5,11 +5,8 @@ template search with filtering, and one-click install.
 """
 from __future__ import annotations
 
-import copy
 import json
 import logging
-import os
-import shutil
 import time
 import uuid
 from dataclasses import dataclass, field

@@ -12,7 +12,6 @@ import asyncio
 import logging
 import threading
 import time
-import uuid
 from dataclasses import dataclass, field
 from typing import Any, AsyncIterator
 
@@ -685,9 +684,6 @@ class LLMGateway:
             s = self._stats.get(model_name)
             return s.to_dict() if s else {}
         return {name: s.to_dict() for name, s in self._stats.items()}
-
-    def list_models(self) -> list[ModelConfig]:
-        return list(self._models.values())
 
     def get_model(self, name: str) -> ModelConfig | None:
         return self._models.get(name)

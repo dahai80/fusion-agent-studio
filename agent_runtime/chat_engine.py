@@ -12,7 +12,6 @@ from typing import Any, AsyncIterator, TYPE_CHECKING
 if TYPE_CHECKING:
     from .runtime import AgentRuntime
     from .persistence import AgentStore
-    from .graph import AgentGraph
 
 logger = logging.getLogger(__name__)
 

@@ -1,6 +1,9 @@
 """Data format tools — JSON, CSV, YAML, Base64 parsing and conversion."""
 from __future__ import annotations
-import json, csv, io, base64
+import json
+import csv
+import io
+import base64
 from .base import BaseTool
 
 
@@ -19,7 +22,7 @@ class JsonParseTool(BaseTool):
     async def execute(self, **kwargs) -> str:
         input_str = kwargs.get("input", "")
         operation = kwargs.get("operation", "parse")
-        query = kwargs.get("query", "")
+        _query = kwargs.get("query", "")
         if not input_str:
             return "Error: input is required"
         try:

@@ -25,7 +25,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from .graph import AgentGraph, Edge, NodeConfig
+from .graph import AgentGraph, NodeConfig
 from .llm_gateway import LLMGateway
 from .persistence import AgentStore
 from .rag_pipeline import RAGConfig, RAGPipeline
@@ -1101,9 +1101,9 @@ class DaemonServer:
         checks["mlx_api"] = {"ok": mlx_reachable}
 
         try:
-            import httpx
-            checks["httpx"] = {"ok": True}
-        except ImportError:
+            import importlib.util
+            checks["httpx"] = {"ok": importlib.util.find_spec("httpx") is not None}
+        except Exception:
             checks["httpx"] = {"ok": False, "message": "httpx not installed"}
 
         socket_ok = os.path.exists(self.socket_path)
@@ -1314,7 +1314,7 @@ class DaemonServer:
     # ── Cron handlers ──
 
     def _get_cron_manager(self):
-        from .triggers import CronManager, CronJob
+        from .triggers import CronManager
         if not hasattr(self, "_cron_manager") or self._cron_manager is None:
             import os
             db_path = os.path.expanduser("~/.fusion-agent-studio/cron.db")
@@ -1368,7 +1368,7 @@ class DaemonServer:
             return {"status": "error", "message": "name parameter required"}
         if not self._SAFE_TOOL_NAME_RE.match(name):
             return {"status": "error", "message": f"invalid tool name '{name}'"}
-        tool_type = params.get("type", "terminal")
+        _tool_type = params.get("type", "terminal")
         description = params.get("description", "")
         tool_params = params.get("parameters", {})
 
@@ -1773,7 +1773,7 @@ class DaemonServer:
         if not agent_id:
             return {"status": "error", "message": "agent_id parameter required"}
 
-        from .agent_package import AgentPackage, AgentManifest
+        from .agent_package import AgentPackage
         agent_dir = self._agent_dir(agent_id)
         pkg = AgentPackage(agent_dir)
         if not pkg.exists:
@@ -1830,7 +1830,7 @@ class DaemonServer:
         if not agent_id:
             return {"status": "error", "message": "agent_id parameter required"}
 
-        from .agent_package import AgentPackage, AgentManifest
+        from .agent_package import AgentPackage
         agent_dir = self._agent_dir(agent_id)
         pkg = AgentPackage(agent_dir)
         if not pkg.exists:
@@ -2078,7 +2078,7 @@ class DaemonServer:
         }
 
     async def _execute_code_task(self, task: dict):
-        agent_id = task["agent_id"]
+        _agent_id = task["agent_id"]
         code = task["code"]
         language = task["language"]
         timeout = task.get("timeout", 60)
@@ -2414,8 +2414,8 @@ class DaemonServer:
         error_count = 0
         try:
             sessions = self.store.list_sessions()
-            now = time.time()
-            day_ago = now - 86400
+            _now = time.time()
+            day_ago = _now - 86400
             for s in sessions:
                 ts = s.get("timestamp", 0) if isinstance(s, dict) else 0
                 if ts > day_ago:
@@ -2573,7 +2573,7 @@ class DaemonServer:
             pass
         try:
             sessions = self.store.list_sessions()
-            now = time.time()
+            _now = time.time()
             for s in sessions[-20:]:
                 if isinstance(s, dict) and s.get("status") == "error":
                     alerts.append({"id": f"session-error-{s.get('session_id', '')}", "level": "error", "message": f"Session error: {s.get('error', 'unknown')}", "type": "session", "acknowledged": False})
@@ -2985,20 +2985,11 @@ class DaemonServer:
         logger.info("MLX client detached from gateway")
 
 
-def run_daemon(socket_path: str = SOCKET_PATH):
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
-    )
-    daemon = DaemonServer(socket_path=socket_path)
-    asyncio.run(daemon.run_forever())
-
-
     async def _handle_skill_execute(self, params: dict) -> dict:
         agent_id = params.get("agent_id", "")
         skill_name = params.get("skill_name", "")
         user_input = params.get("input", "")
-        tool_names = params.get("tools", [])
+        _tool_names = params.get("tools", [])
         if not agent_id or not skill_name:
             return {"status": "error", "message": "agent_id and skill_name required"}
 
@@ -3087,7 +3078,7 @@ def run_daemon(socket_path: str = SOCKET_PATH):
     async def _handle_research_adaptive(self, params: dict) -> dict:
         question = params.get("question", "")
         max_steps = min(params.get("max_steps", 10), 20)
-        web_search = params.get("web_search", True)
+        _web_search = params.get("web_search", True)
         if not question:
             return {"status": "error", "message": "question parameter required"}
 
@@ -3205,6 +3196,15 @@ def run_daemon(socket_path: str = SOCKET_PATH):
             "sufficient": sufficient,
             "findings": findings,
         }
+
+
+def run_daemon(socket_path: str = SOCKET_PATH):
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
+    )
+    daemon = DaemonServer(socket_path=socket_path)
+    asyncio.run(daemon.run_forever())
 
 
 if __name__ == "__main__":

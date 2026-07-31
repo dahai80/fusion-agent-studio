@@ -14,3 +14,5 @@ openworker/
 ar1.md
 ar2.md
 CLAUDE.md
+.fusion-agent-studio.pid
+logs/

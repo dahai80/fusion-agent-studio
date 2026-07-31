@@ -29,6 +29,7 @@ from .variable_manager import VariableManager
 if TYPE_CHECKING:
     from .safety import SafetyGateway
     from .persistence import AgentStore
+    from .memory_engine import MemoryEngine
     from tools.base import BaseTool
     from server.fusion_mlx_client import FusionMLXClient
     from tools.registry import ToolRegistry
@@ -833,7 +834,7 @@ class AgentRuntime:
                     )
 
                     retry_prompt = (
-                        f"[Self-repair] The previous tool calls failed:\n"
+                        "[Self-repair] The previous tool calls failed:\n"
                         + "\n".join(f"- {e}" for e in tool_errors)
                         + "\n\nPlease try again with corrected arguments or a different approach."
                     )

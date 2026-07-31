@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from .graph import AgentGraph, NodeConfig
+from .graph import AgentGraph
 
 
 class GraphExporter:

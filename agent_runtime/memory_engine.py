@@ -395,7 +395,7 @@ class MemoryEngine:
 
         c = self.conn.cursor()
         age_cutoff = time.time() - max_age_seconds
-        importance_threshold = tier_config.importance_threshold
+        _importance_threshold = tier_config.importance_threshold
 
         c.execute(
             "SELECT id, content, importance, created_at, metadata FROM memories "

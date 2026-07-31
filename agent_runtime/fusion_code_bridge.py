@@ -6,13 +6,11 @@ Never imports fusion-code internals — only communicates via CLI.
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 import os
-import shlex
 import time
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, AsyncIterator
 
 logger = logging.getLogger(__name__)
 
@@ -114,9 +112,8 @@ class FusionCodeBridge:
 
     async def execute_stream(self, task: CodeTask) -> AsyncIterator[str]:
         """Execute a task and stream output lines as they arrive."""
-        import sys
         working_dir = task.working_dir or self.default_working_dir
-        timeout = task.timeout or self.default_timeout
+        _timeout = task.timeout or self.default_timeout
 
         cmd = self._build_command(task)
         logger.info("Streaming fusion-code: %s", " ".join(cmd[:5]))
@@ -174,5 +171,3 @@ class FusionCodeBridge:
         cmd.extend(task.extra_args)
         return cmd
 
-
-from typing import AsyncIterator

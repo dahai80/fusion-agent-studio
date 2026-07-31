@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import asyncio
 import tempfile
 import time
 
@@ -296,7 +297,8 @@ class TestLLMGateway:
         gw = LLMGateway()
         gw.register_model(ModelConfig(name="a"))
         gw.register_model(ModelConfig(name="b"))
-        assert len(gw.list_models()) == 2
+        result = asyncio.run(gw.list_models())
+        assert len(result) == 2
 
     def test_circuit_breaker_blocks_route(self):
         gw = LLMGateway()

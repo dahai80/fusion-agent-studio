@@ -623,6 +623,6 @@ class MultiAgentOrchestrator:
                     if isinstance(tasks, list):
                         return [str(t) for t in tasks[:expected_count]]
                 except (json.JSONDecodeError, TypeError):
-                    lines = [l.strip() for l in content.split("\n") if l.strip()]
+                    lines = [line.strip() for line in content.split("\n") if line.strip()]
                     return lines[:expected_count]
         return [f"Sub-task {i+1}" for i in range(expected_count)]
