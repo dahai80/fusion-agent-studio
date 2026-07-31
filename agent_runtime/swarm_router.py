@@ -12,6 +12,9 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Any
 
+from .fmp_router import FMProtocol, AgentInfo
+from .safety import SafetyGateway, CAT_SHELL_EXEC
+
 logger = logging.getLogger(__name__)
 
 MAX_HOPS = 3
@@ -135,12 +138,22 @@ class HandoffContext:
 class SwarmRouter:
     """Agent handoff with hop_count limit and task delegation."""
 
-    def __init__(self, max_hops: int = MAX_HOPS):
+    def __init__(
+        self,
+        max_hops: int = MAX_HOPS,
+        fmp: FMProtocol | None = None,
+        safety: SafetyGateway | None = None,
+    ):
         self.max_hops = max_hops
         self._agents: dict[str, SwarmAgent] = {}
         self._delegations: dict[str, TaskDelegation] = {}
         self._handoff_log: list[dict[str, Any]] = []
-        logger.info("SwarmRouter initialized (max_hops=%d)", max_hops)
+        self.fmp = fmp if fmp is not None else FMProtocol("swarm_router")
+        self.safety = safety if safety is not None else SafetyGateway()
+        logger.info(
+            "SwarmRouter initialized (max_hops=%d, fmp=%s, safety=%s)",
+            max_hops, "injected" if fmp else "auto", "injected" if safety else "auto",
+        )
 
     def register_agent(self, agent: SwarmAgent) -> None:
         self._agents[agent.id] = agent
@@ -155,6 +168,12 @@ class SwarmRouter:
 
     def get_agent(self, agent_id: str) -> SwarmAgent | None:
         return self._agents.get(agent_id)
+
+    def _ensure_fmp_agent(self, agent: SwarmAgent) -> None:
+        if agent.id not in self.fmp._agents:
+            self.fmp.register_agent(AgentInfo(
+                id=agent.id, name=agent.name, capabilities=agent.capabilities,
+            ))
 
     def list_agents(self) -> list[SwarmAgent]:
         return list(self._agents.values())
@@ -194,6 +213,12 @@ class SwarmRouter:
             hop_count=1,
         )
         self._delegations[delegation.id] = delegation
+        self._ensure_fmp_agent(delegatee)
+        self.fmp.send(
+            recipient=delegatee.id,
+            message_type="delegation",
+            payload={"task": task, "delegation_id": delegation.id, "deliverable": deliverable},
+        )
         logger.info("Delegated task %s: %s → %s (hop=1)", delegation.id, delegator_id, delegatee.id)
         return delegation
 
@@ -222,6 +247,12 @@ class SwarmRouter:
             "task_id": context.task_id,
             "timestamp": time.time(),
         })
+        self._ensure_fmp_agent(to_agent)
+        self.fmp.send(
+            recipient=to_agent_id,
+            message_type="handoff",
+            payload={"hop_count": new_hop, "task_id": context.task_id},
+        )
         logger.info("Handoff: %s → %s (hop=%d/%d)", from_agent_id, to_agent_id, new_hop, effective_max)
         return new_context
 
@@ -240,10 +271,20 @@ class SwarmRouter:
         delegation = self._delegations.get(task_id)
         if not delegation:
             return None
+        verdict = self.safety.evaluate_action(CAT_SHELL_EXEC, content=reason, context=task_id)
         delegation.status = "escalated"
-        delegation.result = {"escalated": True, "reason": reason}
+        delegation.result = {
+            "escalated": True,
+            "reason": reason,
+            "safety_action": verdict.action.value,
+            "requires_approval": verdict.requires_approval,
+            "action_id": verdict.metadata.get("action_id", ""),
+        }
         delegation.completed_at = time.time()
-        logger.warning("Task %s ESCALATED: %s", task_id, reason)
+        logger.warning(
+            "Task %s ESCALATED via L3 safety: action=%s reason=%s",
+            task_id, verdict.action.value, reason,
+        )
         return delegation
 
     def auto_escalate_if_needed(self, task_id: str) -> TaskDelegation | None:

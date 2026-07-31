@@ -148,7 +148,7 @@ python my_agent.py
 - ✅ **Template system** — 8 preset templates (code review, file organizer, etc.)
 - ✅ **Fusion-code bridge** — Subprocess bridge to fusion-code CLI agent
 - ✅ **API server** — FastAPI + WebSocket for graph management and streaming execution
-- ✅ **Daemon server** — UDS JSON-RPC 2.0 server for fusion-studio GUI integration (graph.*, mlx.*, hardware.*, knowledge.*, env.*, planner.*, rag.*, memory.*, safety.*, template.*, deploy.*, agent.*, marketplace.*)
+- ✅ **Daemon server** — UDS JSON-RPC 2.0 server for fusion-studio GUI integration (graph.*, mlx.*, hardware.*, knowledge.*, env.*, planner.*, rag.*, memory.*, safety.*, template.*, deploy.*, agent.*, marketplace.*, team.*, context.*, hooks.*)
 - ✅ **SwiftUI end-to-end** — IPCClient (29 convenience methods) + AgentBridge (8 modules) + 4 new Views (PlannerView, MemoryView, SafetyView, DeployView) + RAGPipelineView/TemplateMarketView bridge integration + AgentStudioView (agent CRUD + configure + execute + BackendAgentDetailView + ConfigureAgentSheet)
 - ✅ **Graph editor** — DAG validation, auto-layout, visual editor backend (CRUD + duplicate)
 - ✅ **Metrics engine** — SQLite-backed inference/session metrics with aggregation queries
@@ -168,6 +168,9 @@ python my_agent.py
 - ✅ **Planner node** — OpenDevin-style "plan-confirm-execute" workflow with risk assessment (low/medium/high)
 - ✅ **Data readers** — Web, GitHub, Notion, PDF, Directory readers for LlamaIndex-style document ingestion
 - ✅ **AgentPackage workspace** — Snapshot/restore workspace dirs, .git snapshots, source management, skill DAG import/export
+- ✅ **Agent Loop (内生回灌)** - `loop_mode="agent"` LLM node re-invokes itself after each tool round until end_turn; per-node `max_loop_iterations` cap, stop_reason-driven termination, Compaction/Hooks 接入点
+- ✅ **Context compaction** - 4-stage pipeline (microcompact -> smart-truncate -> hard-compact) + `reactive_strip` 413 recovery; deterministic-first, MLX optional; wired into Agent Loop each round; reactive 413 auto-retry wired into `LLMGateway` (strip + retry same model before fallback); compaction summaries persisted to `memory_engine` (auto-summary, scope=`compaction`)
+- ✅ **Hooks lifecycle** - `HookEngine` with 10 events (PRE/POST_TOOL_USE, SESSION_START/END, STOP, PRE_COMPACT, SUBAGENT_*, USER_PROMPT_SUBMIT); callback + command hooks, regex matcher, block/approve decisions, `~/.fusion-agent-studio/hooks.json` config; exposed via daemon `hooks.list/register/test`
 
 ### Tools (19 built-in)
 | Category | Tools |

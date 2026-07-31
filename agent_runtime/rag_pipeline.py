@@ -111,8 +111,8 @@ class VectorRetrievalStrategy:
         self._session = None
 
     async def _get_session(self):
-        import aiohttp
         if self._session is None or self._session.closed:
+            import aiohttp
             self._session = aiohttp.ClientSession()
             logger.info("Created shared aiohttp session for VectorRetrievalStrategy")
         return self._session

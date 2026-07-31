@@ -377,3 +377,67 @@ class TestSupervisorPattern:
         with patch.object(AgentRuntime, "execute_graph", patched_execute):
             result = await orch.supervisor(supervisor, workers, "Error task")
             assert len(result.errors) >= 1
+
+
+class TestCompositionWireIn:
+    # Orchestrator optionally wires SwarmRouter (handoff) + Plaza (broadcast).
+
+    async def test_handoff_with_swarm_router_injected(self):
+        from agent_runtime.swarm_router import SwarmRouter
+        mlx = MockMLXClient()
+        reg = ToolRegistry()
+        reg.register(MockTool())
+        swarm = SwarmRouter()
+        orch = MultiAgentOrchestrator(mlx, reg, swarm_router=swarm)
+        agents = [
+            AgentConfig(name="a1", graph=make_agent_graph("A1")),
+            AgentConfig(name="a2", graph=make_agent_graph("A2")),
+        ]
+        result = await orch.handoff(agents, "Task")
+        assert len(result.results) == 2
+        assert swarm.get_agent("a1") is not None
+        assert swarm.get_agent("a2") is not None
+        assert swarm.fmp._stats["sent"] >= 1
+
+    async def test_handoff_swarm_blocks_at_max_hops(self):
+        from agent_runtime.swarm_router import SwarmRouter
+        mlx = MockMLXClient()
+        reg = ToolRegistry()
+        reg.register(MockTool())
+        swarm = SwarmRouter(max_hops=1)
+        orch = MultiAgentOrchestrator(mlx, reg, swarm_router=swarm)
+        agents = [AgentConfig(name=f"a{i}", graph=make_agent_graph(f"A{i}")) for i in range(4)]
+        result = await orch.handoff(agents, "Task")
+        assert any(r.get("swarm_blocked") for r in result.results)
+        assert len(result.results) < 4
+
+    async def test_broadcast_with_plaza_injected(self):
+        from agent_runtime.plaza import Plaza
+        mlx = MockMLXClient()
+        reg = ToolRegistry()
+        reg.register(MockTool())
+
+        class _SpyPlaza(Plaza):
+            def __init__(self):
+                super().__init__()
+                self.broadcast_count = 0
+                self.created = []
+
+            def create_channel(self, name, participants):
+                self.created.append(name)
+                return super().create_channel(name, participants)
+
+            def broadcast(self, channel, sender, content, mentions=None):
+                self.broadcast_count += 1
+                return super().broadcast(channel, sender, content, mentions)
+
+        plaza = _SpyPlaza()
+        orch = MultiAgentOrchestrator(mlx, reg, plaza=plaza)
+        agents = [
+            AgentConfig(name="w1", graph=make_agent_graph("W1")),
+            AgentConfig(name="w2", graph=make_agent_graph("W2")),
+        ]
+        result = await orch.broadcast(agents, "Analyze")
+        assert len(result.results) == 2
+        assert len(plaza.created) == 1
+        assert plaza.broadcast_count == 2

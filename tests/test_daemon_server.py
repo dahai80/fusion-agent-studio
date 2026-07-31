@@ -18,6 +18,18 @@ import pytest
 from agent_runtime.daemon_server import DaemonServer
 
 
+def _mlx_reachable() -> bool:
+    import socket
+    try:
+        with socket.create_connection(("127.0.0.1", 11434), timeout=0.5):
+            return True
+    except OSError:
+        return False
+
+
+_MLX_UP = _mlx_reachable()
+
+
 @pytest.fixture
 def socket_path():
     path = tempfile.mktemp(suffix=".sock", dir="/tmp")
@@ -28,7 +40,7 @@ def socket_path():
 
 @pytest.fixture
 async def daemon(socket_path):
-    d = DaemonServer(socket_path=socket_path)
+    d = DaemonServer(socket_path=socket_path, ws_port=0)
     await d.start()
     yield d
     await d.stop()
@@ -114,6 +126,7 @@ class TestDaemonMLX:
         assert result["port"] == 11434
 
     @pytest.mark.asyncio
+    @pytest.mark.skipif(_MLX_UP, reason="fusion-mlx running; 'not running' path not testable")
     async def test_mlx_health_not_running(self, daemon):
         resp = await _rpc_call(daemon.socket_path, "mlx.health")
         result = resp["result"]
@@ -200,6 +213,7 @@ class TestDaemonMLXInfer:
         assert "messages" in resp["result"]["message"]
 
     @pytest.mark.asyncio
+    @pytest.mark.skipif(_MLX_UP, reason="fusion-mlx running; 'not running' path not testable")
     async def test_infer_mlx_not_running(self, daemon):
         resp = await _rpc_call(
             daemon.socket_path, "mlx.infer",
@@ -526,3 +540,131 @@ class TestDaemonDeploy:
     async def test_deploy_import_file_not_found(self, daemon):
         resp = await _rpc_call(daemon.socket_path, "deploy.import", {"filepath": "/tmp/nonexistent_abc123.json"})
         assert resp["result"]["status"] == "error"
+
+
+
+class TestTeamEndpoints:
+    # team.* JSON-RPC endpoints wire SwarmRouter/Plaza/FMProtocol to fusion-studio GUI.
+
+    @pytest.mark.asyncio
+    async def test_swarm_register_and_list(self, daemon):
+        r = await _rpc_call(daemon.socket_path, "team.swarm_register", {
+            "id": "a1", "name": "coder", "capabilities": ["code"],
+            "handoff_targets": ["a2"], "max_hops": 3,
+        })
+        assert r["result"]["ok"] is True
+        r = await _rpc_call(daemon.socket_path, "team.swarm_agents")
+        assert any(a["id"] == "a1" for a in r["result"]["agents"])
+
+    @pytest.mark.asyncio
+    async def test_swarm_delegate_and_stats(self, daemon):
+        await _rpc_call(daemon.socket_path, "team.swarm_register",
+                        {"id": "sup", "name": "supervisor", "capabilities": ["manage"]})
+        await _rpc_call(daemon.socket_path, "team.swarm_register",
+                        {"id": "cod", "name": "coder", "capabilities": ["code"]})
+        r = await _rpc_call(daemon.socket_path, "team.swarm_delegate",
+                            {"delegator_id": "sup", "task": "write", "capability": "code"})
+        assert r["result"]["delegation"] is not None
+        r = await _rpc_call(daemon.socket_path, "team.swarm_stats")
+        assert r["result"]["delegations"] >= 1
+        assert r["result"]["fmp_sent"] >= 1
+
+    @pytest.mark.asyncio
+    async def test_swarm_handoff(self, daemon):
+        await _rpc_call(daemon.socket_path, "team.swarm_register", {"id": "h1", "name": "a"})
+        await _rpc_call(daemon.socket_path, "team.swarm_register", {"id": "h2", "name": "b"})
+        r = await _rpc_call(daemon.socket_path, "team.swarm_handoff",
+                            {"from_id": "h1", "to_id": "h2", "conversation": [], "hop_count": 0, "task_id": "t1"})
+        assert r["result"]["context"] is not None
+
+    @pytest.mark.asyncio
+    async def test_plaza_create_broadcast_messages(self, daemon):
+        await _rpc_call(daemon.socket_path, "team.plaza_create",
+                        {"name": "ch1", "participants": ["w1", "w2"]})
+        await _rpc_call(daemon.socket_path, "team.plaza_broadcast",
+                        {"channel": "ch1", "sender": "w1", "content": "hello"})
+        r = await _rpc_call(daemon.socket_path, "team.plaza_messages", {"channel": "ch1"})
+        assert len(r["result"]["messages"]) >= 1
+        r = await _rpc_call(daemon.socket_path, "team.plaza_channels")
+        assert "ch1" in r["result"]["channels"]
+
+    @pytest.mark.asyncio
+    async def test_plaza_circuit_initial(self, daemon):
+        await _rpc_call(daemon.socket_path, "team.plaza_create",
+                        {"name": "ch2", "participants": ["w1"]})
+        r = await _rpc_call(daemon.socket_path, "team.plaza_circuit", {"channel": "ch2"})
+        assert r["result"]["tripped"] is False
+
+    @pytest.mark.asyncio
+    async def test_fmp_register_send_stats(self, daemon):
+        await _rpc_call(daemon.socket_path, "team.fmp_register",
+                        {"id": "f1", "name": "agent1", "capabilities": ["code"]})
+        r = await _rpc_call(daemon.socket_path, "team.fmp_send",
+                            {"recipient": "f1", "message_type": "request", "payload": {"k": "v"}})
+        assert r["result"]["message"] is not None
+        r = await _rpc_call(daemon.socket_path, "team.fmp_stats")
+        assert r["result"]["stats"]["sent"] >= 1
+
+    @pytest.mark.asyncio
+    async def test_team_endpoints_mapped(self, daemon):
+        methods = [
+            "team.swarm_register", "team.swarm_agents", "team.swarm_delegate",
+            "team.swarm_handoff", "team.swarm_evaluate", "team.swarm_escalate",
+            "team.swarm_stats", "team.plaza_create", "team.plaza_broadcast",
+            "team.plaza_messages", "team.plaza_channels", "team.plaza_break_in",
+            "team.plaza_circuit", "team.fmp_register", "team.fmp_send",
+            "team.fmp_stats", "team.orchestrate",
+        ]
+        for m in methods:
+            assert daemon._get_handler(m) is not None, m
+
+
+class TestHarnessEndpoints:
+    # hooks.* / context.* JSON-RPC endpoints expose harness engines to the GUI.
+
+    @pytest.mark.asyncio
+    async def test_hooks_register_list(self, daemon):
+        r = await _rpc_call(daemon.socket_path, "hooks.list", {})
+        assert r["result"]["hooks"] == []
+        r = await _rpc_call(daemon.socket_path, "hooks.register", {
+            "event": "PRE_TOOL_USE", "matcher": ".*", "type": "command", "command": "echo hi",
+        })
+        assert r["result"]["ok"] is True
+        r = await _rpc_call(daemon.socket_path, "hooks.list", {})
+        assert len(r["result"]["hooks"]) == 1
+        assert r["result"]["hooks"][0]["event"] == "PRE_TOOL_USE"
+
+    @pytest.mark.asyncio
+    async def test_hooks_test_default_result(self, daemon):
+        r = await _rpc_call(daemon.socket_path, "hooks.test", {
+            "event": "SESSION_START", "payload": {"k": "v"},
+        })
+        res = r["result"]["result"]
+        assert res["continue_loop"] is True
+        assert res["decision"] == "approve"
+
+    @pytest.mark.asyncio
+    async def test_context_usage(self, daemon):
+        msgs = [{"role": "user", "content": "hello world"}]
+        r = await _rpc_call(daemon.socket_path, "context.usage", {"messages": msgs})
+        assert r["result"]["tokens"] > 0
+        assert r["result"]["level"] == "none"
+        assert r["result"]["context_window"] > 0
+
+    @pytest.mark.asyncio
+    async def test_context_compact_truncates_tool(self, daemon):
+        big = "x" * 5000
+        msgs = [
+            {"role": "user", "content": "go"},
+            {"role": "assistant", "content": "", "tool_calls": [
+                {"id": "t1", "type": "function", "function": {"name": "run", "arguments": "{}"}}]},
+            {"role": "tool", "tool_call_id": "t1", "content": big},
+        ]
+        r = await _rpc_call(daemon.socket_path, "context.compact", {"messages": msgs, "level": "warning"})
+        assert r["result"]["before_tokens"] > r["result"]["after_tokens"]
+        assert isinstance(r["result"]["messages"], list)
+
+    @pytest.mark.asyncio
+    async def test_harness_endpoints_mapped(self, daemon):
+        for m in ["hooks.list", "hooks.register", "hooks.test", "context.compact", "context.usage"]:
+            assert daemon._get_handler(m) is not None, m

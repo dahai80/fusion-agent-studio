@@ -174,14 +174,27 @@ class LLMGateway:
     - Transparent proxy: returns GatewayResponse compatible with LLMResponse
     """
 
-    def __init__(self, default_model: str = ""):
+    def __init__(self, default_model: str = "", compactor=None):
         self._models: dict[str, ModelConfig] = {}
         self._stats: dict[str, ModelStats] = {}
         self._cb = _ModelCircuitBreaker()
         self._lock = threading.Lock()
         self._default_model = default_model
         self._default_client: Any = None
+        self._compactor = compactor
         logger.info("LLMGateway initialized (default_model=%s)", default_model)
+
+    def set_compactor(self, compactor) -> None:
+        self._compactor = compactor
+        logger.info("Compactor attached to LLMGateway")
+
+    def _is_context_too_long(self, exc: Exception) -> bool:
+        msg = str(exc).lower()
+        markers = (
+            "context_length", "context length", "maximum context",
+            "too long", "too many tokens", "prompt is too long",
+        )
+        return any(m in msg for m in markers)
 
     def set_default_client(self, client: Any) -> None:
         """Set the default FusionMLXClient for backward compatibility.
@@ -292,6 +305,22 @@ class LLMGateway:
             latency = time.time() - start
             self._record_failure(target_config.name, latency)
             logger.error("Model %s failed: %s", target_config.name, exc)
+
+            if self._compactor is not None and self._is_context_too_long(exc):
+                retry_messages = self._compactor.reactive_strip(messages)
+                logger.info(
+                    "context-too-long on %s, reactive_strip msgs %d->%d, retrying same model",
+                    target_config.name, len(messages), len(retry_messages),
+                )
+                try:
+                    result = await self._call_model_async(
+                        target_config, retry_messages, tools=tools,
+                        temperature=temperature, max_tokens=max_tokens, **kwargs,
+                    )
+                    self._record_success(target_config.name, time.time() - start)
+                    return result
+                except Exception as rx_exc:
+                    logger.warning("reactive retry on %s also failed: %s", target_config.name, rx_exc)
 
             for fallback in self.get_fallback_chain(capability=capability):
                 if fallback.name == target_config.name:

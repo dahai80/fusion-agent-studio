@@ -149,13 +149,13 @@ class TestSafetyGateway:
     def safety_gateway(self):
         from agent_runtime.safety import SafetyGateway, SafetyPolicy, SafetyLevel
         gw = SafetyGateway()
-        gw.register_policy(SafetyPolicy(
+        gw.add_policy(SafetyPolicy(
             category="llm_call",
             default_level=SafetyLevel.L1,
             requires_diff=False,
             description="LLM calls auto-approved",
         ))
-        gw.register_policy(SafetyPolicy(
+        gw.add_policy(SafetyPolicy(
             category="tool_call",
             default_level=SafetyLevel.L1,
             requires_diff=False,

@@ -110,6 +110,72 @@ class TestAgentRuntime:
         assert len(tool_results) >= 1
         assert tool_calls[0].name == "mock_tool"
 
+    async def test_agent_loop_multi_round(self, mlx_client, tool_registry):
+        graph = AgentGraph(name="Agent Loop")
+        graph.add_node("start", NodeConfig(type="start", label="Start"))
+        graph.add_node(
+            "llm",
+            NodeConfig(
+                type="llm", label="LLM", model="test-model",
+                loop_mode="agent", max_loop_iterations=5,
+            ),
+        )
+        graph.add_node("end", NodeConfig(type="end", label="End"))
+        graph.add_edge("start", "llm")
+        graph.add_edge("llm", "end")
+
+        mlx_client.add_response(
+            "Let me check",
+            tool_calls=[{
+                "id": "call_1", "type": "function",
+                "function": {"name": "mock_tool", "arguments": '{"input": "x"}'},
+            }],
+        )
+        mlx_client.add_response("Here is the result")
+
+        runtime = AgentRuntime(mlx_client, tool_registry)
+        events = []
+        async for event in runtime.execute_graph(graph, "Check"):
+            events.append(event)
+
+        # 1 tool_call round + 1 final round => 2 LLM calls
+        assert mlx_client.call_count == 2
+        tool_calls = [e for e in events if e.type == AgentEventType.TOOL_CALL]
+        assert len(tool_calls) == 1
+        assert any(e.type == AgentEventType.END for e in events)
+
+    async def test_agent_loop_max_iterations(self, mlx_client, tool_registry):
+        graph = AgentGraph(name="Agent Loop Max")
+        graph.add_node("start", NodeConfig(type="start", label="Start"))
+        graph.add_node(
+            "llm",
+            NodeConfig(
+                type="llm", label="LLM", model="test-model",
+                loop_mode="agent", max_loop_iterations=2,
+            ),
+        )
+        graph.add_node("end", NodeConfig(type="end", label="End"))
+        graph.add_edge("start", "llm")
+        graph.add_edge("llm", "end")
+
+        for _ in range(10):
+            mlx_client.add_response(
+                "again",
+                tool_calls=[{
+                    "id": "c", "type": "function",
+                    "function": {"name": "mock_tool", "arguments": '{"input": "x"}'},
+                }],
+            )
+
+        runtime = AgentRuntime(mlx_client, tool_registry)
+        events = []
+        async for event in runtime.execute_graph(graph, "loop"):
+            events.append(event)
+
+        # 1 initial + 2 loop iters = 3 calls, then cap reached and graph advances
+        assert mlx_client.call_count == 3
+        assert any(e.type == AgentEventType.END for e in events)
+
     async def test_execute_with_invalid_tool_json(self, mlx_client, tool_registry, simple_graph):
         mlx_client.add_response(
             "Let me check", tool_calls=[{
