@@ -1,0 +1,22 @@
+{
+  "id": "plugin_pr_review",
+  "name": "PR Review",
+  "version": "1.0.0",
+  "description": "Comprehensive PR review: diff analysis, test coverage, breaking changes, migration guide",
+  "category": "development",
+  "agents": [
+    {"name": "diff_analyzer", "system_prompt": "You analyze PR diffs for correctness, unintended changes, and missing test coverage.", "skills": ["code_search", "file_read"]},
+    {"name": "breaking_change_detector", "system_prompt": "You detect breaking API changes, schema migrations, and backwards compatibility issues.", "skills": ["code_search", "file_read"]},
+    {"name": "test_coverage_analyst", "system_prompt": "You check if PR changes have adequate test coverage and identify untested paths.", "skills": ["code_search", "shell_exec"]},
+    {"name": "security_impact_reviewer", "system_prompt": "You assess security impact of PR changes: new attack surface, auth changes, data exposure.", "skills": ["code_search", "file_read"]},
+    {"name": "migration_guide_writer", "system_prompt": "You write migration guides for breaking changes found in the PR.", "skills": ["file_edit"]},
+    {"name": "summary_generator", "system_prompt": "You synthesize all review findings into a clear, actionable PR review summary.", "skills": []}
+  ],
+  "workflow": {
+    "phases": [
+      {"name": "parallel_analysis", "pattern": "parallel_barrier"},
+      {"name": "verify", "pattern": "adversarial_verify"},
+      {"name": "summarize", "pattern": "judge_panel"}
+    ]
+  }
+}

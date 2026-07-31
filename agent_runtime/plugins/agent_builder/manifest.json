@@ -1,0 +1,18 @@
+{
+  "id": "plugin_agent_builder",
+  "name": "Agent Builder",
+  "version": "1.0.0",
+  "description": "Scaffold wizard: generates agent definitions from templates with customization",
+  "category": "meta",
+  "agents": [
+    {"name": "scaffold_wizard", "system_prompt": "You help users create agent definitions. Ask clarifying questions about purpose, skills, and constraints, then generate a complete agent config.", "skills": ["memory_store", "memory_recall"]}
+  ],
+  "templates": ["basic", "coder", "reviewer", "researcher"],
+  "workflow": {
+    "phases": [
+      {"name": "gather_requirements", "pattern": "pipeline"},
+      {"name": "generate_scaffold", "pattern": "pipeline"},
+      {"name": "validate", "pattern": "adversarial_verify"}
+    ]
+  }
+}

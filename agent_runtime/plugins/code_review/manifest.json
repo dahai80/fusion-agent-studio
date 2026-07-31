@@ -1,0 +1,20 @@
+{
+  "id": "plugin_code_review",
+  "name": "Code Review",
+  "version": "1.0.0",
+  "description": "Multi-agent code review: architecture, security, style, perf, correctness",
+  "category": "development",
+  "agents": [
+    {"name": "architect", "system_prompt": "You review code architecture and design patterns. Identify coupling, cohesion, and abstraction issues.", "skills": ["code_search", "file_read"]},
+    {"name": "security_reviewer", "system_prompt": "You review code for security vulnerabilities: injection, auth bypass, data leaks.", "skills": ["code_search", "file_read"]},
+    {"name": "style_reviewer", "system_prompt": "You review code style: naming, formatting, consistency with project conventions.", "skills": ["code_search", "file_read"]},
+    {"name": "perf_reviewer", "system_prompt": "You review code performance: algorithmic complexity, memory allocation, N+1 queries.", "skills": ["code_search", "file_read"]},
+    {"name": "correctness_reviewer", "system_prompt": "You review code correctness: edge cases, error handling, boundary conditions.", "skills": ["code_search", "file_read"]}
+  ],
+  "workflow": {
+    "phases": [
+      {"name": "parallel_review", "pattern": "parallel_barrier"},
+      {"name": "synthesize", "pattern": "judge_panel"}
+    ]
+  }
+}

@@ -69,6 +69,9 @@ class DaemonServer:
         self._connector_mgr = None
         self._apikey_mgr = None
         self._style_mgr = None
+        self._workflow_engine = None
+        self._session_manager = None
+        self._telemetry_engine = None
 
     def _get_runtime(self) -> AgentRuntime:
         if self._runtime is None:
@@ -157,6 +160,35 @@ class DaemonServer:
             self._style_mgr = StyleManager(base)
             logger.info("StyleManager created at %s", base)
         return self._style_mgr
+
+    def _get_workflow_engine(self):
+        if self._workflow_engine is None:
+            from .workflow_engine import WorkflowEngine
+            self._workflow_engine = WorkflowEngine(
+                llm_gateway=self._gateway,
+                tool_registry=self._get_runtime()._tool_registry if self._runtime else None,
+                orchestrator=self._get_orchestrator(),
+            )
+            logger.info("WorkflowEngine created")
+        return self._workflow_engine
+
+    def _get_session_manager(self):
+        if self._session_manager is None:
+            from .session_manager import SessionManager
+            self._session_manager = SessionManager(
+                runtime=self._get_runtime(),
+                gateway=self._gateway,
+                store=self.store,
+            )
+            logger.info("SessionManager created")
+        return self._session_manager
+
+    def _get_telemetry_engine(self):
+        if self._telemetry_engine is None:
+            from .telemetry import TelemetryEngine
+            self._telemetry_engine = TelemetryEngine()
+            logger.info("TelemetryEngine created")
+        return self._telemetry_engine
 
     def _serialize(self, obj):
         if obj is None:
@@ -594,6 +626,28 @@ class DaemonServer:
             "style.apply": self._handle_style_apply,
             "alert.list": self._handle_alert_list,
             "alert.acknowledge": self._handle_alert_acknowledge,
+            "workflow.create": self._handle_workflow_create,
+            "workflow.execute": self._handle_workflow_execute,
+            "workflow.pause": self._handle_workflow_pause,
+            "workflow.resume": self._handle_workflow_resume,
+            "workflow.cancel": self._handle_workflow_cancel,
+            "workflow.status": self._handle_workflow_status,
+            "workflow.list": self._handle_workflow_list,
+            "workflow.get": self._handle_workflow_get,
+            "workflow.delete": self._handle_workflow_delete,
+            "session.fork": self._handle_session_fork,
+            "session.attach": self._handle_session_attach,
+            "session.detach": self._handle_session_detach,
+            "session.background_list": self._handle_session_background_list,
+            "session.background_kill": self._handle_session_background_kill,
+            "telemetry.configure": self._handle_telemetry_configure,
+            "telemetry.get_trace": self._handle_telemetry_get_trace,
+            "telemetry.export": self._handle_telemetry_export,
+            "telemetry.list_spans": self._handle_telemetry_list_spans,
+            "telemetry.metrics": self._handle_telemetry_metrics,
+            "sdk.list_types": self._handle_sdk_list_types,
+            "sdk.verify": self._handle_sdk_verify,
+            "sdk.scaffold": self._handle_sdk_scaffold,
         }
         return handlers.get(method)
 
@@ -3196,6 +3250,169 @@ class DaemonServer:
             "sufficient": sufficient,
             "findings": findings,
         }
+
+    async def _handle_workflow_create(self, params: dict) -> dict:
+        engine = self._get_workflow_engine()
+        name = params.get("name", "Untitled Workflow")
+        phases = params.get("phases", [])
+        wf = engine.create_workflow(
+            name=name,
+            phases=phases,
+            input_schema=params.get("input_schema", {}),
+            output_schema=params.get("output_schema", {}),
+            metadata=params.get("metadata", {}),
+        )
+        logger.info("workflow.create: name=%s id=%s phases=%d", name, wf.id, len(wf.phases))
+        return wf.to_dict()
+
+    async def _handle_workflow_execute(self, params: dict) -> dict:
+        engine = self._get_workflow_engine()
+        workflow_id = params.get("workflow_id", "")
+        initial_input = params.get("input", "")
+        budget = params.get("budget")
+        run = await engine.execute_workflow(workflow_id, initial_input, budget)
+        logger.info("workflow.execute: workflow=%s run=%s status=%s", workflow_id, run.id, run.status.value)
+        return run.to_dict()
+
+    async def _handle_workflow_pause(self, params: dict) -> dict:
+        engine = self._get_workflow_engine()
+        run_id = params.get("run_id", "")
+        ok = engine.pause_run(run_id)
+        logger.info("workflow.pause: run=%s ok=%s", run_id, ok)
+        return {"run_id": run_id, "paused": ok}
+
+    async def _handle_workflow_resume(self, params: dict) -> dict:
+        engine = self._get_workflow_engine()
+        run_id = params.get("run_id", "")
+        ok = engine.resume_run(run_id)
+        logger.info("workflow.resume: run=%s ok=%s", run_id, ok)
+        return {"run_id": run_id, "resumed": ok}
+
+    async def _handle_workflow_cancel(self, params: dict) -> dict:
+        engine = self._get_workflow_engine()
+        run_id = params.get("run_id", "")
+        ok = engine.cancel_run(run_id)
+        logger.info("workflow.cancel: run=%s ok=%s", run_id, ok)
+        return {"run_id": run_id, "cancelled": ok}
+
+    async def _handle_workflow_status(self, params: dict) -> dict:
+        engine = self._get_workflow_engine()
+        run_id = params.get("run_id", "")
+        run = engine.get_run_status(run_id)
+        if not run:
+            raise ValueError(f"Workflow run not found: {run_id}")
+        return run.to_dict()
+
+    async def _handle_workflow_list(self, params: dict) -> dict:
+        engine = self._get_workflow_engine()
+        workflow_id = params.get("workflow_id")
+        if workflow_id:
+            runs = engine.list_runs(workflow_id)
+            return {"runs": [r.to_dict() for r in runs]}
+        workflows = engine.list_workflows()
+        return {"workflows": [w.to_dict() for w in workflows]}
+
+    async def _handle_workflow_get(self, params: dict) -> dict:
+        engine = self._get_workflow_engine()
+        workflow_id = params.get("workflow_id", "")
+        wf = engine.get_workflow(workflow_id)
+        if not wf:
+            raise ValueError(f"Workflow not found: {workflow_id}")
+        return wf.to_dict()
+
+    async def _handle_workflow_delete(self, params: dict) -> dict:
+        engine = self._get_workflow_engine()
+        workflow_id = params.get("workflow_id", "")
+        ok = engine.delete_workflow(workflow_id)
+        logger.info("workflow.delete: workflow=%s ok=%s", workflow_id, ok)
+        return {"workflow_id": workflow_id, "deleted": ok}
+
+    async def _handle_session_fork(self, params: dict) -> dict:
+        mgr = self._get_session_manager()
+        session_id = params.get("session_id", "")
+        input_text = params.get("input", "")
+        bg_session = await mgr.fork(session_id, input_text)
+        logger.info("session.fork: from=%s fork=%s", session_id, bg_session.id)
+        return bg_session.to_dict()
+
+    async def _handle_session_attach(self, params: dict) -> dict:
+        mgr = self._get_session_manager()
+        session_id = params.get("session_id", "")
+        events = await mgr.attach(session_id)
+        logger.info("session.attach: session=%s events=%d", session_id, len(events))
+        return {"session_id": session_id, "events": events}
+
+    async def _handle_session_detach(self, params: dict) -> dict:
+        mgr = self._get_session_manager()
+        session_id = params.get("session_id", "")
+        ok = mgr.detach(session_id)
+        logger.info("session.detach: session=%s ok=%s", session_id, ok)
+        return {"session_id": session_id, "detached": ok}
+
+    async def _handle_session_background_list(self, params: dict) -> dict:
+        mgr = self._get_session_manager()
+        sessions = mgr.background_list()
+        return {"sessions": [s.to_dict() for s in sessions]}
+
+    async def _handle_session_background_kill(self, params: dict) -> dict:
+        mgr = self._get_session_manager()
+        session_id = params.get("session_id", "")
+        ok = await mgr.background_kill(session_id)
+        logger.info("session.background_kill: session=%s ok=%s", session_id, ok)
+        return {"session_id": session_id, "killed": ok}
+
+    async def _handle_telemetry_configure(self, params: dict) -> dict:
+        engine = self._get_telemetry_engine()
+        engine.configure(params)
+        logger.info("telemetry.configure: enabled=%s", params.get("enabled", True))
+        return {"configured": True}
+
+    async def _handle_telemetry_get_trace(self, params: dict) -> dict:
+        engine = self._get_telemetry_engine()
+        trace_id = params.get("trace_id", "")
+        trace = engine.get_trace(trace_id)
+        if not trace:
+            raise ValueError(f"Trace not found: {trace_id}")
+        return trace
+
+    async def _handle_telemetry_export(self, params: dict) -> dict:
+        engine = self._get_telemetry_engine()
+        fmt = params.get("format", "json")
+        data = engine.export(fmt)
+        logger.info("telemetry.export: format=%s size=%d", fmt, len(data))
+        return {"format": fmt, "data": data}
+
+    async def _handle_telemetry_list_spans(self, params: dict) -> dict:
+        engine = self._get_telemetry_engine()
+        trace_id = params.get("trace_id")
+        limit = params.get("limit", 100)
+        spans = engine.list_spans(trace_id=trace_id, limit=limit)
+        return {"spans": spans}
+
+    async def _handle_telemetry_metrics(self, params: dict) -> dict:
+        engine = self._get_telemetry_engine()
+        metrics = engine.metrics()
+        return metrics
+
+    async def _handle_sdk_list_types(self, params: dict) -> dict:
+        from .sdk import list_available_types
+        types = list_available_types()
+        return {"types": types}
+
+    async def _handle_sdk_verify(self, params: dict) -> dict:
+        from .sdk import verify_agent
+        agent_def = params.get("agent", {})
+        result = verify_agent(agent_def)
+        return result
+
+    async def _handle_sdk_scaffold(self, params: dict) -> dict:
+        from .sdk import scaffold_agent
+        result = scaffold_agent(
+            name=params.get("name", "my_agent"),
+            template=params.get("template", "basic"),
+            output_dir=params.get("output_dir", ""),
+        )
+        return result
 
 
 def run_daemon(socket_path: str = SOCKET_PATH):

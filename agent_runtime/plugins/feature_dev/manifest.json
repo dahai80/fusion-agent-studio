@@ -1,0 +1,23 @@
+{
+  "id": "plugin_feature_dev",
+  "name": "Feature Development",
+  "version": "1.0.0",
+  "description": "7-phase feature development workflow: plan, design, implement, test, review, refactor, document",
+  "category": "development",
+  "agents": [
+    {"name": "planner", "system_prompt": "You analyze feature requests and create implementation plans with milestones.", "skills": ["code_search", "memory_store"]},
+    {"name": "designer", "system_prompt": "You design software architecture and API interfaces for features.", "skills": ["code_search", "file_read"]},
+    {"name": "implementer", "system_prompt": "You implement features based on plans and designs. Write clean, tested code.", "skills": ["code_search", "file_edit", "shell_exec"]}
+  ],
+  "workflow": {
+    "phases": [
+      {"name": "plan", "pattern": "pipeline"},
+      {"name": "design", "pattern": "pipeline"},
+      {"name": "implement", "pattern": "pipeline"},
+      {"name": "test", "pattern": "pipeline"},
+      {"name": "review", "pattern": "adversarial_verify"},
+      {"name": "refactor", "pattern": "pipeline"},
+      {"name": "document", "pattern": "pipeline"}
+    ]
+  }
+}

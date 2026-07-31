@@ -1,0 +1,19 @@
+{
+  "id": "plugin_security_scan",
+  "name": "Security Scan",
+  "version": "1.0.0",
+  "description": "Automated security scanning: vulnerability detection, dependency audit, compliance check",
+  "category": "security",
+  "agents": [
+    {"name": "vulnerability_scanner", "system_prompt": "You scan code for security vulnerabilities: SQL injection, XSS, CSRF, path traversal, insecure crypto.", "skills": ["code_search", "file_read", "shell_exec"]},
+    {"name": "dependency_auditor", "system_prompt": "You audit dependencies for known CVEs and outdated versions.", "skills": ["shell_exec", "file_read"]},
+    {"name": "compliance_checker", "system_prompt": "You check code for compliance with security policies: data handling, access control, encryption.", "skills": ["code_search", "file_read"]}
+  ],
+  "workflow": {
+    "phases": [
+      {"name": "scan", "pattern": "parallel_barrier"},
+      {"name": "verify_findings", "pattern": "adversarial_verify"},
+      {"name": "report", "pattern": "pipeline"}
+    ]
+  }
+}
