@@ -9,7 +9,7 @@ Run, build, and orchestrate AI agents entirely on your Mac — no cloud, no API 
 [![Version](https://img.shields.io/badge/v0.1.0-blue.svg)]()
 [![Python](https://img.shields.io/badge/Python-3.11+-3776AB.svg)](https://www.python.org/)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/Tests-1246-success.svg)](tests/)
+[![Tests](https://img.shields.io/badge/Tests-1261-success.svg)](tests/)
 
 [Quick Start](#quick-start) · [Architecture](#architecture) · [Documentation](docs/) · [Examples](examples/)
 
@@ -113,7 +113,7 @@ python my_agent.py
 │                                                               │
 │  Daemon Server (UDS JSON-RPC 2.0)                             │
 │  graph.* / mlx.* / hardware.* / knowledge.* / env.* /        │
-│  planner.* / rag.* / memory.* / safety.* / template.* / deploy.* / agent.* / marketplace.* │
+│  planner.* / rag.* / memory.* / safety.* / template.* / deploy.* / agent.* / marketplace.* / connector.* / apikey.* / style.* / dashboard.* / analytics.* / alert.* │
 └──────────────────────────┬────────────────────────────────────┘
                            │ HTTP
 ┌──────────────────────────▼────────────────────────────────────┐
@@ -127,7 +127,7 @@ python my_agent.py
 
 | Module | Description | Files |
 |--------|-------------|-------|
-| `agent_runtime/` | Core engine: graph, state machine, orchestrator, debugger, persistence, API server, daemon server (UDS JSON-RPC), templates, bridge, editor, metrics, marketplace, data ingestion, sandbox, aware, FMP, knowledge, gateway, swarm, plaza, planner, RAG pipeline | 32 files |
+| `agent_runtime/` | Core engine: graph, state machine, orchestrator, debugger, persistence, API server, daemon server (UDS JSON-RPC), templates, bridge, editor, metrics, marketplace, data ingestion, sandbox, aware, FMP, knowledge, gateway, swarm, plaza, planner, RAG pipeline, connectors, apikey manager, style manager | 35 files |
 | `tools/` | Built-in tool system: 19 tools + plugin system | 11 files |
 | `server/` | fusion-mlx HTTP client + process manager | 2 files |
 
@@ -148,7 +148,15 @@ python my_agent.py
 - ✅ **Template system** — 8 preset templates (code review, file organizer, etc.)
 - ✅ **Fusion-code bridge** — Subprocess bridge to fusion-code CLI agent
 - ✅ **API server** — FastAPI + WebSocket for graph management and streaming execution
-- ✅ **Daemon server** — UDS JSON-RPC 2.0 server for fusion-studio GUI integration (graph.*, mlx.*, hardware.*, knowledge.*, env.*, planner.*, rag.*, memory.*, safety.*, template.*, deploy.*, agent.*, marketplace.*, team.*, context.*, hooks.*)
+- ✅ **Daemon server** — UDS JSON-RPC 2.0 server for fusion-studio GUI integration (graph.*, mlx.*, hardware.*, knowledge.*, env.*, planner.*, rag.*, memory.*, safety.*, template.*, deploy.*, agent.*, marketplace.*, team.*, context.*, hooks.*, connector.*, apikey.*, style.*, dashboard.*, analytics.*, alert.*)
+- ✅ **Agent lifecycle** — draft → published → archived status flow with version tracking, API endpoint generation, clone, debug execute_stream
+- ✅ **Connector manager** — OAuth2/API Key/Webhook external integration lifecycle (CRUD, connect/disconnect, test)
+- ✅ **API Key manager** — API key creation (fk-* prefix), rotation, revocation, permissions, agent access, IP whitelist
+- ✅ **Style manager** — 5 builtin output styles (formal-report, technical-doc, creative-writing, json-structured, concise-summary) + custom styles
+- ✅ **Dashboard overview** — Aggregated stats: agent counts, daily requests, token usage, error rates, alerts
+- ✅ **Analytics** — Per-agent usage tracking by time range (day/week/month)
+- ✅ **Alert system** — Budget warnings, session error alerts, acknowledgement
+- ✅ **Knowledge injection** — Runtime knowledge base context injection with RAG strategy selection (hybrid/keyword/semantic)
 - ✅ **SwiftUI end-to-end** — IPCClient (29 convenience methods) + AgentBridge (8 modules) + 4 new Views (PlannerView, MemoryView, SafetyView, DeployView) + RAGPipelineView/TemplateMarketView bridge integration + AgentStudioView (agent CRUD + configure + execute + BackendAgentDetailView + ConfigureAgentSheet)
 - ✅ **Graph editor** — DAG validation, auto-layout, visual editor backend (CRUD + duplicate)
 - ✅ **Metrics engine** — SQLite-backed inference/session metrics with aggregation queries
@@ -238,7 +246,10 @@ fusion-agent-studio/
 │   ├── sub_graph.py        # Sub-graph support
 │   ├── triggers.py         # Webhook + Cron
 │   ├── i18n.py             # Internationalization
-│   └── deployer.py         # One-click deploy
+│   ├── deployer.py         # One-click deploy
+│   ├── connectors.py       # External connector manager (OAuth2/API Key/Webhook)
+│   ├── apikey_manager.py   # API key lifecycle (create/rotate/revoke)
+│   └── style_manager.py    # Output style templates (5 builtin + custom)
 ├── tools/                  # Tool system
 │   ├── base.py             # BaseTool abstract class
 │   ├── registry.py         # Tool registry
@@ -303,7 +314,7 @@ python -c "from tools.plugin_manager import PluginManager; from tools.registry i
 ```
 
 ### Test Stats
-- **1246 tests**, 0 failures
+- **1261 tests**, 0 failures
 - **94%+ statement coverage**
 - **Python 3.11+** compatible
 - **16 business scenario integration tests** covering: agent lifecycle (create→configure→execute→delete), skill management, soul management, marketplace (publish→search→install), memory (store→recall→delete), safety (check→evaluate→policy), planner, deploy export/import, templates, graph CRUD, agent filtering, env health, RAG, ping

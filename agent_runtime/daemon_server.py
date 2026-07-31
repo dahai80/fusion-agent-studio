@@ -66,6 +66,9 @@ class DaemonServer:
         self._fmp = None
         self._ws_clients: list[asyncio.StreamWriter] = []
         self._ws_server: asyncio.Server | None = None
+        self._connector_mgr = None
+        self._apikey_mgr = None
+        self._style_mgr = None
 
     def _get_runtime(self) -> AgentRuntime:
         if self._runtime is None:
@@ -130,6 +133,30 @@ class DaemonServer:
             rt.hooks = HookEngine()
             logger.info("HookEngine created")
         return rt.hooks
+
+    def _get_connector_manager(self):
+        if self._connector_mgr is None:
+            from .connectors import ConnectorManager
+            base = Path.home() / ".fusion-agent-studio" / "connectors"
+            self._connector_mgr = ConnectorManager(base)
+            logger.info("ConnectorManager created at %s", base)
+        return self._connector_mgr
+
+    def _get_apikey_manager(self):
+        if self._apikey_mgr is None:
+            from .apikey_manager import ApiKeyManager
+            base = Path.home() / ".fusion-agent-studio" / "apikeys"
+            self._apikey_mgr = ApiKeyManager(base)
+            logger.info("ApiKeyManager created at %s", base)
+        return self._apikey_mgr
+
+    def _get_style_manager(self):
+        if self._style_mgr is None:
+            from .style_manager import StyleManager
+            base = Path.home() / ".fusion-agent-studio" / "styles"
+            self._style_mgr = StyleManager(base)
+            logger.info("StyleManager created at %s", base)
+        return self._style_mgr
 
     def _serialize(self, obj):
         if obj is None:
@@ -490,12 +517,19 @@ class DaemonServer:
             "agent.list_skills": self._handle_agent_list_skills,
             "agent.add_skill": self._handle_agent_add_skill,
             "agent.delete_skill": self._handle_agent_delete_skill,
+            "skill.execute": self._handle_skill_execute,
+            "research.adaptive": self._handle_research_adaptive,
             "agent.get_soul": self._handle_agent_get_soul,
             "agent.update_soul": self._handle_agent_update_soul,
             "agent.submit_code_task": self._handle_agent_submit_code_task,
             "agent.task_status": self._handle_agent_task_status,
             "agent.cancel_task": self._handle_agent_cancel_task,
             "agent.tasks": self._handle_agent_tasks,
+            "agent.publish": self._handle_agent_publish,
+            "agent.archive": self._handle_agent_archive,
+            "agent.clone": self._handle_agent_clone,
+            "agent.get_api_endpoint": self._handle_agent_get_api_endpoint,
+            "agent.execute_stream": self._handle_agent_execute_stream,
             "marketplace.search": self._handle_marketplace_search,
             "marketplace.get": self._handle_marketplace_get,
             "marketplace.publish": self._handle_marketplace_publish,
@@ -539,6 +573,27 @@ class DaemonServer:
             "hooks.test": self._handle_hooks_test,
             "context.compact": self._handle_context_compact,
             "context.usage": self._handle_context_usage,
+            "connector.list": self._handle_connector_list,
+            "connector.create": self._handle_connector_create,
+            "connector.get": self._handle_connector_get,
+            "connector.update": self._handle_connector_update,
+            "connector.delete": self._handle_connector_delete,
+            "connector.connect": self._handle_connector_connect,
+            "connector.disconnect": self._handle_connector_disconnect,
+            "connector.test": self._handle_connector_test,
+            "dashboard.overview": self._handle_dashboard_overview,
+            "apikey.create": self._handle_apikey_create,
+            "apikey.list": self._handle_apikey_list,
+            "apikey.revoke": self._handle_apikey_revoke,
+            "apikey.rotate": self._handle_apikey_rotate,
+            "apikey.update": self._handle_apikey_update,
+            "analytics.agent_usage": self._handle_analytics_agent_usage,
+            "style.list": self._handle_style_list,
+            "style.get": self._handle_style_get,
+            "style.create": self._handle_style_create,
+            "style.apply": self._handle_style_apply,
+            "alert.list": self._handle_alert_list,
+            "alert.acknowledge": self._handle_alert_acknowledge,
         }
         return handlers.get(method)
 
@@ -725,6 +780,7 @@ class DaemonServer:
         enriched = []
         for g in graphs:
             entry = {
+                "id": g["id"],
                 "graph_id": g["id"],
                 "name": g.get("name", ""),
                 "description": g.get("description", ""),
@@ -1648,6 +1704,19 @@ class DaemonServer:
             tags=params.get("tags", []),
             author=params.get("author", ""),
             description=params.get("description", ""),
+            status=params.get("status", "draft"),
+            version_int=params.get("version_int", 1),
+            published_at=params.get("published_at"),
+            knowledge_base_ids=params.get("knowledge_base_ids", []),
+            visibility=params.get("visibility", "private"),
+            rag_strategy=params.get("rag_strategy", "hybrid"),
+            web_search_enabled=params.get("web_search_enabled", False),
+            deep_research_enabled=params.get("deep_research_enabled", False),
+            connector_ids=params.get("connector_ids", []),
+            style=params.get("style", ""),
+            top_p=params.get("top_p", 1.0),
+            context_window=params.get("context_window", 32768),
+            rate_limit_qps=params.get("rate_limit_qps", 0),
         )
         pkg = AgentPackage(agent_dir)
         pkg.init(manifest=manifest, soul=params.get("soul", ""), memory=params.get("memory", ""), agents_md=params.get("agents_md", ""))
@@ -1712,7 +1781,12 @@ class DaemonServer:
 
         manifest = pkg.load_manifest()
         for key in ("name", "model", "system_prompt", "temperature", "max_tokens",
-                     "safety_level", "description", "author", "version"):
+                     "safety_level", "description", "author", "version",
+                     "status", "version_int", "published_at",
+                     "knowledge_base_ids", "visibility", "rag_strategy",
+                     "web_search_enabled", "deep_research_enabled",
+                     "connector_ids", "style", "top_p", "context_window",
+                     "rate_limit_qps"):
             if key in params:
                 setattr(manifest, key, params[key])
         if "tools" in params:
@@ -1807,6 +1881,19 @@ class DaemonServer:
         graph_config = pkg.to_graph_config()
         manifest = pkg.load_manifest()
 
+        effective_prompt = graph_config.get("system_prompt", manifest.system_prompt)
+
+        if manifest.knowledge_base_ids:
+            kb_context = await self._inject_knowledge_context(manifest.knowledge_base_ids, input_text, manifest.rag_strategy)
+            if kb_context:
+                effective_prompt = f"{effective_prompt}\n\n{kb_context}"
+
+        if manifest.style:
+            style_mgr = self._get_style_manager()
+            style_result = style_mgr.apply(effective_prompt, manifest.style)
+            if "system_prompt" in style_result:
+                effective_prompt = style_result["system_prompt"]
+
         graph = AgentGraph(name=manifest.name or agent_id)
         graph.description = manifest.description
 
@@ -1817,7 +1904,7 @@ class DaemonServer:
             type="llm",
             label="Agent LLM",
             model=manifest.model,
-            system_prompt=graph_config.get("system_prompt", manifest.system_prompt),
+            system_prompt=effective_prompt,
         )
         graph.add_node(start_id, start_node)
         graph.add_node(llm_id, llm_node)
@@ -2063,6 +2150,441 @@ class DaemonServer:
                 "error": t.get("error"),
             })
         return {"tasks": items}
+
+    async def _inject_knowledge_context(self, knowledge_base_ids: list[str], query: str, strategy: str = "hybrid") -> str:
+        if not knowledge_base_ids or not query:
+            return ""
+        try:
+            from .knowledge_engine import KnowledgeEngine
+            ke = KnowledgeEngine()
+            all_contexts = []
+            for kb_id in knowledge_base_ids:
+                results = ke.search(query, mode=strategy, scope=kb_id)
+                for r in results[:5]:
+                    content = r.get("content", "") if isinstance(r, dict) else str(r)
+                    if content:
+                        all_contexts.append(content)
+            if all_contexts:
+                return f"[Knowledge Base Context]\n{'—'.join(all_contexts[:10])}\n[/Knowledge Base Context]"
+        except Exception as exc:
+            logger.warning("Knowledge injection failed: %s", exc)
+        return ""
+
+    async def _handle_agent_publish(self, params: dict) -> dict:
+        agent_id = params.get("agent_id", "")
+        if not agent_id:
+            return {"status": "error", "message": "agent_id parameter required"}
+        from .agent_package import AgentPackage
+        agent_dir = self._agent_dir(agent_id)
+        pkg = AgentPackage(agent_dir)
+        if not pkg.exists:
+            return {"status": "error", "message": f"Agent not found: {agent_id}"}
+        manifest = pkg.load_manifest()
+        if manifest.status == "published":
+            return {"status": "error", "message": "Agent already published"}
+        manifest.status = "published"
+        manifest.version_int = manifest.version_int + 1
+        manifest.published_at = time.time()
+        pkg.save_manifest(manifest)
+        self._load_agents_index()
+        if agent_id in self._agents:
+            self._agents[agent_id].update(manifest.to_dict())
+            self._persist_agents_index()
+        endpoint = f"http://localhost:{MLX_PORT}/v1/agents/{agent_id}/chat"
+        logger.info("agent.publish: id=%s version=%d", agent_id, manifest.version_int)
+        return {"agent_id": agent_id, "status": "published", "version": manifest.version_int, "published_at": manifest.published_at, "api_endpoint": endpoint}
+
+    async def _handle_agent_archive(self, params: dict) -> dict:
+        agent_id = params.get("agent_id", "")
+        if not agent_id:
+            return {"status": "error", "message": "agent_id parameter required"}
+        from .agent_package import AgentPackage
+        agent_dir = self._agent_dir(agent_id)
+        pkg = AgentPackage(agent_dir)
+        if not pkg.exists:
+            return {"status": "error", "message": f"Agent not found: {agent_id}"}
+        manifest = pkg.load_manifest()
+        manifest.status = "archived"
+        pkg.save_manifest(manifest)
+        self._load_agents_index()
+        if agent_id in self._agents:
+            self._agents[agent_id].update(manifest.to_dict())
+            self._persist_agents_index()
+        logger.info("agent.archive: id=%s", agent_id)
+        return {"agent_id": agent_id, "status": "archived"}
+
+    async def _handle_agent_clone(self, params: dict) -> dict:
+        import uuid
+        agent_id = params.get("agent_id", "")
+        if not agent_id:
+            return {"status": "error", "message": "agent_id parameter required"}
+        from .agent_package import AgentPackage
+        src_dir = self._agent_dir(agent_id)
+        src_pkg = AgentPackage(src_dir)
+        if not src_pkg.exists:
+            return {"status": "error", "message": f"Agent not found: {agent_id}"}
+        manifest = src_pkg.load_manifest()
+        cloned_id = uuid.uuid4().hex[:12]
+        cloned_name = params.get("name", f"{manifest.name} (copy)")
+        manifest.name = cloned_name
+        manifest.status = "draft"
+        manifest.version_int = 1
+        manifest.published_at = None
+        dest_dir = self._agent_dir(cloned_id)
+        dest_pkg = AgentPackage(dest_dir)
+        dest_pkg.init(manifest=manifest, soul=src_pkg.load_soul(), memory=src_pkg.load_memory(), agents_md=src_pkg.load_agents())
+        self._load_agents_index()
+        self._agents[cloned_id] = manifest.to_dict()
+        self._agents[cloned_id]["id"] = cloned_id
+        self._agents[cloned_id]["created_at"] = time.time()
+        self._persist_agents_index()
+        logger.info("agent.clone: src=%s cloned=%s", agent_id, cloned_id)
+        return {"agent_id": cloned_id, "manifest": manifest.to_dict()}
+
+    async def _handle_agent_get_api_endpoint(self, params: dict) -> dict:
+        agent_id = params.get("agent_id", "")
+        if not agent_id:
+            return {"status": "error", "message": "agent_id parameter required"}
+        from .agent_package import AgentPackage
+        agent_dir = self._agent_dir(agent_id)
+        pkg = AgentPackage(agent_dir)
+        if not pkg.exists:
+            return {"status": "error", "message": f"Agent not found: {agent_id}"}
+        manifest = pkg.load_manifest()
+        endpoint = f"http://localhost:{MLX_PORT}/v1/agents/{agent_id}/chat"
+        logger.info("agent.get_api_endpoint: id=%s endpoint=%s", agent_id, endpoint)
+        return {"agent_id": agent_id, "endpoint": endpoint, "status": manifest.status}
+
+    async def _handle_agent_execute_stream(self, params: dict) -> dict:
+        agent_id = params.get("agent_id", "")
+        input_text = params.get("input", "")
+        if not agent_id:
+            return {"status": "error", "message": "agent_id parameter required"}
+        from .agent_package import AgentPackage
+        agent_dir = self._agent_dir(agent_id)
+        pkg = AgentPackage(agent_dir)
+        if not pkg.exists:
+            return {"status": "error", "message": f"Agent not found: {agent_id}"}
+
+        graph_config = pkg.to_graph_config()
+        manifest = pkg.load_manifest()
+
+        effective_prompt = graph_config.get("system_prompt", manifest.system_prompt)
+
+        if manifest.knowledge_base_ids:
+            kb_context = await self._inject_knowledge_context(manifest.knowledge_base_ids, input_text, manifest.rag_strategy)
+            if kb_context:
+                effective_prompt = f"{effective_prompt}\n\n{kb_context}"
+
+        if manifest.style:
+            style_mgr = self._get_style_manager()
+            style_result = style_mgr.apply(effective_prompt, manifest.style)
+            if "system_prompt" in style_result:
+                effective_prompt = style_result["system_prompt"]
+
+        graph = AgentGraph(name=manifest.name or agent_id)
+        graph.description = manifest.description
+
+        start_id = "start"
+        llm_id = "llm-1"
+        start_node = NodeConfig(type="start", label="Start")
+        llm_node = NodeConfig(
+            type="llm",
+            label="Agent LLM",
+            model=manifest.model,
+            system_prompt=effective_prompt,
+        )
+        graph.add_node(start_id, start_node)
+        graph.add_node(llm_id, llm_node)
+        graph.add_edge(start_id, llm_id)
+
+        for i, tool_name in enumerate(manifest.tools):
+            tool_id = f"tool-{i+1}"
+            tool_node = NodeConfig(type="tool", label=tool_name)
+            graph.add_node(tool_id, tool_node)
+            if i == 0:
+                graph.add_edge(llm_id, tool_id)
+            else:
+                graph.add_edge(f"tool-{i}", tool_id)
+
+        self.store.save_graph(graph)
+        rt = self._get_runtime()
+
+        events = []
+        execution_id = f"exec-{int(time.time())}-{agent_id}"
+        tool_calls_log = []
+        knowledge_retrieved = []
+        total_input_tokens = 0
+        total_output_tokens = 0
+        try:
+            async for event in rt.execute_graph(graph, input_text):
+                ev_dict = event.to_dict() if hasattr(event, "to_dict") else {"type": str(event)}
+                events.append(ev_dict)
+                ev_type = ev_dict.get("type", "")
+                if ev_type == "TOOL_CALL":
+                    tool_calls_log.append(ev_dict)
+                if ev_type == "TOOL_RESULT":
+                    tool_calls_log.append(ev_dict)
+                if "token" in str(ev_type).lower():
+                    total_input_tokens += ev_dict.get("input_tokens", 0)
+                    total_output_tokens += ev_dict.get("output_tokens", 0)
+        except Exception as e:
+            logger.warning("agent.execute_stream runtime error: %s", e)
+            return {
+                "execution_id": execution_id,
+                "agent_id": agent_id,
+                "events": events,
+                "status": "error",
+                "message": str(e),
+                "tool_calls": tool_calls_log,
+                "knowledge_retrieved": knowledge_retrieved,
+                "input_tokens": total_input_tokens,
+                "output_tokens": total_output_tokens,
+            }
+
+        logger.info("agent.execute_stream: id=%s events=%d tools=%d", agent_id, len(events), len(tool_calls_log))
+        return {
+            "execution_id": execution_id,
+            "agent_id": agent_id,
+            "events": events,
+            "status": "completed",
+            "tool_calls": tool_calls_log,
+            "knowledge_retrieved": knowledge_retrieved,
+            "input_tokens": total_input_tokens,
+            "output_tokens": total_output_tokens,
+            "duration_ms": int((events[-1].get("timestamp", 0) - events[0].get("timestamp", 0)) * 1000) if len(events) > 1 else 0,
+        }
+
+    # ── Connector handlers ──
+
+    async def _handle_connector_list(self, params: dict) -> dict:
+        mgr = self._get_connector_manager()
+        return {"connectors": mgr.list_connectors()}
+
+    async def _handle_connector_create(self, params: dict) -> dict:
+        mgr = self._get_connector_manager()
+        name = params.get("name", "")
+        if not name:
+            return {"status": "error", "message": "name parameter required"}
+        return mgr.create(name, params.get("type", "api_key"), params.get("auth_config", {}))
+
+    async def _handle_connector_get(self, params: dict) -> dict:
+        mgr = self._get_connector_manager()
+        connector_id = params.get("connector_id", "")
+        result = mgr.get(connector_id)
+        if result is None:
+            return {"status": "error", "message": f"Connector not found: {connector_id}"}
+        return {"connector": result}
+
+    async def _handle_connector_update(self, params: dict) -> dict:
+        mgr = self._get_connector_manager()
+        connector_id = params.get("connector_id", "")
+        return mgr.update(connector_id, params.get("updates", {}))
+
+    async def _handle_connector_delete(self, params: dict) -> dict:
+        mgr = self._get_connector_manager()
+        connector_id = params.get("connector_id", "")
+        return mgr.delete(connector_id)
+
+    async def _handle_connector_connect(self, params: dict) -> dict:
+        mgr = self._get_connector_manager()
+        connector_id = params.get("connector_id", "")
+        return mgr.connect(connector_id)
+
+    async def _handle_connector_disconnect(self, params: dict) -> dict:
+        mgr = self._get_connector_manager()
+        connector_id = params.get("connector_id", "")
+        return mgr.disconnect(connector_id)
+
+    async def _handle_connector_test(self, params: dict) -> dict:
+        mgr = self._get_connector_manager()
+        connector_id = params.get("connector_id", "")
+        return mgr.test(connector_id)
+
+    # ── Dashboard handler ──
+
+    async def _handle_dashboard_overview(self, params: dict) -> dict:
+        self._load_agents_index()
+        total_agents = len(self._agents)
+        published_agents = sum(1 for m in self._agents.values() if m.get("status") == "published")
+        active_agents = sum(1 for m in self._agents.values() if m.get("status") in ("draft", "published"))
+
+        today_requests = 0
+        total_tokens = 0
+        error_count = 0
+        try:
+            sessions = self.store.list_sessions()
+            now = time.time()
+            day_ago = now - 86400
+            for s in sessions:
+                ts = s.get("timestamp", 0) if isinstance(s, dict) else 0
+                if ts > day_ago:
+                    today_requests += 1
+                if isinstance(s, dict) and s.get("status") == "error":
+                    error_count += 1
+        except Exception as exc:
+            logger.warning("dashboard.overview session query failed: %s", exc)
+
+        try:
+            from .metrics_engine import MetricsEngine
+            me = MetricsEngine()
+            summary = me.get_summary()
+            total_tokens = summary.total_tokens_in + summary.total_tokens_out
+        except Exception as exc:
+            logger.warning("dashboard.overview metrics query failed: %s", exc)
+
+        alerts = []
+        try:
+            budget_handler = self._handle_budget_status({})
+            budget_data = budget_handler if isinstance(budget_handler, dict) else {}
+            warn_pct = budget_data.get("warn_percent", 0)
+            if warn_pct > 80:
+                alerts.append({"level": "warning", "message": f"Token budget usage at {warn_pct}%", "type": "budget"})
+        except Exception:
+            pass
+
+        recent_agents = []
+        sorted_agents = sorted(self._agents.items(), key=lambda x: x[1].get("created_at", 0), reverse=True)[:5]
+        for aid, meta in sorted_agents:
+            recent_agents.append({"id": aid, "name": meta.get("name", ""), "status": meta.get("status", "draft")})
+
+        logger.info("dashboard.overview: agents=%d requests=%d tokens=%d errors=%d", total_agents, today_requests, total_tokens, error_count)
+        return {
+            "total_agents": total_agents,
+            "published_agents": published_agents,
+            "active_agents": active_agents,
+            "today_requests": today_requests,
+            "total_tokens": total_tokens,
+            "error_count": error_count,
+            "alerts": alerts,
+            "recent_agents": recent_agents,
+        }
+
+    # ── API Key handlers ──
+
+    async def _handle_apikey_create(self, params: dict) -> dict:
+        mgr = self._get_apikey_manager()
+        name = params.get("name", "")
+        if not name:
+            return {"status": "error", "message": "name parameter required"}
+        return mgr.create(
+            name=name,
+            permissions=params.get("permissions"),
+            allowed_agent_ids=params.get("allowed_agent_ids"),
+            ip_whitelist=params.get("ip_whitelist"),
+            expires_at=params.get("expires_at"),
+        )
+
+    async def _handle_apikey_list(self, params: dict) -> dict:
+        mgr = self._get_apikey_manager()
+        return {"keys": mgr.list_keys()}
+
+    async def _handle_apikey_revoke(self, params: dict) -> dict:
+        mgr = self._get_apikey_manager()
+        key_id = params.get("key_id", "")
+        return mgr.revoke(key_id)
+
+    async def _handle_apikey_rotate(self, params: dict) -> dict:
+        mgr = self._get_apikey_manager()
+        key_id = params.get("key_id", "")
+        return mgr.rotate(key_id)
+
+    async def _handle_apikey_update(self, params: dict) -> dict:
+        mgr = self._get_apikey_manager()
+        key_id = params.get("key_id", "")
+        return mgr.update(key_id, params.get("updates", {}))
+
+    # ── Analytics handler ──
+
+    async def _handle_analytics_agent_usage(self, params: dict) -> dict:
+        agent_id = params.get("agent_id")
+        time_range = params.get("time_range", "day")
+        now = time.time()
+        range_seconds = {"day": 86400, "week": 604800, "month": 2592000}.get(time_range, 86400)
+        cutoff = now - range_seconds
+
+        agents_usage = []
+        try:
+            from .metrics_engine import MetricsEngine
+            me = MetricsEngine()
+            sessions = me.query_sessions()
+            agent_buckets: dict[str, dict] = {}
+            for s in sessions:
+                ts = s.timestamp if hasattr(s, "timestamp") else s.get("timestamp", 0)
+                if ts < cutoff:
+                    continue
+                gid = s.graph_id if hasattr(s, "graph_id") else s.get("graph_id", "unknown")
+                aid = gid if agent_id is None else agent_id
+                if agent_id and gid != agent_id:
+                    continue
+                bucket = agent_buckets.setdefault(aid, {"agent_id": aid, "requests": 0, "input_tokens": 0, "output_tokens": 0, "errors": 0})
+                bucket["requests"] += 1
+                if hasattr(s, "error") and s.error:
+                    bucket["errors"] += 1
+                elif isinstance(s, dict) and s.get("error"):
+                    bucket["errors"] += 1
+            agents_usage = list(agent_buckets.values())
+        except Exception as exc:
+            logger.warning("analytics.agent_usage failed: %s", exc)
+
+        logger.info("analytics.agent_usage: range=%s agents=%d", time_range, len(agents_usage))
+        return {"agents": agents_usage, "time_range": time_range}
+
+    # ── Style handlers ──
+
+    async def _handle_style_list(self, params: dict) -> dict:
+        mgr = self._get_style_manager()
+        return {"styles": mgr.list_styles()}
+
+    async def _handle_style_get(self, params: dict) -> dict:
+        mgr = self._get_style_manager()
+        style_id = params.get("style_id", "")
+        result = mgr.get(style_id)
+        if result is None:
+            return {"status": "error", "message": f"Style not found: {style_id}"}
+        return {"style": result}
+
+    async def _handle_style_create(self, params: dict) -> dict:
+        mgr = self._get_style_manager()
+        name = params.get("name", "")
+        if not name:
+            return {"status": "error", "message": "name parameter required"}
+        return mgr.create(name, params.get("suffix", ""), params.get("output_format", "markdown"))
+
+    async def _handle_style_apply(self, params: dict) -> dict:
+        mgr = self._get_style_manager()
+        style_id = params.get("style_id", "")
+        system_prompt = params.get("system_prompt", "")
+        return mgr.apply(system_prompt, style_id)
+
+    # ── Alert handlers ──
+
+    async def _handle_alert_list(self, params: dict) -> dict:
+        alerts = []
+        try:
+            budget_handler = self._handle_budget_status({})
+            budget_data = budget_handler if isinstance(budget_handler, dict) else {}
+            warn_pct = budget_data.get("warn_percent", 0)
+            if warn_pct > 80:
+                alerts.append({"id": "budget-warning", "level": "warning", "message": f"Token budget usage at {warn_pct}%", "type": "budget", "acknowledged": False})
+            if warn_pct > 95:
+                alerts.append({"id": "budget-critical", "level": "critical", "message": f"Token budget nearly exhausted ({warn_pct}%)", "type": "budget", "acknowledged": False})
+        except Exception:
+            pass
+        try:
+            sessions = self.store.list_sessions()
+            now = time.time()
+            for s in sessions[-20:]:
+                if isinstance(s, dict) and s.get("status") == "error":
+                    alerts.append({"id": f"session-error-{s.get('session_id', '')}", "level": "error", "message": f"Session error: {s.get('error', 'unknown')}", "type": "session", "acknowledged": False})
+        except Exception:
+            pass
+        return {"alerts": alerts}
+
+    async def _handle_alert_acknowledge(self, params: dict) -> dict:
+        alert_id = params.get("alert_id", "")
+        logger.info("alert.acknowledge: id=%s", alert_id)
+        return {"acknowledged": True, "alert_id": alert_id}
 
     # ── Marketplace handlers ──
 
@@ -2470,6 +2992,219 @@ def run_daemon(socket_path: str = SOCKET_PATH):
     )
     daemon = DaemonServer(socket_path=socket_path)
     asyncio.run(daemon.run_forever())
+
+
+    async def _handle_skill_execute(self, params: dict) -> dict:
+        agent_id = params.get("agent_id", "")
+        skill_name = params.get("skill_name", "")
+        user_input = params.get("input", "")
+        tool_names = params.get("tools", [])
+        if not agent_id or not skill_name:
+            return {"status": "error", "message": "agent_id and skill_name required"}
+
+        from .agent_package import AgentPackage
+        agent_dir = self._agent_dir(agent_id)
+        pkg = AgentPackage(agent_dir)
+        if not pkg.exists:
+            return {"status": "error", "message": f"Agent not found: {agent_id}"}
+
+        skills = pkg.list_skills()
+        skill_def = None
+        for s in skills:
+            if s.get("name") == skill_name:
+                skill_def = s
+                break
+        if skill_def is None:
+            return {"status": "error", "message": f"Skill not found: {skill_name}"}
+
+        system_prompt = skill_def.get("system_prompt", skill_def.get("systemPrompt", ""))
+        steps = skill_def.get("steps", [])
+        results = []
+        chat_engine = self._get_chat_engine()
+        session_id = f"skill-{agent_id}-{skill_name}-{id(params):012x}"
+
+        if steps:
+            step_results = []
+            for i, step in enumerate(steps):
+                step_prompt = step.get("prompt", "")
+                action = step.get("action", "generate")
+                step_input = step_prompt.replace("{input}", user_input) if step_prompt else user_input
+                if step_results:
+                    step_input += "\n\nPrevious step results:\n" + "\n".join(
+                        f"[Step {j+1}]: {r}" for j, r in enumerate(step_results)
+                    )
+
+                messages = []
+                if system_prompt:
+                    messages.append({"role": "system", "content": system_prompt})
+                messages.append({"role": "user", "content": step_input})
+
+                try:
+                    response_text = ""
+                    async for ev in chat_engine.send(session_id, step_input, mode="skill"):
+                        if ev.type.value == "token":
+                            response_text += ev.content
+                    step_results.append(response_text[:4000])
+                    results.append({
+                        "step": i + 1,
+                        "name": step.get("name", f"Step {i+1}"),
+                        "action": action,
+                        "status": "completed",
+                        "output_length": len(response_text),
+                    })
+                    logger.info("skill.execute: step %d/%d completed, %d chars", i+1, len(steps), len(response_text))
+                except Exception as e:
+                    step_results.append(f"Error: {e}")
+                    results.append({
+                        "step": i + 1,
+                        "name": step.get("name", f"Step {i+1}"),
+                        "action": action,
+                        "status": "error",
+                        "error": str(e),
+                    })
+                    break
+
+            final_result = step_results[-1] if step_results else ""
+        else:
+            messages = []
+            if system_prompt:
+                messages.append({"role": "system", "content": system_prompt})
+            messages.append({"role": "user", "content": user_input})
+
+            try:
+                final_result = ""
+                async for ev in chat_engine.send(session_id, user_input, mode="skill"):
+                    if ev.type.value == "token":
+                        final_result += ev.content
+                results.append({"step": 1, "name": skill_name, "action": "generate", "status": "completed", "output_length": len(final_result)})
+            except Exception as e:
+                final_result = f"Error: {e}"
+                results.append({"step": 1, "name": skill_name, "action": "generate", "status": "error", "error": str(e)})
+
+        logger.info("skill.execute: agent=%s skill=%s steps=%d", agent_id, skill_name, len(results))
+        return {"steps": results, "result": final_result, "skill_name": skill_name}
+
+    async def _handle_research_adaptive(self, params: dict) -> dict:
+        question = params.get("question", "")
+        max_steps = min(params.get("max_steps", 10), 20)
+        web_search = params.get("web_search", True)
+        if not question:
+            return {"status": "error", "message": "question parameter required"}
+
+        chat_engine = self._get_chat_engine()
+        session_id = f"research-adaptive-{id(params):012x}"
+        findings = []
+        citations = []
+        steps_taken = 0
+
+        decompose_prompt = (
+            f"Break down the following question into 2-4 key sub-questions that need to be researched. "
+            f"Output each sub-question on a separate line, prefixed with '## Sub-question N:'.\n\n"
+            f"Question: {question}"
+        )
+        try:
+            decomp_text = ""
+            async for ev in chat_engine.send(session_id, decompose_prompt, mode="research"):
+                if ev.type.value == "token":
+                    decomp_text += ev.content
+            steps_taken += 1
+            import re
+            sub_questions = re.findall(r"## Sub-question \d+:\s*(.+)", decomp_text)
+            if not sub_questions:
+                sub_questions = [line.strip() for line in decomp_text.split("\n") if line.strip() and not line.startswith("#")][:4]
+            if not sub_questions:
+                sub_questions = [question]
+            findings.append({"step": "decompose", "sub_questions": sub_questions, "raw": decomp_text[:2000]})
+            logger.info("research.adaptive: decomposed into %d sub-questions", len(sub_questions))
+        except Exception as e:
+            findings.append({"step": "decompose", "error": str(e)})
+            sub_questions = [question]
+
+        for sq in sub_questions:
+            if steps_taken >= max_steps:
+                break
+            search_prompt = (
+                f"Research this sub-question thoroughly. Provide specific facts, data, and cite sources.\n\n"
+                f"Sub-question: {sq}\n\n"
+                f"Original question: {question}"
+            )
+            try:
+                search_text = ""
+                async for ev in chat_engine.send(session_id, search_prompt, mode="research"):
+                    if ev.type.value == "token":
+                        search_text += ev.content
+                steps_taken += 1
+                findings.append({"step": "search", "sub_question": sq, "result": search_text[:4000]})
+                url_pattern = re.findall(r'https?://[^\s)\]<>"]+', search_text)
+                for url in url_pattern[:3]:
+                    citations.append({"url": url, "context": sq})
+            except Exception as e:
+                findings.append({"step": "search", "sub_question": sq, "error": str(e)})
+
+        sufficient = False
+        sufficiency_prompt = (
+            f"Given the following research findings, determine if they sufficiently answer the original question. "
+            f"Respond with ONLY 'SUFFICIENT' or 'INSUFFICIENT' followed by a brief reason.\n\n"
+            f"Original question: {question}\n\n"
+            f"Findings so far:\n" + "\n".join(
+                f"- {f.get('sub_question', f.get('step', ''))}: {f.get('result', f.get('raw', ''))[:500]}"
+                for f in findings if 'error' not in f
+            )
+        )
+        try:
+            suff_text = ""
+            async for ev in chat_engine.send(session_id, sufficiency_prompt, mode="research"):
+                if ev.type.value == "token":
+                    suff_text += ev.content
+            sufficient = "SUFFICIENT" in suff_text.upper()
+            steps_taken += 1
+        except Exception:
+            sufficient = True
+
+        if not sufficient and steps_taken < max_steps:
+            extra_prompt = (
+                f"The previous research was deemed insufficient. Provide additional information "
+                f"to fully answer the question.\n\n"
+                f"Original question: {question}\n\n"
+                f"What's missing or needs more depth?"
+            )
+            try:
+                extra_text = ""
+                async for ev in chat_engine.send(session_id, extra_prompt, mode="research"):
+                    if ev.type.value == "token":
+                        extra_text += ev.content
+                steps_taken += 1
+                findings.append({"step": "supplement", "result": extra_text[:4000]})
+            except Exception as e:
+                findings.append({"step": "supplement", "error": str(e)})
+
+        synthesize_prompt = (
+            f"Synthesize all the research findings into a comprehensive, well-structured response. "
+            f"Include specific facts and cite sources where possible.\n\n"
+            f"Original question: {question}\n\n"
+            f"Research findings:\n" + "\n\n".join(
+                f"[{f.get('step', 'step')}] {f.get('sub_question', '')}\n{f.get('result', f.get('raw', ''))[:2000]}"
+                for f in findings if 'error' not in f
+            )
+        )
+        try:
+            final_answer = ""
+            async for ev in chat_engine.send(session_id, synthesize_prompt, mode="research"):
+                if ev.type.value == "token":
+                    final_answer += ev.content
+            steps_taken += 1
+        except Exception as e:
+            final_answer = f"Synthesis error: {e}"
+
+        logger.info("research.adaptive: question=%s steps=%d sufficient=%s citations=%d",
+                     question[:50], steps_taken, sufficient, len(citations))
+        return {
+            "answer": final_answer,
+            "citations": citations,
+            "steps_taken": steps_taken,
+            "sufficient": sufficient,
+            "findings": findings,
+        }
 
 
 if __name__ == "__main__":

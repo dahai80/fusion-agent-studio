@@ -57,6 +57,19 @@ class AgentManifest:
     tags: list[str] = field(default_factory=list)
     author: str = ""
     created_at: str = ""
+    status: str = "draft"
+    version_int: int = 1
+    published_at: float | None = None
+    knowledge_base_ids: list[str] = field(default_factory=list)
+    visibility: str = "private"
+    rag_strategy: str = "hybrid"
+    web_search_enabled: bool = False
+    deep_research_enabled: bool = False
+    connector_ids: list[str] = field(default_factory=list)
+    style: str = ""
+    top_p: float = 1.0
+    context_window: int = 32768
+    rate_limit_qps: int = 0
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -73,6 +86,19 @@ class AgentManifest:
             "tags": self.tags,
             "author": self.author,
             "created_at": self.created_at,
+            "status": self.status,
+            "version_int": self.version_int,
+            "published_at": self.published_at,
+            "knowledge_base_ids": self.knowledge_base_ids,
+            "visibility": self.visibility,
+            "rag_strategy": self.rag_strategy,
+            "web_search_enabled": self.web_search_enabled,
+            "deep_research_enabled": self.deep_research_enabled,
+            "connector_ids": self.connector_ids,
+            "style": self.style,
+            "top_p": self.top_p,
+            "context_window": self.context_window,
+            "rate_limit_qps": self.rate_limit_qps,
         }
 
     @classmethod
@@ -91,6 +117,19 @@ class AgentManifest:
             tags=data.get("tags", []),
             author=data.get("author", ""),
             created_at=data.get("created_at", ""),
+            status=data.get("status", "draft"),
+            version_int=data.get("version_int", 1),
+            published_at=data.get("published_at"),
+            knowledge_base_ids=data.get("knowledge_base_ids", []),
+            visibility=data.get("visibility", "private"),
+            rag_strategy=data.get("rag_strategy", "hybrid"),
+            web_search_enabled=data.get("web_search_enabled", False),
+            deep_research_enabled=data.get("deep_research_enabled", False),
+            connector_ids=data.get("connector_ids", []),
+            style=data.get("style", ""),
+            top_p=data.get("top_p", 1.0),
+            context_window=data.get("context_window", 32768),
+            rate_limit_qps=data.get("rate_limit_qps", 0),
         )
 
 
