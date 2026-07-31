@@ -37,6 +37,10 @@ class NodeConfig:
     allow_dynamic_tools: bool = False
     # Effort level for reasoning models
     effort: str = ""
+    # Agent loop: ""=off (graph-reentry), "agent"=内生多轮工具回灌
+    loop_mode: str = ""
+    max_loop_iterations: int = 0
+    stop_sequences: list = field(default_factory=list)
     # Canvas position
     x: float = 0.0
     y: float = 0.0
@@ -56,6 +60,9 @@ class NodeConfig:
             "retry_on_error": self.retry_on_error,
             "allow_dynamic_tools": self.allow_dynamic_tools,
             "effort": self.effort,
+            "loop_mode": self.loop_mode,
+            "max_loop_iterations": self.max_loop_iterations,
+            "stop_sequences": self.stop_sequences,
             "x": self.x,
             "y": self.y,
         }

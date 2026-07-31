@@ -15,10 +15,12 @@ import asyncio
 import json
 import logging
 import time
+import uuid
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from .context import AgentContext, AgentEvent, AgentEventType
+from .compactor import Compactor
 from .graph import AgentGraph
 from .llm_gateway import LLMGateway
 
@@ -69,10 +71,16 @@ class MultiAgentOrchestrator:
         tool_registry: "ToolRegistry | None" = None,
         max_concurrent: int = 5,
         llm_gateway: LLMGateway | None = None,
+        swarm_router=None,
+        plaza=None,
+        fmp=None,
     ):
         self.mlx = mlx_client
         self.tools = tool_registry
         self.max_concurrent = max_concurrent
+        self.swarm_router = swarm_router
+        self.plaza = plaza
+        self.fmp = fmp
 
         if llm_gateway:
             self.llm_gateway = llm_gateway
@@ -82,6 +90,10 @@ class MultiAgentOrchestrator:
             self.llm_gateway = gw
         else:
             self.llm_gateway = LLMGateway()
+
+        self.compactor = Compactor()
+        if hasattr(self.llm_gateway, "set_compactor"):
+            self.llm_gateway.set_compactor(self.compactor)
 
         logger.info(
             "MultiAgentOrchestrator init, mlx_client=%s, llm_gateway=%s",
@@ -277,6 +289,7 @@ class MultiAgentOrchestrator:
 
         accumulated_context = initial_input
         handoff_chain: list[HandoffContext] = []
+        task_id = f"handoff_{uuid.uuid4().hex[:8]}"
 
         for i, agent_config in enumerate(agents):
             try:
@@ -317,6 +330,24 @@ class MultiAgentOrchestrator:
 
                 accumulated_context = final_content
 
+                if self.swarm_router and i + 1 < len(agents):
+                    from .swarm_router import SwarmAgent, HandoffContext as SwarmHandoffContext
+                    if not self.swarm_router.get_agent(agent_config.name):
+                        self.swarm_router.register_agent(SwarmAgent(id=agent_config.name, name=agent_config.name))
+                    nxt = agents[i + 1]
+                    if not self.swarm_router.get_agent(nxt.name):
+                        self.swarm_router.register_agent(SwarmAgent(id=nxt.name, name=nxt.name))
+                    swarm_ctx = SwarmHandoffContext(
+                        conversation=[{"role": agent_config.name, "content": final_content}],
+                        hop_count=i,
+                        task_id=task_id,
+                    )
+                    if self.swarm_router.handoff(agent_config.name, nxt.name, swarm_ctx) is None:
+                        logger.info("SwarmRouter blocked handoff at hop %d, stopping chain", i + 1)
+                        if result.results:
+                            result.results[-1]["swarm_blocked"] = True
+                        break
+
                 if self._is_handoff_complete(final_content):
                     logger.info("Agent %s completed task, stopping handoff chain", agent_config.name)
                     break
@@ -347,12 +378,26 @@ class MultiAgentOrchestrator:
         result = OrchestrationResult()
         start = time.time()
 
+        channel_name = None
+        if self.plaza:
+            channel_name = f"broadcast_{uuid.uuid4().hex[:8]}"
+            try:
+                self.plaza.create_channel(channel_name, [a.name for a in agents])
+            except Exception as e:
+                logger.warning("Plaza create_channel failed: %s", e)
+                channel_name = None
+
         parallel_result = await self.parallel(agents, input_template=input_text)
         result.errors = parallel_result.errors
 
         outputs = {}
         for r in parallel_result.results:
             outputs[r["agent"]] = r.get("output", "")
+            if self.plaza and channel_name:
+                try:
+                    self.plaza.broadcast(channel_name, r["agent"], r.get("output", ""))
+                except Exception as e:
+                    logger.warning("Plaza broadcast record failed for %s: %s", r["agent"], e)
 
         merged = self._merge_outputs(outputs, merge_strategy)
 

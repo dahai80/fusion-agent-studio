@@ -147,12 +147,23 @@ class AgentStore:
         return AgentGraph.from_json(row["data"])
 
     def list_graphs(self) -> list[dict[str, Any]]:
-        """List all saved graphs with metadata."""
+        """List all saved graphs with metadata + node_count."""
         with self._cursor() as conn:
             rows = conn.execute(
-                "SELECT id, name, description, version, created_at, updated_at FROM graphs ORDER BY updated_at DESC"
+                "SELECT id, name, description, data, version, created_at, updated_at FROM graphs ORDER BY updated_at DESC"
             ).fetchall()
-        return [dict(r) for r in rows]
+        results = []
+        for r in rows:
+            d = dict(r)
+            try:
+                graph_data = json.loads(d.pop("data", "{}"))
+                d["node_count"] = len(graph_data.get("nodes", {}))
+                d["edge_count"] = len(graph_data.get("edges", []))
+            except (json.JSONDecodeError, TypeError):
+                d["node_count"] = 0
+                d["edge_count"] = 0
+            results.append(d)
+        return results
 
     def delete_graph(self, graph_id: str) -> bool:
         """Delete a graph by ID. Returns True if deleted."""

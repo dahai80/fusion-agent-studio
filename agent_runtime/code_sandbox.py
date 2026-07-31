@@ -10,6 +10,7 @@ import ast
 import difflib
 import logging
 import subprocess
+import sys
 import tempfile
 import uuid
 from dataclasses import dataclass, field
@@ -20,13 +21,10 @@ logger = logging.getLogger(__name__)
 
 SANDBOX_PROFILE = """
 (version 1)
-(deny default)
-(allow file-read* (subpath "/usr/lib") (subpath "/usr/share") (subpath "/System"))
-(allow file-read* (subpath "/Library/Frameworks"))
+(allow default)
+(deny file-write*)
 (allow file-write* (subpath "__SANDBOX_DIR__"))
-(allow process-exec (subpath "/usr/bin") (subpath "/bin"))
-(allow network* (remote ip4 "127.0.0.1"))
-(deny network* (remote ip4))
+(deny network*)
 """
 
 DANGEROUS_IMPORTS = {
@@ -38,6 +36,11 @@ DANGEROUS_IMPORTS = {
 DANGEROUS_CALLS = {
     "eval", "exec", "compile", "__import__",
     "open", "input", "breakpoint",
+}
+
+DANGEROUS_ATTRIBUTES = {
+    "__subclasses__", "__bases__", "__mro__", "__globals__",
+    "__builtins__", "__code__", "__func__",
 }
 
 
@@ -144,6 +147,9 @@ class ASTChecker:
                     result.has_file_write = True
                 if attr in ("connect", "send", "sendto", "bind"):
                     result.has_network = True
+                if attr in DANGEROUS_ATTRIBUTES:
+                    result.issues.append(f"Unsafe attribute access: {attr}")
+                    result.safe = False
 
         logger.info("AST analysis: safe=%s issues=%d imports=%d", result.safe, len(result.issues), len(result.imports))
         return result
@@ -238,9 +244,10 @@ class CodeSandbox:
             profile = SANDBOX_PROFILE.replace("__SANDBOX_DIR__", work_dir)
             profile_path = Path(work_dir) / "sandbox.sb"
             profile_path.write_text(profile)
-            cmd = ["sandbox-exec", "-p", str(profile_path), "python3", str(script_path)]
+            logger.info("Sandbox profile written: %s", profile_path)
+            cmd = ["sandbox-exec", "-f", str(profile_path), sys.executable, str(script_path)]
         else:
-            cmd = ["python3", str(script_path)]
+            cmd = [sys.executable, str(script_path)]
 
         try:
             proc = subprocess.run(

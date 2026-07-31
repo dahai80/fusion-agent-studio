@@ -16,6 +16,7 @@ import time
 from typing import TYPE_CHECKING, Any, AsyncIterator
 
 from .context import AgentContext, AgentEvent, AgentEventType
+from .compactor import Compactor
 from .debugger import StepDebugger
 from .graph import AgentGraph, NodeConfig
 from .json_schema import JsonSchemaValidator
@@ -201,6 +202,8 @@ class AgentRuntime:
         self.store = store
         self.auto_checkpoint = auto_checkpoint
         self.memory_engine = memory_engine
+        self.compactor = None
+        self.hooks = None
         self._tool_call_chain_count = 0
         self._safety_futures: dict[str, asyncio.Future[bool]] = {}
         self._safety_timeout: float = 60.0
@@ -213,6 +216,10 @@ class AgentRuntime:
             self.llm_gateway = gw
         else:
             self.llm_gateway = LLMGateway()
+
+        self.compactor = Compactor(memory_engine=self.memory_engine)
+        if hasattr(self.llm_gateway, "set_compactor"):
+            self.llm_gateway.set_compactor(self.compactor)
 
         logger.info(
             "AgentRuntime init, mlx_client=%s, llm_gateway=%s",
@@ -338,6 +345,44 @@ class AgentRuntime:
                         )
                         ctx.finished_at = time.time()
                         return
+
+                # Agent Loop: 内生多轮工具回灌 (loop_mode=="agent")
+                # 末条为 tool 结果 => stop_reason=tool_use, 回灌 LLM 继续推理
+                if node.loop_mode == "agent":
+                    max_iter = node.max_loop_iterations or 25
+                    for loop_i in range(max_iter):
+                        last_msg = ctx.messages[-1] if ctx.messages else {}
+                        if last_msg.get("role") != "tool":
+                            break
+                        # Compaction 接入点 (M2): 超阈值先压缩再回灌
+                        if self.compactor is not None:
+                            level = self.compactor.should_compact(ctx.messages)
+                            if level != "none":
+                                before = len(ctx.messages)
+                                ctx.messages = self.compactor.compact(ctx.messages, level)
+                                logger.info(
+                                    "compaction applied level=%s before=%d after=%d node=%s",
+                                    level, before, len(ctx.messages), current_node_id,
+                                )
+                        # Hooks 接入点 (M3)
+                        self._tool_call_chain_count = 0
+                        logger.info(
+                            "agent loop iter=%d/%d node=%s msgs=%d",
+                            loop_i + 1, max_iter, current_node_id, len(ctx.messages),
+                        )
+                        async for event in self._execute_llm_node(
+                            ctx, node, graph, model, tools_schema, system_prompt, stream=stream
+                        ):
+                            yield event
+                            if event.type == AgentEventType.ERROR:
+                                return
+                        if self.auto_checkpoint:
+                            await self._save_checkpoint(ctx, graph)
+                    else:
+                        logger.warning(
+                            "agent loop max iterations reached: %d node=%s",
+                            max_iter, current_node_id,
+                        )
 
                 last_msg = ctx.messages[-1] if ctx.messages else {}
                 if last_msg.get("tool_calls"):
@@ -736,6 +781,19 @@ class AgentRuntime:
                     node_id=node.label,
                 )
 
+                pre = await self._fire_tool_hooks("PRE_TOOL_USE", func_name, func_args)
+                if pre is not None and pre.decision == "block":
+                    result = f"Blocked by hook: {pre.reason or 'pre_tool_use'}"
+                    logger.info("tool blocked by hook tool=%s reason=%s", func_name, pre.reason)
+                    ctx.add_message("tool", result, tool_call_id=tc.get("id", ""))
+                    yield AgentEvent(
+                        type=AgentEventType.TOOL_RESULT,
+                        content=result,
+                        name=func_name,
+                        node_id=node.label,
+                    )
+                    continue
+
                 try:
                     tool = self.tools.get(func_name)
                     if tool is None:
@@ -749,6 +807,9 @@ class AgentRuntime:
 
                 ctx.add_message("tool", result, tool_call_id=tc.get("id", ""))
                 ctx.messages[-1]["_node_id"] = node.label
+
+                post_event = "POST_TOOL_USE_FAILURE" if str(result).startswith("Error:") else "POST_TOOL_USE"
+                await self._fire_tool_hooks(post_event, func_name, func_args, str(result))
 
                 yield AgentEvent(
                     type=AgentEventType.TOOL_RESULT,
@@ -838,6 +899,18 @@ class AgentRuntime:
                             node_id=node.label,
                         )
                         break
+
+    async def _fire_tool_hooks(self, event: str, tool_name: str, args: dict, result: str | None = None):
+        if self.hooks is None:
+            return None
+        payload = {"tool_name": tool_name, "args": args}
+        if result is not None:
+            payload["result"] = result
+        try:
+            return await self.hooks.fire(event, payload, tool_name=tool_name)
+        except Exception as e:
+            logger.warning("hook fire error event=%s tool=%s err=%s", event, tool_name, e)
+            return None
 
     def _validate_tool_args(self, tool: "BaseTool", args: dict) -> dict:
         schema = tool.parameters

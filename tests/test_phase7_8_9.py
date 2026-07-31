@@ -526,3 +526,40 @@ class TestSwarmRouter:
         stats = sr.get_stats()
         assert stats["agents"] == 2
         assert stats["total_delegations"] == 1
+
+
+class TestSwarmRouterComposition:
+    # SwarmRouter composes FMProtocol + SafetyGateway (Phase composition landing).
+
+    def test_delegate_sends_fmp_message(self):
+        sr = SwarmRouter()
+        sr.register_agent(SwarmAgent(id="a1", name="supervisor", capabilities=["manage"]))
+        sr.register_agent(SwarmAgent(id="a2", name="coder", capabilities=["code"]))
+        sr.delegate("a1", "write code", capability="code")
+        assert sr.fmp._stats["sent"] >= 1
+        types = [m.message_type for m in sr.fmp._message_log]
+        assert "delegation" in types
+
+    def test_handoff_sends_fmp_message(self):
+        sr = SwarmRouter()
+        sr.register_agent(SwarmAgent(id="a1", name="coder"))
+        sr.register_agent(SwarmAgent(id="a2", name="reviewer"))
+        ctx = HandoffContext(conversation=[{"role": "a1", "content": "done"}], hop_count=0, task_id="t1")
+        sr.handoff("a1", "a2", ctx)
+        assert sr.fmp._stats["sent"] >= 1
+        types = [m.message_type for m in sr.fmp._message_log]
+        assert "handoff" in types
+
+    def test_escalate_routes_through_safety(self):
+        sr = SwarmRouter()
+        sr.register_agent(SwarmAgent(id="a1", name="supervisor", capabilities=["manage"]))
+        sr.register_agent(SwarmAgent(id="a2", name="coder", capabilities=["code"]))
+        delegation = sr.delegate("a1", "run shell", capability="code")
+        assert delegation is not None
+        result = sr.escalate(delegation.id, reason="stuck")
+        assert result is not None
+        assert result.result["escalated"] is True
+        assert result.result["reason"] == "stuck"
+        assert "safety_action" in result.result
+        assert "requires_approval" in result.result
+        assert "action_id" in result.result

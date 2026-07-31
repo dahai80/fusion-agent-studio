@@ -31,6 +31,7 @@ from .persistence import AgentStore
 from .rag_pipeline import RAGConfig, RAGPipeline
 from .runtime import AgentRuntime
 from .chat_engine import ChatEngine
+from .code_sandbox import CodeSandbox
 
 logger = logging.getLogger(__name__)
 
@@ -41,8 +42,9 @@ MLX_BASE_URL = f"http://127.0.0.1:{MLX_PORT}/v1"
 
 
 class DaemonServer:
-    def __init__(self, socket_path: str = SOCKET_PATH):
+    def __init__(self, socket_path: str = SOCKET_PATH, ws_port: int = WS_PORT):
         self.socket_path = socket_path
+        self.ws_port = ws_port
         self.store = AgentStore()
         self._gateway = LLMGateway()
         self._runtime: AgentRuntime | None = None
@@ -58,6 +60,10 @@ class DaemonServer:
         self._agents: dict[str, dict] = {}
         self._marketplace = None
         self._chat_engine: ChatEngine | None = None
+        self._orchestrator = None
+        self._swarm = None
+        self._plaza = None
+        self._fmp = None
         self._ws_clients: list[asyncio.StreamWriter] = []
         self._ws_server: asyncio.Server | None = None
 
@@ -74,6 +80,210 @@ class DaemonServer:
             self._chat_engine = ChatEngine(runtime=self._get_runtime(), store=self.store)
             logger.info("ChatEngine created")
         return self._chat_engine
+    def _get_fmp(self):
+        if self._fmp is None:
+            from .fmp_router import FMProtocol
+            self._fmp = FMProtocol("daemon")
+            logger.info("FMProtocol created")
+        return self._fmp
+
+    def _get_swarm(self):
+        if self._swarm is None:
+            from .swarm_router import SwarmRouter
+            self._swarm = SwarmRouter(fmp=self._get_fmp())
+            logger.info("SwarmRouter created (shared fmp)")
+        return self._swarm
+
+    def _get_plaza(self):
+        if self._plaza is None:
+            from .plaza import Plaza
+            self._plaza = Plaza()
+            logger.info("Plaza created")
+        return self._plaza
+
+    def _get_orchestrator(self):
+        if self._orchestrator is None:
+            from .orchestrator import MultiAgentOrchestrator
+            from tools import create_default_registry
+            registry = create_default_registry()
+            self._orchestrator = MultiAgentOrchestrator(
+                tool_registry=registry,
+                llm_gateway=self._gateway,
+                swarm_router=self._get_swarm(),
+                plaza=self._get_plaza(),
+                fmp=self._get_fmp(),
+            )
+            logger.info("MultiAgentOrchestrator created (swarm+plaza+fmp wired)")
+        return self._orchestrator
+
+    def _get_compactor(self):
+        rt = self._get_runtime()
+        if rt.compactor is None:
+            from .compactor import Compactor
+            rt.compactor = Compactor(memory_engine=rt.memory_engine)
+        return rt.compactor
+
+    def _get_hooks(self):
+        rt = self._get_runtime()
+        if rt.hooks is None:
+            from .hooks import HookEngine
+            rt.hooks = HookEngine()
+            logger.info("HookEngine created")
+        return rt.hooks
+
+    def _serialize(self, obj):
+        if obj is None:
+            return None
+        if hasattr(obj, "to_dict"):
+            return obj.to_dict()
+        try:
+            import dataclasses
+            return dataclasses.asdict(obj)
+        except Exception:
+            return str(obj)
+
+    async def _handle_team_swarm_register(self, params: dict) -> dict:
+        from .swarm_router import SwarmAgent
+        swarm = self._get_swarm()
+        agent = SwarmAgent(
+            id=params.get("id", ""),
+            name=params.get("name", ""),
+            capabilities=params.get("capabilities", []),
+            handoff_targets=params.get("handoff_targets", []),
+            max_hops=params.get("max_hops", 3),
+        )
+        swarm.register_agent(agent)
+        return {"ok": True, "agent": self._serialize(agent)}
+
+    async def _handle_team_swarm_agents(self, params: dict) -> dict:
+        swarm = self._get_swarm()
+        return {"agents": [self._serialize(a) for a in swarm._agents.values()]}
+
+    async def _handle_team_swarm_delegate(self, params: dict) -> dict:
+        swarm = self._get_swarm()
+        delegation = swarm.delegate(
+            params["delegator_id"],
+            params.get("task", ""),
+            capability=params.get("capability", ""),
+            deliverable=params.get("deliverable", ""),
+        )
+        return {"delegation": self._serialize(delegation)}
+
+    async def _handle_team_swarm_handoff(self, params: dict) -> dict:
+        from .swarm_router import HandoffContext
+        swarm = self._get_swarm()
+        ctx = HandoffContext(
+            conversation=params.get("conversation", []),
+            hop_count=params.get("hop_count", 0),
+            task_id=params.get("task_id", ""),
+        )
+        new_ctx = swarm.handoff(params["from_id"], params["to_id"], ctx)
+        return {"context": self._serialize(new_ctx)}
+
+    async def _handle_team_swarm_evaluate(self, params: dict) -> dict:
+        swarm = self._get_swarm()
+        delegation = swarm.evaluate(params["delegation_id"], params.get("result", {}))
+        return {"delegation": self._serialize(delegation)}
+
+    async def _handle_team_swarm_escalate(self, params: dict) -> dict:
+        swarm = self._get_swarm()
+        delegation = swarm.escalate(params["delegation_id"], reason=params.get("reason", ""))
+        return {"delegation": self._serialize(delegation)}
+
+    async def _handle_team_swarm_stats(self, params: dict) -> dict:
+        swarm = self._get_swarm()
+        return {
+            "agents": len(swarm._agents),
+            "delegations": len(swarm._delegations),
+            "handoff_log": len(swarm._handoff_log),
+            "fmp_sent": swarm.fmp._stats["sent"],
+        }
+
+    async def _handle_team_plaza_create(self, params: dict) -> dict:
+        plaza = self._get_plaza()
+        ch = plaza.create_channel(params["name"], params.get("participants", []))
+        return {"channel": ch.name, "participants": ch.participants}
+
+    async def _handle_team_plaza_broadcast(self, params: dict) -> dict:
+        plaza = self._get_plaza()
+        msg = plaza.broadcast(
+            params["channel"],
+            params["sender"],
+            params.get("content", ""),
+            mentions=params.get("mentions"),
+        )
+        return {"message": self._serialize(msg)}
+
+    async def _handle_team_plaza_messages(self, params: dict) -> dict:
+        plaza = self._get_plaza()
+        msgs = plaza._messages.get(params["channel"], [])
+        return {"messages": [self._serialize(m) for m in msgs]}
+
+    async def _handle_team_plaza_channels(self, params: dict) -> dict:
+        plaza = self._get_plaza()
+        return {"channels": [ch.name for ch in plaza.list_channels()]}
+
+    async def _handle_team_plaza_break_in(self, params: dict) -> dict:
+        plaza = self._get_plaza()
+        msg = plaza.human_break_in(params["channel"], params.get("content", ""))
+        return {"message": self._serialize(msg)}
+
+    async def _handle_team_plaza_circuit(self, params: dict) -> dict:
+        plaza = self._get_plaza()
+        return {"tripped": plaza.check_circuit_breaker(params["channel"])}
+
+    async def _handle_team_fmp_register(self, params: dict) -> dict:
+        from .fmp_router import AgentInfo
+        fmp = self._get_fmp()
+        fmp.register_agent(AgentInfo(
+            id=params.get("id", ""),
+            name=params.get("name", ""),
+            capabilities=params.get("capabilities", []),
+        ))
+        return {"ok": True}
+
+    async def _handle_team_fmp_send(self, params: dict) -> dict:
+        fmp = self._get_fmp()
+        msg = fmp.send(
+            recipient=params.get("recipient", ""),
+            message_type=params.get("message_type", "request"),
+            payload=params.get("payload"),
+            mention_targets=params.get("mention_targets"),
+            priority=params.get("priority", 5),
+            round_number=params.get("round_number", 0),
+        )
+        return {"message": self._serialize(msg)}
+
+    async def _handle_team_fmp_stats(self, params: dict) -> dict:
+        fmp = self._get_fmp()
+        return {"stats": dict(fmp._stats), "agents": len(fmp._agents), "message_log": len(fmp._message_log)}
+
+    async def _handle_team_orchestrate(self, params: dict) -> dict:
+        from .orchestrator import AgentConfig
+        orch = self._get_orchestrator()
+        pattern = params.get("pattern", "sequential")
+        input_text = params.get("input", "")
+
+        def build(spec):
+            graph = self.store.load_graph(spec["graph_id"])
+            return AgentConfig(name=spec.get("name", spec["graph_id"]), graph=graph)
+
+        agents = [build(s) for s in params.get("agents", [])]
+        if pattern == "sequential":
+            res = await orch.sequential(agents, input_text)
+        elif pattern == "parallel":
+            res = await orch.parallel(agents, input_text)
+        elif pattern == "handoff":
+            res = await orch.handoff(agents, input_text)
+        elif pattern == "broadcast":
+            res = await orch.broadcast(agents, input_text, merge_strategy=params.get("merge_strategy", "concat"))
+        elif pattern == "master_worker":
+            res = await orch.master_worker(build(params["supervisor"]), agents, input_text)
+        elif pattern == "supervisor":
+            res = await orch.supervisor(build(params["supervisor"]), agents, input_text, max_rounds=params.get("max_rounds", 5))
+        else:
+            return {"error": f"unknown pattern: {pattern}"}
+        return {"results": res.results, "errors": res.errors, "summary": res.summary, "total_duration": res.total_duration}
 
     async def start(self) -> None:
         if os.path.exists(self.socket_path):
@@ -85,11 +295,22 @@ class DaemonServer:
         os.chmod(self.socket_path, 0o666)
 
         self._ws_server = await asyncio.start_server(
-            self._handle_ws_client, "127.0.0.1", WS_PORT
+            self._handle_ws_client, "127.0.0.1", self.ws_port
         )
 
+        self._cluster_task: asyncio.Task | None = None
+        try:
+            from .cluster_server import app as cluster_app
+            import uvicorn
+            config = uvicorn.Config(cluster_app, host="0.0.0.0", port=9753, log_level="warning")
+            cluster_server = uvicorn.Server(config)
+            self._cluster_task = asyncio.create_task(cluster_server.serve())
+            logger.info("Cluster API server started on port 9753")
+        except Exception as e:
+            logger.warning("Cluster API server failed to start: %s", e)
+
         self._running = True
-        logger.info("Daemon listening on %s + WS on %d", self.socket_path, WS_PORT)
+        logger.info("Daemon listening on %s + WS on %d + Cluster on 9753", self.socket_path, self.ws_port)
 
     async def stop(self) -> None:
         self._running = False
@@ -106,6 +327,8 @@ class DaemonServer:
         if self._ws_server:
             self._ws_server.close()
             await self._ws_server.wait_closed()
+        if self._cluster_task and not self._cluster_task.done():
+            self._cluster_task.cancel()
         if self._mlx_process and self._mlx_process.poll() is None:
             self._mlx_process.terminate()
             self._mlx_process = None
@@ -294,8 +517,79 @@ class DaemonServer:
             "budget.status": self._handle_budget_status,
             "safety.approve": self._handle_safety_approve,
             "safety.reject": self._handle_safety_reject,
+            "team.swarm_register": self._handle_team_swarm_register,
+            "team.swarm_agents": self._handle_team_swarm_agents,
+            "team.swarm_delegate": self._handle_team_swarm_delegate,
+            "team.swarm_handoff": self._handle_team_swarm_handoff,
+            "team.swarm_evaluate": self._handle_team_swarm_evaluate,
+            "team.swarm_escalate": self._handle_team_swarm_escalate,
+            "team.swarm_stats": self._handle_team_swarm_stats,
+            "team.plaza_create": self._handle_team_plaza_create,
+            "team.plaza_broadcast": self._handle_team_plaza_broadcast,
+            "team.plaza_messages": self._handle_team_plaza_messages,
+            "team.plaza_channels": self._handle_team_plaza_channels,
+            "team.plaza_break_in": self._handle_team_plaza_break_in,
+            "team.plaza_circuit": self._handle_team_plaza_circuit,
+            "team.fmp_register": self._handle_team_fmp_register,
+            "team.fmp_send": self._handle_team_fmp_send,
+            "team.fmp_stats": self._handle_team_fmp_stats,
+            "team.orchestrate": self._handle_team_orchestrate,
+            "hooks.list": self._handle_hooks_list,
+            "hooks.register": self._handle_hooks_register,
+            "hooks.test": self._handle_hooks_test,
+            "context.compact": self._handle_context_compact,
+            "context.usage": self._handle_context_usage,
         }
         return handlers.get(method)
+
+    async def _handle_hooks_list(self, params: dict) -> dict:
+        engine = self._get_hooks()
+        return {"hooks": engine.list_hooks()}
+
+    async def _handle_hooks_register(self, params: dict) -> dict:
+        from .hooks import HookConfig
+        engine = self._get_hooks()
+        hook = HookConfig.from_dict(params)
+        engine.register(hook)
+        logger.info("hooks.register event=%s matcher=%s", hook.event, hook.matcher)
+        return {"ok": True, "hook": hook.to_dict()}
+
+    async def _handle_hooks_test(self, params: dict) -> dict:
+        engine = self._get_hooks()
+        event = params.get("event", "")
+        payload = params.get("payload", {})
+        result = await engine.fire(event, payload, tool_name=params.get("tool_name", ""))
+        return {"result": self._serialize(result)}
+
+    async def _handle_context_compact(self, params: dict) -> dict:
+        compactor = self._get_compactor()
+        messages = params.get("messages", [])
+        level = params.get("level", "warning")
+        compacted = compactor.compact(messages, level=level)
+        before_tok = compactor.estimate_tokens(messages)
+        after_tok = compactor.estimate_tokens(compacted)
+        logger.info(
+            "context.compact level=%s before_msgs=%d after_msgs=%d before_tok=%d after_tok=%d",
+            level, len(messages), len(compacted), before_tok, after_tok,
+        )
+        return {
+            "messages": compacted,
+            "before_tokens": before_tok,
+            "after_tokens": after_tok,
+        }
+
+    async def _handle_context_usage(self, params: dict) -> dict:
+        compactor = self._get_compactor()
+        messages = params.get("messages", [])
+        tokens = compactor.estimate_tokens(messages)
+        level = compactor.should_compact(messages)
+        return {
+            "tokens": tokens,
+            "level": level,
+            "context_window": compactor.config.context_window,
+            "warning_threshold": compactor.config.warning_threshold(),
+            "error_threshold": compactor.config.error_threshold(),
+        }
 
     @staticmethod
     def _success_response(msg_id: Any, result: Any) -> dict:
@@ -428,7 +722,21 @@ class DaemonServer:
 
     async def _handle_graph_list(self, params: dict) -> dict:
         graphs = self.store.list_graphs()
-        return {"graphs": graphs}
+        enriched = []
+        for g in graphs:
+            entry = {
+                "graph_id": g["id"],
+                "name": g.get("name", ""),
+                "description": g.get("description", ""),
+                "node_count": g.get("node_count", 0),
+                "edge_count": g.get("edge_count", 0),
+                "nodes": {},
+                "edges": [],
+                "created_at": g.get("created_at", 0),
+                "updated_at": g.get("updated_at", 0),
+            }
+            enriched.append(entry)
+        return {"graphs": enriched}
 
     async def _handle_graph_create(self, params: dict) -> dict:
         name = params.get("name", "")
@@ -1686,19 +1994,26 @@ class DaemonServer:
         agent_id = task["agent_id"]
         code = task["code"]
         language = task["language"]
-        logger.info("_execute_code_task: task=%s lang=%s", task["task_id"], language)
+        timeout = task.get("timeout", 60)
+        logger.info("_execute_code_task: task=%s lang=%s timeout=%s", task["task_id"], language, timeout)
         if language != "python":
             return {"output": f"Unsupported language: {language}", "exit_code": 1}
 
-        local_vars: dict = {}
         try:
-            exec(code, {"__builtins__": {}}, local_vars)
-            coro = local_vars.get("main")
-            if coro and hasattr(coro, "__await__"):
-                result = await asyncio.wait_for(coro, timeout=task.get("timeout", 60))
-                return {"output": str(result), "exit_code": 0}
-            return {"output": str(local_vars), "exit_code": 0}
+            sandbox = CodeSandbox(timeout=timeout, use_sandbox=True)
+            result = await asyncio.to_thread(sandbox.execute, code, language)
+            output = result.stdout
+            if result.stderr:
+                output = (output + "\n" + result.stderr) if output else result.stderr
+            if result.timed_out:
+                output = (output + "\nExecution timed out") if output else "Execution timed out"
+            logger.info(
+                "_execute_code_task done: task=%s exit=%s success=%s exec_id=%s",
+                task["task_id"], result.exit_code, result.success, result.execution_id,
+            )
+            return {"output": output, "exit_code": result.exit_code}
         except Exception as exc:
+            logger.error("_execute_code_task error: task=%s error=%s", task["task_id"], exc)
             return {"output": str(exc), "exit_code": 1}
 
     async def _handle_agent_task_status(self, params: dict) -> dict:
