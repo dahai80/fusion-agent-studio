@@ -6,10 +6,10 @@
 
 Run, build, and orchestrate AI agents entirely on your Mac — no cloud, no API fees, no data leaving your device.
 
-[![Version](https://img.shields.io/badge/v0.1.0-blue.svg)]()
+[![Version](https://img.shields.io/badge/v0.2.0-blue.svg)]()
 [![Python](https://img.shields.io/badge/Python-3.11+-3776AB.svg)](https://www.python.org/)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/Tests-1261-success.svg)](tests/)
+[![Tests](https://img.shields.io/badge/Tests-1341-success.svg)](tests/)
 
 [Quick Start](#quick-start) · [Architecture](#architecture) · [Documentation](docs/) · [Examples](examples/)
 
@@ -113,7 +113,7 @@ python my_agent.py
 │                                                               │
 │  Daemon Server (UDS JSON-RPC 2.0)                             │
 │  graph.* / mlx.* / hardware.* / knowledge.* / env.* /        │
-│  planner.* / rag.* / memory.* / safety.* / template.* / deploy.* / agent.* / marketplace.* / connector.* / apikey.* / style.* / dashboard.* / analytics.* / alert.* │
+│  planner.* / rag.* / memory.* / safety.* / template.* / deploy.* / agent.* / marketplace.* / connector.* / apikey.* / style.* / dashboard.* / analytics.* / alert.* / workflow.* / session.* / telemetry.* / sdk.* / verify.* / tool.* │
 └──────────────────────────┬────────────────────────────────────┘
                            │ HTTP
 ┌──────────────────────────▼────────────────────────────────────┐
@@ -127,7 +127,9 @@ python my_agent.py
 
 | Module | Description | Files |
 |--------|-------------|-------|
-| `agent_runtime/` | Core engine: graph, state machine, orchestrator, debugger, persistence, API server, daemon server (UDS JSON-RPC), templates, bridge, editor, metrics, marketplace, data ingestion, sandbox, aware, FMP, knowledge, gateway, swarm, plaza, planner, RAG pipeline, connectors, apikey manager, style manager | 35 files |
+| `agent_runtime/` | Core engine: graph, state machine, orchestrator, debugger, persistence, API server, daemon server (UDS JSON-RPC), templates, bridge, editor, metrics, marketplace, data ingestion, sandbox, aware, FMP, knowledge, gateway, swarm, plaza, planner, RAG pipeline, connectors, apikey manager, style manager, workflow engine, session manager, telemetry | 54 files |
+| `agent_runtime/sdk/` | Agent SDK: Agent, Tool, AgentClient for programmatic access over JSON-RPC | 3 files |
+| `agent_runtime/plugins/` | Built-in workflow plugins: code_review, feature_dev, security_scan, pr_review, agent_builder | 5 manifests |
 | `tools/` | Built-in tool system: 19 tools + plugin system | 11 files |
 | `server/` | fusion-mlx HTTP client + process manager | 2 files |
 
@@ -148,7 +150,7 @@ python my_agent.py
 - ✅ **Template system** — 8 preset templates (code review, file organizer, etc.)
 - ✅ **Fusion-code bridge** — Subprocess bridge to fusion-code CLI agent
 - ✅ **API server** — FastAPI + WebSocket for graph management and streaming execution
-- ✅ **Daemon server** — UDS JSON-RPC 2.0 server for fusion-studio GUI integration (graph.*, mlx.*, hardware.*, knowledge.*, env.*, planner.*, rag.*, memory.*, safety.*, template.*, deploy.*, agent.*, marketplace.*, team.*, context.*, hooks.*, connector.*, apikey.*, style.*, dashboard.*, analytics.*, alert.*)
+- ✅ **Daemon server** — UDS JSON-RPC 2.0 server for fusion-studio GUI integration (graph.*, mlx.*, hardware.*, knowledge.*, env.*, planner.*, rag.*, memory.*, safety.*, template.*, deploy.*, agent.*, marketplace.*, team.*, context.*, hooks.*, connector.*, apikey.*, style.*, dashboard.*, analytics.*, alert.*, workflow.*, session.*, telemetry.*, sdk.*, verify.*, tool.*)
 - ✅ **Agent lifecycle** — draft → published → archived status flow with version tracking, API endpoint generation, clone, debug execute_stream
 - ✅ **Connector manager** — OAuth2/API Key/Webhook external integration lifecycle (CRUD, connect/disconnect, test)
 - ✅ **API Key manager** — API key creation (fk-* prefix), rotation, revocation, permissions, agent access, IP whitelist
@@ -179,6 +181,17 @@ python my_agent.py
 - ✅ **Agent Loop (内生回灌)** - `loop_mode="agent"` LLM node re-invokes itself after each tool round until end_turn; per-node `max_loop_iterations` cap, stop_reason-driven termination, Compaction/Hooks 接入点
 - ✅ **Context compaction** - 4-stage pipeline (microcompact -> smart-truncate -> hard-compact) + `reactive_strip` 413 recovery; deterministic-first, MLX optional; wired into Agent Loop each round; reactive 413 auto-retry wired into `LLMGateway` (strip + retry same model before fallback); compaction summaries persisted to `memory_engine` (auto-summary, scope=`compaction`)
 - ✅ **Hooks lifecycle** - `HookEngine` with 10 events (PRE/POST_TOOL_USE, SESSION_START/END, STOP, PRE_COMPACT, SUBAGENT_*, USER_PROMPT_SUBMIT); callback + command hooks, regex matcher, block/approve decisions, `~/.fusion-agent-studio/hooks.json` config; exposed via daemon `hooks.list/register/test`
+- ✅ **Workflow engine** — 6 execution patterns (pipeline, parallel_barrier, loop_until_dry, loop_until_budget, adversarial_verify, judge_panel); WorkflowConfig + WorkflowRun lifecycle; daemon `workflow.*` RPC (9 methods)
+- ✅ **Session manager** — Fork sessions (async background tasks), attach/detach event streams, background_list/kill; daemon `session.*` RPC (5 methods)
+- ✅ **Telemetry engine** — OTLP-compatible spans/traces/metrics; auto-counters (llm_calls, tool_calls, tokens); latency tracking (avg/p99); export to JSON/OTLP/console; daemon `telemetry.*` RPC (5 methods)
+- ✅ **Agent SDK** — `Agent` + `Tool` + `AgentClient` classes for programmatic access; JSON-RPC 2.0 over UDS; scaffold_agent templates (basic/coder/reviewer/researcher); daemon `sdk.*` RPC (3 methods)
+- ✅ **Built-in plugins** — 5 workflow manifests: code_review (5-agent parallel→judge), feature_dev (3-agent 7-phase pipeline), security_scan (3-agent parallel→adversarial→pipeline), pr_review (6-agent parallel→adversarial→judge), agent_builder (pipeline→pipeline→adversarial)
+- ✅ **Safety classifier** — Keyword-based risk scoring → auto_approve/preview/human_approve classification; daemon `safety.classify_action` RPC
+- ✅ **Adversarial verify** — N-skeptic majority vote pattern; configurable voter_count + threshold; daemon `verify.adversarial_verify` RPC
+- ✅ **Team limits** — Concurrent agent + depth limits; daemon `team.set_limits/get_limits` RPC
+- ✅ **AX accessibility** — Semantic annotations + screen-reader descriptions for agent outputs; daemon `session.accessibility` RPC
+- ✅ **Mid-turn model switch** — Switch LLM mid-conversation; daemon `mlx.switch_model` RPC
+- ✅ **Tool schema lazy load** — On-demand OpenAI-compatible schema generation; daemon `tool.get_schema` RPC
 
 ### Tools (19 built-in)
 | Category | Tools |
@@ -249,7 +262,23 @@ fusion-agent-studio/
 │   ├── deployer.py         # One-click deploy
 │   ├── connectors.py       # External connector manager (OAuth2/API Key/Webhook)
 │   ├── apikey_manager.py   # API key lifecycle (create/rotate/revoke)
-│   └── style_manager.py    # Output style templates (5 builtin + custom)
+│   ├── style_manager.py    # Output style templates (5 builtin + custom)
+│   ├── workflow_engine.py  # 6-pattern workflow execution engine
+│   ├── session_manager.py  # Fork/background session manager
+│   ├── telemetry.py        # OTLP-compatible telemetry (spans/traces/metrics)
+│   ├── verifier.py         # Adversarial N-skeptic verification
+│   └── safety.py           # Safety gateway + risk classifier
+├── sdk/                    # Agent SDK (programmatic access)
+│   ├── __init__.py         # Agent, Tool, AgentClient public API
+│   ├── agent.py            # Agent dataclass + run/stream/fork
+│   ├── tool.py             # Tool dataclass + OpenAI schema
+│   └── client.py           # JSON-RPC 2.0 AgentClient
+├── plugins/                # Built-in workflow plugins
+│   ├── code_review/        # 5-agent code review (manifest.json)
+│   ├── feature_dev/        # 3-agent feature development
+│   ├── security_scan/      # 3-agent security scanning
+│   ├── pr_review/          # 6-agent PR review
+│   └── agent_builder/      # Agent scaffold wizard
 ├── tools/                  # Tool system
 │   ├── base.py             # BaseTool abstract class
 │   ├── registry.py         # Tool registry
@@ -266,13 +295,16 @@ fusion-agent-studio/
 ├── server/                 # fusion-mlx communication
 │   ├── fusion_mlx_client.py# HTTP client
 │   └── process_manager.py  # Process lifecycle
-├── tests/                  # 1246 tests
+├── tests/                  # 1341 tests
 │   ├── test_runtime.py     # Runtime engine tests
 │   ├── test_graph.py       # Graph model tests
 │   ├── test_tools.py       # Tool tests
 │   ├── test_business_scenarios.py # End-to-end business scenario tests
 │   ├── test_agent_handlers.py    # Agent/marketplace handler tests
-│   └── ...                 # 14+ test files total
+│   ├── test_workflow_engine.py   # Workflow engine tests
+│   ├── test_session_manager.py   # Session manager tests
+│   ├── test_telemetry.py         # Telemetry engine tests
+│   └── ...                 # 18+ test files total
 └── examples/               # Example graphs
     ├── code_assistant.json
     ├── file_organizer.json
@@ -314,7 +346,7 @@ python -c "from tools.plugin_manager import PluginManager; from tools.registry i
 ```
 
 ### Test Stats
-- **1261 tests**, 0 failures
+- **1341 tests**, 0 failures
 - **94%+ statement coverage**
 - **Python 3.11+** compatible
 - **16 business scenario integration tests** covering: agent lifecycle (create→configure→execute→delete), skill management, soul management, marketplace (publish→search→install), memory (store→recall→delete), safety (check→evaluate→policy), planner, deploy export/import, templates, graph CRUD, agent filtering, env health, RAG, ping
