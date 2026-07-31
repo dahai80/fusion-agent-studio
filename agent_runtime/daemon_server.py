@@ -400,6 +400,17 @@ class DaemonServer:
         except Exception as e:
             logger.warning("Cluster API server failed to start: %s", e)
 
+        self._http_task: asyncio.Task | None = None
+        try:
+            from .api_server import app as fastapi_app
+            import uvicorn as uvicorn2
+            http_config = uvicorn2.Config(fastapi_app, host="0.0.0.0", port=8000, log_level="warning")
+            http_server = uvicorn2.Server(http_config)
+            self._http_task = asyncio.create_task(http_server.serve())
+            logger.info("FastAPI HTTP server started on port 8000")
+        except Exception as e:
+            logger.warning("FastAPI HTTP server failed to start: %s", e)
+
         self._running = True
         logger.info("Daemon listening on %s + WS on %d + Cluster on 9753", self.socket_path, self.ws_port)
 
@@ -594,6 +605,8 @@ class DaemonServer:
             "agent.clone": self._handle_agent_clone,
             "agent.get_api_endpoint": self._handle_agent_get_api_endpoint,
             "agent.execute_stream": self._handle_agent_execute_stream,
+            "agent.preview": self._handle_agent_preview,
+            "agent.test_with_project": self._handle_agent_test_with_project,
             "marketplace.search": self._handle_marketplace_search,
             "marketplace.get": self._handle_marketplace_get,
             "marketplace.publish": self._handle_marketplace_publish,
@@ -1876,6 +1889,8 @@ class DaemonServer:
         self._load_agents_index()
         tag_filter = params.get("tags", [])
         capability_filter = params.get("capabilities", [])
+        usable_in_project = params.get("usableInProject", False)
+        has_rag_support = params.get("hasRagSupport", False)
 
         results = []
         for aid, meta in self._agents.items():
@@ -1886,6 +1901,16 @@ class DaemonServer:
             if capability_filter:
                 agent_caps = meta.get("capabilities", [])
                 if not any(c in agent_caps for c in capability_filter):
+                    continue
+            if usable_in_project:
+                status = meta.get("status", "")
+                visibility = meta.get("visibility", "private")
+                if status not in ("published", "active") and visibility != "public":
+                    continue
+            if has_rag_support:
+                kb_ids = meta.get("knowledge_base_ids", [])
+                rag_strategy = meta.get("rag_strategy", "")
+                if not kb_ids and rag_strategy in ("none", ""):
                     continue
             entry = dict(meta)
             entry["id"] = aid
@@ -3672,6 +3697,86 @@ class DaemonServer:
         mgr = self._get_cowork_manager()
         context = mgr.inject_context(space_id, agent_id, mode=mode, recent_n=recent_n)
         return {"context": context}
+
+    async def _handle_agent_preview(self, params: dict) -> dict:
+        agent_id = params.get("agent_id", "")
+        if not agent_id:
+            return {"status": "error", "message": "agent_id parameter required"}
+        from .agent_package import AgentPackage
+        agent_dir = self._agent_dir(agent_id)
+        pkg = AgentPackage(agent_dir)
+        if not pkg.exists:
+            return {"status": "error", "message": f"Agent not found: {agent_id}"}
+        manifest = pkg.load_manifest()
+        rag_enabled = bool(manifest.knowledge_base_ids) or manifest.rag_strategy != "none"
+        permissions = self._get_agent_permissions(agent_id, manifest)
+        preview = {
+            "agentId": agent_id,
+            "name": manifest.name,
+            "description": manifest.description,
+            "avatar": manifest.style if manifest.style else "🤖",
+            "tools": manifest.tools,
+            "ragEnabled": rag_enabled,
+            "permissions": permissions,
+        }
+        logger.info("agent.preview: agent_id=%s", agent_id)
+        return {"preview": preview}
+
+    async def _handle_agent_test_with_project(self, params: dict) -> dict:
+        agent_id = params.get("agent_id", "")
+        project_id = params.get("project_id", "")
+        kb_id = params.get("kb_id", "")
+        message = params.get("message", "")
+        if not agent_id or not message:
+            return {"status": "error", "message": "agent_id and message are required"}
+        from .agent_package import AgentPackage
+        agent_dir = self._agent_dir(agent_id)
+        pkg = AgentPackage(agent_dir)
+        if not pkg.exists:
+            return {"status": "error", "message": f"Agent not found: {agent_id}"}
+        manifest = pkg.load_manifest()
+        override_kb = kb_id if kb_id else (manifest.knowledge_base_ids[0] if manifest.knowledge_base_ids else "")
+        execute_params = {
+            "agent_id": agent_id,
+            "message": message,
+            "knowledge_base_ids": [override_kb] if override_kb else manifest.knowledge_base_ids,
+            "project_context": {
+                "project_id": project_id,
+                "kb_id": override_kb,
+            },
+        }
+        result = await self._handle_agent_execute(execute_params)
+        result["project_id"] = project_id
+        result["kb_id"] = override_kb
+        logger.info("agent.test_with_project: agent=%s project=%s kb=%s", agent_id, project_id, override_kb)
+        return result
+
+    def _get_agent_permissions(self, agent_id: str, manifest=None) -> dict:
+        if manifest is None:
+            from .agent_package import AgentPackage
+            pkg = AgentPackage(self._agent_dir(agent_id))
+            if not pkg.exists:
+                return {}
+            manifest = pkg.load_manifest()
+        agent_dir = self._agent_dir(agent_id)
+        defn_path = os.path.join(agent_dir, "definition.json")
+        if os.path.exists(defn_path):
+            try:
+                import json
+                with open(defn_path) as f:
+                    defn_data = json.load(f)
+                perms = defn_data.get("permissions", {})
+                if perms:
+                    return perms
+            except Exception:
+                pass
+        return {
+            "readKnowledge": bool(manifest.knowledge_base_ids),
+            "writeKnowledge": False,
+            "deleteKnowledge": False,
+            "executeCode": "code_execution" in manifest.tools,
+            "accessNetwork": manifest.web_search_enabled,
+        }
 
     # ── LangGraph handlers (#35) ──
 

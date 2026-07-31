@@ -304,6 +304,68 @@ async def list_agent_artifacts(agent_id: str):
     return {"artifacts": artifacts}
 
 
+@app.get("/agents/{agent_id}/preview")
+async def get_agent_preview(agent_id: str):
+    import json
+    from pathlib import Path
+    idx_path = Path.home() / ".fusion-agent-studio" / "agents" / "index.json"
+    agents_index = {}
+    if idx_path.exists():
+        try:
+            with open(idx_path) as f:
+                agents_index = json.load(f)
+        except Exception:
+            pass
+    meta = agents_index.get(agent_id)
+    if not meta:
+        raise HTTPException(status_code=404, detail=f"Agent {agent_id} not found")
+    kb_ids = meta.get("knowledge_base_ids", [])
+    rag_strategy = meta.get("rag_strategy", "")
+    preview = {
+        "agentId": agent_id,
+        "name": meta.get("name", ""),
+        "description": meta.get("description", ""),
+        "avatar": meta.get("style", "") or "🤖",
+        "tools": meta.get("tools", []),
+        "ragEnabled": bool(kb_ids) or rag_strategy not in ("none", ""),
+        "permissions": meta.get("permissions", {
+            "readKnowledge": bool(kb_ids),
+            "writeKnowledge": False,
+            "deleteKnowledge": False,
+            "executeCode": "code_execution" in meta.get("tools", []),
+            "accessNetwork": meta.get("web_search_enabled", False),
+        }),
+    }
+    return {"preview": preview}
+
+
+@app.post("/agents/{agent_id}/test")
+async def test_agent_with_project(agent_id: str, project_id: str = "", kb_id: str = "", message: str = "hello"):
+    if not message:
+        raise HTTPException(status_code=400, detail="message is required")
+    import json
+    from pathlib import Path
+    idx_path = Path.home() / ".fusion-agent-studio" / "agents" / "index.json"
+    agents_index = {}
+    if idx_path.exists():
+        try:
+            with open(idx_path) as f:
+                agents_index = json.load(f)
+        except Exception:
+            pass
+    meta = agents_index.get(agent_id)
+    if not meta:
+        raise HTTPException(status_code=404, detail=f"Agent {agent_id} not found")
+    effective_kb = kb_id or (meta.get("knowledge_base_ids", [""])[0] if meta.get("knowledge_base_ids") else "")
+    return {
+        "agent_id": agent_id,
+        "project_id": project_id,
+        "kb_id": effective_kb,
+        "status": "test_dispatched",
+        "message": message,
+    }
+
+
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
     run_server()

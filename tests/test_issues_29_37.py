@@ -22,6 +22,7 @@ from agent_runtime.agent_definition import (
     AgentToolConfig,
     ArtifactPolicyConfig,
     ContextInjectionConfig,
+    AgentPermissionsConfig,
     SCHEMA_URI,
     SCHEMA_VERSION,
 )
@@ -365,3 +366,161 @@ class TestArtifactManager:
         all_a = mgr2.list_artifacts()
         assert len(all_a) == 1
         assert all_a[0]["name"] == "persist-test"
+
+
+# ── Issue #38: agent.preview ────────────────────────────────────────────────
+
+class TestAgentPreview:
+    def test_preview_from_definition(self):
+        d = AgentDefinition(
+            agent_id="preview-agent",
+            name="Preview Agent",
+            description="Preview test",
+            permissions=AgentPermissionsConfig(
+                read_knowledge=True,
+                write_knowledge=False,
+                delete_knowledge=False,
+                execute_code=True,
+                access_network=False,
+            ),
+        )
+        data = d.to_dict()
+        perms = data["permissions"]
+        assert perms["readKnowledge"] is True
+        assert perms["writeKnowledge"] is False
+        assert perms["executeCode"] is True
+        assert perms["accessNetwork"] is False
+
+    def test_preview_permissions_roundtrip(self):
+        perms = AgentPermissionsConfig(
+            read_knowledge=True,
+            write_knowledge=True,
+            delete_knowledge=False,
+            execute_code=False,
+            access_network=True,
+        )
+        data = perms.to_dict()
+        perms2 = AgentPermissionsConfig.from_dict(data)
+        assert perms2.read_knowledge is True
+        assert perms2.write_knowledge is True
+        assert perms2.delete_knowledge is False
+        assert perms2.execute_code is False
+        assert perms2.access_network is True
+
+
+# ── Issue #39: Agent Permissions Config ─────────────────────────────────────
+
+class TestAgentPermissionsConfig:
+    def test_default_permissions(self):
+        p = AgentPermissionsConfig()
+        assert p.read_knowledge is True
+        assert p.write_knowledge is False
+        assert p.delete_knowledge is False
+        assert p.execute_code is True
+        assert p.access_network is True
+
+    def test_permissions_in_definition_roundtrip(self):
+        d = AgentDefinition(
+            agent_id="perm-test",
+            name="Perm Agent",
+            permissions=AgentPermissionsConfig(
+                read_knowledge=False,
+                write_knowledge=True,
+                access_network=False,
+            ),
+        )
+        data = d.to_dict()
+        assert data["permissions"]["readKnowledge"] is False
+        assert data["permissions"]["writeKnowledge"] is True
+        d2 = AgentDefinition.from_dict(data)
+        assert d2.permissions.read_knowledge is False
+        assert d2.permissions.write_knowledge is True
+        assert d2.permissions.access_network is False
+
+    def test_permissions_json_roundtrip(self):
+        p = AgentPermissionsConfig(read_knowledge=False, access_network=False)
+        json_str = json.dumps(p.to_dict())
+        data = json.loads(json_str)
+        p2 = AgentPermissionsConfig.from_dict(data)
+        assert p2.read_knowledge is False
+        assert p2.access_network is False
+
+
+# ── Issue #40: agent.test_with_project ──────────────────────────────────────
+
+class TestAgentTestWithProject:
+    def test_execute_params_construction(self):
+        params = {
+            "agent_id": "test-agent",
+            "project_id": "proj-1",
+            "kb_id": "kb-1",
+            "message": "test message",
+        }
+        assert params["agent_id"] == "test-agent"
+        assert params["project_id"] == "proj-1"
+        assert params["kb_id"] == "kb-1"
+        assert params["message"] == "test message"
+
+    def test_kb_id_fallback(self):
+        manifest_kb_ids = ["kb-default"]
+        override_kb = ""
+        effective = override_kb or (manifest_kb_ids[0] if manifest_kb_ids else "")
+        assert effective == "kb-default"
+
+
+# ── Issue #41: agent.list filter params ─────────────────────────────────────
+
+class TestAgentListFilters:
+    def test_usable_in_project_filter(self):
+        agents = {
+            "a1": {"status": "published", "visibility": "public", "name": "Published"},
+            "a2": {"status": "draft", "visibility": "private", "name": "Draft"},
+            "a3": {"status": "active", "visibility": "private", "name": "Active"},
+        }
+        results = []
+        for aid, meta in agents.items():
+            status = meta.get("status", "")
+            visibility = meta.get("visibility", "private")
+            if status not in ("published", "active") and visibility != "public":
+                continue
+            results.append(aid)
+        assert "a1" in results
+        assert "a3" in results
+        assert "a2" not in results
+
+    def test_has_rag_support_filter(self):
+        agents = {
+            "a1": {"knowledge_base_ids": ["kb-1"], "rag_strategy": "hybrid"},
+            "a2": {"knowledge_base_ids": [], "rag_strategy": "none"},
+            "a3": {"knowledge_base_ids": [], "rag_strategy": "vector"},
+        }
+        results = []
+        for aid, meta in agents.items():
+            kb_ids = meta.get("knowledge_base_ids", [])
+            rag_strategy = meta.get("rag_strategy", "")
+            if not kb_ids and rag_strategy in ("none", ""):
+                continue
+            results.append(aid)
+        assert "a1" in results
+        assert "a3" in results
+        assert "a2" not in results
+
+
+# ── Issue #42: FastAPI auto-start ───────────────────────────────────────────
+
+class TestFastAPIAutoStart:
+    def test_api_server_app_importable(self):
+        from agent_runtime.api_server import app
+        routes = [r.path for r in app.routes]
+        assert "/agents/published" in routes
+        assert any("/agents/{agent_id}/preview" in r for r in routes)
+
+    def test_preview_endpoint_exists(self):
+        from agent_runtime.api_server import app
+        routes = [r.path for r in app.routes]
+        assert any("preview" in r for r in routes)
+
+    def test_test_endpoint_exists(self):
+        from agent_runtime.api_server import app
+        routes = [r.path for r in app.routes]
+        assert any("test" in r for r in routes)

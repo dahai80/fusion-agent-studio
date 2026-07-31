@@ -207,6 +207,34 @@ class ArtifactPolicyConfig:
 
 
 @dataclass
+class AgentPermissionsConfig:
+    read_knowledge: bool = True
+    write_knowledge: bool = False
+    delete_knowledge: bool = False
+    execute_code: bool = True
+    access_network: bool = True
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "readKnowledge": self.read_knowledge,
+            "writeKnowledge": self.write_knowledge,
+            "deleteKnowledge": self.delete_knowledge,
+            "executeCode": self.execute_code,
+            "accessNetwork": self.access_network,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> AgentPermissionsConfig:
+        return cls(
+            read_knowledge=data.get("readKnowledge", data.get("read_knowledge", True)),
+            write_knowledge=data.get("writeKnowledge", data.get("write_knowledge", False)),
+            delete_knowledge=data.get("deleteKnowledge", data.get("delete_knowledge", False)),
+            execute_code=data.get("executeCode", data.get("execute_code", True)),
+            access_network=data.get("accessNetwork", data.get("access_network", True)),
+        )
+
+
+@dataclass
 class AgentDefinition:
     schema_ref: str = SCHEMA_URI
     schema_version: str = SCHEMA_VERSION
@@ -222,6 +250,7 @@ class AgentDefinition:
     metadata: AgentMetadataConfig = field(default_factory=AgentMetadataConfig)
     context_injection: ContextInjectionConfig = field(default_factory=ContextInjectionConfig)
     artifact_policy: ArtifactPolicyConfig = field(default_factory=ArtifactPolicyConfig)
+    permissions: AgentPermissionsConfig = field(default_factory=AgentPermissionsConfig)
     status: str = "draft"
 
     def to_dict(self) -> dict[str, Any]:
@@ -240,6 +269,7 @@ class AgentDefinition:
             "metadata": self.metadata.to_dict(),
             "context_injection": self.context_injection.to_dict(),
             "artifact_policy": self.artifact_policy.to_dict(),
+            "permissions": self.permissions.to_dict(),
             "status": self.status,
         }
 
@@ -260,6 +290,7 @@ class AgentDefinition:
             metadata=AgentMetadataConfig.from_dict(data.get("metadata", {})),
             context_injection=ContextInjectionConfig.from_dict(data.get("context_injection", {})),
             artifact_policy=ArtifactPolicyConfig.from_dict(data.get("artifact_policy", {})),
+            permissions=AgentPermissionsConfig.from_dict(data.get("permissions", {})),
             status=data.get("status", "draft"),
         )
 
