@@ -155,7 +155,7 @@ class CronManager:
 
     def _init_db(self, db_path: str) -> None:
         import sqlite3
-        self._conn = sqlite3.connect(db_path)
+        self._conn = sqlite3.connect(db_path, check_same_thread=False)
         self._conn.execute("""
             CREATE TABLE IF NOT EXISTS cron_jobs (
                 id TEXT PRIMARY KEY,

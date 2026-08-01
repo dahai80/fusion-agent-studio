@@ -42,9 +42,11 @@ MLX_BASE_URL = f"http://127.0.0.1:{MLX_PORT}/v1"
 
 
 class DaemonServer:
-    def __init__(self, socket_path: str = SOCKET_PATH, ws_port: int = WS_PORT):
+    def __init__(self, socket_path: str = SOCKET_PATH, ws_port: int = WS_PORT, cluster_port: int = 9753, http_port: int = 8000):
         self.socket_path = socket_path
         self.ws_port = ws_port
+        self.cluster_port = cluster_port
+        self.http_port = http_port
         self.store = AgentStore()
         self._gateway = LLMGateway()
         self._runtime: AgentRuntime | None = None
@@ -410,34 +412,38 @@ class DaemonServer:
         )
         os.chmod(self.socket_path, 0o666)
 
-        self._ws_server = await asyncio.start_server(
-            self._handle_ws_client, "127.0.0.1", self.ws_port
-        )
+        self._ws_server = None
+        if self.ws_port:
+            self._ws_server = await asyncio.start_server(
+                self._handle_ws_client, "127.0.0.1", self.ws_port
+            )
 
         self._cluster_task: asyncio.Task | None = None
-        try:
-            from .cluster_server import app as cluster_app
-            import uvicorn
-            config = uvicorn.Config(cluster_app, host="0.0.0.0", port=9753, log_level="warning")
-            cluster_server = uvicorn.Server(config)
-            self._cluster_task = asyncio.create_task(cluster_server.serve())
-            logger.info("Cluster API server started on port 9753")
-        except Exception as e:
-            logger.warning("Cluster API server failed to start: %s", e)
+        if self.cluster_port:
+            try:
+                from .cluster_server import app as cluster_app
+                import uvicorn
+                config = uvicorn.Config(cluster_app, host="0.0.0.0", port=self.cluster_port, log_level="warning")
+                cluster_server = uvicorn.Server(config)
+                self._cluster_task = asyncio.create_task(cluster_server.serve())
+                logger.info("Cluster API server started on port %d", self.cluster_port)
+            except Exception as e:
+                logger.warning("Cluster API server failed to start: %s", e)
 
         self._http_task: asyncio.Task | None = None
-        try:
-            from .api_server import app as fastapi_app
-            import uvicorn as uvicorn2
-            http_config = uvicorn2.Config(fastapi_app, host="0.0.0.0", port=8000, log_level="warning")
-            http_server = uvicorn2.Server(http_config)
-            self._http_task = asyncio.create_task(http_server.serve())
-            logger.info("FastAPI HTTP server started on port 8000")
-        except Exception as e:
-            logger.warning("FastAPI HTTP server failed to start: %s", e)
+        if self.http_port:
+            try:
+                from .api_server import app as fastapi_app
+                import uvicorn as uvicorn2
+                http_config = uvicorn2.Config(fastapi_app, host="0.0.0.0", port=self.http_port, log_level="warning")
+                http_server = uvicorn2.Server(http_config)
+                self._http_task = asyncio.create_task(http_server.serve())
+                logger.info("FastAPI HTTP server started on port %d", self.http_port)
+            except Exception as e:
+                logger.warning("FastAPI HTTP server failed to start: %s", e)
 
         self._running = True
-        logger.info("Daemon listening on %s + WS on %d + Cluster on 9753", self.socket_path, self.ws_port)
+        logger.info("Daemon listening on %s + WS on %d + Cluster on %d + HTTP on %d", self.socket_path, self.ws_port, self.cluster_port, self.http_port)
 
     async def stop(self) -> None:
         self._running = False
