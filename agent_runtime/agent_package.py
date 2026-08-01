@@ -506,8 +506,31 @@ class AgentPackage:
             return
         self.save_skill_dag(name, dag_config)
 
+    @property
+    def agent_id(self) -> str:
+        return self.base_path.name
+
+    def fork(self, new_name: str | None = None) -> AgentPackage:
+        import uuid as _uuid
+        agents_root = self.base_path.parent
+        new_id = new_name or f"{self.agent_id}-copy-{_uuid.uuid4().hex[:6]}"
+        new_path = agents_root / new_id
+        if new_path.exists():
+            new_id = f"{self.agent_id}-copy-{_uuid.uuid4().hex[:8]}"
+            new_path = agents_root / new_id
+        shutil.copytree(self.base_path, new_path)
+        new_pkg = AgentPackage(new_path)
+        manifest = new_pkg.load_manifest()
+        manifest.name = new_name or f"{manifest.name} (copy)"
+        manifest.status = "draft"
+        manifest.created_at = datetime.now(tz=timezone.utc).isoformat()
+        manifest.published_at = None
+        manifest.version_int = 1
+        new_pkg.save_manifest(manifest)
+        logger.info("Forked agent %s -> %s", self.agent_id, new_id)
+        return new_pkg
+
     def destroy(self) -> None:
-        """Remove the entire .fusion-agent package directory."""
         if self.pkg_path.exists():
             shutil.rmtree(self.pkg_path)
             logger.info("Destroyed .fusion-agent package at %s", self.pkg_path)

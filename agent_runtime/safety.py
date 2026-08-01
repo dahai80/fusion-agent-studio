@@ -636,3 +636,36 @@ class SafetyGateway:
             SafetyAction.PREVIEW: 2,
             SafetyAction.BLOCK: 3,
         }[action]
+
+
+_INJECTION_PATTERNS = [
+    re.compile(r"(?i)ignore\s+(previous|above|all)\s+instructions?", re.IGNORECASE),
+    re.compile(r"(?i)forget\s+(your|all|previous)\s+(instructions|rules|prompt)", re.IGNORECASE),
+    re.compile(r"(?i)you\s+are\s+now\s+a", re.IGNORECASE),
+    re.compile(r"(?i)system\s*:\s*", re.IGNORECASE),
+    re.compile(r"(?i)new\s+instructions?\s*:", re.IGNORECASE),
+    re.compile(r"(?i)disregard\s+(your|all|previous)\s+(instructions|rules)", re.IGNORECASE),
+    re.compile(r"(?i)act\s+as\s+if\s+you\s+(are|were)", re.IGNORECASE),
+    re.compile(r"(?i)pretend\s+(you\s+are|to\s+be)", re.IGNORECASE),
+    re.compile(r"(?i)jailbreak", re.IGNORECASE),
+    re.compile(r"(?i)DAN\s+mode", re.IGNORECASE),
+    re.compile(r"(?i)override\s+(safety|security|content)\s+(policy|filter|guard)", re.IGNORECASE),
+    re.compile(r"(?i)reveal\s+.*\s?(prompt|instructions)", re.IGNORECASE),
+    re.compile(r"(?i)\<\/?system\>", re.IGNORECASE),
+    re.compile(r"(?i)inject\s+(prompt|instruction)", re.IGNORECASE),
+]
+
+
+def detect_prompt_injection(text: str) -> dict[str, Any]:
+    matched = []
+    for pat in _INJECTION_PATTERNS:
+        m = pat.search(text)
+        if m:
+            matched.append({"pattern": pat.pattern, "match": m.group()})
+    if matched:
+        logger.warning("Prompt injection detected: %d patterns matched", len(matched))
+    return {
+        "detected": bool(matched),
+        "match_count": len(matched),
+        "matches": matched,
+    }

@@ -43,7 +43,7 @@ class ConnectorConfig:
             "error_message": self.error_message,
         }
 
-    def to_dict_full(self) -> dict[str, Any]:
+    def _get_full_config(self) -> dict[str, Any]:
         return {
             "id": self.id,
             "name": self.name,
@@ -100,7 +100,7 @@ class ConnectorManager:
             os.chmod(self.base_path, 0o700)
         except OSError as exc:
             logger.warning("Could not set connectors dir perms: %s", exc)
-        data = [c.to_dict_full() for c in self._connectors.values()]
+        data = [c._get_full_config() for c in self._connectors.values()]
         with open(self.index_path, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=4, ensure_ascii=False)
         try:

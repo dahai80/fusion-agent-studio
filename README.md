@@ -6,10 +6,10 @@
 
 Run, build, and orchestrate AI agents entirely on your Mac — no cloud, no API fees, no data leaving your device.
 
-[![Version](https://img.shields.io/badge/v0.2.1-blue.svg)]()
+[![Version](https://img.shields.io/badge/v0.3.0-blue.svg)]()
 [![Python](https://img.shields.io/badge/Python-3.11+-3776AB.svg)](https://www.python.org/)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/Tests-1341-success.svg)](tests/)
+[![Tests](https://img.shields.io/badge/Tests-1414-success.svg)](tests/)
 
 [Quick Start](#quick-start) · [Architecture](#architecture) · [Documentation](docs/) · [Examples](examples/)
 
@@ -150,6 +150,16 @@ python my_agent.py
 - ✅ **Template system** — 8 preset templates (code review, file organizer, etc.)
 - ✅ **Fusion-code bridge** — Subprocess bridge to fusion-code CLI agent
 - ✅ **API server** — FastAPI + WebSocket for graph management and streaming execution
+- ✅ **v1 API versioning** — All endpoints under /v1 prefix with pagination (page/limit/sort)
+- ✅ **Standard error responses** — 30 error codes with Chinese user_message, aligned with Anthropic API format
+- ✅ **Auth middleware** — x-api-key header auth, API key validation with IP whitelist and agent restrictions
+- ✅ **Rate limiter** — Token bucket per-key and per-agent QPS limiting
+- ✅ **Agent version/snapshot** — VersionRecord store, snapshot/restore/duplicate agent versions
+- ✅ **Knowledge Base entity** — First-class KB CRUD, file upload, agent binding, ETL pipeline
+- ✅ **Audit logging** — SQLite-backed admin action audit trail with query/export
+- ✅ **Prompt injection detection** — 14 pattern regex detector for jailbreak/injection attempts
+- ✅ **Dashboard endpoint** — Aggregated today requests, token usage, active agents, errors
+- ✅ **Connector security** — Removed to_dict_full(), internal _get_full_config() only
 - ✅ **Daemon server** — UDS JSON-RPC 2.0 server for fusion-studio GUI integration (graph.*, mlx.*, hardware.*, knowledge.*, env.*, planner.*, rag.*, memory.*, safety.*, template.*, deploy.*, agent.*, marketplace.*, team.*, context.*, hooks.*, connector.*, apikey.*, style.*, dashboard.*, analytics.*, alert.*, workflow.*, session.*, telemetry.*, sdk.*, verify.*, tool.*)
 - ✅ **Agent lifecycle** — draft → published → archived status flow with version tracking, API endpoint generation, clone, debug execute_stream
 - ✅ **Connector manager** — OAuth2/API Key/Webhook external integration lifecycle (CRUD, connect/disconnect, test)
