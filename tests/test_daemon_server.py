@@ -47,7 +47,7 @@ async def daemon(socket_path):
 
 
 async def _rpc_call(socket_path: str, method: str, params: dict | None = None, msg_id: int = 1) -> dict:
-    reader, writer = await asyncio.open_unix_connection(socket_path)
+    reader, writer = await asyncio.open_unix_connection(socket_path, limit=2**20)
     request = {"jsonrpc": "2.0", "id": msg_id, "method": method}
     if params:
         request["params"] = params

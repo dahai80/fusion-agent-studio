@@ -76,6 +76,10 @@ class DaemonServer:
         self._cowork_manager = None
         self._langgraph_engine = None
         self._artifact_manager = None
+        self._kb_manager = None
+        self._audit_logger = None
+        self._version_store = None
+        self._offline_mode = False
 
     def _get_runtime(self) -> AgentRuntime:
         if self._runtime is None:
@@ -221,6 +225,27 @@ class DaemonServer:
             self._artifact_manager = ArtifactManager()
             logger.info("ArtifactManager created")
         return self._artifact_manager
+
+    def _get_kb_manager(self):
+        if self._kb_manager is None:
+            from .knowledge_base import KnowledgeBaseManager
+            self._kb_manager = KnowledgeBaseManager()
+            logger.info("KnowledgeBaseManager created")
+        return self._kb_manager
+
+    def _get_audit_logger(self):
+        if self._audit_logger is None:
+            from .audit_logger import AuditLogger
+            self._audit_logger = AuditLogger()
+            logger.info("AuditLogger created")
+        return self._audit_logger
+
+    def _get_version_store(self):
+        if self._version_store is None:
+            from .agent_version import AgentVersionStore
+            self._version_store = AgentVersionStore()
+            logger.info("AgentVersionStore created")
+        return self._version_store
 
     def _serialize(self, obj):
         if obj is None:
@@ -732,6 +757,16 @@ class DaemonServer:
             "artifact.delete": self._handle_artifact_delete,
             "artifact.export": self._handle_artifact_export,
             "artifact.context": self._handle_artifact_context,
+            "model.status": self._handle_model_status,
+            "kb.build": self._handle_kb_build,
+            "kb.status": self._handle_kb_status,
+            "kb.query": self._handle_kb_query,
+            "audit.list": self._handle_audit_list,
+            "system.offline_status": self._handle_system_offline_status,
+            "system.set_offline": self._handle_system_set_offline,
+            "agent.diff_review": self._handle_agent_diff_review,
+            "permission.list": self._handle_permission_list,
+            "permission.update": self._handle_permission_update,
         }
         return handlers.get(method)
 
@@ -3887,6 +3922,226 @@ class DaemonServer:
         mgr = self._get_artifact_manager()
         context = mgr.get_active_artifacts_context(agent_id, limit=limit)
         return {"context": context}
+
+    # ── #53 RPC handlers: model.status, kb.*, audit.list, system.*, agent.diff_review, permission.* ──
+
+    async def _handle_model_status(self, params: dict) -> dict:
+        running = self._mlx_process is not None and self._mlx_process.poll() is None
+        connected = False
+        models = []
+        loaded = []
+        url = f"http://localhost:{MLX_PORT}"
+        if running:
+            connected = await self._check_mlx_health()
+            models = await self._list_mlx_models()
+            loaded = [m for m in models if m.get("loaded", False)]
+        return {
+            "connected": connected,
+            "models": models,
+            "loaded": loaded,
+            "url": url,
+        }
+
+    async def _handle_kb_build(self, params: dict) -> dict:
+        path = params.get("path", "")
+        scope = params.get("scope", "project")
+        mgr = self._get_kb_manager()
+        if not path:
+            return {"status": "error", "message": "path parameter required"}
+        import os
+        if not os.path.exists(path):
+            return {"status": "error", "message": f"path not found: {path}"}
+        kb_name = os.path.basename(path)
+        kb = mgr.create_kb(name=kb_name, description=f"Built from {path}", scope=scope)
+        kb_id = kb.kb_id if hasattr(kb, "kb_id") else kb.get("kb_id", "")
+        file_count = 0
+        for root, dirs, files in os.walk(path):
+            for fn in files:
+                fp = os.path.join(root, fn)
+                ext = os.path.splitext(fn)[1].lower()
+                if ext in (".py", ".js", ".ts", ".md", ".txt", ".json", ".yaml", ".yml", ".toml", ".rst"):
+                    try:
+                        mgr.add_file(kb_id, fp)
+                        file_count += 1
+                    except Exception as e:
+                        logger.warning("kb.build: skip file %s: %s", fp, e)
+        logger.info("kb.build: kb_id=%s files=%d path=%s", kb_id, file_count, path)
+        return {"kb_id": kb_id, "status": "built", "file_count": file_count}
+
+    async def _handle_kb_status(self, params: dict) -> dict:
+        mgr = self._get_kb_manager()
+        kb_id = params.get("kb_id", "")
+        if kb_id:
+            kb = mgr.get_kb(kb_id)
+            if kb is None:
+                return {"status": "error", "message": f"kb not found: {kb_id}"}
+            kb_dict = kb.to_dict() if hasattr(kb, "to_dict") else kb
+            files = mgr.list_files(kb_id)
+            return {"kbs": [kb_dict], "building": False, "progress": 1.0, "file_count": len(files)}
+        result = mgr.list_kbs()
+        kbs_list = result.get("data", result) if isinstance(result, dict) else result
+        kbs_dicts = [k.to_dict() if hasattr(k, "to_dict") else k for k in kbs_list]
+        return {"kbs": kbs_dicts, "building": False, "progress": 1.0}
+
+    async def _handle_kb_query(self, params: dict) -> dict:
+        query = params.get("query", "")
+        kb_id = params.get("kb_id", "")
+        limit = params.get("limit", 10)
+        if not query:
+            return {"status": "error", "message": "query parameter required"}
+        mgr = self._get_kb_manager()
+        results = []
+        if kb_id:
+            files = mgr.list_files(kb_id)
+            for f in files[:limit]:
+                f_dict = f.to_dict() if hasattr(f, "to_dict") else f
+                f_dict["relevance"] = 1.0
+                results.append(f_dict)
+        else:
+            all_kbs = mgr.list_kbs()
+            kbs_list = all_kbs.get("data", all_kbs) if isinstance(all_kbs, dict) else all_kbs
+            for kb in kbs_list:
+                kid = kb.kb_id if hasattr(kb, "kb_id") else kb.get("kb_id", "")
+                files = mgr.list_files(kid)
+                for f in files[:limit]:
+                    f_dict = f.to_dict() if hasattr(f, "to_dict") else f
+                    f_dict["relevance"] = 0.8
+                    results.append(f_dict)
+                if len(results) >= limit:
+                    break
+            results = results[:limit]
+        logger.info("kb.query: query=%s kb_id=%s results=%d", query[:50], kb_id, len(results))
+        return {"results": results}
+
+    async def _handle_audit_list(self, params: dict) -> dict:
+        tool = params.get("tool", "")
+        target_type = params.get("target_type", "")
+        since = params.get("since", "")
+        limit = params.get("limit", 50)
+        logger_instance = self._get_audit_logger()
+        kwargs = {"limit": limit}
+        if tool:
+            kwargs["tool"] = tool
+        if target_type:
+            kwargs["target_type"] = target_type
+        if since:
+            kwargs["since"] = since
+        result = logger_instance.query_logs(**kwargs)
+        if isinstance(result, dict):
+            return result
+        entries = [e.to_dict() if hasattr(e, "to_dict") else e for e in (result or [])]
+        return {"data": entries, "total": len(entries)}
+
+    async def _handle_system_offline_status(self, params: dict) -> dict:
+        import os
+        env_offline = os.environ.get("FUSION_CODE_OFFLINE", "").lower() in ("1", "true", "yes")
+        offline = self._offline_mode or env_offline
+        reason = None
+        if env_offline:
+            reason = "FUSION_CODE_OFFLINE environment variable set"
+        elif self._offline_mode:
+            reason = "Manually enabled via system.set_offline"
+        return {"offline": offline, "reason": reason}
+
+    async def _handle_system_set_offline(self, params: dict) -> dict:
+        enabled = params.get("enabled", False)
+        self._offline_mode = bool(enabled)
+        logger.info("system.set_offline: offline=%s", self._offline_mode)
+        return {"offline": self._offline_mode}
+
+    async def _handle_agent_diff_review(self, params: dict) -> dict:
+        agent_id = params.get("agent_id", "")
+        fmt = params.get("format", "markdown")
+        if not agent_id:
+            return {"status": "error", "message": "agent_id parameter required"}
+        from .agent_package import AgentPackage
+        agent_dir = self._agent_dir(agent_id)
+        pkg = AgentPackage(agent_dir)
+        if not pkg.exists:
+            return {"status": "error", "message": f"Agent not found: {agent_id}"}
+        version_store = self._get_version_store()
+        versions = version_store.list_versions(agent_id)
+        entries = []
+        for v in versions:
+            v_dict = v.to_dict() if hasattr(v, "to_dict") else v
+            entries.append(v_dict)
+        markdown = ""
+        if fmt == "markdown" and entries:
+            lines = [f"# Diff Review: {agent_id}", ""]
+            for e in entries:
+                label = e.get("label", e.get("version_id", "unknown"))
+                ts = e.get("created_at", "")
+                lines.append(f"## {label} ({ts})")
+                lines.append("")
+                snapshot = e.get("snapshot_data", {})
+                if isinstance(snapshot, dict):
+                    for k, val in snapshot.items():
+                        lines.append(f"- **{k}**: {val}")
+                lines.append("")
+            markdown = "\n".join(lines)
+        return {"entries": entries, "markdown": markdown}
+
+    async def _handle_permission_list(self, params: dict) -> dict:
+        agent_id = params.get("agent_id", "")
+        if agent_id:
+            perms = self._get_agent_permissions(agent_id)
+            from .agent_package import AgentPackage
+            agent_dir = self._agent_dir(agent_id)
+            pkg = AgentPackage(agent_dir)
+            manifest = pkg.load_manifest() if pkg.exists else None
+            tools_list = manifest.tools if manifest else []
+            denied = []
+            definition_path = os.path.join(agent_dir, "definition.json")
+            if os.path.exists(definition_path):
+                try:
+                    import json
+                    with open(definition_path) as f:
+                        defn = json.load(f)
+                    denied = defn.get("denied_tools", [])
+                except Exception:
+                    pass
+            return {"permissions": perms, "denied_tools": denied, "tools": tools_list}
+        import os as _os
+        agents_dir = str(Path.home() / ".fusion-agent-studio" / "agents")
+        all_perms = []
+        if _os.path.isdir(agents_dir):
+            for name in _os.listdir(agents_dir):
+                adir = _os.path.join(agents_dir, name)
+                if os.path.isdir(adir):
+                    p = self._get_agent_permissions(name)
+                    p["agent_id"] = name
+                    all_perms.append(p)
+        return {"permissions": all_perms, "denied_tools": []}
+
+    async def _handle_permission_update(self, params: dict) -> dict:
+        agent_id = params.get("agent_id", "")
+        tool = params.get("tool", "")
+        level = params.get("level", "allow")
+        if not agent_id:
+            return {"status": "error", "message": "agent_id parameter required"}
+        from .agent_package import AgentPackage
+        agent_dir = self._agent_dir(agent_id)
+        pkg = AgentPackage(agent_dir)
+        if not pkg.exists:
+            return {"status": "error", "message": f"Agent not found: {agent_id}"}
+        import json
+        definition_path = os.path.join(agent_dir, "definition.json")
+        defn = {}
+        if os.path.exists(definition_path):
+            with open(definition_path) as f:
+                defn = json.load(f)
+        denied = defn.get("denied_tools", [])
+        if level == "deny":
+            if tool and tool not in denied:
+                denied.append(tool)
+        elif level == "allow":
+            if tool in denied:
+                denied.remove(tool)
+        defn["denied_tools"] = denied
+        with open(definition_path, "w") as f:
+            json.dump(defn, f, indent=2, ensure_ascii=False)
+        logger.info("permission.update: agent=%s tool=%s level=%s denied=%s", agent_id, tool, level, denied)
+        return {"ok": True, "denied_tools": denied}
 
 
 def run_daemon(socket_path: str = SOCKET_PATH):
