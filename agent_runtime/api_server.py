@@ -596,6 +596,75 @@ async def v1_unbind_agent_kb(agent_id: str, request: Request):
     return {"unbound": ok, "agent_id": agent_id, "kb_id": kb_id}
 
 
+# ── Fusion-RAG integration routes ─
+# Importers: REST clients (curl, GUI)
+# Affected API: POST /v1/knowledge-bases/{kb_id}/search|ask|scan, GET /v1/knowledge-bases/rag-status
+# Data schemas: search {query,top_k,threshold,hybrid,hybrid_alpha,hybrid_method,rerank,
+#   folder_prefix,filter,rewrite_mode}; ask {question,model,max_tokens,temperature,hybrid,
+#   rerank,folder_prefix}; scan {path,recursive,file_patterns}
+# User instruction: "fusion-rag 已经完成issue和pr，可以开展相关的工作落地"
+
+
+@app.post("/v1/knowledge-bases/{kb_id}/search")
+async def v1_search_kb(kb_id: str, request: Request):
+    body = await request.json()
+    query = body.get("query", "")
+    if not query:
+        raise_api_error(ErrorCode.PARAM_REQUIRED, param="query")
+    mgr = _get_kb_manager()
+    search_kwargs = {}
+    for key in ("top_k", "threshold", "hybrid", "hybrid_alpha", "hybrid_method",
+                 "rerank", "folder_prefix", "rewrite_mode"):
+        if key in body:
+            search_kwargs[key] = body[key]
+    if "filter" in body:
+        search_kwargs["filter"] = body["filter"]
+    result = await mgr.search(kb_id=kb_id, query=query, **search_kwargs)
+    logger.info("KB search kb_id=%s query=%s count=%d", kb_id, query[:50], result.get("count", 0))
+    return result
+
+
+@app.post("/v1/knowledge-bases/{kb_id}/ask")
+async def v1_ask_kb(kb_id: str, request: Request):
+    body = await request.json()
+    question = body.get("question", "")
+    if not question:
+        raise_api_error(ErrorCode.PARAM_REQUIRED, param="question")
+    mgr = _get_kb_manager()
+    ask_kwargs = {}
+    for key in ("model", "max_tokens", "temperature", "hybrid", "rerank", "folder_prefix"):
+        if key in body:
+            ask_kwargs[key] = body[key]
+    result = await mgr.ask(kb_id=kb_id, question=question, **ask_kwargs)
+    logger.info("KB ask kb_id=%s question=%s", kb_id, question[:50])
+    return result
+
+
+@app.post("/v1/knowledge-bases/{kb_id}/scan")
+async def v1_scan_kb(kb_id: str, request: Request):
+    body = await request.json()
+    path = body.get("path", "")
+    if not path:
+        raise_api_error(ErrorCode.PARAM_REQUIRED, param="path")
+    mgr = _get_kb_manager()
+    scan_kwargs = {}
+    if "recursive" in body:
+        scan_kwargs["recursive"] = body["recursive"]
+    if "file_patterns" in body:
+        scan_kwargs["file_patterns"] = body["file_patterns"]
+    result = await mgr.scan_directory(kb_id=kb_id, path=path, **scan_kwargs)
+    logger.info("KB scan kb_id=%s path=%s", kb_id, path)
+    return result
+
+
+@app.get("/v1/knowledge-bases/rag-status")
+async def v1_rag_status():
+    mgr = _get_kb_manager()
+    available = await mgr.is_rag_available()
+    status = await mgr.rag_status()
+    return {"rag_available": available, **status}
+
+
 # ── API Key endpoints ──
 
 @app.get("/v1/api-keys")

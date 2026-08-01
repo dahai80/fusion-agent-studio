@@ -6,10 +6,10 @@
 
 Run, build, and orchestrate AI agents entirely on your Mac — no cloud, no API fees, no data leaving your device.
 
-[![Version](https://img.shields.io/badge/v0.3.1-blue.svg)]()
+[![Version](https://img.shields.io/badge/v0.4.0-blue.svg)]()
 [![Python](https://img.shields.io/badge/Python-3.11+-3776AB.svg)](https://www.python.org/)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/Tests-1545-success.svg)](tests/)
+[![Tests](https://img.shields.io/badge/Tests-1525-success.svg)](tests/)
 
 [Quick Start](#quick-start) · [Architecture](#architecture) · [Documentation](docs/) · [Examples](examples/)
 
@@ -184,6 +184,7 @@ python my_agent.py
 - ✅ **Plaza broadcast** — Multi-agent shared log stream with @Mention triggers, 3-round circuit breaker, human break-in, supervisor designate
 - ✅ **HITL L1/L2/L3 governance** — Autonomous (L1), diff preview (L2), gateway approval (L3) safety levels with category-based policies
 - ✅ **RAG pipeline** — KnowledgeEngine retrieval → context assembly → LLM generation, integrated as DAG node type
+- ✅ **Fusion-RAG integration** — `FusionRAGClient` (HTTP proxy to fusion-rag at `:11436/kb/*`) with semantic search, hybrid BM25+Vector (RRF), contextual retrieval, reranking, RAG Q&A, directory scan/watch, project KB mapping; daemon `kb.search/ask/scan/health` RPC; REST `POST /v1/knowledge-bases/{kb_id}/search|ask|scan`, `GET /v1/knowledge-bases/rag-status`; graceful fallback when fusion-rag unavailable
 - ✅ **Memory auto-compression** — Tiered memory (short_term/long_term/archive) with LLM-based summarization and age/importance promotion
 - ✅ **Planner node** — OpenDevin-style "plan-confirm-execute" workflow with risk assessment (low/medium/high)
 - ✅ **Data readers** — Web, GitHub, Notion, PDF, Directory readers for LlamaIndex-style document ingestion

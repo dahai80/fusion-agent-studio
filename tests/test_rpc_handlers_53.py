@@ -306,8 +306,119 @@ class TestDispatchTable:
             "model.status", "kb.build", "kb.status", "kb.query",
             "audit.list", "system.offline_status", "system.set_offline",
             "agent.diff_review", "permission.list", "permission.update",
+            "kb.search", "kb.ask", "kb.scan", "kb.health",
         ]
         for method in required:
             handler = ds._get_handler(method)
             assert handler is not None, f"Missing dispatch entry: {method}"
             assert callable(handler), f"Handler not callable: {method}"
+
+
+class TestKbSearch:
+    @pytest.mark.asyncio
+    async def test_kb_search_missing_params(self, daemon):
+        result = await daemon._handle_kb_search({})
+        assert result["status"] == "error"
+
+    @pytest.mark.asyncio
+    async def test_kb_search_rag_unavailable(self, daemon):
+        mock_mgr = MagicMock()
+        mock_mgr.search = AsyncMock(return_value={
+            "results": [], "kb_id": "kb1", "query": "test", "rag_available": False,
+        })
+        with patch.object(daemon, "_get_kb_manager", return_value=mock_mgr):
+            result = await daemon._handle_kb_search({"kb_id": "kb1", "query": "test"})
+        assert result["rag_available"] is False
+
+    @pytest.mark.asyncio
+    async def test_kb_search_with_results(self, daemon):
+        mock_mgr = MagicMock()
+        mock_mgr.search = AsyncMock(return_value={
+            "results": [{"content": "hello", "score": 0.9}],
+            "kb_id": "kb1", "query": "test", "rag_available": True, "count": 1,
+        })
+        with patch.object(daemon, "_get_kb_manager", return_value=mock_mgr):
+            result = await daemon._handle_kb_search({
+                "kb_id": "kb1", "query": "test", "hybrid": True, "rerank": True,
+            })
+        assert result["count"] == 1
+        mock_mgr.search.assert_called_once_with(
+            kb_id="kb1", query="test", hybrid=True, rerank=True,
+        )
+
+
+class TestKbAsk:
+    @pytest.mark.asyncio
+    async def test_kb_ask_missing_params(self, daemon):
+        result = await daemon._handle_kb_ask({})
+        assert result["status"] == "error"
+
+    @pytest.mark.asyncio
+    async def test_kb_ask_rag_unavailable(self, daemon):
+        mock_mgr = MagicMock()
+        mock_mgr.ask = AsyncMock(return_value={
+            "answer": "", "kb_id": "kb1", "question": "q", "rag_available": False,
+        })
+        with patch.object(daemon, "_get_kb_manager", return_value=mock_mgr):
+            result = await daemon._handle_kb_ask({"kb_id": "kb1", "question": "q"})
+        assert result["rag_available"] is False
+
+    @pytest.mark.asyncio
+    async def test_kb_ask_with_answer(self, daemon):
+        mock_mgr = MagicMock()
+        mock_mgr.ask = AsyncMock(return_value={
+            "answer": "42", "sources": [], "confidence": 0.9,
+            "kb_id": "kb1", "question": "q", "rag_available": True,
+        })
+        with patch.object(daemon, "_get_kb_manager", return_value=mock_mgr):
+            result = await daemon._handle_kb_ask({"kb_id": "kb1", "question": "q"})
+        assert result["answer"] == "42"
+
+
+class TestKbScan:
+    @pytest.mark.asyncio
+    async def test_kb_scan_missing_params(self, daemon):
+        result = await daemon._handle_kb_scan({})
+        assert result["status"] == "error"
+
+    @pytest.mark.asyncio
+    async def test_kb_scan_rag_unavailable(self, daemon):
+        mock_mgr = MagicMock()
+        mock_mgr.scan_directory = AsyncMock(return_value={
+            "kb_id": "kb1", "path": "/data", "rag_available": False,
+        })
+        with patch.object(daemon, "_get_kb_manager", return_value=mock_mgr):
+            result = await daemon._handle_kb_scan({"kb_id": "kb1", "path": "/data"})
+        assert result["rag_available"] is False
+
+    @pytest.mark.asyncio
+    async def test_kb_scan_with_results(self, daemon):
+        mock_mgr = MagicMock()
+        mock_mgr.scan_directory = AsyncMock(return_value={
+            "kb_id": "kb1", "path": "/data", "rag_available": True, "scanned": 10,
+        })
+        with patch.object(daemon, "_get_kb_manager", return_value=mock_mgr):
+            result = await daemon._handle_kb_scan({
+                "kb_id": "kb1", "path": "/data", "recursive": True,
+            })
+        assert result["scanned"] == 10
+
+
+class TestKbHealth:
+    @pytest.mark.asyncio
+    async def test_kb_health_rag_available(self, daemon):
+        mock_mgr = MagicMock()
+        mock_mgr.is_rag_available = AsyncMock(return_value=True)
+        mock_mgr.rag_status = AsyncMock(return_value={"available": True, "version": "0.1.0"})
+        with patch.object(daemon, "_get_kb_manager", return_value=mock_mgr):
+            result = await daemon._handle_kb_health({})
+        assert result["rag_available"] is True
+
+    @pytest.mark.asyncio
+    async def test_kb_health_rag_unavailable(self, daemon):
+        mock_mgr = MagicMock()
+        mock_mgr.is_rag_available = AsyncMock(return_value=False)
+        mock_mgr.rag_status = AsyncMock(return_value={"available": False, "error": "connection refused"})
+        with patch.object(daemon, "_get_kb_manager", return_value=mock_mgr):
+            result = await daemon._handle_kb_health({})
+        assert result["rag_available"] is False

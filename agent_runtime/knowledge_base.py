@@ -101,6 +101,13 @@ class KBFileInfo:
 
 
 class KnowledgeBaseManager:
+    # Importers: daemon_server.py (_get_kb_manager), api_server.py (_get_kb_manager)
+    # Affected API: adds is_rag_available(), rag_status(), search(), ask(), scan_directory()
+    # Data schemas: search params {query,top_k,threshold,hybrid,hybrid_alpha,hybrid_method,
+    #   rerank,folder_prefix,filter,rewrite_mode}; ask params {question,model,max_tokens,
+    #   temperature,hybrid,rerank,folder_prefix}
+    # User instruction: "fusion-rag 已经完成issue和pr，可以开展相关的工作落地"
+
     def __init__(self, base_path=None):
         if base_path is None:
             self.base_path = Path.home() / ".fusion-agent-studio" / "knowledge_bases"
@@ -108,7 +115,36 @@ class KnowledgeBaseManager:
             self.base_path = Path(base_path)
         self.base_path.mkdir(parents=True, exist_ok=True)
         self._index_path = self.base_path / "index.json"
+        self._rag_client = None
+        self._rag_checked = False
+        self._rag_available = False
         logger.info("KnowledgeBaseManager initialized at %s", self.base_path)
+
+    def _get_rag_client(self):
+        if self._rag_client is None:
+            from server.fusion_rag_client import FusionRAGClient
+            self._rag_client = FusionRAGClient()
+            logger.info("FusionRAGClient created for KB manager")
+        return self._rag_client
+
+    async def is_rag_available(self) -> bool:
+        if not self._rag_checked:
+            try:
+                self._rag_available = await self._get_rag_client().health()
+                self._rag_checked = True
+            except Exception as e:
+                logger.warning("fusion-rag health check failed: %s", e)
+                self._rag_available = False
+                self._rag_checked = True
+        return self._rag_available
+
+    async def rag_status(self) -> dict:
+        try:
+            client = self._get_rag_client()
+            return await client.status()
+        except Exception as e:
+            logger.warning("fusion-rag status check failed: %s", e)
+            return {"available": False, "error": str(e)}
 
     def _load_index(self) -> list[dict]:
         if not self._index_path.exists():
@@ -405,3 +441,64 @@ class KnowledgeBaseManager:
         self.update_kb(kb_id, {"bound_agents": kb.bound_agents})
         logger.info("Unbound agent %s from kb %s", agent_id, kb_id)
         return True
+
+    async def search(self, kb_id: str, query: str, **kwargs) -> dict:
+        rag_available = await self.is_rag_available()
+        if not rag_available:
+            logger.warning("fusion-rag not available for search, returning empty results")
+            return {"results": [], "kb_id": kb_id, "query": query, "rag_available": False}
+
+        try:
+            client = self._get_rag_client()
+            results = await client.search(kb_id=kb_id, query=query, **kwargs)
+            logger.info(
+                "fusion-rag search on kb %s: query=%s, results=%d",
+                kb_id, query[:50], len(results),
+            )
+            return {
+                "results": [r.__dict__ for r in results],
+                "kb_id": kb_id,
+                "query": query,
+                "rag_available": True,
+                "count": len(results),
+            }
+        except Exception as e:
+            logger.error("fusion-rag search failed for kb %s: %s", kb_id, e)
+            return {"results": [], "kb_id": kb_id, "query": query, "rag_available": False, "error": str(e)}
+
+    async def ask(self, kb_id: str, question: str, **kwargs) -> dict:
+        rag_available = await self.is_rag_available()
+        if not rag_available:
+            logger.warning("fusion-rag not available for ask, returning empty answer")
+            return {"answer": "", "kb_id": kb_id, "question": question, "rag_available": False}
+
+        try:
+            client = self._get_rag_client()
+            result = await client.ask(kb_id=kb_id, question=question, **kwargs)
+            logger.info("fusion-rag ask on kb %s: question=%s", kb_id, question[:50])
+            return {
+                "answer": result.answer,
+                "sources": result.sources,
+                "confidence": result.confidence,
+                "kb_id": kb_id,
+                "question": question,
+                "rag_available": True,
+            }
+        except Exception as e:
+            logger.error("fusion-rag ask failed for kb %s: %s", kb_id, e)
+            return {"answer": "", "kb_id": kb_id, "question": question, "rag_available": False, "error": str(e)}
+
+    async def scan_directory(self, kb_id: str, path: str, **kwargs) -> dict:
+        rag_available = await self.is_rag_available()
+        if not rag_available:
+            logger.warning("fusion-rag not available for scan_directory")
+            return {"kb_id": kb_id, "path": path, "rag_available": False}
+
+        try:
+            client = self._get_rag_client()
+            result = await client.scan_directory(kb_id=kb_id, path=path, **kwargs)
+            logger.info("fusion-rag scan_directory on kb %s: path=%s", kb_id, path)
+            return {**result, "kb_id": kb_id, "rag_available": True}
+        except Exception as e:
+            logger.error("fusion-rag scan_directory failed for kb %s: %s", kb_id, e)
+            return {"kb_id": kb_id, "path": path, "rag_available": False, "error": str(e)}

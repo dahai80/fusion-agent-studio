@@ -767,6 +767,10 @@ class DaemonServer:
             "agent.diff_review": self._handle_agent_diff_review,
             "permission.list": self._handle_permission_list,
             "permission.update": self._handle_permission_update,
+            "kb.search": self._handle_kb_search,
+            "kb.ask": self._handle_kb_ask,
+            "kb.scan": self._handle_kb_scan,
+            "kb.health": self._handle_kb_health,
         }
         return handlers.get(method)
 
@@ -4142,6 +4146,59 @@ class DaemonServer:
             json.dump(defn, f, indent=2, ensure_ascii=False)
         logger.info("permission.update: agent=%s tool=%s level=%s denied=%s", agent_id, tool, level, denied)
         return {"ok": True, "denied_tools": denied}
+
+    async def _handle_kb_search(self, params: dict) -> dict:
+        kb_id = params.get("kb_id", "")
+        query = params.get("query", "")
+        if not kb_id or not query:
+            return {"status": "error", "message": "kb_id and query required"}
+        mgr = self._get_kb_manager()
+        search_kwargs = {}
+        for key in ("top_k", "threshold", "hybrid", "hybrid_alpha", "hybrid_method",
+                     "rerank", "folder_prefix", "rewrite_mode"):
+            if key in params:
+                search_kwargs[key] = params[key]
+        if "filter" in params:
+            search_kwargs["filter"] = params["filter"]
+        result = await mgr.search(kb_id=kb_id, query=query, **search_kwargs)
+        logger.info("kb.search: kb_id=%s query=%s count=%d", kb_id, query[:50], result.get("count", 0))
+        return result
+
+    async def _handle_kb_ask(self, params: dict) -> dict:
+        kb_id = params.get("kb_id", "")
+        question = params.get("question", "")
+        if not kb_id or not question:
+            return {"status": "error", "message": "kb_id and question required"}
+        mgr = self._get_kb_manager()
+        ask_kwargs = {}
+        for key in ("model", "max_tokens", "temperature", "hybrid", "rerank", "folder_prefix"):
+            if key in params:
+                ask_kwargs[key] = params[key]
+        result = await mgr.ask(kb_id=kb_id, question=question, **ask_kwargs)
+        logger.info("kb.ask: kb_id=%s question=%s", kb_id, question[:50])
+        return result
+
+    async def _handle_kb_scan(self, params: dict) -> dict:
+        kb_id = params.get("kb_id", "")
+        path = params.get("path", "")
+        if not kb_id or not path:
+            return {"status": "error", "message": "kb_id and path required"}
+        mgr = self._get_kb_manager()
+        scan_kwargs = {}
+        if "recursive" in params:
+            scan_kwargs["recursive"] = params["recursive"]
+        if "file_patterns" in params:
+            scan_kwargs["file_patterns"] = params["file_patterns"]
+        result = await mgr.scan_directory(kb_id=kb_id, path=path, **scan_kwargs)
+        logger.info("kb.scan: kb_id=%s path=%s", kb_id, path)
+        return result
+
+    async def _handle_kb_health(self, params: dict) -> dict:
+        mgr = self._get_kb_manager()
+        available = await mgr.is_rag_available()
+        status = await mgr.rag_status()
+        logger.info("kb.health: rag_available=%s", available)
+        return {"rag_available": available, **status}
 
 
 def run_daemon(socket_path: str = SOCKET_PATH):
