@@ -77,7 +77,7 @@ class GraphExporter:
         # Main execution
         lines.append("")
         lines.append("async def main():")
-        lines.append("    client = httpx.AsyncClient(base_url='http://localhost:8000/v1', timeout=120.0)")
+        lines.append("    client = httpx.AsyncClient(base_url='http://localhost:11434/v1', timeout=120.0)")
         lines.append("    try:")
         lines.append("        result = await execute_agent(client, nodes, edges, start_node,")
         lines.append("                                     initial_input=input('Enter your input: '))")

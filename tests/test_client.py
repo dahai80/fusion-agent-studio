@@ -43,8 +43,8 @@ class TestFusionMLXClient:
         assert client.timeout == 30.0
 
     def test_base_url_strips_trailing_slash(self):
-        client = FusionMLXClient(base_url="http://localhost:8000/v1/")
-        assert client.base_url == "http://localhost:8000/v1"
+        client = FusionMLXClient(base_url="http://localhost:11434/v1/")
+        assert client.base_url == "http://localhost:11434/v1"
 
     def test_health_no_server(self):
         client = FusionMLXClient(timeout=1.0)

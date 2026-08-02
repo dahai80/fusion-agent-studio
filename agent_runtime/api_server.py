@@ -921,7 +921,7 @@ async def test_agent_with_project(agent_id: str, project_id: str = "", kb_id: st
     return await v1_test_agent(agent_id, project_id, kb_id, message)
 
 
-def run_server(host: str = "0.0.0.0", port: int = 8000):
+def run_server(host: str = "127.0.0.1", port: int = 11453):
     import uvicorn
     uvicorn.run(app, host=host, port=port, log_level="info")
 
