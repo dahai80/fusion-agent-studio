@@ -129,8 +129,11 @@ class StyleManager:
             return None
         return cfg.to_dict()
 
-    def create(self, name: str, suffix: str, output_format: str = "markdown") -> dict[str, Any]:
+    def create(
+        self, name: str, suffix: str, output_format: str = "markdown"
+    ) -> dict[str, Any]:
         import uuid
+
         style_id = f"custom-{uuid.uuid4().hex[:8]}"
         now = time.time()
         cfg = StyleConfig(
@@ -152,4 +155,8 @@ class StyleManager:
             return {"status": "error", "message": f"Style not found: {style_id}"}
         augmented = f"{system_prompt}\n\n{cfg.suffix}"
         logger.info("style.apply: style=%s format=%s", style_id, cfg.output_format)
-        return {"system_prompt": augmented, "style": style_id, "output_format": cfg.output_format}
+        return {
+            "system_prompt": augmented,
+            "style": style_id,
+            "output_format": cfg.output_format,
+        }

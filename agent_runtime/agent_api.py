@@ -3,6 +3,7 @@
 Implements #29 (Agent Publish API) and #31 (Agent Status & History API).
 FastAPI router mounted into the main api_server.
 """
+
 from __future__ import annotations
 
 import logging
@@ -97,6 +98,7 @@ class AgentStatusTracker:
 
     def _load(self):
         import json
+
         sp = self._status_path()
         if sp.exists():
             with open(sp) as f:
@@ -114,11 +116,15 @@ class AgentStatusTracker:
 
     def _save_status(self):
         import json
+
         with open(self._status_path(), "w") as f:
-            json.dump({aid: s.to_dict() for aid, s in self._status.items()}, f, indent=2)
+            json.dump(
+                {aid: s.to_dict() for aid, s in self._status.items()}, f, indent=2
+            )
 
     def _save_history(self, agent_id: str):
         import json
+
         entries = self._history.get(agent_id, [])
         with open(self._history_path(agent_id), "w") as f:
             json.dump([e.to_dict() for e in entries], f, indent=2)
@@ -152,6 +158,7 @@ class AgentStatusTracker:
             hp = self._history_path(aid)
             if hp.exists():
                 import json
+
                 with open(hp) as f:
                     data = json.load(f)
                 self._history[aid] = [RunHistoryEntry.from_dict(e) for e in data]
@@ -161,37 +168,45 @@ class AgentStatusTracker:
         self._save_history(aid)
         logger.debug("Recorded run %s for agent %s", entry.run_id, aid)
 
-    def get_history(self, agent_id: str, limit: int = 50, offset: int = 0) -> list[RunHistoryEntry]:
+    def get_history(
+        self, agent_id: str, limit: int = 50, offset: int = 0
+    ) -> list[RunHistoryEntry]:
         if agent_id not in self._history:
             hp = self._history_path(agent_id)
             if hp.exists():
                 import json
+
                 with open(hp) as f:
                     data = json.load(f)
                 self._history[agent_id] = [RunHistoryEntry.from_dict(e) for e in data]
             else:
                 self._history[agent_id] = []
         entries = self._history[agent_id]
-        return list(reversed(entries))[offset:offset + limit]
+        return list(reversed(entries))[offset : offset + limit]
 
     def list_published(self, agents_index: dict[str, dict]) -> list[dict[str, Any]]:
         results = []
         for aid, meta in agents_index.items():
             if meta.get("status") == "published":
-                results.append({
-                    "agent_id": aid,
-                    "name": meta.get("name", ""),
-                    "description": meta.get("description", ""),
-                    "version": meta.get("version", "0.1.0"),
-                    "status": "published",
-                    "published_at": meta.get("published_at"),
-                    "published_by": meta.get("author", ""),
-                })
+                results.append(
+                    {
+                        "agent_id": aid,
+                        "name": meta.get("name", ""),
+                        "description": meta.get("description", ""),
+                        "version": meta.get("version", "0.1.0"),
+                        "status": "published",
+                        "published_at": meta.get("published_at"),
+                        "published_by": meta.get("author", ""),
+                    }
+                )
         logger.info("Listed %d published agents", len(results))
         return results
 
-    def get_definition(self, agent_id: str, agents_index: dict[str, dict]) -> dict[str, Any] | None:
+    def get_definition(
+        self, agent_id: str, agents_index: dict[str, dict]
+    ) -> dict[str, Any] | None:
         from .agent_definition import AgentDefinition
+
         meta = agents_index.get(agent_id)
         if not meta or meta.get("status") != "published":
             return None

@@ -1,4 +1,5 @@
 """Tests for graph exporter."""
+
 from __future__ import annotations
 
 import pytest
@@ -11,10 +12,18 @@ from agent_runtime.graph import AgentGraph, NodeConfig
 def sample_graph():
     graph = AgentGraph(name="Test Agent", description="A simple test agent")
     graph.add_node("start", NodeConfig(type="start", label="Start", x=100, y=200))
-    graph.add_node("llm", NodeConfig(
-        type="llm", label="Think", model="qwen3.5-9b",
-        system_prompt="You are helpful.", temperature=0.5, x=300, y=200,
-    ))
+    graph.add_node(
+        "llm",
+        NodeConfig(
+            type="llm",
+            label="Think",
+            model="qwen3.5-9b",
+            system_prompt="You are helpful.",
+            temperature=0.5,
+            x=300,
+            y=200,
+        ),
+    )
     graph.add_node("end", NodeConfig(type="end", label="End", x=500, y=200))
     graph.add_edge("start", "llm")
     graph.add_edge("llm", "end")
@@ -86,10 +95,15 @@ class TestGraphExporter:
     def test_export_graph_with_tool_node(self):
         graph = AgentGraph(name="Tool Test")
         graph.add_node("start", NodeConfig(type="start", label="Start"))
-        graph.add_node("tool", NodeConfig(
-            type="tool", label="Read", tool_name="file_read",
-            tool_params={"path": "/tmp/test.txt"},
-        ))
+        graph.add_node(
+            "tool",
+            NodeConfig(
+                type="tool",
+                label="Read",
+                tool_name="file_read",
+                tool_params={"path": "/tmp/test.txt"},
+            ),
+        )
         graph.add_node("end", NodeConfig(type="end", label="End"))
         graph.add_edge("start", "tool")
         graph.add_edge("tool", "end")
@@ -101,9 +115,14 @@ class TestGraphExporter:
     def test_export_graph_with_condition(self):
         graph = AgentGraph(name="Condition Test")
         graph.add_node("start", NodeConfig(type="start", label="Start"))
-        graph.add_node("cond", NodeConfig(
-            type="condition", label="Check", condition_expr="has_tool_calls",
-        ))
+        graph.add_node(
+            "cond",
+            NodeConfig(
+                type="condition",
+                label="Check",
+                condition_expr="has_tool_calls",
+            ),
+        )
         graph.add_node("end", NodeConfig(type="end", label="End"))
         graph.add_edge("start", "cond")
         graph.add_edge("cond", "end", "true")

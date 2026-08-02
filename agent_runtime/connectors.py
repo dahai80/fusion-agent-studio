@@ -34,8 +34,12 @@ class ConnectorConfig:
             "id": self.id,
             "name": self.name,
             "type": self.type,
-            "auth_config": {k: "***" if k in ("api_key", "secret", "client_secret", "password", "token") else v
-                            for k, v in self.auth_config.items()},
+            "auth_config": {
+                k: "***"
+                if k in ("api_key", "secret", "client_secret", "password", "token")
+                else v
+                for k, v in self.auth_config.items()
+            },
             "status": self.status,
             "created_at": self.created_at,
             "updated_at": self.updated_at,
@@ -118,10 +122,16 @@ class ConnectorManager:
             return None
         return cfg.to_dict()
 
-    def create(self, name: str, conn_type: str, auth_config: dict[str, Any]) -> dict[str, Any]:
+    def create(
+        self, name: str, conn_type: str, auth_config: dict[str, Any]
+    ) -> dict[str, Any]:
         import uuid
+
         if conn_type not in VALID_TYPES:
-            return {"status": "error", "message": f"Invalid connector type: {conn_type}. Valid: {VALID_TYPES}"}
+            return {
+                "status": "error",
+                "message": f"Invalid connector type: {conn_type}. Valid: {VALID_TYPES}",
+            }
         conn_id = uuid.uuid4().hex[:12]
         now = time.time()
         cfg = ConnectorConfig(
@@ -141,7 +151,10 @@ class ConnectorManager:
     def update(self, connector_id: str, updates: dict[str, Any]) -> dict[str, Any]:
         cfg = self._connectors.get(connector_id)
         if cfg is None:
-            return {"status": "error", "message": f"Connector not found: {connector_id}"}
+            return {
+                "status": "error",
+                "message": f"Connector not found: {connector_id}",
+            }
         for key in ("name", "type", "status", "error_message"):
             if key in updates:
                 setattr(cfg, key, updates[key])
@@ -149,13 +162,18 @@ class ConnectorManager:
             cfg.auth_config = updates["auth_config"]
         cfg.updated_at = time.time()
         self._persist_index()
-        logger.info("connector.update: id=%s keys=%s", connector_id, list(updates.keys()))
+        logger.info(
+            "connector.update: id=%s keys=%s", connector_id, list(updates.keys())
+        )
         return {"updated": True, "connector": cfg.to_dict()}
 
     def delete(self, connector_id: str) -> dict[str, Any]:
         removed = self._connectors.pop(connector_id, None)
         if removed is None:
-            return {"status": "error", "message": f"Connector not found: {connector_id}"}
+            return {
+                "status": "error",
+                "message": f"Connector not found: {connector_id}",
+            }
         self._persist_index()
         logger.info("connector.delete: id=%s", connector_id)
         return {"deleted": True}
@@ -163,7 +181,10 @@ class ConnectorManager:
     def connect(self, connector_id: str) -> dict[str, Any]:
         cfg = self._connectors.get(connector_id)
         if cfg is None:
-            return {"status": "error", "message": f"Connector not found: {connector_id}"}
+            return {
+                "status": "error",
+                "message": f"Connector not found: {connector_id}",
+            }
         test_result = self._test_auth(cfg)
         if test_result:
             cfg.status = "connected"
@@ -175,12 +196,19 @@ class ConnectorManager:
         cfg.updated_at = time.time()
         self._persist_index()
         logger.info("connector.connect: id=%s status=%s", connector_id, cfg.status)
-        return {"connector_id": connector_id, "status": cfg.status, "error_message": cfg.error_message}
+        return {
+            "connector_id": connector_id,
+            "status": cfg.status,
+            "error_message": cfg.error_message,
+        }
 
     def disconnect(self, connector_id: str) -> dict[str, Any]:
         cfg = self._connectors.get(connector_id)
         if cfg is None:
-            return {"status": "error", "message": f"Connector not found: {connector_id}"}
+            return {
+                "status": "error",
+                "message": f"Connector not found: {connector_id}",
+            }
         cfg.status = "disconnected"
         cfg.updated_at = time.time()
         self._persist_index()
@@ -190,12 +218,19 @@ class ConnectorManager:
     def test(self, connector_id: str) -> dict[str, Any]:
         cfg = self._connectors.get(connector_id)
         if cfg is None:
-            return {"status": "error", "message": f"Connector not found: {connector_id}"}
+            return {
+                "status": "error",
+                "message": f"Connector not found: {connector_id}",
+            }
         success = self._test_auth(cfg)
         cfg.last_tested_at = time.time()
         self._persist_index()
         logger.info("connector.test: id=%s success=%s", connector_id, success)
-        return {"connector_id": connector_id, "test_passed": success, "status": cfg.status}
+        return {
+            "connector_id": connector_id,
+            "test_passed": success,
+            "status": cfg.status,
+        }
 
     def _test_auth(self, cfg: ConnectorConfig) -> bool:
         if cfg.type == "api_key":

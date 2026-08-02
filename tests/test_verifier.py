@@ -14,17 +14,25 @@ class MockMLXClient:
         self.responses = []
 
     def add_response(self, content="", tool_calls=None, usage=None):
-        self.responses.append(LLMResponse(
-            content=content,
-            tool_calls=tool_calls or [],
-            usage=usage or {"prompt_tokens": 0, "completion_tokens": 0},
-        ))
+        self.responses.append(
+            LLMResponse(
+                content=content,
+                tool_calls=tool_calls or [],
+                usage=usage or {"prompt_tokens": 0, "completion_tokens": 0},
+            )
+        )
 
-    async def chat(self, model, messages, tools=None, temperature=0.7, max_tokens=4096, **kwargs):
+    async def chat(
+        self, model, messages, tools=None, temperature=0.7, max_tokens=4096, **kwargs
+    ):
         self.call_count += 1
         if self.responses:
             return self.responses.pop(0)
-        return LLMResponse(content="", tool_calls=[], usage={"prompt_tokens": 0, "completion_tokens": 0})
+        return LLMResponse(
+            content="",
+            tool_calls=[],
+            usage={"prompt_tokens": 0, "completion_tokens": 0},
+        )
 
 
 class MockToolRegistry:
@@ -63,7 +71,17 @@ class TestVerificationResult:
         assert d["attempt"] == 1
 
     def test_from_dict(self):
-        data = {"id": "v1", "passed": True, "score": 0.85, "issues": [], "suggestion": "", "attempt": 2, "max_attempts": 3, "verified_at": 123.0, "metadata": {}}
+        data = {
+            "id": "v1",
+            "passed": True,
+            "score": 0.85,
+            "issues": [],
+            "suggestion": "",
+            "attempt": 2,
+            "max_attempts": 3,
+            "verified_at": 123.0,
+            "metadata": {},
+        }
         r = VerificationResult.from_dict(data)
         assert r.id == "v1"
         assert r.passed is True
@@ -81,9 +99,13 @@ class TestVerificationEngine:
 
     @pytest.mark.asyncio
     async def test_verify_passed(self):
-        gw = self._make_gateway('{"passed": true, "score": 0.95, "issues": [], "suggestion": ""}')
+        gw = self._make_gateway(
+            '{"passed": true, "score": 0.95, "issues": [], "suggestion": ""}'
+        )
         engine = VerificationEngine(gateway=gw, max_attempts=3)
-        result = await engine.verify(task="summarize", output="summary text", criteria="complete")
+        result = await engine.verify(
+            task="summarize", output="summary text", criteria="complete"
+        )
         assert result.passed is True
         assert result.score == 0.95
 
@@ -92,17 +114,23 @@ class TestVerificationEngine:
         fail_resp = MagicMock()
         fail_resp.content = '{"passed": false, "score": 0.3, "issues": ["missing key point"], "suggestion": "add intro"}'
         pass_resp = MagicMock()
-        pass_resp.content = '{"passed": true, "score": 0.9, "issues": [], "suggestion": ""}'
+        pass_resp.content = (
+            '{"passed": true, "score": 0.9, "issues": [], "suggestion": ""}'
+        )
         gw = MagicMock()
         gw.chat = AsyncMock(side_effect=[fail_resp, pass_resp])
         engine = VerificationEngine(gateway=gw, max_attempts=3)
-        result = await engine.verify(task="summarize", output="bad summary", criteria="complete")
+        result = await engine.verify(
+            task="summarize", output="bad summary", criteria="complete"
+        )
         assert result.passed is True
         assert result.attempt == 2
 
     @pytest.mark.asyncio
     async def test_verify_all_attempts_fail(self):
-        gw = self._make_gateway('{"passed": false, "score": 0.2, "issues": ["incomplete"], "suggestion": "rewrite"}')
+        gw = self._make_gateway(
+            '{"passed": false, "score": 0.2, "issues": ["incomplete"], "suggestion": "rewrite"}'
+        )
         engine = VerificationEngine(gateway=gw, max_attempts=2)
         result = await engine.verify(task="test", output="bad", criteria="good")
         assert result.passed is False
@@ -124,7 +152,9 @@ class TestVerificationEngine:
 
     @pytest.mark.asyncio
     async def test_re_verify(self):
-        gw = self._make_gateway('{"passed": true, "score": 0.88, "issues": [], "suggestion": ""}')
+        gw = self._make_gateway(
+            '{"passed": true, "score": 0.88, "issues": [], "suggestion": ""}'
+        )
         engine = VerificationEngine(gateway=gw)
         result = await engine.re_verify(
             task="fix bug",
@@ -153,21 +183,26 @@ class TestVerifyNodeInRuntime:
 
     @pytest.mark.asyncio
     async def test_verify_node_dispatch(self):
-        gw = self._make_gateway('{"passed": true, "score": 0.9, "issues": [], "suggestion": ""}')
+        gw = self._make_gateway(
+            '{"passed": true, "score": 0.9, "issues": [], "suggestion": ""}'
+        )
         runtime = self._make_runtime(gw)
 
         graph = AgentGraph(name="test_verify")
         graph.add_node("start", NodeConfig(type="start", label="start"))
-        graph.add_node("verify1", NodeConfig(
-            type="verify",
-            label="verify1",
-            tool_params={
-                "task": "check output",
-                "output": "some output",
-                "criteria": "must be correct",
-                "max_attempts": 1,
-            },
-        ))
+        graph.add_node(
+            "verify1",
+            NodeConfig(
+                type="verify",
+                label="verify1",
+                tool_params={
+                    "task": "check output",
+                    "output": "some output",
+                    "criteria": "must be correct",
+                    "max_attempts": 1,
+                },
+            ),
+        )
         graph.add_node("end", NodeConfig(type="end", label="end"))
         graph.add_edge("start", "verify1")
         graph.add_edge("verify1", "end")
@@ -184,16 +219,26 @@ class TestVerifyNodeInRuntime:
 
     @pytest.mark.asyncio
     async def test_verify_node_sets_variables(self):
-        gw = self._make_gateway('{"passed": false, "score": 0.4, "issues": ["bad"], "suggestion": "fix it"}')
+        gw = self._make_gateway(
+            '{"passed": false, "score": 0.4, "issues": ["bad"], "suggestion": "fix it"}'
+        )
         runtime = self._make_runtime(gw)
 
         graph = AgentGraph(name="test_verify_fail")
         graph.add_node("start", NodeConfig(type="start", label="start"))
-        graph.add_node("v1", NodeConfig(
-            type="verify",
-            label="v1",
-            tool_params={"task": "t", "output": "o", "criteria": "c", "max_attempts": 1},
-        ))
+        graph.add_node(
+            "v1",
+            NodeConfig(
+                type="verify",
+                label="v1",
+                tool_params={
+                    "task": "t",
+                    "output": "o",
+                    "criteria": "c",
+                    "max_attempts": 1,
+                },
+            ),
+        )
         graph.add_node("end", NodeConfig(type="end", label="end"))
         graph.add_edge("start", "v1")
         graph.add_edge("v1", "end")

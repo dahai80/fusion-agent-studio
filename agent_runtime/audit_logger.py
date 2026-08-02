@@ -284,7 +284,9 @@ class AuditLogger:
                 }
                 result.append(entry_dict)
 
-            logger.info("Exported %d audit log entries (format=%s)", len(result), format)
+            logger.info(
+                "Exported %d audit log entries (format=%s)", len(result), format
+            )
             return result
         except sqlite3.Error as e:
             logger.error("Failed to export audit logs: %s", e)

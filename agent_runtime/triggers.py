@@ -1,4 +1,5 @@
 """Webhook and Cron trigger system for agent execution."""
+
 from __future__ import annotations
 
 import asyncio
@@ -16,6 +17,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class Webhook:
     """A webhook trigger configuration."""
+
     id: str
     name: str
     secret: str = ""
@@ -27,6 +29,7 @@ class Webhook:
 @dataclass
 class CronJob:
     """A scheduled cron job configuration."""
+
     id: str
     name: str
     expression: str  # cron expression: "*/5 * * * *"
@@ -41,27 +44,40 @@ class CronJob:
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "id": self.id, "name": self.name, "expression": self.expression,
-            "graph_id": self.graph_id, "enabled": self.enabled,
-            "last_run": self.last_run, "next_run": self.next_run,
-            "created_at": self.created_at, "input_data": self.input_data,
-            "max_retries": self.max_retries, "retry_count": self.retry_count,
+            "id": self.id,
+            "name": self.name,
+            "expression": self.expression,
+            "graph_id": self.graph_id,
+            "enabled": self.enabled,
+            "last_run": self.last_run,
+            "next_run": self.next_run,
+            "created_at": self.created_at,
+            "input_data": self.input_data,
+            "max_retries": self.max_retries,
+            "retry_count": self.retry_count,
         }
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> CronJob:
         return cls(
-            id=data["id"], name=data["name"], expression=data["expression"],
-            graph_id=data.get("graph_id", ""), enabled=data.get("enabled", True),
-            last_run=data.get("last_run", 0.0), next_run=data.get("next_run", 0.0),
-            created_at=data.get("created_at", 0.0), input_data=data.get("input_data", ""),
-            max_retries=data.get("max_retries", 0), retry_count=data.get("retry_count", 0),
+            id=data["id"],
+            name=data["name"],
+            expression=data["expression"],
+            graph_id=data.get("graph_id", ""),
+            enabled=data.get("enabled", True),
+            last_run=data.get("last_run", 0.0),
+            next_run=data.get("next_run", 0.0),
+            created_at=data.get("created_at", 0.0),
+            input_data=data.get("input_data", ""),
+            max_retries=data.get("max_retries", 0),
+            retry_count=data.get("retry_count", 0),
         )
 
 
 @dataclass
 class CronExecution:
     """Record of a single cron job execution."""
+
     id: str = ""
     job_id: str = ""
     started_at: float = 0.0
@@ -72,18 +88,24 @@ class CronExecution:
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "id": self.id, "job_id": self.job_id,
-            "started_at": self.started_at, "finished_at": self.finished_at,
-            "status": self.status, "error": self.error,
+            "id": self.id,
+            "job_id": self.job_id,
+            "started_at": self.started_at,
+            "finished_at": self.finished_at,
+            "status": self.status,
+            "error": self.error,
             "result_preview": self.result_preview,
         }
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> CronExecution:
         return cls(
-            id=data.get("id", ""), job_id=data.get("job_id", ""),
-            started_at=data.get("started_at", 0.0), finished_at=data.get("finished_at", 0.0),
-            status=data.get("status", ""), error=data.get("error", ""),
+            id=data.get("id", ""),
+            job_id=data.get("job_id", ""),
+            started_at=data.get("started_at", 0.0),
+            finished_at=data.get("finished_at", 0.0),
+            status=data.get("status", ""),
+            error=data.get("error", ""),
             result_preview=data.get("result_preview", ""),
         )
 
@@ -113,7 +135,9 @@ class WebhookManager:
             for w in self._webhooks.values()
         ]
 
-    async def handle(self, webhook_id: str, payload: dict, headers: dict | None = None) -> dict:
+    async def handle(
+        self, webhook_id: str, payload: dict, headers: dict | None = None
+    ) -> dict:
         webhook = self._webhooks.get(webhook_id)
         if not webhook or not webhook.enabled:
             return {"error": "Webhook not found or disabled"}
@@ -155,6 +179,7 @@ class CronManager:
 
     def _init_db(self, db_path: str) -> None:
         import sqlite3
+
         self._conn = sqlite3.connect(db_path, check_same_thread=False)
         self._conn.execute("""
             CREATE TABLE IF NOT EXISTS cron_jobs (
@@ -182,7 +207,9 @@ class CronManager:
                 result_preview TEXT DEFAULT ''
             )
         """)
-        self._conn.execute("CREATE INDEX IF NOT EXISTS idx_cron_exec_job ON cron_executions(job_id)")
+        self._conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_cron_exec_job ON cron_executions(job_id)"
+        )
         self._conn.commit()
         logger.info("CronManager DB initialized: %s", db_path)
 
@@ -192,11 +219,17 @@ class CronManager:
         rows = self._conn.execute("SELECT * FROM cron_jobs").fetchall()
         for row in rows:
             job = CronJob(
-                id=row[0], name=row[1], expression=row[2],
-                graph_id=row[3], enabled=bool(row[4]),
-                last_run=row[5], next_run=row[6],
-                created_at=row[7], input_data=row[8],
-                max_retries=row[9], retry_count=row[10],
+                id=row[0],
+                name=row[1],
+                expression=row[2],
+                graph_id=row[3],
+                enabled=bool(row[4]),
+                last_run=row[5],
+                next_run=row[6],
+                created_at=row[7],
+                input_data=row[8],
+                max_retries=row[9],
+                retry_count=row[10],
             )
             self._jobs[job.id] = job
         logger.info("Loaded %d cron jobs from DB", len(self._jobs))
@@ -208,9 +241,19 @@ class CronManager:
             """INSERT OR REPLACE INTO cron_jobs
                (id, name, expression, graph_id, enabled, last_run, next_run, created_at, input_data, max_retries, retry_count)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (job.id, job.name, job.expression, job.graph_id, int(job.enabled),
-             job.last_run, job.next_run, job.created_at, job.input_data,
-             job.max_retries, job.retry_count),
+            (
+                job.id,
+                job.name,
+                job.expression,
+                job.graph_id,
+                int(job.enabled),
+                job.last_run,
+                job.next_run,
+                job.created_at,
+                job.input_data,
+                job.max_retries,
+                job.retry_count,
+            ),
         )
         self._conn.commit()
 
@@ -229,8 +272,15 @@ class CronManager:
             """INSERT OR REPLACE INTO cron_executions
                (id, job_id, started_at, finished_at, status, error, result_preview)
                VALUES (?, ?, ?, ?, ?, ?, ?)""",
-            (exe.id, exe.job_id, exe.started_at, exe.finished_at,
-             exe.status, exe.error, exe.result_preview),
+            (
+                exe.id,
+                exe.job_id,
+                exe.started_at,
+                exe.finished_at,
+                exe.status,
+                exe.error,
+                exe.result_preview,
+            ),
         )
         cutoff = time.time() - self.EXECUTION_TTL_SECONDS
         result = self._conn.execute(
@@ -293,11 +343,17 @@ class CronManager:
             ).fetchall()
         results = []
         for row in rows:
-            results.append(CronExecution(
-                id=row[0], job_id=row[1], started_at=row[2],
-                finished_at=row[3], status=row[4], error=row[5],
-                result_preview=row[6],
-            ).to_dict())
+            results.append(
+                CronExecution(
+                    id=row[0],
+                    job_id=row[1],
+                    started_at=row[2],
+                    finished_at=row[3],
+                    status=row[4],
+                    error=row[5],
+                    result_preview=row[6],
+                ).to_dict()
+            )
         return results
 
     async def alist_executions(self, job_id: str = "", limit: int = 20) -> list[dict]:
@@ -342,7 +398,12 @@ class CronManager:
                             exe.error = str(e)[:500]
                             if job.retry_count < job.max_retries:
                                 job.retry_count += 1
-                                logger.info("Cron job %s retry %d/%d", job.id, job.retry_count, job.max_retries)
+                                logger.info(
+                                    "Cron job %s retry %d/%d",
+                                    job.id,
+                                    job.retry_count,
+                                    job.max_retries,
+                                )
                             else:
                                 job.retry_count = 0
                     else:
@@ -374,14 +435,16 @@ class CronManager:
                 iterations += 1
 
                 if not self._matches_field(month_spec, candidate.month, 1, 12):
-                    candidate = candidate.replace(
-                        day=1, hour=0, minute=0
-                    ) + timedelta(days=32)
+                    candidate = candidate.replace(day=1, hour=0, minute=0) + timedelta(
+                        days=32
+                    )
                     candidate = candidate.replace(day=1, hour=0, minute=0)
                     continue
 
                 dom_match = self._matches_field(dom_spec, candidate.day, 1, 31)
-                dow_match = self._matches_field(dow_spec, candidate.isoweekday() % 7, 0, 6)
+                dow_match = self._matches_field(
+                    dow_spec, candidate.isoweekday() % 7, 0, 6
+                )
                 if dom_spec != "*" and dow_spec != "*":
                     day_ok = dom_match or dow_match
                 else:
@@ -400,7 +463,11 @@ class CronManager:
                     continue
                 return candidate.timestamp()
 
-            logger.warning("Cron expression %r: no match within %d iterations", expression, max_iterations)
+            logger.warning(
+                "Cron expression %r: no match within %d iterations",
+                expression,
+                max_iterations,
+            )
             return time.time() + 3600
         except Exception as e:
             logger.error("Cron parse error for %r: %s", expression, e)

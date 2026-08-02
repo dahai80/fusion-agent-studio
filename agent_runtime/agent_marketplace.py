@@ -3,6 +3,7 @@
 Provides .fusion-agent package serialization, marketplace index,
 template search with filtering, and one-click install.
 """
+
 from __future__ import annotations
 
 import json
@@ -132,7 +133,9 @@ class AgentMarketplace:
 
         if query:
             q = query.lower()
-            results = [e for e in results if q in e.name.lower() or q in e.description.lower()]
+            results = [
+                e for e in results if q in e.name.lower() or q in e.description.lower()
+            ]
 
         if category:
             results = [e for e in results if e.category == category]
@@ -212,7 +215,9 @@ class AgentMarketplace:
         logger.info("Imported agent: %s from %s", entry.name, agent_dir)
         return entry
 
-    def install(self, entry_id: str, target_dir: Path | str | None = None) -> Path | None:
+    def install(
+        self, entry_id: str, target_dir: Path | str | None = None
+    ) -> Path | None:
         result = self.export_agent(entry_id, target_dir or self.store_dir / "installed")
         if result:
             entry = self._index.get(entry_id)

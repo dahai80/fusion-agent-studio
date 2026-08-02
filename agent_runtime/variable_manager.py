@@ -1,4 +1,5 @@
 """Variable manager — cross-node variable passing and state management."""
+
 from __future__ import annotations
 
 import json
@@ -62,10 +63,12 @@ class VariableManager:
 
     def interpolate(self, template: str) -> str:
         """Replace {{ variable.name }} placeholders with actual values."""
+
         def replacer(match):
             var_name = match.group(1).strip()
             value = self.get(var_name, "")
             return str(value)
+
         return re.sub(r"\{\{(.+?)\}\}", replacer, template)
 
     def delete(self, name: str) -> None:

@@ -76,7 +76,9 @@ def _estimate_tokens(text: str) -> int:
     return max(1, len(text) // 4)
 
 
-def _assemble_context(documents: list[KnowledgeEntry], max_tokens: int) -> tuple[str, list[float]]:
+def _assemble_context(
+    documents: list[KnowledgeEntry], max_tokens: int
+) -> tuple[str, list[float]]:
     parts: list[str] = []
     token_counts: list[int] = []
     total_tokens = 0
@@ -113,6 +115,7 @@ class VectorRetrievalStrategy:
     async def _get_session(self):
         if self._session is None or self._session.closed:
             import aiohttp
+
             self._session = aiohttp.ClientSession()
             logger.info("Created shared aiohttp session for VectorRetrievalStrategy")
         return self._session
@@ -128,8 +131,11 @@ class VectorRetrievalStrategy:
             return self._available
         try:
             import aiohttp
+
             session = await self._get_session()
-            async with session.get(f"{self.base_url}/health", timeout=aiohttp.ClientTimeout(total=3)) as resp:
+            async with session.get(
+                f"{self.base_url}/health", timeout=aiohttp.ClientTimeout(total=3)
+            ) as resp:
                 self._available = resp.status == 200
                 logger.info("fusion-kb availability check: %s", self._available)
         except Exception as e:
@@ -137,9 +143,12 @@ class VectorRetrievalStrategy:
             self._available = False
         return self._available
 
-    async def search(self, query: str, top_k: int = 5, scope: str = "") -> list[KnowledgeEntry]:
+    async def search(
+        self, query: str, top_k: int = 5, scope: str = ""
+    ) -> list[KnowledgeEntry]:
         try:
             import aiohttp
+
             params: dict[str, Any] = {"query": query, "limit": top_k}
             if scope:
                 params["scope"] = scope
@@ -155,15 +164,21 @@ class VectorRetrievalStrategy:
                 data = await resp.json()
                 entries = []
                 for item in data.get("results", []):
-                    entries.append(KnowledgeEntry(
-                        id=item.get("id", ""),
-                        content=item.get("content", ""),
-                        scope=item.get("scope", scope),
-                        source=item.get("source", "fusion-kb"),
-                        created_at=item.get("created_at", 0),
-                        metadata=item.get("metadata", {}),
-                    ))
-                logger.info("fusion-kb search returned %d entries for query=%r", len(entries), query)
+                    entries.append(
+                        KnowledgeEntry(
+                            id=item.get("id", ""),
+                            content=item.get("content", ""),
+                            scope=item.get("scope", scope),
+                            source=item.get("source", "fusion-kb"),
+                            created_at=item.get("created_at", 0),
+                            metadata=item.get("metadata", {}),
+                        )
+                    )
+                logger.info(
+                    "fusion-kb search returned %d entries for query=%r",
+                    len(entries),
+                    query,
+                )
                 return entries
         except Exception as e:
             logger.error("fusion-kb search failed: %s", e)
@@ -186,13 +201,21 @@ class RAGPipeline:
 
     def retrieve(self, query: str, config: RAGConfig | None = None) -> RAGResult:
         cfg = config or RAGConfig()
-        logger.info("RAG retrieve: query=%r mode=%s top_k=%d scope=%r", query, cfg.mode, cfg.top_k, cfg.scope)
+        logger.info(
+            "RAG retrieve: query=%r mode=%s top_k=%d scope=%r",
+            query,
+            cfg.mode,
+            cfg.top_k,
+            cfg.scope,
+        )
 
         if cfg.mode == "vector" or cfg.mode == "hybrid_vector":
             try:
                 _loop = asyncio.get_running_loop()
-                logger.warning("retrieve() is sync but event loop is running; "
-                               "vector retrieval skipped — use aretrieve() instead")
+                logger.warning(
+                    "retrieve() is sync but event loop is running; "
+                    "vector retrieval skipped — use aretrieve() instead"
+                )
                 result = None
             except RuntimeError:
                 result = asyncio.run(self._retrieve_vector(query, cfg))
@@ -202,7 +225,14 @@ class RAGPipeline:
 
         if not self.knowledge:
             logger.warning("RAG retrieve: no knowledge engine, returning empty result")
-            return RAGResult(query=query, metadata={"mode": cfg.mode, "scope": cfg.scope, "error": "no knowledge engine"})
+            return RAGResult(
+                query=query,
+                metadata={
+                    "mode": cfg.mode,
+                    "scope": cfg.scope,
+                    "error": "no knowledge engine",
+                },
+            )
 
         safe_query = self._sanitize_fts_query(query)
         logger.debug("RAG sanitized query: %r -> %r", query, safe_query)
@@ -250,7 +280,9 @@ class RAGPipeline:
         available = await self.vector_strategy.is_available()
         if not available:
             return None
-        documents = await self.vector_strategy.search(query, top_k=cfg.top_k, scope=cfg.scope)
+        documents = await self.vector_strategy.search(
+            query, top_k=cfg.top_k, scope=cfg.scope
+        )
         if not documents:
             logger.info("Vector search returned 0 results, falling back")
             self.vector_strategy.reset_availability()
@@ -260,7 +292,11 @@ class RAGPipeline:
             documents = self._rerank(documents, query)[: cfg.top_k]
 
         context_text, scores = _assemble_context(documents, cfg.max_context_tokens)
-        logger.info("Vector retrieve: %d docs, tokens~%d", len(documents), _estimate_tokens(context_text))
+        logger.info(
+            "Vector retrieve: %d docs, tokens~%d",
+            len(documents),
+            _estimate_tokens(context_text),
+        )
         return RAGResult(
             query=query,
             documents=documents,
@@ -276,23 +312,79 @@ class RAGPipeline:
             },
         )
 
-    _FTS_STOP_WORDS = frozenset({"a", "an", "the", "is", "are", "was", "were", "be",
-        "been", "being", "have", "has", "had", "do", "does", "did", "will",
-        "would", "could", "should", "may", "might", "shall", "can", "to",
-        "of", "in", "for", "on", "with", "at", "by", "from", "as", "it",
-        "its", "this", "that", "these", "those", "and", "or", "but", "not",
-        "what", "which", "who", "whom", "how", "when", "where", "why"})
+    _FTS_STOP_WORDS = frozenset(
+        {
+            "a",
+            "an",
+            "the",
+            "is",
+            "are",
+            "was",
+            "were",
+            "be",
+            "been",
+            "being",
+            "have",
+            "has",
+            "had",
+            "do",
+            "does",
+            "did",
+            "will",
+            "would",
+            "could",
+            "should",
+            "may",
+            "might",
+            "shall",
+            "can",
+            "to",
+            "of",
+            "in",
+            "for",
+            "on",
+            "with",
+            "at",
+            "by",
+            "from",
+            "as",
+            "it",
+            "its",
+            "this",
+            "that",
+            "these",
+            "those",
+            "and",
+            "or",
+            "but",
+            "not",
+            "what",
+            "which",
+            "who",
+            "whom",
+            "how",
+            "when",
+            "where",
+            "why",
+        }
+    )
 
     @staticmethod
     def _sanitize_fts_query(query: str) -> str:
-        cleaned = re.sub(r'[^\w\s]', ' ', query)
+        cleaned = re.sub(r"[^\w\s]", " ", query)
         terms = cleaned.split()
-        terms = [t for t in terms if t.lower() not in RAGPipeline._FTS_STOP_WORDS and len(t) > 1]
+        terms = [
+            t
+            for t in terms
+            if t.lower() not in RAGPipeline._FTS_STOP_WORDS and len(t) > 1
+        ]
         if not terms:
             terms = [w for w in query.split() if len(w) > 1][:3]
         return " OR ".join(terms) if terms else query
 
-    def _rerank(self, documents: list[KnowledgeEntry], query: str) -> list[KnowledgeEntry]:
+    def _rerank(
+        self, documents: list[KnowledgeEntry], query: str
+    ) -> list[KnowledgeEntry]:
         query_lower = query.lower()
         query_terms = set(query_lower.split())
 
@@ -311,16 +403,30 @@ class RAGPipeline:
         scored.sort(key=lambda x: x[1], reverse=True)
         return [doc for doc, _ in scored]
 
-    async def generate(self, query: str, context_text: str, model: str = "", system_prompt: str = "") -> str:
-        logger.info("RAG generate: query=%r model=%r context_len=%d", query, model, len(context_text))
+    async def generate(
+        self, query: str, context_text: str, model: str = "", system_prompt: str = ""
+    ) -> str:
+        logger.info(
+            "RAG generate: query=%r model=%r context_len=%d",
+            query,
+            model,
+            len(context_text),
+        )
 
         if not self.gateway:
             logger.warning("No LLM gateway configured, returning stub answer")
             return f"[RAG stub] Based on {len(context_text)} chars of retrieved context, I would answer your question: {query}"
 
-        rag_system = system_prompt or "You are a helpful assistant. Answer the user's question based on the provided context."
+        rag_system = (
+            system_prompt
+            or "You are a helpful assistant. Answer the user's question based on the provided context."
+        )
         if context_text:
-            rag_system += "\n\n--- Retrieved Context ---\n" + context_text + "\n--- End of Context ---"
+            rag_system += (
+                "\n\n--- Retrieved Context ---\n"
+                + context_text
+                + "\n--- End of Context ---"
+            )
 
         messages = [
             {"role": "system", "content": rag_system},
@@ -345,16 +451,25 @@ class RAGPipeline:
             logger.error("RAG generate exception: %s", exc)
             return f"[RAG error] {exc}"
 
-    async def agenerate(self, query: str, context_text: str, model: str = "", system_prompt: str = "") -> str:
+    async def agenerate(
+        self, query: str, context_text: str, model: str = "", system_prompt: str = ""
+    ) -> str:
         logger.info("RAG agenerate: query=%r model=%r", query, model)
 
         if not self.gateway:
             logger.warning("No LLM gateway configured, returning stub answer")
             return f"[RAG stub] Based on {len(context_text)} chars of retrieved context, I would answer your question: {query}"
 
-        rag_system = system_prompt or "You are a helpful assistant. Answer the user's question based on the provided context."
+        rag_system = (
+            system_prompt
+            or "You are a helpful assistant. Answer the user's question based on the provided context."
+        )
         if context_text:
-            rag_system += "\n\n--- Retrieved Context ---\n" + context_text + "\n--- End of Context ---"
+            rag_system += (
+                "\n\n--- Retrieved Context ---\n"
+                + context_text
+                + "\n--- End of Context ---"
+            )
 
         messages = [
             {"role": "system", "content": rag_system},
@@ -379,10 +494,18 @@ class RAGPipeline:
             logger.error("RAG agenerate exception: %s", exc)
             return f"[RAG error] {exc}"
 
-    async def query(self, query: str, config: RAGConfig | None = None, model: str = "", system_prompt: str = "") -> dict[str, Any]:
+    async def query(
+        self,
+        query: str,
+        config: RAGConfig | None = None,
+        model: str = "",
+        system_prompt: str = "",
+    ) -> dict[str, Any]:
         logger.info("RAG query: query=%r", query)
         rag_result = self.retrieve(query, config)
-        answer = await self.generate(query, rag_result.context_text, model=model, system_prompt=system_prompt)
+        answer = await self.generate(
+            query, rag_result.context_text, model=model, system_prompt=system_prompt
+        )
 
         result = {
             "answer": answer,
@@ -394,13 +517,25 @@ class RAGPipeline:
             "query": query,
             "metadata": rag_result.metadata,
         }
-        logger.info("RAG query complete: sources=%d, context_tokens=%d", len(result["sources"]), result["context_tokens"])
+        logger.info(
+            "RAG query complete: sources=%d, context_tokens=%d",
+            len(result["sources"]),
+            result["context_tokens"],
+        )
         return result
 
-    async def aquery(self, query: str, config: RAGConfig | None = None, model: str = "", system_prompt: str = "") -> dict[str, Any]:
+    async def aquery(
+        self,
+        query: str,
+        config: RAGConfig | None = None,
+        model: str = "",
+        system_prompt: str = "",
+    ) -> dict[str, Any]:
         logger.info("RAG aquery: query=%r", query)
         rag_result = self.retrieve(query, config)
-        answer = await self.agenerate(query, rag_result.context_text, model=model, system_prompt=system_prompt)
+        answer = await self.agenerate(
+            query, rag_result.context_text, model=model, system_prompt=system_prompt
+        )
 
         result = {
             "answer": answer,
@@ -412,7 +547,11 @@ class RAGPipeline:
             "query": query,
             "metadata": rag_result.metadata,
         }
-        logger.info("RAG aquery complete: sources=%d, context_tokens=%d", len(result["sources"]), result["context_tokens"])
+        logger.info(
+            "RAG aquery complete: sources=%d, context_tokens=%d",
+            len(result["sources"]),
+            result["context_tokens"],
+        )
         return result
 
 
@@ -420,8 +559,12 @@ class RAGNodeMixin:
     def build_rag_context(self, query: str, config_dict: dict[str, Any]) -> RAGResult:
         cfg = RAGConfig.from_dict(config_dict)
         if not hasattr(self, "_rag_pipeline") or self._rag_pipeline is None:
-            logger.error("RAG pipeline not initialized on runtime, cannot build context")
-            return RAGResult(query=query, metadata={"error": "RAG pipeline not initialized"})
+            logger.error(
+                "RAG pipeline not initialized on runtime, cannot build context"
+            )
+            return RAGResult(
+                query=query, metadata={"error": "RAG pipeline not initialized"}
+            )
 
         logger.info("RAGNodeMixin build_rag_context: query=%r mode=%s", query, cfg.mode)
         return self._rag_pipeline.retrieve(query, cfg)

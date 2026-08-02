@@ -10,6 +10,7 @@ from enum import Enum
 
 class AgentEventType(str, Enum):
     """Types of events emitted during agent execution."""
+
     THINK = "think"
     TOOL_CALL = "tool_call"
     TOOL_RESULT = "tool_result"
@@ -89,8 +90,13 @@ class AgentContext:
         if not self.session_id:
             self.session_id = uuid.uuid4().hex[:16]
 
-    def add_message(self, role: str, content: str, tool_calls: list | None = None,
-                    tool_call_id: str = "") -> None:
+    def add_message(
+        self,
+        role: str,
+        content: str,
+        tool_calls: list | None = None,
+        tool_call_id: str = "",
+    ) -> None:
         msg = {"role": role, "content": content}
         if tool_calls:
             msg["tool_calls"] = tool_calls
@@ -121,7 +127,11 @@ class AgentContext:
             usage = msg.get("usage", {}) if isinstance(msg, dict) else {}
             prompt += usage.get("prompt_tokens", 0)
             completion += usage.get("completion_tokens", 0)
-        return {"prompt_tokens": prompt, "completion_tokens": completion, "total": prompt + completion}
+        return {
+            "prompt_tokens": prompt,
+            "completion_tokens": completion,
+            "total": prompt + completion,
+        }
 
     def to_dict(self) -> dict:
         return {

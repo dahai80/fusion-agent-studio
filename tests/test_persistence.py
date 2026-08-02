@@ -1,4 +1,5 @@
 """Tests for persistence layer."""
+
 from __future__ import annotations
 
 import json
@@ -153,15 +154,22 @@ class TestAgentStore:
 
     def test_checkpoint_defaults(self):
         ckpt = Checkpoint(
-            session_id="s1", graph_id="g1",
-            context_json="{}", current_node_id="n1", iteration_count=0,
+            session_id="s1",
+            graph_id="g1",
+            context_json="{}",
+            current_node_id="n1",
+            iteration_count=0,
         )
         assert ckpt.created_at > 0
 
     def test_checkpoint_to_dict(self):
         ckpt = Checkpoint(
-            session_id="s1", graph_id="g1", context_json='{"msg": "hi"}',
-            current_node_id="n1", iteration_count=5, created_at=100.0,
+            session_id="s1",
+            graph_id="g1",
+            context_json='{"msg": "hi"}',
+            current_node_id="n1",
+            iteration_count=5,
+            created_at=100.0,
         )
         d = ckpt.to_dict()
         assert d["session_id"] == "s1"

@@ -2,14 +2,33 @@ from .agent import Agent
 from .tool import Tool
 from .client import AgentClient
 
-__all__ = ["Agent", "Tool", "AgentClient", "list_available_types", "verify_agent", "scaffold_agent"]
+__all__ = [
+    "Agent",
+    "Tool",
+    "AgentClient",
+    "list_available_types",
+    "verify_agent",
+    "scaffold_agent",
+]
 
 
 def list_available_types() -> list[dict]:
     return [
-        {"name": "Agent", "description": "Core agent with graph-based execution", "module": "agent_runtime.sdk.agent"},
-        {"name": "Tool", "description": "Custom tool definition with schema", "module": "agent_runtime.sdk.tool"},
-        {"name": "AgentClient", "description": "JSON-RPC client for daemon_server", "module": "agent_runtime.sdk.client"},
+        {
+            "name": "Agent",
+            "description": "Core agent with graph-based execution",
+            "module": "agent_runtime.sdk.agent",
+        },
+        {
+            "name": "Tool",
+            "description": "Custom tool definition with schema",
+            "module": "agent_runtime.sdk.tool",
+        },
+        {
+            "name": "AgentClient",
+            "description": "JSON-RPC client for daemon_server",
+            "module": "agent_runtime.sdk.client",
+        },
     ]
 
 
@@ -25,8 +44,11 @@ def verify_agent(agent_def: dict) -> dict:
     return {"valid": len(errors) == 0, "errors": errors}
 
 
-def scaffold_agent(name: str = "my_agent", template: str = "basic", output_dir: str = "") -> dict:
+def scaffold_agent(
+    name: str = "my_agent", template: str = "basic", output_dir: str = ""
+) -> dict:
     import json
+
     templates = {
         "basic": {
             "name": name,
@@ -53,6 +75,7 @@ def scaffold_agent(name: str = "my_agent", template: str = "basic", output_dir: 
     agent_def["template"] = template
     if output_dir:
         import os
+
         os.makedirs(output_dir, exist_ok=True)
         path = os.path.join(output_dir, f"{name}.json")
         with open(path, "w") as f:

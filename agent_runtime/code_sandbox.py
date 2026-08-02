@@ -4,6 +4,7 @@ Executes generated code in macOS sandbox-exec isolation, provides
 AST-based safety checks before execution, and generates unified diffs
 for preview before applying changes.
 """
+
 from __future__ import annotations
 
 import ast
@@ -28,19 +29,39 @@ SANDBOX_PROFILE = """
 """
 
 DANGEROUS_IMPORTS = {
-    "os", "subprocess", "shutil", "sys", "socket",
-    "http", "urllib", "requests", "pickle", "ctypes",
-    "multiprocessing", "threading", "signal",
+    "os",
+    "subprocess",
+    "shutil",
+    "sys",
+    "socket",
+    "http",
+    "urllib",
+    "requests",
+    "pickle",
+    "ctypes",
+    "multiprocessing",
+    "threading",
+    "signal",
 }
 
 DANGEROUS_CALLS = {
-    "eval", "exec", "compile", "__import__",
-    "open", "input", "breakpoint",
+    "eval",
+    "exec",
+    "compile",
+    "__import__",
+    "open",
+    "input",
+    "breakpoint",
 }
 
 DANGEROUS_ATTRIBUTES = {
-    "__subclasses__", "__bases__", "__mro__", "__globals__",
-    "__builtins__", "__code__", "__func__",
+    "__subclasses__",
+    "__bases__",
+    "__mro__",
+    "__globals__",
+    "__builtins__",
+    "__code__",
+    "__func__",
 }
 
 
@@ -151,7 +172,12 @@ class ASTChecker:
                     result.issues.append(f"Unsafe attribute access: {attr}")
                     result.safe = False
 
-        logger.info("AST analysis: safe=%s issues=%d imports=%d", result.safe, len(result.issues), len(result.imports))
+        logger.info(
+            "AST analysis: safe=%s issues=%d imports=%d",
+            result.safe,
+            len(result.issues),
+            len(result.imports),
+        )
         return result
 
     def _get_call_name(self, node: ast.Call) -> str:
@@ -168,14 +194,25 @@ class DiffPreview:
     def diff(self, original: str, modified: str, file_path: str = "file") -> DiffResult:
         orig_lines = original.splitlines(keepends=True)
         mod_lines = modified.splitlines(keepends=True)
-        diff_lines = list(difflib.unified_diff(
-            orig_lines, mod_lines,
-            fromfile=f"a/{file_path}",
-            tofile=f"b/{file_path}",
-        ))
+        diff_lines = list(
+            difflib.unified_diff(
+                orig_lines,
+                mod_lines,
+                fromfile=f"a/{file_path}",
+                tofile=f"b/{file_path}",
+            )
+        )
         diff_text = "".join(diff_lines)
-        additions = sum(1 for line in diff_lines if line.startswith("+") and not line.startswith("+++"))
-        deletions = sum(1 for line in diff_lines if line.startswith("-") and not line.startswith("---"))
+        additions = sum(
+            1
+            for line in diff_lines
+            if line.startswith("+") and not line.startswith("+++")
+        )
+        deletions = sum(
+            1
+            for line in diff_lines
+            if line.startswith("-") and not line.startswith("---")
+        )
         has_changes = bool(diff_text)
 
         logger.debug("Diff: %s +%d/-%d lines", file_path, additions, deletions)
@@ -189,7 +226,9 @@ class DiffPreview:
             has_changes=has_changes,
         )
 
-    def diff_files(self, original_path: str | Path, modified_path: str | Path) -> DiffResult:
+    def diff_files(
+        self, original_path: str | Path, modified_path: str | Path
+    ) -> DiffResult:
         orig = Path(original_path).read_text(encoding="utf-8", errors="replace")
         mod = Path(modified_path).read_text(encoding="utf-8", errors="replace")
         return self.diff(orig, mod, file_path=Path(original_path).name)
@@ -219,7 +258,9 @@ class CodeSandbox:
         exec_id = uuid.uuid4().hex[:8]
         analysis = self._ast_checker.analyze(code)
         if not analysis.safe:
-            logger.warning("Code safety check FAILED for exec %s: %s", exec_id, analysis.issues)
+            logger.warning(
+                "Code safety check FAILED for exec %s: %s", exec_id, analysis.issues
+            )
             return SandboxResult(
                 success=False,
                 exit_code=-1,
@@ -245,7 +286,13 @@ class CodeSandbox:
             profile_path = Path(work_dir) / "sandbox.sb"
             profile_path.write_text(profile)
             logger.info("Sandbox profile written: %s", profile_path)
-            cmd = ["sandbox-exec", "-f", str(profile_path), sys.executable, str(script_path)]
+            cmd = [
+                "sandbox-exec",
+                "-f",
+                str(profile_path),
+                sys.executable,
+                str(script_path),
+            ]
         else:
             cmd = [sys.executable, str(script_path)]
 
@@ -258,7 +305,9 @@ class CodeSandbox:
                 cwd=work_dir,
             )
             success = proc.returncode == 0
-            logger.info("Sandbox exec %s: exit=%d success=%s", exec_id, proc.returncode, success)
+            logger.info(
+                "Sandbox exec %s: exit=%d success=%s", exec_id, proc.returncode, success
+            )
             return SandboxResult(
                 success=success,
                 exit_code=proc.returncode,

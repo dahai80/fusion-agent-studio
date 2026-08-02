@@ -1,9 +1,10 @@
 """Cluster HTTP server — REST API for multi-node cluster management.
 
-Listens on port 9753 (default). Provides endpoints consumed by
+Listens on port 11454 (default). Provides endpoints consumed by
 fusion-studio MultiNodeEngine.swift for cluster status, node management,
 task distribution, KV cache, routing, and observability.
 """
+
 from __future__ import annotations
 
 import logging
@@ -20,7 +21,7 @@ from pydantic import BaseModel
 
 logger = logging.getLogger(__name__)
 
-CLUSTER_PORT = 9753
+CLUSTER_PORT = 11454
 
 
 class ClusterState:
@@ -55,7 +56,7 @@ class ClusterState:
             "node_id": node_id,
             "hostname": platform.node(),
             "ip_address": "127.0.0.1",
-            "port": 9753,
+            "port": 11454,
             "status": "online",
             "total_memory_gb": mem_gb,
             "available_memory_gb": mem_gb * 0.7,
@@ -75,6 +76,7 @@ class ClusterState:
     def _detect_cpu_cores() -> int:
         try:
             import os as _os
+
             return _os.cpu_count() or 8
         except Exception:
             return 8
@@ -83,7 +85,10 @@ class ClusterState:
     def _detect_memory_gb() -> float:
         try:
             import os as _os
-            return _os.sysconf("SC_PAGE_SIZE") * _os.sysconf("SC_PHYS_PAGES") / (1024 ** 3)
+
+            return (
+                _os.sysconf("SC_PAGE_SIZE") * _os.sysconf("SC_PHYS_PAGES") / (1024**3)
+            )
         except Exception:
             return 16.0
 
@@ -92,7 +97,9 @@ class ClusterState:
         try:
             result = subprocess.run(
                 ["system_profiler", "SPDisplaysDataType"],
-                capture_output=True, text=True, timeout=5
+                capture_output=True,
+                text=True,
+                timeout=5,
             )
             for line in result.stdout.splitlines():
                 if "Total Number of Cores" in line:
@@ -106,7 +113,9 @@ class ClusterState:
         try:
             result = subprocess.run(
                 ["sysctl", "-n", "machdep.cpu.brand_string"],
-                capture_output=True, text=True, timeout=3
+                capture_output=True,
+                text=True,
+                timeout=3,
             )
             if result.returncode == 0:
                 return result.stdout.strip()
@@ -143,7 +152,9 @@ async def health():
 
 @app.get("/api/v1/cluster/stats")
 async def cluster_stats():
-    nodes_online = sum(1 for n in state.nodes.values() if n["status"] in ("online", "busy"))
+    nodes_online = sum(
+        1 for n in state.nodes.values() if n["status"] in ("online", "busy")
+    )
     total_mem = sum(n["total_memory_gb"] for n in state.nodes.values())
     avail_mem = sum(n["available_memory_gb"] for n in state.nodes.values())
     active_tasks = sum(1 for t in state.tasks.values() if t["status"] == "running")
@@ -172,7 +183,11 @@ async def cluster_stats():
 @app.get("/api/nodes")
 async def list_nodes():
     online = sum(1 for n in state.nodes.values() if n["status"] in ("online", "busy"))
-    return {"total": len(state.nodes), "online": online, "nodes": list(state.nodes.values())}
+    return {
+        "total": len(state.nodes),
+        "online": online,
+        "nodes": list(state.nodes.values()),
+    }
 
 
 @app.get("/api/v1/nodes/{node_id}/metrics")
@@ -205,7 +220,7 @@ async def node_metrics(node_id: str):
 @app.post("/api/join")
 async def join_node(body: dict):
     ip = body.get("ip_address", "127.0.0.1")
-    port = body.get("port", 9753)
+    port = body.get("port", 11454)
     node_id = f"node-{uuid.uuid4().hex[:8]}"
     state.nodes[node_id] = {
         "node_id": node_id,
@@ -268,7 +283,9 @@ async def submit_task(req: TaskSubmitRequest):
     if best_node:
         assigned.append(best_node["node_id"])
         best_node["active_tasks"] += 1
-        best_node["status"] = "busy" if best_node["active_tasks"] >= best_node["max_tasks"] else "online"
+        best_node["status"] = (
+            "busy" if best_node["active_tasks"] >= best_node["max_tasks"] else "online"
+        )
 
     task = {
         "task_id": task_id,
@@ -285,7 +302,9 @@ async def submit_task(req: TaskSubmitRequest):
         "priority": req.priority,
     }
     state.tasks[task_id] = task
-    logger.info("Task submitted: %s (%s) -> %s", task_id, req.name, assigned or "pending")
+    logger.info(
+        "Task submitted: %s (%s) -> %s", task_id, req.name, assigned or "pending"
+    )
     return task
 
 
@@ -335,7 +354,11 @@ async def migrate_task(task_id: str, body: dict):
     if target:
         target["active_tasks"] += 1
     logger.info("Task migrated: %s -> %s", task_id, target_node)
-    return {"task_id": task_id, "status": "running", "assigned_nodes": task["assigned_nodes"]}
+    return {
+        "task_id": task_id,
+        "status": "running",
+        "assigned_nodes": task["assigned_nodes"],
+    }
 
 
 @app.get("/api/v1/tasks/{task_id}/progress")
@@ -364,13 +387,38 @@ async def task_timeline(task_id: str):
         raise HTTPException(status_code=404, detail="Task not found")
     events = []
     if task.get("created_at"):
-        events.append({"timestamp": str(task["created_at"]), "event": "created", "detail": "Task created"})
+        events.append(
+            {
+                "timestamp": str(task["created_at"]),
+                "event": "created",
+                "detail": "Task created",
+            }
+        )
     if task.get("started_at"):
-        events.append({"timestamp": str(task["started_at"]), "event": "started", "detail": "Execution started"})
+        events.append(
+            {
+                "timestamp": str(task["started_at"]),
+                "event": "started",
+                "detail": "Execution started",
+            }
+        )
     if task["status"] in ("completed", "failed", "cancelled"):
-        ts = task.get("completed_at") or task.get("started_at") or task.get("created_at")
-        events.append({"timestamp": str(ts or ""), "event": task["status"], "detail": f"Task {task['status']}"})
-    return {"task_id": task_id, "name": task.get("name"), "status": task.get("status"), "events": events}
+        ts = (
+            task.get("completed_at") or task.get("started_at") or task.get("created_at")
+        )
+        events.append(
+            {
+                "timestamp": str(ts or ""),
+                "event": task["status"],
+                "detail": f"Task {task['status']}",
+            }
+        )
+    return {
+        "task_id": task_id,
+        "name": task.get("name"),
+        "status": task.get("status"),
+        "events": events,
+    }
 
 
 @app.get("/api/v1/autoscaler/config")
@@ -391,21 +439,25 @@ async def get_suggestions():
     suggestions = []
     util = _cluster_utilization()
     if util > 0.8:
-        suggestions.append({
-            "priority": "high",
-            "category": "scaling",
-            "title": "Cluster under high load",
-            "suggestion": "Consider adding more nodes or scaling up",
-            "related_alert": None,
-        })
+        suggestions.append(
+            {
+                "priority": "high",
+                "category": "scaling",
+                "title": "Cluster under high load",
+                "suggestion": "Consider adding more nodes or scaling up",
+                "related_alert": None,
+            }
+        )
     if len(state.nodes) < 2:
-        suggestions.append({
-            "priority": "medium",
-            "category": "reliability",
-            "title": "Single node cluster",
-            "suggestion": "Add worker nodes for redundancy",
-            "related_alert": None,
-        })
+        suggestions.append(
+            {
+                "priority": "medium",
+                "category": "reliability",
+                "title": "Single node cluster",
+                "suggestion": "Add worker nodes for redundancy",
+                "related_alert": None,
+            }
+        )
     return {"suggestions": suggestions, "error": None}
 
 
@@ -417,6 +469,7 @@ async def get_alerts():
 @app.get("/api/v1/observability/logs/export")
 async def export_logs():
     import json as _json
+
     log_lines = []
     for task in state.tasks.values():
         log_lines.append(_json.dumps(task))
@@ -429,12 +482,14 @@ async def routing_summary():
     total_load = 0.0
     for n in state.nodes.values():
         load = n["active_tasks"] / n["max_tasks"] if n["max_tasks"] > 0 else 0
-        nodes_info.append({
-            "node_id": n["node_id"],
-            "load": round(load, 4),
-            "active_tasks": n["active_tasks"],
-            "max_tasks": n["max_tasks"],
-        })
+        nodes_info.append(
+            {
+                "node_id": n["node_id"],
+                "load": round(load, 4),
+                "active_tasks": n["active_tasks"],
+                "max_tasks": n["max_tasks"],
+            }
+        )
         total_load += load
     avg = total_load / len(nodes_info) if nodes_info else 0
     return {
@@ -483,8 +538,9 @@ def _cluster_utilization() -> float:
     return (1 - avail / total) if total > 0 else 0
 
 
-def run_cluster_server(host: str = "0.0.0.0", port: int = CLUSTER_PORT):
+def run_cluster_server(host: str = "127.0.0.1", port: int = CLUSTER_PORT):
     import uvicorn
+
     uvicorn.run(app, host=host, port=port, log_level="info")
 
 

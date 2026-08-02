@@ -72,7 +72,9 @@ def _verify_key(key: str, stored: str) -> bool:
     if stored.startswith("pbkdf2$"):
         try:
             _, iters_s, salt, hash_hex = stored.split("$")
-            derived = hashlib.pbkdf2_hmac("sha256", key.encode(), salt.encode(), int(iters_s))
+            derived = hashlib.pbkdf2_hmac(
+                "sha256", key.encode(), salt.encode(), int(iters_s)
+            )
             return secrets.compare_digest(derived.hex(), hash_hex)
         except (ValueError, TypeError):
             return False
@@ -121,11 +123,16 @@ class ApiKeyManager:
             logger.warning("Could not set apikeys index perms: %s", exc)
         logger.debug("Persisted API keys index: %d entries", len(data))
 
-    def create(self, name: str, permissions: list[str] | None = None,
-               allowed_agent_ids: list[str] | None = None,
-               ip_whitelist: list[str] | None = None,
-               expires_at: float | None = None) -> dict[str, Any]:
+    def create(
+        self,
+        name: str,
+        permissions: list[str] | None = None,
+        allowed_agent_ids: list[str] | None = None,
+        ip_whitelist: list[str] | None = None,
+        expires_at: float | None = None,
+    ) -> dict[str, Any]:
         import uuid
+
         key_id = uuid.uuid4().hex[:12]
         raw_key = f"fk-{secrets.token_hex(24)}"
         key_prefix = raw_key[:10]
@@ -145,7 +152,12 @@ class ApiKeyManager:
         self._keys[key_id] = cfg
         self._persist_index()
         logger.info("apikey.create: id=%s name=%s", key_id, name)
-        return {"key_id": key_id, "key_secret": raw_key, "key_prefix": key_prefix, "permissions": cfg.permissions}
+        return {
+            "key_id": key_id,
+            "key_secret": raw_key,
+            "key_prefix": key_prefix,
+            "permissions": cfg.permissions,
+        }
 
     def list_keys(self) -> list[dict[str, Any]]:
         return [k.to_dict() for k in self._keys.values()]
@@ -173,19 +185,31 @@ class ApiKeyManager:
         cfg = self._keys.get(key_id)
         if cfg is None:
             return {"status": "error", "message": f"API key not found: {key_id}"}
-        for key in ("name", "permissions", "allowed_agent_ids", "ip_whitelist", "expires_at"):
+        for key in (
+            "name",
+            "permissions",
+            "allowed_agent_ids",
+            "ip_whitelist",
+            "expires_at",
+        ):
             if key in updates:
                 setattr(cfg, key, updates[key])
         self._persist_index()
         logger.info("apikey.update: id=%s keys=%s", key_id, list(updates.keys()))
         return {"updated": True, "key": cfg.to_dict()}
 
-    def validate(self, raw_key: str, agent_id: str | None = None, client_ip: str | None = None) -> dict[str, Any]:
+    def validate(
+        self, raw_key: str, agent_id: str | None = None, client_ip: str | None = None
+    ) -> dict[str, Any]:
         for cfg in self._keys.values():
             if _verify_key(raw_key, cfg.key_hash):
                 if cfg.expires_at and time.time() > cfg.expires_at:
                     return {"valid": False, "reason": "key_expired"}
-                if cfg.allowed_agent_ids and agent_id and agent_id not in cfg.allowed_agent_ids:
+                if (
+                    cfg.allowed_agent_ids
+                    and agent_id
+                    and agent_id not in cfg.allowed_agent_ids
+                ):
                     return {"valid": False, "reason": "agent_not_allowed"}
                 if cfg.ip_whitelist and client_ip and client_ip not in cfg.ip_whitelist:
                     return {"valid": False, "reason": "ip_not_allowed"}

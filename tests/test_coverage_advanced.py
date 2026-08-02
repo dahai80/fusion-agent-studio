@@ -1,4 +1,5 @@
 """Targeted tests to reach 95%+ coverage — mocks external dependencies."""
+
 from __future__ import annotations
 
 import asyncio
@@ -26,21 +27,35 @@ from server.process_manager import FusionMLXProcessManager
 
 # ── Mock-based FusionMLXClient tests ──
 
-class TestFusionMLXClientMocked:
 
+class TestFusionMLXClientMocked:
     @pytest.mark.asyncio
     async def test_chat_with_tools(self):
         mock_resp = MagicMock()
         mock_resp.status_code = 200
         mock_resp.json.return_value = {
-            "choices": [{"message": {"content": "Let me check", "tool_calls": [{"id": "c1", "function": {"name": "f1", "arguments": "{}"}}]}, "finish_reason": "tool_calls"}],
+            "choices": [
+                {
+                    "message": {
+                        "content": "Let me check",
+                        "tool_calls": [
+                            {"id": "c1", "function": {"name": "f1", "arguments": "{}"}}
+                        ],
+                    },
+                    "finish_reason": "tool_calls",
+                }
+            ],
             "usage": {"prompt_tokens": 10, "completion_tokens": 5},
         }
         mock_client = MagicMock()
         mock_client.post = AsyncMock(return_value=mock_resp)
         client = FusionMLXClient()
         client._client = mock_client
-        result = await client.chat(model="test", messages=[{"role": "user", "content": "hi"}], tools=[{"type": "function", "function": {"name": "test_tool"}}])
+        result = await client.chat(
+            model="test",
+            messages=[{"role": "user", "content": "hi"}],
+            tools=[{"type": "function", "function": {"name": "test_tool"}}],
+        )
         assert result.content == "Let me check"
         assert len(result.tool_calls) == 1
         assert result.usage["prompt_tokens"] == 10
@@ -49,7 +64,10 @@ class TestFusionMLXClientMocked:
     async def test_chat_with_kwargs(self):
         mock_resp = MagicMock()
         mock_resp.status_code = 200
-        mock_resp.json.return_value = {"choices": [{"message": {"content": "OK"}, "finish_reason": "stop"}], "usage": {}}
+        mock_resp.json.return_value = {
+            "choices": [{"message": {"content": "OK"}, "finish_reason": "stop"}],
+            "usage": {},
+        }
         mock_client = MagicMock()
         mock_client.post = AsyncMock(return_value=mock_resp)
         client = FusionMLXClient()
@@ -135,8 +153,8 @@ class TestFusionMLXClientMocked:
 
 # ── Mock-based ProcessManager tests ──
 
-class TestProcessManagerMocked:
 
+class TestProcessManagerMocked:
     @patch("server.process_manager.subprocess.Popen")
     def test_start_success(self, mock_popen):
         mock_proc = MagicMock()
@@ -218,14 +236,17 @@ class TestProcessManagerMocked:
 
 # ── Git tool advanced tests ──
 
-class TestGitToolAdvanced:
 
+class TestGitToolAdvanced:
     @pytest.mark.asyncio
     async def _init_repo(self, tmpdir: str) -> Path:
         repo = Path(tmpdir)
         p = await asyncio.create_subprocess_exec("git", "init", cwd=str(repo))
         await p.wait()
-        for cfg in [["git", "config", "user.email", "t@t.com"], ["git", "config", "user.name", "T"]]:
+        for cfg in [
+            ["git", "config", "user.email", "t@t.com"],
+            ["git", "config", "user.name", "T"],
+        ]:
             proc = await asyncio.create_subprocess_exec(*cfg, cwd=str(repo))
             await proc.wait()
         return repo
@@ -245,7 +266,9 @@ class TestGitToolAdvanced:
             repo = await self._init_repo(tmpdir)
             (repo / "f.txt").write_text("hello")
             tool = GitTool()
-            result = await tool.execute(action="commit", repo_path=str(repo), message="init")
+            result = await tool.execute(
+                action="commit", repo_path=str(repo), message="init"
+            )
             assert "commit" in result.lower() or "file" in result.lower()
 
     @pytest.mark.asyncio
@@ -266,7 +289,9 @@ class TestGitToolAdvanced:
                 await proc.wait()
             tool = GitTool()
             result = await tool.execute(action="diff", repo_path=str(repo))
-            assert ("no uncommitted" in result.lower()) or ("no output" in result.lower())
+            assert ("no uncommitted" in result.lower()) or (
+                "no output" in result.lower()
+            )
 
     @pytest.mark.asyncio
     async def test_git_pull_no_remote(self):
@@ -300,15 +325,17 @@ class TestGitToolAdvanced:
     @pytest.mark.asyncio
     async def test_git_cmd_generic_error(self):
         tool = GitTool()
-        with patch("asyncio.create_subprocess_exec", side_effect=PermissionError("denied")):
+        with patch(
+            "asyncio.create_subprocess_exec", side_effect=PermissionError("denied")
+        ):
             result = await tool._git_cmd(Path("."), "status")
             assert "Error" in result
 
 
 # ── File tools advanced tests ──
 
-class TestFileToolsAdvanced:
 
+class TestFileToolsAdvanced:
     @pytest.mark.asyncio
     async def test_file_read_permission_error(self):
         tool = FileReadTool()
@@ -374,8 +401,8 @@ class TestFileToolsAdvanced:
 
 # ── Terminal tool advanced tests ──
 
-class TestTerminalToolAdvanced:
 
+class TestTerminalToolAdvanced:
     @pytest.mark.asyncio
     async def test_terminal_file_not_found(self):
         tool = TerminalTool()
@@ -386,7 +413,9 @@ class TestTerminalToolAdvanced:
     @pytest.mark.asyncio
     async def test_terminal_generic_error(self):
         tool = TerminalTool()
-        with patch("asyncio.create_subprocess_shell", side_effect=RuntimeError("crash")):
+        with patch(
+            "asyncio.create_subprocess_shell", side_effect=RuntimeError("crash")
+        ):
             result = await tool.execute(command="x")
             assert "Error" in result
 
@@ -399,15 +428,17 @@ class TestTerminalToolAdvanced:
 
 # ── Base tool coverage ──
 
-class TestBaseToolAdvanced:
 
+class TestBaseToolAdvanced:
     def test_openai_schema_required(self):
         class T(BaseTool):
             name = "t1"
             description = "desc"
             parameters = {"p1": {"type": "string"}, "p2": {"type": "integer"}}
+
             async def execute(self, **kwargs):
                 return "ok"
+
         tool = T()
         s = tool.openai_schema()
         assert s["function"]["parameters"]["required"] == ["p1", "p2"]
@@ -416,23 +447,26 @@ class TestBaseToolAdvanced:
         class MyTool(BaseTool):
             name = "my_tool"
             description = "desc"
+
             async def execute(self, **kwargs):
                 return "ok"
+
         assert MyTool().name == "my_tool"
 
 
 # ── Runtime error paths ──
 
+
 class MockTool(BaseTool):
     name = "mock_tool"
     description = "Test tool"
     parameters = {"input": {"type": "string"}}
+
     async def execute(self, **kwargs):
         return "result"
 
 
 class TestRuntimeErrorPaths:
-
     @pytest.mark.asyncio
     async def test_missing_start_node(self):
         graph = AgentGraph(name="test")
@@ -464,9 +498,28 @@ class TestRuntimeErrorPaths:
         graph.add_node("end", NodeConfig(type="end"))
         graph.add_edge("start", "llm")
         graph.add_edge("llm", "end")
+
         class MLX:
-            async def chat(self, model, messages, tools=None, temperature=0.7, max_tokens=4096, **kw):
-                return LLMResponse(content="", tool_calls=[{"id": "c1", "type": "function", "function": {"name": "mock_tool", "arguments": "bad json"}}])
+            async def chat(
+                self,
+                model,
+                messages,
+                tools=None,
+                temperature=0.7,
+                max_tokens=4096,
+                **kw,
+            ):
+                return LLMResponse(
+                    content="",
+                    tool_calls=[
+                        {
+                            "id": "c1",
+                            "type": "function",
+                            "function": {"name": "mock_tool", "arguments": "bad json"},
+                        }
+                    ],
+                )
+
         reg = ToolRegistry()
         reg.register(MockTool())
         runtime = AgentRuntime(MLX(), reg)
@@ -476,12 +529,18 @@ class TestRuntimeErrorPaths:
     def test_condition_has_tool_calls_false(self):
         runtime = AgentRuntime(MagicMock(), ToolRegistry())
         vm = runtime.variables
-        assert runtime.condition_engine.evaluate("has_tool_calls", AgentContext(), vm) == "false"
+        assert (
+            runtime.condition_engine.evaluate("has_tool_calls", AgentContext(), vm)
+            == "false"
+        )
 
     def test_condition_has_error_false(self):
         runtime = AgentRuntime(MagicMock(), ToolRegistry())
         vm = runtime.variables
-        assert runtime.condition_engine.evaluate("has_error", AgentContext(), vm) == "false"
+        assert (
+            runtime.condition_engine.evaluate("has_error", AgentContext(), vm)
+            == "false"
+        )
 
     def test_condition_unknown(self):
         runtime = AgentRuntime(MagicMock(), ToolRegistry())
@@ -493,13 +552,16 @@ class TestRuntimeErrorPaths:
     def test_condition_malformed_iteration(self):
         runtime = AgentRuntime(MagicMock(), ToolRegistry())
         vm = runtime.variables
-        assert runtime.condition_engine.evaluate("iteration >", AgentContext(), vm) == "false"
+        assert (
+            runtime.condition_engine.evaluate("iteration >", AgentContext(), vm)
+            == "false"
+        )
 
 
 # ── Orchestrator error paths ──
 
-class TestOrchestratorErrorPaths:
 
+class TestOrchestratorErrorPaths:
     @pytest.mark.asyncio
     async def test_extract_sub_tasks_from_text(self):
         orch = MultiAgentOrchestrator(MagicMock(), ToolRegistry())
@@ -539,12 +601,14 @@ class TestOrchestratorErrorPaths:
 
 # ── Text tool tests ──
 
-class TestTextToolAdvanced:
 
+class TestTextToolAdvanced:
     @pytest.mark.asyncio
     async def test_search_plain_max_results(self):
         tool = TextSearchTool()
-        result = await tool.execute(text="target " * 50, pattern="target", max_results=5)
+        result = await tool.execute(
+            text="target " * 50, pattern="target", max_results=5
+        )
         assert "5" in result or "occurrence" in result
 
     @pytest.mark.asyncio
@@ -568,12 +632,19 @@ class TestTextToolAdvanced:
 
 # ── Exporter tests ──
 
-class TestExporterAdvanced:
 
+class TestExporterAdvanced:
     def test_export_with_tool_params(self):
         graph = AgentGraph(name="T")
         graph.add_node("start", NodeConfig(type="start"))
-        graph.add_node("tool", NodeConfig(type="tool", tool_name="file_read", tool_params={"path": "/tmp/test.txt"}))
+        graph.add_node(
+            "tool",
+            NodeConfig(
+                type="tool",
+                tool_name="file_read",
+                tool_params={"path": "/tmp/test.txt"},
+            ),
+        )
         graph.add_node("end", NodeConfig(type="end"))
         graph.add_edge("start", "tool")
         graph.add_edge("tool", "end")

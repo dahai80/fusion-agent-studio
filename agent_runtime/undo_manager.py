@@ -1,4 +1,5 @@
 """UndoManager — canvas operation history for undo/redo support."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -8,6 +9,7 @@ from typing import Any
 @dataclass
 class CanvasSnapshot:
     """A snapshot of the canvas state at a point in time."""
+
     nodes: dict[str, Any] = field(default_factory=dict)
     edges: list[dict[str, Any]] = field(default_factory=list)
     selected_node_id: str = ""
@@ -28,8 +30,11 @@ class UndoManager:
     def record(self, nodes: dict, edges: list, selected: str = "") -> None:
         """Record a snapshot before a mutation."""
         snap = CanvasSnapshot(
-            nodes={k: dict(v) if hasattr(v, 'to_dict') else dict(v) for k, v in nodes.items()},
-            edges=[dict(e) if hasattr(e, 'to_dict') else dict(e) for e in edges],
+            nodes={
+                k: dict(v) if hasattr(v, "to_dict") else dict(v)
+                for k, v in nodes.items()
+            },
+            edges=[dict(e) if hasattr(e, "to_dict") else dict(e) for e in edges],
             selected_node_id=selected,
         )
         self._undo_stack.append(snap)

@@ -35,7 +35,9 @@ class Span:
             "attributes": self.attributes,
             "start_time": self.start_time,
             "end_time": self.end_time,
-            "duration_ms": (self.end_time - self.start_time) * 1000 if self.end_time else 0,
+            "duration_ms": (self.end_time - self.start_time) * 1000
+            if self.end_time
+            else 0,
             "status": self.status,
         }
 
@@ -106,7 +108,9 @@ class TelemetryEngine:
         self.config = TelemetryConfig.from_dict(params)
         logger.info(
             "Telemetry configured: enabled=%s endpoint=%s sampling=%.2f",
-            self.config.enabled, self.config.endpoint or "none", self.config.sampling_rate,
+            self.config.enabled,
+            self.config.endpoint or "none",
+            self.config.sampling_rate,
         )
 
     def start_span(
@@ -150,7 +154,9 @@ class TelemetryEngine:
             self._counters["llm_calls"] += 1
             self._latencies["llm_calls"].append(span.end_time - span.start_time)
             self._counters["tokens_prompt"] += span.attributes.get("prompt_tokens", 0)
-            self._counters["tokens_completion"] += span.attributes.get("completion_tokens", 0)
+            self._counters["tokens_completion"] += span.attributes.get(
+                "completion_tokens", 0
+            )
         elif span.name == "tool.call":
             self._counters["tool_calls"] += 1
             self._latencies["tool_calls"].append(span.end_time - span.start_time)
@@ -161,7 +167,12 @@ class TelemetryEngine:
         if status == "error":
             self._counters["errors"] += 1
 
-        logger.debug("Ended span %s duration=%.3fms status=%s", span_id, (span.end_time - span.start_time) * 1000, status)
+        logger.debug(
+            "Ended span %s duration=%.3fms status=%s",
+            span_id,
+            (span.end_time - span.start_time) * 1000,
+            status,
+        )
         return span
 
     def get_trace(self, trace_id: str) -> dict | None:
@@ -174,7 +185,9 @@ class TelemetryEngine:
     def list_spans(self, trace_id: str | None = None, limit: int = 100) -> list[dict]:
         if trace_id:
             span_ids = self._traces.get(trace_id, [])
-            spans = [self._spans[sid].to_dict() for sid in span_ids if sid in self._spans]
+            spans = [
+                self._spans[sid].to_dict() for sid in span_ids if sid in self._spans
+            ]
         else:
             spans = [s.to_dict() for s in self._spans.values()]
         spans.sort(key=lambda s: s.get("start_time", 0), reverse=True)
@@ -197,11 +210,17 @@ class TelemetryEngine:
                     span = self._spans.get(sid)
                     if span:
                         scope_spans.append(span.to_dict())
-                resource_spans.append({
-                    "resource": {"attributes": {"service.name": "fusion-agent-studio"}},
-                    "scopeSpans": [{"spans": scope_spans}],
-                })
-            return json.dumps({"resourceSpans": resource_spans}, indent=2, ensure_ascii=False)
+                resource_spans.append(
+                    {
+                        "resource": {
+                            "attributes": {"service.name": "fusion-agent-studio"}
+                        },
+                        "scopeSpans": [{"spans": scope_spans}],
+                    }
+                )
+            return json.dumps(
+                {"resourceSpans": resource_spans}, indent=2, ensure_ascii=False
+            )
         elif fmt == "console":
             lines = ["=== Telemetry Export ==="]
             for span in self._spans.values():
@@ -220,7 +239,9 @@ class TelemetryEngine:
         for key, vals in self._latencies.items():
             if vals:
                 avg_latencies[f"avg_{key}_ms"] = sum(vals) / len(vals) * 1000
-                avg_latencies[f"p99_{key}_ms"] = sorted(vals)[int(len(vals) * 0.99)] * 1000
+                avg_latencies[f"p99_{key}_ms"] = (
+                    sorted(vals)[int(len(vals) * 0.99)] * 1000
+                )
             else:
                 avg_latencies[f"avg_{key}_ms"] = 0
                 avg_latencies[f"p99_{key}_ms"] = 0

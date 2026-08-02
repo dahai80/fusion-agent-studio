@@ -168,7 +168,9 @@ class WorkflowEngine:
             "provided" if orchestrator else "none",
         )
 
-    def create_workflow(self, name: str, phases: list[dict], **kwargs) -> WorkflowConfig:
+    def create_workflow(
+        self, name: str, phases: list[dict], **kwargs
+    ) -> WorkflowConfig:
         phase_objects = [WorkflowPhase.from_dict(p) for p in phases]
         wf = WorkflowConfig(
             name=name,
@@ -178,7 +180,9 @@ class WorkflowEngine:
             metadata=kwargs.get("metadata", {}),
         )
         self._workflows[wf.id] = wf
-        logger.info("Created workflow %s id=%s with %d phases", name, wf.id, len(phase_objects))
+        logger.info(
+            "Created workflow %s id=%s with %d phases", name, wf.id, len(phase_objects)
+        )
         return wf
 
     def get_workflow(self, workflow_id: str) -> WorkflowConfig | None:
@@ -214,7 +218,11 @@ class WorkflowEngine:
             run.final_result = result
             run.status = WorkflowStatus.COMPLETED
             run.finished_at = time.time()
-            logger.info("Workflow run %s completed in %.2fs", run.id, run.finished_at - run.started_at)
+            logger.info(
+                "Workflow run %s completed in %.2fs",
+                run.id,
+                run.finished_at - run.started_at,
+            )
         except asyncio.CancelledError:
             run.status = WorkflowStatus.CANCELLED
             run.finished_at = time.time()
@@ -246,7 +254,11 @@ class WorkflowEngine:
             run.current_phase = idx
             logger.info(
                 "Phase %d/%d '%s' pattern=%s run=%s",
-                idx + 1, len(wf.phases), phase.name, phase.pattern.value, run.id,
+                idx + 1,
+                len(wf.phases),
+                phase.name,
+                phase.pattern.value,
+                run.id,
             )
 
             phase_start = time.time()
@@ -258,13 +270,18 @@ class WorkflowEngine:
                 elif phase.pattern == WorkflowPattern.LOOP_UNTIL_DRY:
                     result = await self._exec_loop_until_dry(phase, current_input)
                 elif phase.pattern == WorkflowPattern.LOOP_UNTIL_BUDGET:
-                    result = await self._exec_loop_until_budget(phase, current_input, budget, tokens_used)
+                    result = await self._exec_loop_until_budget(
+                        phase, current_input, budget, tokens_used
+                    )
                 elif phase.pattern == WorkflowPattern.ADVERSARIAL_VERIFY:
                     result = await self._exec_adversarial_verify(phase, current_input)
                 elif phase.pattern == WorkflowPattern.JUDGE_PANEL:
                     result = await self._exec_judge_panel(phase, current_input)
                 else:
-                    result = {"output": current_input, "error": f"Unknown pattern: {phase.pattern}"}
+                    result = {
+                        "output": current_input,
+                        "error": f"Unknown pattern: {phase.pattern}",
+                    }
             except Exception as e:
                 logger.exception("Phase %s failed", phase.name)
                 result = {"output": "", "error": str(e)}
@@ -307,7 +324,9 @@ class WorkflowEngine:
         final_output = results[-1]["output"] if results else current_input
         return {"output": final_output, "stage_results": results}
 
-    async def _exec_parallel_barrier(self, phase: WorkflowPhase, current_input: str) -> dict:
+    async def _exec_parallel_barrier(
+        self, phase: WorkflowPhase, current_input: str
+    ) -> dict:
         if not phase.agent_configs:
             return {"output": current_input}
 
@@ -320,15 +339,27 @@ class WorkflowEngine:
         combined_output = []
         for i, out in enumerate(outputs):
             if isinstance(out, Exception):
-                results.append({"agent": phase.agent_configs[i].get("name", f"agent_{i}"), "error": str(out)})
+                results.append(
+                    {
+                        "agent": phase.agent_configs[i].get("name", f"agent_{i}"),
+                        "error": str(out),
+                    }
+                )
             else:
-                results.append({"agent": phase.agent_configs[i].get("name", f"agent_{i}"), "output": out})
+                results.append(
+                    {
+                        "agent": phase.agent_configs[i].get("name", f"agent_{i}"),
+                        "output": out,
+                    }
+                )
                 combined_output.append(out)
 
         merged = "\n\n".join(combined_output) if combined_output else ""
         return {"output": merged, "agent_results": results}
 
-    async def _exec_loop_until_dry(self, phase: WorkflowPhase, current_input: str) -> dict:
+    async def _exec_loop_until_dry(
+        self, phase: WorkflowPhase, current_input: str
+    ) -> dict:
         max_dry = phase.config.get("dry_threshold", 2)
         max_iterations = phase.config.get("max_iterations", 10)
         dry_count = 0
@@ -360,9 +391,17 @@ class WorkflowEngine:
             else:
                 dry_count = 0
                 current_input = "\n".join(new_findings)
-                logger.info("Loop-until-dry: iteration %d found %d new items", iteration, len(new_findings))
+                logger.info(
+                    "Loop-until-dry: iteration %d found %d new items",
+                    iteration,
+                    len(new_findings),
+                )
 
-        return {"output": "\n\n".join(all_results), "iterations": iteration, "total_findings": len(all_results)}
+        return {
+            "output": "\n\n".join(all_results),
+            "iterations": iteration,
+            "total_findings": len(all_results),
+        }
 
     async def _exec_loop_until_budget(
         self,
@@ -401,14 +440,22 @@ class WorkflowEngine:
             "budget_total": budget,
         }
 
-    async def _exec_adversarial_verify(self, phase: WorkflowPhase, current_input: str) -> dict:
+    async def _exec_adversarial_verify(
+        self, phase: WorkflowPhase, current_input: str
+    ) -> dict:
         voter_count = phase.config.get("voter_count", 3)
         threshold = phase.config.get("threshold", 0.6)
 
         tasks = []
         for i in range(voter_count):
-            cfg = phase.agent_configs[i % len(phase.agent_configs)] if phase.agent_configs else {}
-            prompt_prefix = f"You are skeptic #{i + 1}. Try to REFUTE the following claim. "
+            cfg = (
+                phase.agent_configs[i % len(phase.agent_configs)]
+                if phase.agent_configs
+                else {}
+            )
+            prompt_prefix = (
+                f"You are skeptic #{i + 1}. Try to REFUTE the following claim. "
+            )
             tasks.append(self._run_agent(cfg, prompt_prefix + current_input))
 
         votes = await asyncio.gather(*tasks, return_exceptions=True)
@@ -419,9 +466,15 @@ class WorkflowEngine:
         for i, vote in enumerate(votes):
             if isinstance(vote, Exception):
                 refuted += 1
-                vote_details.append({"voter": i, "verdict": "refuted", "error": str(vote)})
+                vote_details.append(
+                    {"voter": i, "verdict": "refuted", "error": str(vote)}
+                )
             else:
-                is_refute = "refuted" in vote.lower() or "false" in vote.lower() if isinstance(vote, str) else False
+                is_refute = (
+                    "refuted" in vote.lower() or "false" in vote.lower()
+                    if isinstance(vote, str)
+                    else False
+                )
                 if is_refute:
                     refuted += 1
                     vote_details.append({"voter": i, "verdict": "refuted"})
@@ -432,7 +485,9 @@ class WorkflowEngine:
         passes = (survived / max(voter_count, 1)) >= threshold
         logger.info(
             "Adversarial verify: %d/%d survived, passes=%s",
-            survived, voter_count, passes,
+            survived,
+            voter_count,
+            passes,
         )
 
         return {
@@ -452,10 +507,12 @@ class WorkflowEngine:
             output = await self._run_agent(cfg, current_input)
             approaches.append({"agent": cfg.get("name", ""), "output": output})
 
-        judge_cfg = phase.config.get("judge_agent", phase.agent_configs[0] if phase.agent_configs else {})
+        judge_cfg = phase.config.get(
+            "judge_agent", phase.agent_configs[0] if phase.agent_configs else {}
+        )
         scoring_prompt = (
             "Score the following approaches on a 0-10 scale. "
-            "Return JSON: {\"scores\": [{\"index\": 0, \"score\": N, \"reason\": \"...\"}], \"winner\": 0}\n\n"
+            'Return JSON: {"scores": [{"index": 0, "score": N, "reason": "..."}], "winner": 0}\n\n'
         )
         for i, a in enumerate(approaches):
             scoring_prompt += f"Approach {i}: {a['output'][:500]}\n\n"
@@ -525,7 +582,9 @@ class WorkflowEngine:
                             output = msg.get("content", "")
                             break
 
-                logger.info("Agent %s completed, output len=%d", agent_name, len(output))
+                logger.info(
+                    "Agent %s completed, output len=%d", agent_name, len(output)
+                )
                 return output
 
             except Exception:
@@ -539,13 +598,17 @@ class WorkflowEngine:
                     messages.append({"role": "system", "content": system_prompt})
                 messages.append({"role": "user", "content": input_text})
 
-                response = await self.llm_gateway.chat(messages=messages, temperature=0.3, max_tokens=2048)
+                response = await self.llm_gateway.chat(
+                    messages=messages, temperature=0.3, max_tokens=2048
+                )
                 content = ""
                 if hasattr(response, "content"):
                     content = response.content or ""
                 elif isinstance(response, dict):
                     content = response.get("content", "")
-                logger.info("LLM call for agent %s, output len=%d", agent_name, len(content))
+                logger.info(
+                    "LLM call for agent %s, output len=%d", agent_name, len(content)
+                )
                 return content
             except Exception:
                 logger.exception("LLM call failed for agent %s", agent_name)

@@ -4,6 +4,7 @@ Local-first knowledge base: vector search via sqlite-vec (with FTS5-only
 fallback), full-text search via FTS5, and Reciprocal Rank Fusion to merge
 results.  Embedding is stubbed (random vectors) until a real model is loaded.
 """
+
 from __future__ import annotations
 
 import json
@@ -96,7 +97,9 @@ class KnowledgeEngine:
         self._init_schema()
         logger.info(
             "KnowledgeEngine initialized: db=%s vec=%s embedding=%s",
-            db_path, self._vec_available, "real" if embedding_fn else "stub",
+            db_path,
+            self._vec_available,
+            "real" if embedding_fn else "stub",
         )
 
     def _open_db(self) -> sqlite3.Connection:
@@ -106,12 +109,15 @@ class KnowledgeEngine:
         try:
             conn.enable_load_extension(True)
             import sqlite_vec
+
             conn.load_extension(sqlite_vec.loadable_path())
             self._vec_available = True
             logger.info("sqlite-vec extension loaded")
         except Exception as exc:
             self._vec_available = False
-            logger.warning("sqlite-vec not available, falling back to FTS5-only: %s", exc)
+            logger.warning(
+                "sqlite-vec not available, falling back to FTS5-only: %s", exc
+            )
         return conn
 
     def _init_schema(self):
@@ -141,7 +147,13 @@ class KnowledgeEngine:
             logger.debug("FTS5 table already exists")
         self._conn.commit()
 
-    def ingest(self, content: str, scope: str = "default", metadata: dict | None = None, embedding: list[float] | None = None) -> KnowledgeEntry:
+    def ingest(
+        self,
+        content: str,
+        scope: str = "default",
+        metadata: dict | None = None,
+        embedding: list[float] | None = None,
+    ) -> KnowledgeEntry:
         if embedding is None:
             embedding = self._get_embedding(content)
         entry = KnowledgeEntry(
@@ -153,15 +165,27 @@ class KnowledgeEngine:
         emb_blob = self._encode_embedding(entry.embedding)
         self._conn.execute(
             "INSERT OR REPLACE INTO knowledge_entries (id, content, scope, embedding, metadata, created_at, updated_at) VALUES (?,?,?,?,?,?,?)",
-            (entry.id, entry.content, entry.scope, emb_blob, json.dumps(entry.metadata), entry.created_at, entry.updated_at),
+            (
+                entry.id,
+                entry.content,
+                entry.scope,
+                emb_blob,
+                json.dumps(entry.metadata),
+                entry.created_at,
+                entry.updated_at,
+            ),
         )
         try:
-            self._conn.execute("INSERT INTO knowledge_fts(rowid, id, content, scope) VALUES ((SELECT rowid FROM knowledge_entries WHERE id=?), ?, ?, ?)",
-                               (entry.id, entry.id, entry.content, entry.scope))
+            self._conn.execute(
+                "INSERT INTO knowledge_fts(rowid, id, content, scope) VALUES ((SELECT rowid FROM knowledge_entries WHERE id=?), ?, ?, ?)",
+                (entry.id, entry.id, entry.content, entry.scope),
+            )
         except sqlite3.OperationalError:
             logger.debug("FTS insert skipped for %s", entry.id)
         self._conn.commit()
-        logger.info("Ingested entry %s (scope=%s, %d chars)", entry.id, scope, len(content))
+        logger.info(
+            "Ingested entry %s (scope=%s, %d chars)", entry.id, scope, len(content)
+        )
         return entry
 
     def delete(self, entry_id: str) -> bool:
@@ -169,14 +193,18 @@ class KnowledgeEngine:
             self._conn.execute("DELETE FROM knowledge_fts WHERE id=?", (entry_id,))
         except sqlite3.OperationalError:
             pass
-        cursor = self._conn.execute("DELETE FROM knowledge_entries WHERE id=?", (entry_id,))
+        cursor = self._conn.execute(
+            "DELETE FROM knowledge_entries WHERE id=?", (entry_id,)
+        )
         self._conn.commit()
         deleted = cursor.rowcount > 0
         if deleted:
             logger.info("Deleted entry %s", entry_id)
         return deleted
 
-    def search(self, query: str, scope: str = "", mode: str = "hybrid", limit: int = 10) -> list[KnowledgeEntry]:
+    def search(
+        self, query: str, scope: str = "", mode: str = "hybrid", limit: int = 10
+    ) -> list[KnowledgeEntry]:
         if mode == "vector":
             return self._search_vector(query, scope, limit)
         if mode == "fts":
@@ -199,7 +227,9 @@ class KnowledgeEngine:
         rows = self._conn.execute(sql, params).fetchall()
         return [self._row_to_entry(r) for r in rows]
 
-    def _search_vector(self, query: str, scope: str, limit: int) -> list[KnowledgeEntry]:
+    def _search_vector(
+        self, query: str, scope: str, limit: int
+    ) -> list[KnowledgeEntry]:
         if not self._vec_available:
             logger.warning("Vector search unavailable, falling back to FTS5")
             return self._search_fts(query, scope, limit)
@@ -220,9 +250,13 @@ class KnowledgeEngine:
         rows = self._conn.execute(sql, params).fetchall()
         return [self._row_to_entry(r) for r in rows]
 
-    def _search_hybrid(self, query: str, scope: str, limit: int) -> list[KnowledgeEntry]:
+    def _search_hybrid(
+        self, query: str, scope: str, limit: int
+    ) -> list[KnowledgeEntry]:
         fts_results = self._search_fts(query, scope, limit * 2)
-        vec_results = self._search_vector(query, scope, limit * 2) if self._vec_available else []
+        vec_results = (
+            self._search_vector(query, scope, limit * 2) if self._vec_available else []
+        )
         fts_ranks = {r.id: i + 1 for i, r in enumerate(fts_results)}
         vec_ranks = {r.id: i + 1 for i, r in enumerate(vec_results)}
         all_ids = set(fts_ranks.keys()) | set(vec_ranks.keys())
@@ -258,9 +292,13 @@ class KnowledgeEngine:
 
     def count(self, scope: str = "") -> int:
         if scope:
-            row = self._conn.execute("SELECT COUNT(*) FROM knowledge_entries WHERE scope=?", (scope,)).fetchone()
+            row = self._conn.execute(
+                "SELECT COUNT(*) FROM knowledge_entries WHERE scope=?", (scope,)
+            ).fetchone()
         else:
-            row = self._conn.execute("SELECT COUNT(*) FROM knowledge_entries").fetchone()
+            row = self._conn.execute(
+                "SELECT COUNT(*) FROM knowledge_entries"
+            ).fetchone()
         return row[0] if row else 0
 
     def _row_to_entry(self, row: tuple) -> KnowledgeEntry:
@@ -287,10 +325,12 @@ class KnowledgeEngine:
 
     def _encode_embedding(self, vec: list[float]) -> bytes:
         import struct
+
         return struct.pack(f"{len(vec)}f", *vec)
 
     def _decode_embedding(self, blob: bytes) -> list[float]:
         import struct
+
         count = len(blob) // 4
         return list(struct.unpack(f"{count}f", blob))
 

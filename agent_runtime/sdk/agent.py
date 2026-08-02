@@ -52,27 +52,36 @@ class Agent:
 
     async def run(self, client, input_text: str) -> dict:
         if not self.graph_id:
-            result = await client.call("agent.create", {
-                "name": self.name,
-                "system_prompt": self.system_prompt,
-                "model": self.model,
-                "skills": self.skills,
-            })
+            result = await client.call(
+                "agent.create",
+                {
+                    "name": self.name,
+                    "system_prompt": self.system_prompt,
+                    "model": self.model,
+                    "skills": self.skills,
+                },
+            )
             self.agent_id = result.get("agent_id", self.agent_id)
             self.graph_id = result.get("graph_id", "")
 
-        result = await client.call("agent.execute", {
-            "agent_id": self.agent_id,
-            "input": input_text,
-        })
+        result = await client.call(
+            "agent.execute",
+            {
+                "agent_id": self.agent_id,
+                "input": input_text,
+            },
+        )
         logger.info("Agent %s executed, result keys=%s", self.name, list(result.keys()))
         return result
 
     async def stream(self, client, input_text: str):
-        result = await client.call("agent.execute_stream", {
-            "agent_id": self.agent_id,
-            "input": input_text,
-        })
+        result = await client.call(
+            "agent.execute_stream",
+            {
+                "agent_id": self.agent_id,
+                "input": input_text,
+            },
+        )
         if isinstance(result, dict) and "events" in result:
             for event in result["events"]:
                 yield event
@@ -80,9 +89,12 @@ class Agent:
             yield result
 
     async def fork(self, client, input_text: str = "") -> dict:
-        result = await client.call("session.fork", {
-            "session_id": self.agent_id,
-            "input": input_text,
-        })
+        result = await client.call(
+            "session.fork",
+            {
+                "session_id": self.agent_id,
+                "input": input_text,
+            },
+        )
         logger.info("Agent %s forked, bg_session=%s", self.name, result.get("id", ""))
         return result

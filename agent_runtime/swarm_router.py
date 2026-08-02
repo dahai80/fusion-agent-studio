@@ -4,6 +4,7 @@ Lighter-weight agent-to-agent routing layer.  Composes FMProtocol for
 messaging, SafetyGateway for L3 escalation.  Enforces max 3 hops per
 ar1.md §5 to prevent infinite handoff loops.
 """
+
 from __future__ import annotations
 
 import logging
@@ -152,7 +153,9 @@ class SwarmRouter:
         self.safety = safety if safety is not None else SafetyGateway()
         logger.info(
             "SwarmRouter initialized (max_hops=%d, fmp=%s, safety=%s)",
-            max_hops, "injected" if fmp else "auto", "injected" if safety else "auto",
+            max_hops,
+            "injected" if fmp else "auto",
+            "injected" if safety else "auto",
         )
 
     def register_agent(self, agent: SwarmAgent) -> None:
@@ -171,16 +174,23 @@ class SwarmRouter:
 
     def _ensure_fmp_agent(self, agent: SwarmAgent) -> None:
         if agent.id not in self.fmp._agents:
-            self.fmp.register_agent(AgentInfo(
-                id=agent.id, name=agent.name, capabilities=agent.capabilities,
-            ))
+            self.fmp.register_agent(
+                AgentInfo(
+                    id=agent.id,
+                    name=agent.name,
+                    capabilities=agent.capabilities,
+                )
+            )
 
     def list_agents(self) -> list[SwarmAgent]:
         return list(self._agents.values())
 
-    def find_agent_by_capability(self, capability: str, exclude: set[str] | None = None) -> SwarmAgent | None:
+    def find_agent_by_capability(
+        self, capability: str, exclude: set[str] | None = None
+    ) -> SwarmAgent | None:
         candidates = [
-            a for a in self._agents.values()
+            a
+            for a in self._agents.values()
             if a.status == "online"
             and capability in a.capabilities
             and (not exclude or a.id not in exclude)
@@ -190,16 +200,28 @@ class SwarmRouter:
             return None
         return candidates[0]
 
-    def delegate(self, delegator_id: str, task: str, capability: str = "",
-                 trigger_condition: str = "", deliverable: str = "") -> TaskDelegation | None:
+    def delegate(
+        self,
+        delegator_id: str,
+        task: str,
+        capability: str = "",
+        trigger_condition: str = "",
+        deliverable: str = "",
+    ) -> TaskDelegation | None:
         delegator = self._agents.get(delegator_id)
         if not delegator:
             logger.error("Delegator %s not found", delegator_id)
             return None
         if capability:
-            delegatee = self.find_agent_by_capability(capability, exclude={delegator_id})
+            delegatee = self.find_agent_by_capability(
+                capability, exclude={delegator_id}
+            )
         else:
-            targets = [t for t in delegator.handoff_targets if t in self._agents and self._agents[t].status == "online"]
+            targets = [
+                t
+                for t in delegator.handoff_targets
+                if t in self._agents and self._agents[t].status == "online"
+            ]
             delegatee = self._agents[targets[0]] if targets else None
         if not delegatee:
             logger.warning("No delegatee found for delegation from %s", delegator_id)
@@ -217,43 +239,73 @@ class SwarmRouter:
         self.fmp.send(
             recipient=delegatee.id,
             message_type="delegation",
-            payload={"task": task, "delegation_id": delegation.id, "deliverable": deliverable},
+            payload={
+                "task": task,
+                "delegation_id": delegation.id,
+                "deliverable": deliverable,
+            },
         )
-        logger.info("Delegated task %s: %s → %s (hop=1)", delegation.id, delegator_id, delegatee.id)
+        logger.info(
+            "Delegated task %s: %s → %s (hop=1)",
+            delegation.id,
+            delegator_id,
+            delegatee.id,
+        )
         return delegation
 
-    def handoff(self, from_agent_id: str, to_agent_id: str, context: HandoffContext) -> HandoffContext | None:
+    def handoff(
+        self, from_agent_id: str, to_agent_id: str, context: HandoffContext
+    ) -> HandoffContext | None:
         from_agent = self._agents.get(from_agent_id)
         to_agent = self._agents.get(to_agent_id)
         if not from_agent or not to_agent:
-            logger.error("Handoff agents not found: %s → %s", from_agent_id, to_agent_id)
+            logger.error(
+                "Handoff agents not found: %s → %s", from_agent_id, to_agent_id
+            )
             return None
         new_hop = context.hop_count + 1
         effective_max = min(from_agent.max_hops, to_agent.max_hops, self.max_hops)
         if new_hop > effective_max:
-            logger.warning("Handoff BLOCKED: hop_count=%d exceeds max_hops=%d (%s → %s)",
-                           new_hop, effective_max, from_agent_id, to_agent_id)
+            logger.warning(
+                "Handoff BLOCKED: hop_count=%d exceeds max_hops=%d (%s → %s)",
+                new_hop,
+                effective_max,
+                from_agent_id,
+                to_agent_id,
+            )
             return None
         new_context = HandoffContext(
             conversation=list(context.conversation),
-            metadata={**context.metadata, "handed_off_from": from_agent_id, "handed_off_at": time.time()},
+            metadata={
+                **context.metadata,
+                "handed_off_from": from_agent_id,
+                "handed_off_at": time.time(),
+            },
             hop_count=new_hop,
             task_id=context.task_id,
         )
-        self._handoff_log.append({
-            "from": from_agent_id,
-            "to": to_agent_id,
-            "hop_count": new_hop,
-            "task_id": context.task_id,
-            "timestamp": time.time(),
-        })
+        self._handoff_log.append(
+            {
+                "from": from_agent_id,
+                "to": to_agent_id,
+                "hop_count": new_hop,
+                "task_id": context.task_id,
+                "timestamp": time.time(),
+            }
+        )
         self._ensure_fmp_agent(to_agent)
         self.fmp.send(
             recipient=to_agent_id,
             message_type="handoff",
             payload={"hop_count": new_hop, "task_id": context.task_id},
         )
-        logger.info("Handoff: %s → %s (hop=%d/%d)", from_agent_id, to_agent_id, new_hop, effective_max)
+        logger.info(
+            "Handoff: %s → %s (hop=%d/%d)",
+            from_agent_id,
+            to_agent_id,
+            new_hop,
+            effective_max,
+        )
         return new_context
 
     def evaluate(self, task_id: str, result: dict[str, Any]) -> TaskDelegation | None:
@@ -271,7 +323,9 @@ class SwarmRouter:
         delegation = self._delegations.get(task_id)
         if not delegation:
             return None
-        verdict = self.safety.evaluate_action(CAT_SHELL_EXEC, content=reason, context=task_id)
+        verdict = self.safety.evaluate_action(
+            CAT_SHELL_EXEC, content=reason, context=task_id
+        )
         delegation.status = "escalated"
         delegation.result = {
             "escalated": True,
@@ -283,7 +337,9 @@ class SwarmRouter:
         delegation.completed_at = time.time()
         logger.warning(
             "Task %s ESCALATED via L3 safety: action=%s reason=%s",
-            task_id, verdict.action.value, reason,
+            task_id,
+            verdict.action.value,
+            reason,
         )
         return delegation
 
@@ -294,7 +350,10 @@ class SwarmRouter:
         agent = self._agents.get(delegation.delegatee)
         if not agent or agent.status != "online":
             return self.escalate(task_id, reason="delegatee_agent_offline")
-        if delegation.hop_count >= agent.max_hops or delegation.hop_count >= self.max_hops:
+        if (
+            delegation.hop_count >= agent.max_hops
+            or delegation.hop_count >= self.max_hops
+        ):
             return self.escalate(task_id, reason="max_hops_exceeded")
         return None
 

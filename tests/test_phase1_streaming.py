@@ -1,4 +1,5 @@
 """Tests for Phase 1 capabilities: streaming, safety, checkpoint, embeddings, effort, MCP."""
+
 from __future__ import annotations
 
 
@@ -17,6 +18,7 @@ class EchoTool(BaseTool):
     name = "echo"
     description = "Echo input"
     parameters = {"text": {"type": "string", "description": "text to echo"}}
+
     async def execute(self, text: str = "", **kwargs) -> str:
         return text
 
@@ -25,6 +27,7 @@ class DangerousTool(BaseTool):
     name = "dangerous"
     description = "A dangerous tool"
     parameters = {"cmd": {"type": "string", "description": "command"}}
+
     async def execute(self, cmd: str = "", **kwargs) -> str:
         return f"executed: {cmd}"
 
@@ -32,10 +35,13 @@ class DangerousTool(BaseTool):
 class MockStreamClient:
     def __init__(self, chunks=None):
         from server.fusion_mlx_client import StreamChunk
+
         self._StreamChunk = StreamChunk
         self._chunks = chunks or [
             StreamChunk(delta_content="Hello", delta_tool_calls=[], finish_reason=None),
-            StreamChunk(delta_content=" world", delta_tool_calls=[], finish_reason=None),
+            StreamChunk(
+                delta_content=" world", delta_tool_calls=[], finish_reason=None
+            ),
             StreamChunk(delta_content="", delta_tool_calls=[], finish_reason="stop"),
         ]
 
@@ -45,6 +51,7 @@ class MockStreamClient:
 
     async def chat(self, model, messages, tools=None, **kwargs):
         from server.fusion_mlx_client import LLMResponse
+
         return LLMResponse(
             content="Hello world",
             tool_calls=[],
@@ -63,8 +70,13 @@ class MockGateway(LLMGateway):
         super().__init__()
         self.set_default_client(client)
         from agent_runtime.llm_gateway import ModelConfig
-        self.register_model(ModelConfig(name="test-model", provider="local", context_length=4096))
-        self.register_model(ModelConfig(name="test", provider="local", context_length=4096))
+
+        self.register_model(
+            ModelConfig(name="test-model", provider="local", context_length=4096)
+        )
+        self.register_model(
+            ModelConfig(name="test", provider="local", context_length=4096)
+        )
 
 
 class MockStore:
@@ -72,12 +84,14 @@ class MockStore:
         self.checkpoints = []
 
     def save_checkpoint(self, graph_id, session_id, node_id, state):
-        self.checkpoints.append({
-            "graph_id": graph_id,
-            "session_id": session_id,
-            "node_id": node_id,
-            "state": state,
-        })
+        self.checkpoints.append(
+            {
+                "graph_id": graph_id,
+                "session_id": session_id,
+                "node_id": node_id,
+                "state": state,
+            }
+        )
 
     def load_latest_checkpoint(self, graph_id, session_id):
         if not self.checkpoints:
@@ -107,7 +121,9 @@ class TestStreamingExecution:
         return g
 
     @pytest.mark.asyncio
-    async def test_execute_graph_stream_yields_token_events(self, stream_client, registry, simple_graph):
+    async def test_execute_graph_stream_yields_token_events(
+        self, stream_client, registry, simple_graph
+    ):
         gateway = MockGateway(stream_client)
         runtime = AgentRuntime(llm_gateway=gateway, tool_registry=registry)
         events = []
@@ -120,7 +136,9 @@ class TestStreamingExecution:
         assert token_events[1].content == " world"
 
     @pytest.mark.asyncio
-    async def test_execute_graph_non_stream_no_token_events(self, stream_client, registry, simple_graph):
+    async def test_execute_graph_non_stream_no_token_events(
+        self, stream_client, registry, simple_graph
+    ):
         gateway = MockGateway(stream_client)
         runtime = AgentRuntime(llm_gateway=gateway, tool_registry=registry)
         events = []
@@ -145,19 +163,24 @@ class TestSafetyGateway:
     @pytest.fixture
     def safety_gateway(self):
         from agent_runtime.safety import SafetyGateway, SafetyPolicy, SafetyLevel
+
         gw = SafetyGateway()
-        gw.add_policy(SafetyPolicy(
-            category="llm_call",
-            default_level=SafetyLevel.L1,
-            requires_diff=False,
-            description="LLM calls auto-approved",
-        ))
-        gw.add_policy(SafetyPolicy(
-            category="tool_call",
-            default_level=SafetyLevel.L1,
-            requires_diff=False,
-            description="Tool calls auto-approved",
-        ))
+        gw.add_policy(
+            SafetyPolicy(
+                category="llm_call",
+                default_level=SafetyLevel.L1,
+                requires_diff=False,
+                description="LLM calls auto-approved",
+            )
+        )
+        gw.add_policy(
+            SafetyPolicy(
+                category="tool_call",
+                default_level=SafetyLevel.L1,
+                requires_diff=False,
+                description="Tool calls auto-approved",
+            )
+        )
         return gw
 
     @pytest.mark.asyncio
@@ -263,7 +286,11 @@ class TestMCPTool:
             tool_name="read_file",
             tool_description="Read a file",
             tool_parameters={
-                "path": {"type": "string", "description": "file path", "required": True},
+                "path": {
+                    "type": "string",
+                    "description": "file path",
+                    "required": True,
+                },
             },
         )
         assert tool.name == "read_file"

@@ -305,7 +305,11 @@ class SafetyGateway:
             if existing is not None:
                 self._policies.remove(existing)
             self._policies.append(policy)
-            logger.info("Added safety policy: %s -> %s", policy.category, policy.default_level.value)
+            logger.info(
+                "Added safety policy: %s -> %s",
+                policy.category,
+                policy.default_level.value,
+            )
 
     def evaluate_action(
         self,
@@ -316,7 +320,9 @@ class SafetyGateway:
         policy = self.get_policy(category)
 
         if policy is None:
-            logger.warning("No policy for category '%s', defaulting to L3 BLOCK", category)
+            logger.warning(
+                "No policy for category '%s', defaulting to L3 BLOCK", category
+            )
             return SafetyVerdict(
                 action=SafetyAction.BLOCK,
                 reason=f"No safety policy defined for category '{category}'",
@@ -333,7 +339,9 @@ class SafetyGateway:
             return content_verdict
 
         if required_level == SafetyLevel.L1:
-            logger.debug("L1 auto-approve category '%s': %s", category, policy.description)
+            logger.debug(
+                "L1 auto-approve category '%s': %s", category, policy.description
+            )
             return SafetyVerdict(
                 action=SafetyAction.ALLOW,
                 reason=policy.description,
@@ -344,8 +352,14 @@ class SafetyGateway:
         if required_level == SafetyLevel.L2:
             if policy.requires_diff and content:
                 action_id = str(uuid.uuid4())
-                diff_preview = self.generate_diff_preview(content, context or "", category, action_id)
-                logger.info("L2 preview required for category '%s', action_id=%s", category, action_id)
+                diff_preview = self.generate_diff_preview(
+                    content, context or "", category, action_id
+                )
+                logger.info(
+                    "L2 preview required for category '%s', action_id=%s",
+                    category,
+                    action_id,
+                )
                 return SafetyVerdict(
                     action=SafetyAction.PREVIEW,
                     reason=policy.description,
@@ -362,12 +376,20 @@ class SafetyGateway:
                         "level": "L2",
                         "status": "pending",
                     }
-                logger.info("L2 preview required for category '%s' (no diff), action_id=%s", category, action_id)
+                logger.info(
+                    "L2 preview required for category '%s' (no diff), action_id=%s",
+                    category,
+                    action_id,
+                )
                 return SafetyVerdict(
                     action=SafetyAction.PREVIEW,
                     reason=policy.description,
                     requires_approval=True,
-                    metadata={"category": category, "level": "L2", "action_id": action_id},
+                    metadata={
+                        "category": category,
+                        "level": "L2",
+                        "action_id": action_id,
+                    },
                 )
 
         if required_level == SafetyLevel.L3:
@@ -379,7 +401,11 @@ class SafetyGateway:
                     "level": "L3",
                     "status": "pending",
                 }
-            logger.warning("L3 gateway required for category '%s', action_id=%s", category, action_id)
+            logger.warning(
+                "L3 gateway required for category '%s', action_id=%s",
+                category,
+                action_id,
+            )
             return SafetyVerdict(
                 action=SafetyAction.BLOCK,
                 reason=policy.description,
@@ -401,12 +427,14 @@ class SafetyGateway:
 
         original_lines = original.splitlines(keepends=True)
         proposed_lines = proposed.splitlines(keepends=True)
-        diff_lines = list(difflib.unified_diff(
-            original_lines,
-            proposed_lines,
-            fromfile="original",
-            tofile="proposed",
-        ))
+        diff_lines = list(
+            difflib.unified_diff(
+                original_lines,
+                proposed_lines,
+                fromfile="original",
+                tofile="proposed",
+            )
+        )
         diff_text = "".join(diff_lines)
 
         request = DiffPreviewRequest(
@@ -429,17 +457,25 @@ class SafetyGateway:
                 "request": request,
             }
 
-        logger.debug("Generated diff preview for action_id=%s, category=%s", action_id, category)
+        logger.debug(
+            "Generated diff preview for action_id=%s, category=%s", action_id, category
+        )
         return request
 
     def approve_action(self, action_id: str) -> bool:
         with self._lock:
             pending = self._pending_action_approvals.get(action_id)
             if pending is None:
-                logger.warning("approve_action: no pending action with id=%s", action_id)
+                logger.warning(
+                    "approve_action: no pending action with id=%s", action_id
+                )
                 return False
             if pending["status"] != "pending":
-                logger.warning("approve_action: action %s already resolved as %s", action_id, pending["status"])
+                logger.warning(
+                    "approve_action: action %s already resolved as %s",
+                    action_id,
+                    pending["status"],
+                )
                 return False
             pending["status"] = "approved"
 
@@ -458,7 +494,11 @@ class SafetyGateway:
                 logger.warning("reject_action: no pending action with id=%s", action_id)
                 return False
             if pending["status"] != "pending":
-                logger.warning("reject_action: action %s already resolved as %s", action_id, pending["status"])
+                logger.warning(
+                    "reject_action: action %s already resolved as %s",
+                    action_id,
+                    pending["status"],
+                )
                 return False
             pending["status"] = "rejected"
 
@@ -484,12 +524,15 @@ class SafetyGateway:
             if self._level_ord(self.level) < self._level_ord(rule.min_level):
                 continue
             if re.search(rule.pattern, content, re.IGNORECASE):
-                verdicts.append(SafetyVerdict(
-                    action=rule.action,
-                    reason=rule.reason,
-                    requires_approval=rule.action in (SafetyAction.PREVIEW, SafetyAction.BLOCK),
-                    metadata={"rule": rule.name, "pattern": rule.pattern},
-                ))
+                verdicts.append(
+                    SafetyVerdict(
+                        action=rule.action,
+                        reason=rule.reason,
+                        requires_approval=rule.action
+                        in (SafetyAction.PREVIEW, SafetyAction.BLOCK),
+                        metadata={"rule": rule.name, "pattern": rule.pattern},
+                    )
+                )
 
         if not verdicts:
             if self.level == SafetyLevel.L3:
@@ -506,7 +549,9 @@ class SafetyGateway:
             redacted = content
             for rule in self.rules:
                 if rule.action == SafetyAction.REDACT:
-                    redacted = re.sub(rule.pattern, "[REDACTED]", redacted, flags=re.IGNORECASE)
+                    redacted = re.sub(
+                        rule.pattern, "[REDACTED]", redacted, flags=re.IGNORECASE
+                    )
             most_restrictive.redacted_content = redacted
 
         return most_restrictive
@@ -522,7 +567,11 @@ class SafetyGateway:
             return True
 
         if self.approver is None:
-            logger.warning("No approver set for L%d, denying: %s", self._level_ord(self.level), action_id)
+            logger.warning(
+                "No approver set for L%d, denying: %s",
+                self._level_ord(self.level),
+                action_id,
+            )
             return False
 
         try:
@@ -530,7 +579,9 @@ class SafetyGateway:
                 self.approver(action_id, description),
                 timeout=timeout,
             )
-            logger.info("Approval %s for %s", "granted" if approved else "denied", action_id)
+            logger.info(
+                "Approval %s for %s", "granted" if approved else "denied", action_id
+            )
             return approved
         except asyncio.TimeoutError:
             logger.warning("Approval timed out for %s", action_id)
@@ -551,8 +602,28 @@ class SafetyGateway:
 
     def classify_action(self, action: str, context: str = "") -> dict[str, Any]:
         action_lower = action.lower()
-        high_risk_keywords = ["delete", "drop", "rm ", "format", "shutdown", "reboot", "fork bomb", "eval(", "exec("]
-        medium_risk_keywords = ["write", "edit", "modify", "update", "push", "deploy", "install", "pip install", "npm install"]
+        high_risk_keywords = [
+            "delete",
+            "drop",
+            "rm ",
+            "format",
+            "shutdown",
+            "reboot",
+            "fork bomb",
+            "eval(",
+            "exec(",
+        ]
+        medium_risk_keywords = [
+            "write",
+            "edit",
+            "modify",
+            "update",
+            "push",
+            "deploy",
+            "install",
+            "pip install",
+            "npm install",
+        ]
 
         risk_score = 0.0
         risk_factors = []
@@ -583,7 +654,12 @@ class SafetyGateway:
         else:
             classification = "auto_approve"
 
-        logger.info("Action classified: score=%.2f class=%s factors=%s", risk_score, classification, risk_factors)
+        logger.info(
+            "Action classified: score=%.2f class=%s factors=%s",
+            risk_score,
+            classification,
+            risk_factors,
+        )
         return {
             "classification": classification,
             "risk_score": risk_score,
@@ -610,16 +686,22 @@ class SafetyGateway:
         )
         if denylist:
             for domain in denylist:
-                self.custom_rules.append(SafetyRule(
-                    name=f"network_deny_{domain}",
-                    pattern=re.escape(domain),
-                    action=SafetyAction.BLOCK,
-                    reason=f"Network access to {domain} blocked by policy",
-                    scope="network",
-                ))
+                self.custom_rules.append(
+                    SafetyRule(
+                        name=f"network_deny_{domain}",
+                        pattern=re.escape(domain),
+                        action=SafetyAction.BLOCK,
+                        reason=f"Network access to {domain} blocked by policy",
+                        scope="network",
+                    )
+                )
         self.add_policy(net_policy)
         self._network_policy = policy
-        logger.info("Network policy set: allowlist=%d denylist=%d", len(allowlist), len(denylist))
+        logger.info(
+            "Network policy set: allowlist=%d denylist=%d",
+            len(allowlist),
+            len(denylist),
+        )
 
     def get_network_policy(self) -> dict[str, Any]:
         return getattr(self, "_network_policy", {"allowlist": [], "denylist": []})
@@ -640,16 +722,23 @@ class SafetyGateway:
 
 _INJECTION_PATTERNS = [
     re.compile(r"(?i)ignore\s+(previous|above|all)\s+instructions?", re.IGNORECASE),
-    re.compile(r"(?i)forget\s+(your|all|previous)\s+(instructions|rules|prompt)", re.IGNORECASE),
+    re.compile(
+        r"(?i)forget\s+(your|all|previous)\s+(instructions|rules|prompt)", re.IGNORECASE
+    ),
     re.compile(r"(?i)you\s+are\s+now\s+a", re.IGNORECASE),
     re.compile(r"(?i)system\s*:\s*", re.IGNORECASE),
     re.compile(r"(?i)new\s+instructions?\s*:", re.IGNORECASE),
-    re.compile(r"(?i)disregard\s+(your|all|previous)\s+(instructions|rules)", re.IGNORECASE),
+    re.compile(
+        r"(?i)disregard\s+(your|all|previous)\s+(instructions|rules)", re.IGNORECASE
+    ),
     re.compile(r"(?i)act\s+as\s+if\s+you\s+(are|were)", re.IGNORECASE),
     re.compile(r"(?i)pretend\s+(you\s+are|to\s+be)", re.IGNORECASE),
     re.compile(r"(?i)jailbreak", re.IGNORECASE),
     re.compile(r"(?i)DAN\s+mode", re.IGNORECASE),
-    re.compile(r"(?i)override\s+(safety|security|content)\s+(policy|filter|guard)", re.IGNORECASE),
+    re.compile(
+        r"(?i)override\s+(safety|security|content)\s+(policy|filter|guard)",
+        re.IGNORECASE,
+    ),
     re.compile(r"(?i)reveal\s+.*\s?(prompt|instructions)", re.IGNORECASE),
     re.compile(r"(?i)\<\/?system\>", re.IGNORECASE),
     re.compile(r"(?i)inject\s+(prompt|instruction)", re.IGNORECASE),

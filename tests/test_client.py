@@ -1,4 +1,5 @@
 """Tests for fusion-mlx HTTP client."""
+
 from __future__ import annotations
 
 
@@ -43,19 +44,21 @@ class TestFusionMLXClient:
         assert client.timeout == 30.0
 
     def test_base_url_strips_trailing_slash(self):
-        client = FusionMLXClient(base_url="http://localhost:8000/v1/")
-        assert client.base_url == "http://localhost:8000/v1"
+        client = FusionMLXClient(base_url="http://localhost:11434/v1/")
+        assert client.base_url == "http://localhost:11434/v1"
 
     def test_health_no_server(self):
         client = FusionMLXClient(timeout=1.0)
         # No server running, should return False
         import asyncio
+
         result = asyncio.run(client.health())
         assert result is False
 
     def test_get_server_stats_no_server(self):
         client = FusionMLXClient(timeout=1.0)
         import asyncio
+
         result = asyncio.run(client.get_server_stats())
         assert result == {}
 

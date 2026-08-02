@@ -8,7 +8,7 @@ This example demonstrates:
 5. Exporting the graph as a Python script
 
 Run this with a running fusion-mlx server:
-    fusion-mlx serve --model qwen3.5-9b --port 8000
+    fusion-mlx serve --model qwen3.5-9b --port 11434
     python examples/programmatic_agent.py
 """
 
@@ -33,7 +33,7 @@ async def example_1_basic_agent():
     """Simple agent: read a file, analyze it, save the analysis."""
     print("=== Example 1: Basic Agent ===")
 
-    mlx = FusionMLXClient(base_url="http://localhost:8000/v1")
+    mlx = FusionMLXClient(base_url="http://localhost:11434/v1")
     registry = create_default_registry()
 
     # Build graph

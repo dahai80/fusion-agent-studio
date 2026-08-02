@@ -1,10 +1,14 @@
 """Tests for multi-agent orchestrator."""
+
 from __future__ import annotations
 
 import pytest
 
 from agent_runtime.orchestrator import (
-    MultiAgentOrchestrator, AgentConfig, OrchestrationResult, HandoffContext,
+    MultiAgentOrchestrator,
+    AgentConfig,
+    OrchestrationResult,
+    HandoffContext,
 )
 from agent_runtime.graph import AgentGraph, NodeConfig
 from tools.registry import ToolRegistry
@@ -25,9 +29,12 @@ class MockMLXClient:
         self.call_count = 0
         self.responses = responses or []
 
-    async def chat(self, model, messages, tools=None, temperature=0.7, max_tokens=4096, **kwargs):
+    async def chat(
+        self, model, messages, tools=None, temperature=0.7, max_tokens=4096, **kwargs
+    ):
         self.call_count += 1
         from server.fusion_mlx_client import LLMResponse
+
         if self.responses:
             idx = min(self.call_count - 1, len(self.responses) - 1)
             return self.responses[idx]
@@ -99,17 +106,29 @@ class TestMultiAgentOrchestrator:
         assert result.summary == ""
 
     async def test_extract_sub_tasks_from_json(self, orchestrator):
-        ctx = type("MockCtx", (), {"messages": [
-            {"role": "assistant", "content": '["task1", "task2", "task3"]'},
-        ]})()
+        ctx = type(
+            "MockCtx",
+            (),
+            {
+                "messages": [
+                    {"role": "assistant", "content": '["task1", "task2", "task3"]'},
+                ]
+            },
+        )()
         tasks = orchestrator._extract_sub_tasks(ctx, 3)
         assert len(tasks) == 3
         assert tasks[0] == "task1"
 
     async def test_extract_sub_tasks_from_text(self, orchestrator):
-        ctx = type("MockCtx", (), {"messages": [
-            {"role": "assistant", "content": "task1\ntask2\ntask3"},
-        ]})()
+        ctx = type(
+            "MockCtx",
+            (),
+            {
+                "messages": [
+                    {"role": "assistant", "content": "task1\ntask2\ntask3"},
+                ]
+            },
+        )()
         tasks = orchestrator._extract_sub_tasks(ctx, 2)
         assert len(tasks) == 2
 
@@ -149,10 +168,13 @@ class TestHandoffPattern:
 
     async def test_handoff_early_completion(self):
         from server.fusion_mlx_client import LLMResponse
-        mlx = MockMLXClient(responses=[
-            LLMResponse(content="Done [COMPLETE]", tool_calls=[]),
-            LLMResponse(content="Should not reach", tool_calls=[]),
-        ])
+
+        mlx = MockMLXClient(
+            responses=[
+                LLMResponse(content="Done [COMPLETE]", tool_calls=[]),
+                LLMResponse(content="Should not reach", tool_calls=[]),
+            ]
+        )
         reg = ToolRegistry()
         reg.register(MockTool())
         orch = MultiAgentOrchestrator(mlx, reg)
@@ -177,7 +199,9 @@ class TestHandoffPattern:
             AgentConfig(name="never_runs", graph=make_agent_graph("Never")),
         ]
 
-        with patch.object(AgentRuntime, "execute_graph", side_effect=RuntimeError("boom")):
+        with patch.object(
+            AgentRuntime, "execute_graph", side_effect=RuntimeError("boom")
+        ):
             mlx = MockMLXClient()
             orch = MultiAgentOrchestrator(mlx, reg)
             result = await orch.handoff(agents, "Task")
@@ -257,6 +281,7 @@ class TestBroadcastPattern:
 
     async def test_merge_outputs_json(self, orchestrator):
         import json
+
         outputs = {"a": "hello", "b": "world"}
         merged = orchestrator._merge_outputs(outputs, "json")
         parsed = json.loads(merged)
@@ -271,9 +296,15 @@ class TestBroadcastPattern:
 class TestSupervisorPattern:
     async def test_supervisor_single_round_done(self):
         from server.fusion_mlx_client import LLMResponse
-        mlx = MockMLXClient(responses=[
-            LLMResponse(content='{"worker": "__end__", "instruction": "task done", "done": true}', tool_calls=[]),
-        ])
+
+        mlx = MockMLXClient(
+            responses=[
+                LLMResponse(
+                    content='{"worker": "__end__", "instruction": "task done", "done": true}',
+                    tool_calls=[],
+                ),
+            ]
+        )
         reg = ToolRegistry()
         reg.register(MockTool())
         orch = MultiAgentOrchestrator(mlx, reg)
@@ -286,11 +317,20 @@ class TestSupervisorPattern:
 
     async def test_supervisor_routes_to_worker(self):
         from server.fusion_mlx_client import LLMResponse
-        mlx = MockMLXClient(responses=[
-            LLMResponse(content='{"worker": "w1", "instruction": "do subtask", "done": false}', tool_calls=[]),
-            LLMResponse(content='{"worker": "__end__", "instruction": "all done", "done": true}', tool_calls=[]),
-            LLMResponse(content="worker output", tool_calls=[]),
-        ])
+
+        mlx = MockMLXClient(
+            responses=[
+                LLMResponse(
+                    content='{"worker": "w1", "instruction": "do subtask", "done": false}',
+                    tool_calls=[],
+                ),
+                LLMResponse(
+                    content='{"worker": "__end__", "instruction": "all done", "done": true}',
+                    tool_calls=[],
+                ),
+                LLMResponse(content="worker output", tool_calls=[]),
+            ]
+        )
         reg = ToolRegistry()
         reg.register(MockTool())
         orch = MultiAgentOrchestrator(mlx, reg)
@@ -302,11 +342,20 @@ class TestSupervisorPattern:
 
     async def test_supervisor_timeout(self):
         from server.fusion_mlx_client import LLMResponse
-        mlx = MockMLXClient(responses=[
-            LLMResponse(content='{"worker": "w1", "instruction": "keep going", "done": false}', tool_calls=[]),
-            LLMResponse(content='{"worker": "w1", "instruction": "keep going", "done": false}', tool_calls=[]),
-            LLMResponse(content="worker output", tool_calls=[]),
-        ])
+
+        mlx = MockMLXClient(
+            responses=[
+                LLMResponse(
+                    content='{"worker": "w1", "instruction": "keep going", "done": false}',
+                    tool_calls=[],
+                ),
+                LLMResponse(
+                    content='{"worker": "w1", "instruction": "keep going", "done": false}',
+                    tool_calls=[],
+                ),
+                LLMResponse(content="worker output", tool_calls=[]),
+            ]
+        )
         reg = ToolRegistry()
         reg.register(MockTool())
         orch = MultiAgentOrchestrator(mlx, reg)
@@ -318,11 +367,20 @@ class TestSupervisorPattern:
 
     async def test_supervisor_unknown_worker_fallback(self):
         from server.fusion_mlx_client import LLMResponse
-        mlx = MockMLXClient(responses=[
-            LLMResponse(content='{"worker": "unknown_worker", "instruction": "try", "done": false}', tool_calls=[]),
-            LLMResponse(content='{"worker": "__end__", "instruction": "done", "done": true}', tool_calls=[]),
-            LLMResponse(content="fallback output", tool_calls=[]),
-        ])
+
+        mlx = MockMLXClient(
+            responses=[
+                LLMResponse(
+                    content='{"worker": "unknown_worker", "instruction": "try", "done": false}',
+                    tool_calls=[],
+                ),
+                LLMResponse(
+                    content='{"worker": "__end__", "instruction": "done", "done": true}',
+                    tool_calls=[],
+                ),
+                LLMResponse(content="fallback output", tool_calls=[]),
+            ]
+        )
         reg = ToolRegistry()
         reg.register(MockTool())
         orch = MultiAgentOrchestrator(mlx, reg)
@@ -351,10 +409,18 @@ class TestSupervisorPattern:
         from unittest.mock import patch
         from agent_runtime.runtime import AgentRuntime
 
-        mlx = MockMLXClient(responses=[
-            LLMResponse(content='{"worker": "w1", "instruction": "do it", "done": false}', tool_calls=[]),
-            LLMResponse(content='{"worker": "__end__", "instruction": "done", "done": true}', tool_calls=[]),
-        ])
+        mlx = MockMLXClient(
+            responses=[
+                LLMResponse(
+                    content='{"worker": "w1", "instruction": "do it", "done": false}',
+                    tool_calls=[],
+                ),
+                LLMResponse(
+                    content='{"worker": "__end__", "instruction": "done", "done": true}',
+                    tool_calls=[],
+                ),
+            ]
+        )
         reg = ToolRegistry()
         reg.register(MockTool())
         orch = MultiAgentOrchestrator(mlx, reg)
@@ -383,6 +449,7 @@ class TestCompositionWireIn:
 
     async def test_handoff_with_swarm_router_injected(self):
         from agent_runtime.swarm_router import SwarmRouter
+
         mlx = MockMLXClient()
         reg = ToolRegistry()
         reg.register(MockTool())
@@ -400,18 +467,22 @@ class TestCompositionWireIn:
 
     async def test_handoff_swarm_blocks_at_max_hops(self):
         from agent_runtime.swarm_router import SwarmRouter
+
         mlx = MockMLXClient()
         reg = ToolRegistry()
         reg.register(MockTool())
         swarm = SwarmRouter(max_hops=1)
         orch = MultiAgentOrchestrator(mlx, reg, swarm_router=swarm)
-        agents = [AgentConfig(name=f"a{i}", graph=make_agent_graph(f"A{i}")) for i in range(4)]
+        agents = [
+            AgentConfig(name=f"a{i}", graph=make_agent_graph(f"A{i}")) for i in range(4)
+        ]
         result = await orch.handoff(agents, "Task")
         assert any(r.get("swarm_blocked") for r in result.results)
         assert len(result.results) < 4
 
     async def test_broadcast_with_plaza_injected(self):
         from agent_runtime.plaza import Plaza
+
         mlx = MockMLXClient()
         reg = ToolRegistry()
         reg.register(MockTool())

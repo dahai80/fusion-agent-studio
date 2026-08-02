@@ -116,12 +116,16 @@ class MultiAgentOrchestrator:
             try:
                 from .runtime import AgentRuntime
 
-                runtime = AgentRuntime(tool_registry=self.tools, llm_gateway=self.llm_gateway)
+                runtime = AgentRuntime(
+                    tool_registry=self.tools, llm_gateway=self.llm_gateway
+                )
                 ctx = AgentContext()
                 ctx.metadata["agent_name"] = agent_config.name
 
                 events = []
-                async for event in runtime.execute_graph(agent_config.graph, current_input, ctx):
+                async for event in runtime.execute_graph(
+                    agent_config.graph, current_input, ctx
+                ):
                     events.append(event)
 
                 final_content = self._extract_final_output(events, ctx)
@@ -159,17 +163,23 @@ class MultiAgentOrchestrator:
         start = time.time()
         semaphore = asyncio.Semaphore(self.max_concurrent)
 
-        async def run_single(agent_config: AgentConfig, agent_input: str) -> dict[str, Any]:
+        async def run_single(
+            agent_config: AgentConfig, agent_input: str
+        ) -> dict[str, Any]:
             async with semaphore:
                 try:
                     from .runtime import AgentRuntime
 
-                    runtime = AgentRuntime(tool_registry=self.tools, llm_gateway=self.llm_gateway)
+                    runtime = AgentRuntime(
+                        tool_registry=self.tools, llm_gateway=self.llm_gateway
+                    )
                     ctx = AgentContext()
                     ctx.metadata["agent_name"] = agent_config.name
 
                     events = []
-                    async for event in runtime.execute_graph(agent_config.graph, agent_input, ctx):
+                    async for event in runtime.execute_graph(
+                        agent_config.graph, agent_input, ctx
+                    ):
                         events.append(event)
 
                     final_content = self._extract_final_output(events, ctx)
@@ -187,7 +197,11 @@ class MultiAgentOrchestrator:
                         "agent": agent_config.name,
                         "output": "",
                         "events": [],
-                        "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total": 0},
+                        "usage": {
+                            "prompt_tokens": 0,
+                            "completion_tokens": 0,
+                            "total": 0,
+                        },
                         "duration": 0.0,
                         "error": str(e),
                     }
@@ -222,7 +236,9 @@ class MultiAgentOrchestrator:
 
         from .runtime import AgentRuntime
 
-        master_runtime = AgentRuntime(tool_registry=self.tools, llm_gateway=self.llm_gateway)
+        master_runtime = AgentRuntime(
+            tool_registry=self.tools, llm_gateway=self.llm_gateway
+        )
         master_ctx = AgentContext()
 
         decompose_prompt = (
@@ -231,11 +247,15 @@ class MultiAgentOrchestrator:
         )
 
         master_events = []
-        async for event in master_runtime.execute_graph(master.graph, decompose_prompt, master_ctx):
+        async for event in master_runtime.execute_graph(
+            master.graph, decompose_prompt, master_ctx
+        ):
             master_events.append(event)
 
         sub_tasks = self._extract_sub_tasks(master_ctx, len(workers))
-        logger.info("Master decomposed task into %d sub-tasks: %s", len(sub_tasks), sub_tasks)
+        logger.info(
+            "Master decomposed task into %d sub-tasks: %s", len(sub_tasks), sub_tasks
+        )
 
         worker_results = await self.parallel(
             workers,
@@ -246,7 +266,10 @@ class MultiAgentOrchestrator:
             f"Original task: {task}\n\n"
             f"Worker results:\n"
             + json.dumps(
-                [{"worker": r["agent"], "output": r["output"]} for r in worker_results.results],
+                [
+                    {"worker": r["agent"], "output": r["output"]}
+                    for r in worker_results.results
+                ],
                 indent=2,
                 ensure_ascii=False,
             )
@@ -255,7 +278,9 @@ class MultiAgentOrchestrator:
 
         summary_ctx = AgentContext()
         summary_events = []
-        async for event in master_runtime.execute_graph(master.graph, summary_prompt, summary_ctx):
+        async for event in master_runtime.execute_graph(
+            master.graph, summary_prompt, summary_ctx
+        ):
             summary_events.append(event)
 
         summary = self._extract_final_output(summary_events, summary_ctx)
@@ -294,7 +319,9 @@ class MultiAgentOrchestrator:
 
         for i, agent_config in enumerate(agents):
             try:
-                runtime = AgentRuntime(tool_registry=self.tools, llm_gateway=self.llm_gateway)
+                runtime = AgentRuntime(
+                    tool_registry=self.tools, llm_gateway=self.llm_gateway
+                )
                 ctx = AgentContext()
                 ctx.metadata["agent_name"] = agent_config.name
                 ctx.metadata["handoff_index"] = i
@@ -306,7 +333,9 @@ class MultiAgentOrchestrator:
                     agent_input = accumulated_context
 
                 events = []
-                async for event in runtime.execute_graph(agent_config.graph, agent_input, ctx):
+                async for event in runtime.execute_graph(
+                    agent_config.graph, agent_input, ctx
+                ):
                     events.append(event)
 
                 final_content = self._extract_final_output(events, ctx)
@@ -320,37 +349,60 @@ class MultiAgentOrchestrator:
                 )
                 handoff_chain.append(handoff_ctx)
 
-                result.results.append({
-                    "agent": agent_config.name,
-                    "output": final_content,
-                    "events": [e.to_dict() for e in events],
-                    "usage": ctx.token_usage(),
-                    "duration": ctx.elapsed_seconds(),
-                    "handoff_to": handoff_ctx.receiver,
-                })
+                result.results.append(
+                    {
+                        "agent": agent_config.name,
+                        "output": final_content,
+                        "events": [e.to_dict() for e in events],
+                        "usage": ctx.token_usage(),
+                        "duration": ctx.elapsed_seconds(),
+                        "handoff_to": handoff_ctx.receiver,
+                    }
+                )
 
                 accumulated_context = final_content
 
                 if self.swarm_router and i + 1 < len(agents):
-                    from .swarm_router import SwarmAgent, HandoffContext as SwarmHandoffContext
+                    from .swarm_router import (
+                        SwarmAgent,
+                        HandoffContext as SwarmHandoffContext,
+                    )
+
                     if not self.swarm_router.get_agent(agent_config.name):
-                        self.swarm_router.register_agent(SwarmAgent(id=agent_config.name, name=agent_config.name))
+                        self.swarm_router.register_agent(
+                            SwarmAgent(id=agent_config.name, name=agent_config.name)
+                        )
                     nxt = agents[i + 1]
                     if not self.swarm_router.get_agent(nxt.name):
-                        self.swarm_router.register_agent(SwarmAgent(id=nxt.name, name=nxt.name))
+                        self.swarm_router.register_agent(
+                            SwarmAgent(id=nxt.name, name=nxt.name)
+                        )
                     swarm_ctx = SwarmHandoffContext(
-                        conversation=[{"role": agent_config.name, "content": final_content}],
+                        conversation=[
+                            {"role": agent_config.name, "content": final_content}
+                        ],
                         hop_count=i,
                         task_id=task_id,
                     )
-                    if self.swarm_router.handoff(agent_config.name, nxt.name, swarm_ctx) is None:
-                        logger.info("SwarmRouter blocked handoff at hop %d, stopping chain", i + 1)
+                    if (
+                        self.swarm_router.handoff(
+                            agent_config.name, nxt.name, swarm_ctx
+                        )
+                        is None
+                    ):
+                        logger.info(
+                            "SwarmRouter blocked handoff at hop %d, stopping chain",
+                            i + 1,
+                        )
                         if result.results:
                             result.results[-1]["swarm_blocked"] = True
                         break
 
                 if self._is_handoff_complete(final_content):
-                    logger.info("Agent %s completed task, stopping handoff chain", agent_config.name)
+                    logger.info(
+                        "Agent %s completed task, stopping handoff chain",
+                        agent_config.name,
+                    )
                     break
 
             except Exception as e:
@@ -398,7 +450,9 @@ class MultiAgentOrchestrator:
                 try:
                     self.plaza.broadcast(channel_name, r["agent"], r.get("output", ""))
                 except Exception as e:
-                    logger.warning("Plaza broadcast record failed for %s: %s", r["agent"], e)
+                    logger.warning(
+                        "Plaza broadcast record failed for %s: %s", r["agent"], e
+                    )
 
         merged = self._merge_outputs(outputs, merge_strategy)
 
@@ -437,7 +491,9 @@ class MultiAgentOrchestrator:
         for round_num in range(1, max_rounds + 1):
             logger.info("Supervisor round %d/%d", round_num, max_rounds)
 
-            supervisor_runtime = AgentRuntime(tool_registry=self.tools, llm_gateway=self.llm_gateway)
+            supervisor_runtime = AgentRuntime(
+                tool_registry=self.tools, llm_gateway=self.llm_gateway
+            )
             supervisor_ctx = AgentContext()
             supervisor_ctx.metadata["agent_name"] = supervisor_config.name
             supervisor_ctx.metadata["round"] = round_num
@@ -453,7 +509,7 @@ class MultiAgentOrchestrator:
                     route_prompt += f"  - Routed to {h['worker']}: {h['status']}\n"
                 route_prompt += "\n"
             route_prompt += (
-                'Respond with a JSON object:\n'
+                "Respond with a JSON object:\n"
                 '{"worker": "<name>", "instruction": "<what to tell the worker>", '
                 '"done": true/false}\n'
                 'If the task is complete, set done=true and worker to "__end__".'
@@ -471,12 +527,14 @@ class MultiAgentOrchestrator:
             logger.info("Supervisor decided: %s", route_decision)
 
             if route_decision.get("done") or route_decision.get("worker") == "__end__":
-                result.results.append({
-                    "phase": f"round_{round_num}",
-                    "agent": supervisor_config.name,
-                    "output": route_output,
-                    "action": "completed",
-                })
+                result.results.append(
+                    {
+                        "phase": f"round_{round_num}",
+                        "agent": supervisor_config.name,
+                        "output": route_output,
+                        "action": "completed",
+                    }
+                )
                 result.summary = route_decision.get("instruction", route_output)
                 break
 
@@ -484,13 +542,17 @@ class MultiAgentOrchestrator:
             worker_instruction = route_decision.get("instruction", current_task)
 
             if worker_name not in worker_map:
-                logger.warning("Supervisor chose unknown worker '%s', picking first", worker_name)
+                logger.warning(
+                    "Supervisor chose unknown worker '%s', picking first", worker_name
+                )
                 worker_name = next(iter(worker_map))
 
             worker_config = worker_map[worker_name]
 
             try:
-                worker_runtime = AgentRuntime(tool_registry=self.tools, llm_gateway=self.llm_gateway)
+                worker_runtime = AgentRuntime(
+                    tool_registry=self.tools, llm_gateway=self.llm_gateway
+                )
                 worker_ctx = AgentContext()
                 worker_ctx.metadata["agent_name"] = worker_name
                 worker_ctx.metadata["supervisor_round"] = round_num
@@ -503,42 +565,52 @@ class MultiAgentOrchestrator:
 
                 worker_output = self._extract_final_output(worker_events, worker_ctx)
 
-                routing_history.append({
-                    "worker": worker_name,
-                    "instruction": worker_instruction,
-                    "output": worker_output[:200],
-                    "status": "completed",
-                })
+                routing_history.append(
+                    {
+                        "worker": worker_name,
+                        "instruction": worker_instruction,
+                        "output": worker_output[:200],
+                        "status": "completed",
+                    }
+                )
 
-                result.results.append({
-                    "phase": f"round_{round_num}",
-                    "agent": worker_name,
-                    "output": worker_output,
-                    "events": [e.to_dict() for e in worker_events],
-                    "usage": worker_ctx.token_usage(),
-                    "duration": worker_ctx.elapsed_seconds(),
-                    "routed_by": supervisor_config.name,
-                })
+                result.results.append(
+                    {
+                        "phase": f"round_{round_num}",
+                        "agent": worker_name,
+                        "output": worker_output,
+                        "events": [e.to_dict() for e in worker_events],
+                        "usage": worker_ctx.token_usage(),
+                        "duration": worker_ctx.elapsed_seconds(),
+                        "routed_by": supervisor_config.name,
+                    }
+                )
 
                 current_task = worker_output
 
             except Exception as e:
-                logger.exception("Worker %s failed in supervisor round %d", worker_name, round_num)
-                routing_history.append({
-                    "worker": worker_name,
-                    "instruction": worker_instruction,
-                    "output": "",
-                    "status": f"error: {e}",
-                })
+                logger.exception(
+                    "Worker %s failed in supervisor round %d", worker_name, round_num
+                )
+                routing_history.append(
+                    {
+                        "worker": worker_name,
+                        "instruction": worker_instruction,
+                        "output": "",
+                        "status": f"error: {e}",
+                    }
+                )
                 result.errors.append(f"{worker_name} (round {round_num}): {e}")
 
         else:
-            result.results.append({
-                "phase": "supervisor_timeout",
-                "agent": supervisor_config.name,
-                "output": "Max routing rounds reached",
-                "action": "timeout",
-            })
+            result.results.append(
+                {
+                    "phase": "supervisor_timeout",
+                    "agent": supervisor_config.name,
+                    "output": "Max routing rounds reached",
+                    "action": "timeout",
+                }
+            )
 
         result.total_duration = time.time() - start
         return result
@@ -572,7 +644,9 @@ class MultiAgentOrchestrator:
         elif strategy == "json":
             return json.dumps(outputs, ensure_ascii=False, indent=2)
         else:
-            logger.warning("Unknown merge strategy '%s', falling back to concat", strategy)
+            logger.warning(
+                "Unknown merge strategy '%s', falling back to concat", strategy
+            )
             return self._merge_outputs(outputs, "concat")
 
     def _parse_route_decision(self, output: str) -> dict[str, Any]:
@@ -591,6 +665,7 @@ class MultiAgentOrchestrator:
                         json_lines.append(line)
                 json_match = "\n".join(json_lines)
             import re
+
             brace_match = re.search(r"\{[^{}]*\}", json_match, re.DOTALL)
             if brace_match:
                 json_match = brace_match.group()
@@ -624,11 +699,15 @@ class MultiAgentOrchestrator:
                     if isinstance(tasks, list):
                         return [str(t) for t in tasks[:expected_count]]
                 except (json.JSONDecodeError, TypeError):
-                    lines = [line.strip() for line in content.split("\n") if line.strip()]
+                    lines = [
+                        line.strip() for line in content.split("\n") if line.strip()
+                    ]
                     return lines[:expected_count]
-        return [f"Sub-task {i+1}" for i in range(expected_count)]
+        return [f"Sub-task {i + 1}" for i in range(expected_count)]
 
-    def set_limits(self, max_concurrent: int | None = None, max_depth: int | None = None) -> dict:
+    def set_limits(
+        self, max_concurrent: int | None = None, max_depth: int | None = None
+    ) -> dict:
         if max_concurrent is not None:
             self._limits["max_concurrent"] = max_concurrent
             self.max_concurrent = max_concurrent

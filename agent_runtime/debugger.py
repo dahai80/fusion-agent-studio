@@ -1,4 +1,5 @@
 """Step debugger — single-step execution and breakpoint support for agent graphs."""
+
 from __future__ import annotations
 
 import asyncio
@@ -17,6 +18,7 @@ class DebuggerState(str, Enum):
 @dataclass
 class Breakpoint:
     """A breakpoint on a specific node in the graph."""
+
     node_id: str
     enabled: bool = True
     condition: str = ""  # Optional condition expression
@@ -26,6 +28,7 @@ class Breakpoint:
 @dataclass
 class DebugEvent:
     """Event emitted during debugging."""
+
     type: str  # "pause", "resume", "step", "breakpoint_hit", "variable_change", "error"
     node_id: str = ""
     message: str = ""
@@ -96,12 +99,14 @@ class StepDebugger:
             bp.hit_count += 1
             self.state = DebuggerState.PAUSED
             self._pause_event.clear()
-            await self._emit(DebugEvent(
-                type="breakpoint_hit",
-                node_id=node_id,
-                message=f"Breakpoint hit: {node_id} (hit {bp.hit_count})",
-                variables=variables or {},
-            ))
+            await self._emit(
+                DebugEvent(
+                    type="breakpoint_hit",
+                    node_id=node_id,
+                    message=f"Breakpoint hit: {node_id} (hit {bp.hit_count})",
+                    variables=variables or {},
+                )
+            )
             return
 
         # Wait if paused or step mode
@@ -111,16 +116,19 @@ class StepDebugger:
         if self.state == DebuggerState.STEP_OVER:
             self.state = DebuggerState.PAUSED
             self._pause_event.clear()
-            await self._emit(DebugEvent(
-                type="step",
-                node_id=node_id,
-                message=f"Stepped to: {node_id}",
-                variables=variables or {},
-            ))
+            await self._emit(
+                DebugEvent(
+                    type="step",
+                    node_id=node_id,
+                    message=f"Stepped to: {node_id}",
+                    variables=variables or {},
+                )
+            )
 
     async def _emit(self, event: DebugEvent) -> None:
         """Emit a debug event to the queue."""
         import time
+
         event.timestamp = time.time()
         await self._event_queue.put(event)
 

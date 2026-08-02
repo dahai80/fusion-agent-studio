@@ -1,26 +1,49 @@
 """Tests for Phase 4, 5, 6 modules."""
+
 from __future__ import annotations
 
 import pytest
 
 from agent_runtime.data_ingestion import (
-    Document, Chunk, DocumentReader, FixedSizeChunker, SentenceChunker,
-    MarkdownChunker, ETLPipeline, strip_whitespace, truncate, add_metadata,
+    Document,
+    Chunk,
+    DocumentReader,
+    FixedSizeChunker,
+    SentenceChunker,
+    MarkdownChunker,
+    ETLPipeline,
+    strip_whitespace,
+    truncate,
+    add_metadata,
     filter_empty_chunks,
 )
 from agent_runtime.code_sandbox import (
-    ASTChecker, DiffPreview, CodeSandbox, SandboxResult,
+    ASTChecker,
+    DiffPreview,
+    CodeSandbox,
+    SandboxResult,
 )
 from agent_runtime.aware_engine import (
-    FileEvent, AwareResult, DebounceLayer, ASTDiffLayer, ModelGateLayer, AwareEngine,
+    FileEvent,
+    AwareResult,
+    DebounceLayer,
+    ASTDiffLayer,
+    ModelGateLayer,
+    AwareEngine,
 )
 from agent_runtime.fmp_router import (
-    AgentInfo, FMPMessageV2, AgentCircuitBreaker, MessageDedup,
-    TurnManager, MentionRouter, FMProtocol,
+    AgentInfo,
+    FMPMessageV2,
+    AgentCircuitBreaker,
+    MessageDedup,
+    TurnManager,
+    MentionRouter,
+    FMProtocol,
 )
 
 
 # ── Data Ingestion (Phase 4) ────────────────────────────
+
 
 class TestDocument:
     def test_auto_id(self):
@@ -41,7 +64,9 @@ class TestChunk:
         assert c.id
 
     def test_to_dict_roundtrip(self):
-        c = Chunk(id="c1", content="text", document_id="d1", index=0, start_char=0, end_char=4)
+        c = Chunk(
+            id="c1", content="text", document_id="d1", index=0, start_char=0, end_char=4
+        )
         restored = Chunk.from_dict(c.to_dict())
         assert restored.id == "c1"
         assert restored.index == 0
@@ -145,7 +170,9 @@ class TestMarkdownChunker:
         chunker = MarkdownChunker()
         chunks = chunker.chunk(doc)
         assert len(chunks) >= 2
-        headings = [c.metadata.get("heading") for c in chunks if c.metadata.get("heading")]
+        headings = [
+            c.metadata.get("heading") for c in chunks if c.metadata.get("heading")
+        ]
         assert "Intro" in headings
         assert "Section 1" in headings
 
@@ -202,6 +229,7 @@ class TestETLPipeline:
 
 
 # ── Code Sandbox (Phase 5) ──────────────────────────────
+
 
 class TestASTChecker:
     def test_safe_code(self):
@@ -313,6 +341,7 @@ class TestCodeSandbox:
 
 # ── Aware Engine (Phase 5) ──────────────────────────────
 
+
 class TestFileEvent:
     def test_auto_fields(self):
         e = FileEvent(path="/test.py", event_type="modified")
@@ -406,7 +435,9 @@ class TestModelGateLayer:
     def test_heuristic_large_change(self):
         layer = ModelGateLayer()
         event = FileEvent(path="/test.py")
-        result = layer.process(event, "line1\nline2\nline3\nline4\n", "line1\nchanged\nline3\nline4\n")
+        result = layer.process(
+            event, "line1\nline2\nline3\nline4\n", "line1\nchanged\nline3\nline4\n"
+        )
         assert result.significant
 
 
@@ -437,6 +468,7 @@ class TestAwareEngine:
 
 
 # ── FMP Router (Phase 6) ────────────────────────────────
+
 
 class TestAgentInfo:
     def test_auto_id(self):

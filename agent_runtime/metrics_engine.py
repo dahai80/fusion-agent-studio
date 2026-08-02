@@ -4,6 +4,7 @@ Collects fusion-mlx performance data (VRAM, throughput, latency),
 session execution history, and provides aggregation/query APIs.
 All metrics stored in SQLite for zero-dependency persistence.
 """
+
 from __future__ import annotations
 
 import logging
@@ -127,38 +128,69 @@ class MetricsEngine:
                 timestamp REAL NOT NULL
             )
         """)
-        self._conn.execute("CREATE INDEX IF NOT EXISTS idx_inf_ts ON inference_metrics(timestamp)")
-        self._conn.execute("CREATE INDEX IF NOT EXISTS idx_sess_ts ON session_records(timestamp)")
+        self._conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_inf_ts ON inference_metrics(timestamp)"
+        )
+        self._conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_sess_ts ON session_records(timestamp)"
+        )
         self._conn.commit()
         logger.info("Metrics DB initialized: %s", self.db_path)
 
     def record_inference(self, metrics: InferenceMetrics) -> int:
         if not metrics.timestamp:
             metrics.timestamp = time.time()
-        cur = self._conn.execute("""
+        cur = self._conn.execute(
+            """
             INSERT INTO inference_metrics (model, tokens_in, tokens_out, latency_ms, vram_mb, throughput_tps, timestamp)
             VALUES (?, ?, ?, ?, ?, ?, ?)
-        """, (metrics.model, metrics.tokens_in, metrics.tokens_out, metrics.latency_ms,
-              metrics.vram_mb, metrics.throughput_tps, metrics.timestamp))
+        """,
+            (
+                metrics.model,
+                metrics.tokens_in,
+                metrics.tokens_out,
+                metrics.latency_ms,
+                metrics.vram_mb,
+                metrics.throughput_tps,
+                metrics.timestamp,
+            ),
+        )
         self._conn.commit()
-        logger.debug("Recorded inference: model=%s latency=%.1fms", metrics.model, metrics.latency_ms)
+        logger.debug(
+            "Recorded inference: model=%s latency=%.1fms",
+            metrics.model,
+            metrics.latency_ms,
+        )
         return cur.lastrowid
 
     def record_session(self, record: SessionRecord) -> int:
         if not record.timestamp:
             record.timestamp = time.time()
-        cur = self._conn.execute("""
+        cur = self._conn.execute(
+            """
             INSERT INTO session_records (session_id, graph_id, status, input_text, output_text,
                                          duration_ms, node_count, error, timestamp)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (record.session_id, record.graph_id, record.status, record.input_text,
-              record.output_text, record.duration_ms, record.node_count, record.error,
-              record.timestamp))
+        """,
+            (
+                record.session_id,
+                record.graph_id,
+                record.status,
+                record.input_text,
+                record.output_text,
+                record.duration_ms,
+                record.node_count,
+                record.error,
+                record.timestamp,
+            ),
+        )
         self._conn.commit()
         logger.debug("Recorded session: %s status=%s", record.session_id, record.status)
         return cur.lastrowid
 
-    def query_inferences(self, model: str = "", since: float = 0, limit: int = 100) -> list[InferenceMetrics]:
+    def query_inferences(
+        self, model: str = "", since: float = 0, limit: int = 100
+    ) -> list[InferenceMetrics]:
         query = "SELECT model, tokens_in, tokens_out, latency_ms, vram_mb, throughput_tps, timestamp FROM inference_metrics WHERE 1=1"
         params: list[Any] = []
         if model:
@@ -171,11 +203,29 @@ class MetricsEngine:
         params.append(limit)
 
         rows = self._conn.execute(query, params).fetchall()
-        return [InferenceMetrics(**dict(zip(
-            ["model", "tokens_in", "tokens_out", "latency_ms", "vram_mb", "throughput_tps", "timestamp"], r
-        ))) for r in rows]
+        return [
+            InferenceMetrics(
+                **dict(
+                    zip(
+                        [
+                            "model",
+                            "tokens_in",
+                            "tokens_out",
+                            "latency_ms",
+                            "vram_mb",
+                            "throughput_tps",
+                            "timestamp",
+                        ],
+                        r,
+                    )
+                )
+            )
+            for r in rows
+        ]
 
-    def query_sessions(self, status: str = "", since: float = 0, limit: int = 100) -> list[SessionRecord]:
+    def query_sessions(
+        self, status: str = "", since: float = 0, limit: int = 100
+    ) -> list[SessionRecord]:
         query = "SELECT session_id, graph_id, status, input_text, output_text, duration_ms, node_count, error, timestamp FROM session_records WHERE 1=1"
         params: list[Any] = []
         if status:
@@ -188,10 +238,27 @@ class MetricsEngine:
         params.append(limit)
 
         rows = self._conn.execute(query, params).fetchall()
-        return [SessionRecord(**dict(zip(
-            ["session_id", "graph_id", "status", "input_text", "output_text",
-             "duration_ms", "node_count", "error", "timestamp"], r
-        ))) for r in rows]
+        return [
+            SessionRecord(
+                **dict(
+                    zip(
+                        [
+                            "session_id",
+                            "graph_id",
+                            "status",
+                            "input_text",
+                            "output_text",
+                            "duration_ms",
+                            "node_count",
+                            "error",
+                            "timestamp",
+                        ],
+                        r,
+                    )
+                )
+            )
+            for r in rows
+        ]
 
     def get_summary(self, since: float = 0) -> MetricsSummary:
         params: list[Any] = []
@@ -202,7 +269,7 @@ class MetricsEngine:
 
         inf_row = self._conn.execute(
             f"SELECT COUNT(*), AVG(latency_ms), AVG(throughput_tps), SUM(tokens_in), SUM(tokens_out), MAX(vram_mb) FROM inference_metrics {where}",
-            params
+            params,
         ).fetchone()
 
         sess_where = "WHERE 1=1"
@@ -213,7 +280,7 @@ class MetricsEngine:
 
         sess_row = self._conn.execute(
             f"SELECT COUNT(*), SUM(CASE WHEN status='completed' THEN 1 ELSE 0 END) FROM session_records {sess_where}",
-            sess_params
+            sess_params,
         ).fetchone()
 
         total_inf = inf_row[0] or 0
