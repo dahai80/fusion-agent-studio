@@ -1,10 +1,13 @@
 """Tests for extended FusionMLXClient features: streaming, OpenClaw sessions, MCP."""
+
 from __future__ import annotations
 
 
-
 from server.fusion_mlx_client import (
-    FusionMLXClient, StreamChunk, MCPTool, MCPResource,
+    FusionMLXClient,
+    StreamChunk,
+    MCPTool,
+    MCPResource,
 )
 
 
@@ -100,7 +103,9 @@ class TestStreamChat:
         client = FusionMLXClient(timeout=1.0)
         chunks = []
         try:
-            async for chunk in client.chat_stream("test-model", [{"role": "user", "content": "hi"}]):
+            async for chunk in client.chat_stream(
+                "test-model", [{"role": "user", "content": "hi"}]
+            ):
                 chunks.append(chunk)
         except Exception:
             pass
@@ -110,19 +115,23 @@ class TestStreamChat:
         from unittest.mock import MagicMock
 
         client = FusionMLXClient(timeout=5.0)
-        resp = _StreamResponse([
-            'data: {"choices": [{"delta": {"content": "Hel"}, "finish_reason": null}]}',
-            'data: {"choices": [{"delta": {"content": "lo"}, "finish_reason": null}]}',
-            'data: {"choices": [{"delta": {"content": ""}, "finish_reason": "stop"}]}',
-            "data: [DONE]",
-        ])
+        resp = _StreamResponse(
+            [
+                'data: {"choices": [{"delta": {"content": "Hel"}, "finish_reason": null}]}',
+                'data: {"choices": [{"delta": {"content": "lo"}, "finish_reason": null}]}',
+                'data: {"choices": [{"delta": {"content": ""}, "finish_reason": "stop"}]}',
+                "data: [DONE]",
+            ]
+        )
 
         mock_http = MagicMock()
         mock_http.stream = MagicMock(return_value=_StreamCtx(resp))
         client._client = mock_http
 
         chunks = []
-        async for chunk in client.chat_stream("model", [{"role": "user", "content": "hi"}]):
+        async for chunk in client.chat_stream(
+            "model", [{"role": "user", "content": "hi"}]
+        ):
             chunks.append(chunk)
 
         assert len(chunks) == 3
@@ -134,17 +143,21 @@ class TestStreamChat:
         from unittest.mock import MagicMock
 
         client = FusionMLXClient(timeout=5.0)
-        resp = _StreamResponse([
-            'data: {"choices": [{"delta": {"tool_calls": [{"index": 0, "function": {"name": "search"}}]}, "finish_reason": null}]}',
-            "data: [DONE]",
-        ])
+        resp = _StreamResponse(
+            [
+                'data: {"choices": [{"delta": {"tool_calls": [{"index": 0, "function": {"name": "search"}}]}, "finish_reason": null}]}',
+                "data: [DONE]",
+            ]
+        )
 
         mock_http = MagicMock()
         mock_http.stream = MagicMock(return_value=_StreamCtx(resp))
         client._client = mock_http
 
         chunks = []
-        async for chunk in client.chat_stream("model", [{"role": "user", "content": "hi"}]):
+        async for chunk in client.chat_stream(
+            "model", [{"role": "user", "content": "hi"}]
+        ):
             chunks.append(chunk)
 
         assert len(chunks) == 1
@@ -154,18 +167,22 @@ class TestStreamChat:
         from unittest.mock import MagicMock
 
         client = FusionMLXClient(timeout=5.0)
-        resp = _StreamResponse([
-            "data: not-json",
-            'data: {"choices": [{"delta": {"content": "ok"}, "finish_reason": null}]}',
-            "data: [DONE]",
-        ])
+        resp = _StreamResponse(
+            [
+                "data: not-json",
+                'data: {"choices": [{"delta": {"content": "ok"}, "finish_reason": null}]}',
+                "data: [DONE]",
+            ]
+        )
 
         mock_http = MagicMock()
         mock_http.stream = MagicMock(return_value=_StreamCtx(resp))
         client._client = mock_http
 
         chunks = []
-        async for chunk in client.chat_stream("model", [{"role": "user", "content": "hi"}]):
+        async for chunk in client.chat_stream(
+            "model", [{"role": "user", "content": "hi"}]
+        ):
             chunks.append(chunk)
 
         assert len(chunks) == 1
@@ -175,10 +192,12 @@ class TestStreamChat:
         from unittest.mock import MagicMock
 
         client = FusionMLXClient(timeout=5.0)
-        resp = _StreamResponse([
-            'data: {"choices": [{"delta": {"content": "result"}, "finish_reason": "stop"}]}',
-            "data: [DONE]",
-        ])
+        resp = _StreamResponse(
+            [
+                'data: {"choices": [{"delta": {"content": "result"}, "finish_reason": "stop"}]}',
+                "data: [DONE]",
+            ]
+        )
 
         mock_http = MagicMock()
         mock_http.stream = MagicMock(return_value=_StreamCtx(resp))
@@ -229,7 +248,9 @@ class TestOpenClawSessions:
         from unittest.mock import AsyncMock
 
         client = FusionMLXClient(timeout=5.0)
-        client.get_agent_session = AsyncMock(return_value={"status": "completed", "id": "s1"})
+        client.get_agent_session = AsyncMock(
+            return_value={"status": "completed", "id": "s1"}
+        )
 
         result = await client.poll_agent_session("s1", timeout=2.0, interval=0.1)
         assert result["status"] == "completed"
@@ -238,7 +259,9 @@ class TestOpenClawSessions:
         from unittest.mock import AsyncMock
 
         client = FusionMLXClient(timeout=5.0)
-        client.get_agent_session = AsyncMock(return_value={"status": "running", "id": "s1"})
+        client.get_agent_session = AsyncMock(
+            return_value={"status": "running", "id": "s1"}
+        )
 
         result = await client.poll_agent_session("s1", timeout=0.5, interval=0.1)
         assert result["status"] == "running"
@@ -316,8 +339,16 @@ class TestMCPProtocol:
         mock_resp.raise_for_status = MagicMock()
         mock_resp.json.return_value = {
             "tools": [
-                {"name": "search", "description": "Search", "input_schema": {"type": "object"}},
-                {"name": "calc", "description": "Calculate", "parameters": {"type": "object"}},
+                {
+                    "name": "search",
+                    "description": "Search",
+                    "input_schema": {"type": "object"},
+                },
+                {
+                    "name": "calc",
+                    "description": "Calculate",
+                    "parameters": {"type": "object"},
+                },
             ]
         }
 
@@ -389,7 +420,12 @@ class TestMCPProtocol:
         mock_resp.raise_for_status = MagicMock()
         mock_resp.json.return_value = {
             "resources": [
-                {"uri": "file:///data.csv", "name": "data", "description": "CSV", "mime_type": "text/csv"},
+                {
+                    "uri": "file:///data.csv",
+                    "name": "data",
+                    "description": "CSV",
+                    "mime_type": "text/csv",
+                },
             ]
         }
 

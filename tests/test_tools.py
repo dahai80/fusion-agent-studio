@@ -1,4 +1,5 @@
 """Tests for tools module."""
+
 from __future__ import annotations
 
 import tempfile
@@ -70,6 +71,7 @@ class TestToolRegistry:
     def test_register_no_name(self):
         registry = ToolRegistry()
         from unittest.mock import MagicMock, AsyncMock
+
         bad_tool = MagicMock(spec=BaseTool)
         bad_tool.name = ""
         bad_tool.description = ""
@@ -351,21 +353,25 @@ class TestTextSearchTool:
     async def test_find_plain_text(self):
         tool = TextSearchTool()
         result = await tool.execute(
-            text="hello world hello", pattern="hello",
+            text="hello world hello",
+            pattern="hello",
         )
         assert "2 occurrence" in result
 
     async def test_find_no_match(self):
         tool = TextSearchTool()
         result = await tool.execute(
-            text="hello world", pattern="xyz",
+            text="hello world",
+            pattern="xyz",
         )
         assert "No matches" in result
 
     async def test_find_regex(self):
         tool = TextSearchTool()
         result = await tool.execute(
-            text="abc123 def456", pattern=r"\d+", use_regex=True,
+            text="abc123 def456",
+            pattern=r"\d+",
+            use_regex=True,
         )
         assert "2 match" in result
 
@@ -382,6 +388,8 @@ class TestTextSearchTool:
     async def test_invalid_regex(self):
         tool = TextSearchTool()
         result = await tool.execute(
-            text="test", pattern=r"[invalid", use_regex=True,
+            text="test",
+            pattern=r"[invalid",
+            use_regex=True,
         )
         assert "Error in regex" in result

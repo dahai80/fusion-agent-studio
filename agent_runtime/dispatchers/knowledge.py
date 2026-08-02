@@ -1,18 +1,40 @@
 """Sub-dispatcher: KnowledgeDispatcher."""
+
 from __future__ import annotations
 import logging
-from typing import Any
 from .base import SubDispatcher
+from typing import Callable
+from ..rag_pipeline import RAGConfig
 
 logger = logging.getLogger(__name__)
 
 
 class KnowledgeDispatcher(SubDispatcher):
+    def get_handlers(self) -> dict[str, Callable]:
+        return {
+            "knowledge.search": self._handle_knowledge_search,
+            "knowledge.ingest": self._handle_knowledge_ingest,
+            "knowledge.delete": self._handle_knowledge_delete,
+            "knowledge.list": self._handle_knowledge_list,
+            "knowledge.count": self._handle_knowledge_count,
+            "rag.query": self._handle_rag_query,
+            "rag.retrieve": self._handle_rag_retrieve,
+            "rag.vector_search": self._handle_rag_vector_search,
+            "kb.build": self._handle_kb_build,
+            "kb.status": self._handle_kb_status,
+            "kb.query": self._handle_kb_query,
+            "kb.search": self._handle_kb_search,
+            "kb.ask": self._handle_kb_ask,
+            "kb.scan": self._handle_kb_scan,
+            "kb.health": self._handle_kb_health,
+        }
+
     async def _handle_knowledge_search(self, params: dict) -> dict:
         query = params.get("query", "")
         limit = params.get("limit", 5)
         try:
-            from .knowledge_engine import KnowledgeEngine
+            from ..knowledge_engine import KnowledgeEngine
+
             engine = KnowledgeEngine()
             results = engine.search(query, limit=limit)
             return {"results": [r.to_dict() for r in results]}
@@ -27,7 +49,8 @@ class KnowledgeDispatcher(SubDispatcher):
         if not content:
             return {"error": "content is required"}
         try:
-            from .knowledge_engine import KnowledgeEngine
+            from ..knowledge_engine import KnowledgeEngine
+
             engine = KnowledgeEngine()
             entry = engine.ingest(content, scope=scope, metadata=metadata)
             logger.info("knowledge.ingest: entry_id=%s scope=%s", entry.id, scope)
@@ -41,7 +64,8 @@ class KnowledgeDispatcher(SubDispatcher):
         if not entry_id:
             return {"error": "entry_id is required"}
         try:
-            from .knowledge_engine import KnowledgeEngine
+            from ..knowledge_engine import KnowledgeEngine
+
             engine = KnowledgeEngine()
             ok = engine.delete(entry_id)
             logger.info("knowledge.delete: entry_id=%s ok=%s", entry_id, ok)
@@ -54,7 +78,8 @@ class KnowledgeDispatcher(SubDispatcher):
         scope = params.get("scope", "")
         limit = params.get("limit", 100)
         try:
-            from .knowledge_engine import KnowledgeEngine
+            from ..knowledge_engine import KnowledgeEngine
+
             engine = KnowledgeEngine()
             entries = engine.list_entries(scope=scope, limit=limit)
             return {"entries": [e.to_dict() for e in entries]}
@@ -65,7 +90,8 @@ class KnowledgeDispatcher(SubDispatcher):
     async def _handle_knowledge_count(self, params: dict) -> dict:
         scope = params.get("scope", "")
         try:
-            from .knowledge_engine import KnowledgeEngine
+            from ..knowledge_engine import KnowledgeEngine
+
             engine = KnowledgeEngine()
             n = engine.count(scope=scope)
             return {"count": n}
@@ -86,7 +112,9 @@ class KnowledgeDispatcher(SubDispatcher):
             model=params.get("model", ""),
             system_prompt=params.get("system_prompt", ""),
         )
-        logger.info("rag.query: query=%r sources=%d", query[:50], len(result.get("sources", [])))
+        logger.info(
+            "rag.query: query=%r sources=%d", query[:50], len(result.get("sources", []))
+        )
         return result
 
     async def _handle_rag_retrieve(self, params: dict) -> dict:
@@ -108,13 +136,17 @@ class KnowledgeDispatcher(SubDispatcher):
         }
 
     def _get_vector_strategy(self, base_url: str = "http://localhost:8900"):
-        from .rag_pipeline import VectorRetrievalStrategy
+        from ..rag_pipeline import VectorRetrievalStrategy
+
         if not hasattr(self, "_vector_strategy") or self._vector_strategy is None:
             self._vector_strategy = VectorRetrievalStrategy(base_url=base_url)
             logger.info("Created cached VectorRetrievalStrategy for %s", base_url)
         elif self._vector_strategy.base_url != base_url.rstrip("/"):
-            logger.warning("VectorRetrievalStrategy base_url mismatch: cached=%s requested=%s, re-creating",
-                           self._vector_strategy.base_url, base_url)
+            logger.warning(
+                "VectorRetrievalStrategy base_url mismatch: cached=%s requested=%s, re-creating",
+                self._vector_strategy.base_url,
+                base_url,
+            )
             self._vector_strategy = VectorRetrievalStrategy(base_url=base_url)
         return self._vector_strategy
 
@@ -126,14 +158,22 @@ class KnowledgeDispatcher(SubDispatcher):
         strategy = self._daemon._get_vector_strategy(base_url)
         available = await strategy.is_available()
         if not available:
-            return {"status": "error", "message": f"fusion-kb not reachable at {base_url}"}
+            return {
+                "status": "error",
+                "message": f"fusion-kb not reachable at {base_url}",
+            }
         top_k = params.get("top_k", 5)
         scope = params.get("scope", "")
         entries = await strategy.search(query, top_k=top_k, scope=scope)
         return {
             "query": query,
             "results": [
-                {"id": e.id, "content": e.content[:500], "scope": e.scope, "source": e.source}
+                {
+                    "id": e.id,
+                    "content": e.content[:500],
+                    "scope": e.scope,
+                    "source": e.source,
+                }
                 for e in entries
             ],
             "count": len(entries),
@@ -142,9 +182,11 @@ class KnowledgeDispatcher(SubDispatcher):
     # ── Cron handlers ──
 
     def _get_cron_manager(self):
-        from .triggers import CronManager
+        from ..triggers import CronManager
+
         if not hasattr(self, "_cron_manager") or self._cron_manager is None:
             import os
+
             db_path = os.path.expanduser("~/.fusion-agent-studio/cron.db")
             self._cron_manager = CronManager(db_path=db_path)
         return self._cron_manager
@@ -156,6 +198,7 @@ class KnowledgeDispatcher(SubDispatcher):
         if not path:
             return {"status": "error", "message": "path parameter required"}
         import os
+
         if not os.path.exists(path):
             return {"status": "error", "message": f"path not found: {path}"}
         kb_name = os.path.basename(path)
@@ -166,7 +209,18 @@ class KnowledgeDispatcher(SubDispatcher):
             for fn in files:
                 fp = os.path.join(root, fn)
                 ext = os.path.splitext(fn)[1].lower()
-                if ext in (".py", ".js", ".ts", ".md", ".txt", ".json", ".yaml", ".yml", ".toml", ".rst"):
+                if ext in (
+                    ".py",
+                    ".js",
+                    ".ts",
+                    ".md",
+                    ".txt",
+                    ".json",
+                    ".yaml",
+                    ".yml",
+                    ".toml",
+                    ".rst",
+                ):
                     try:
                         mgr.add_file(kb_id, fp)
                         file_count += 1
@@ -184,7 +238,12 @@ class KnowledgeDispatcher(SubDispatcher):
                 return {"status": "error", "message": f"kb not found: {kb_id}"}
             kb_dict = kb.to_dict() if hasattr(kb, "to_dict") else kb
             files = mgr.list_files(kb_id)
-            return {"kbs": [kb_dict], "building": False, "progress": 1.0, "file_count": len(files)}
+            return {
+                "kbs": [kb_dict],
+                "building": False,
+                "progress": 1.0,
+                "file_count": len(files),
+            }
         result = mgr.list_kbs()
         kbs_list = result.get("data", result) if isinstance(result, dict) else result
         kbs_dicts = [k.to_dict() if hasattr(k, "to_dict") else k for k in kbs_list]
@@ -206,7 +265,9 @@ class KnowledgeDispatcher(SubDispatcher):
                 results.append(f_dict)
         else:
             all_kbs = mgr.list_kbs()
-            kbs_list = all_kbs.get("data", all_kbs) if isinstance(all_kbs, dict) else all_kbs
+            kbs_list = (
+                all_kbs.get("data", all_kbs) if isinstance(all_kbs, dict) else all_kbs
+            )
             for kb in kbs_list:
                 kid = kb.kb_id if hasattr(kb, "kb_id") else kb.get("kb_id", "")
                 files = mgr.list_files(kid)
@@ -217,7 +278,9 @@ class KnowledgeDispatcher(SubDispatcher):
                 if len(results) >= limit:
                     break
             results = results[:limit]
-        logger.info("kb.query: query=%s kb_id=%s results=%d", query[:50], kb_id, len(results))
+        logger.info(
+            "kb.query: query=%s kb_id=%s results=%d", query[:50], kb_id, len(results)
+        )
         return {"results": results}
 
     async def _handle_kb_search(self, params: dict) -> dict:
@@ -227,14 +290,27 @@ class KnowledgeDispatcher(SubDispatcher):
             return {"status": "error", "message": "kb_id and query required"}
         mgr = self._daemon._get_kb_manager()
         search_kwargs = {}
-        for key in ("top_k", "threshold", "hybrid", "hybrid_alpha", "hybrid_method",
-                     "rerank", "folder_prefix", "rewrite_mode"):
+        for key in (
+            "top_k",
+            "threshold",
+            "hybrid",
+            "hybrid_alpha",
+            "hybrid_method",
+            "rerank",
+            "folder_prefix",
+            "rewrite_mode",
+        ):
             if key in params:
                 search_kwargs[key] = params[key]
         if "filter" in params:
             search_kwargs["filter"] = params["filter"]
         result = await mgr.search(kb_id=kb_id, query=query, **search_kwargs)
-        logger.info("kb.search: kb_id=%s query=%s count=%d", kb_id, query[:50], result.get("count", 0))
+        logger.info(
+            "kb.search: kb_id=%s query=%s count=%d",
+            kb_id,
+            query[:50],
+            result.get("count", 0),
+        )
         return result
 
     async def _handle_kb_ask(self, params: dict) -> dict:
@@ -244,7 +320,14 @@ class KnowledgeDispatcher(SubDispatcher):
             return {"status": "error", "message": "kb_id and question required"}
         mgr = self._daemon._get_kb_manager()
         ask_kwargs = {}
-        for key in ("model", "max_tokens", "temperature", "hybrid", "rerank", "folder_prefix"):
+        for key in (
+            "model",
+            "max_tokens",
+            "temperature",
+            "hybrid",
+            "rerank",
+            "folder_prefix",
+        ):
             if key in params:
                 ask_kwargs[key] = params[key]
         result = await mgr.ask(kb_id=kb_id, question=question, **ask_kwargs)

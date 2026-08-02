@@ -19,7 +19,9 @@ class TokenBudget:
     spent_tokens: int = 0
     prompt_tokens: int = 0
     completion_tokens: int = 0
-    pricing: dict[str, dict[str, float]] = field(default_factory=lambda: dict(_DEFAULT_PRICING))
+    pricing: dict[str, dict[str, float]] = field(
+        default_factory=lambda: dict(_DEFAULT_PRICING)
+    )
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -46,7 +48,9 @@ class TokenBudget:
         self.spent_tokens = self.prompt_tokens + self.completion_tokens
         logger.debug(
             "Token usage recorded: prompt=%d completion=%d total=%d",
-            prompt_tokens, completion_tokens, self.spent_tokens,
+            prompt_tokens,
+            completion_tokens,
+            self.spent_tokens,
         )
 
     def is_exceeded(self) -> bool:
@@ -60,9 +64,13 @@ class TokenBudget:
         return max(0, self.max_tokens - self.spent_tokens)
 
     def estimate_cost(self, model: str = "default") -> float:
-        rates = self.pricing.get(model, self.pricing.get("default", _DEFAULT_PRICING["default"]))
+        rates = self.pricing.get(
+            model, self.pricing.get("default", _DEFAULT_PRICING["default"])
+        )
         prompt_cost = (self.prompt_tokens / 1000.0) * rates.get("prompt_per_1k", 0.0)
-        completion_cost = (self.completion_tokens / 1000.0) * rates.get("completion_per_1k", 0.0)
+        completion_cost = (self.completion_tokens / 1000.0) * rates.get(
+            "completion_per_1k", 0.0
+        )
         return prompt_cost + completion_cost
 
     def status(self, model: str = "default") -> dict[str, Any]:

@@ -18,7 +18,9 @@ class TestSpan:
         assert len(d["span_id"]) == 16
 
     def test_span_from_dict(self):
-        s = Span.from_dict({"trace_id": "t1", "span_id": "s1", "name": "test", "status": "error"})
+        s = Span.from_dict(
+            {"trace_id": "t1", "span_id": "s1", "name": "test", "status": "error"}
+        )
         assert s.trace_id == "t1"
         assert s.status == "error"
 
@@ -35,7 +37,9 @@ class TestTelemetryConfig:
         assert d["headers"]["Authorization"] == "***"
 
     def test_config_from_dict(self):
-        c = TelemetryConfig.from_dict({"enabled": False, "endpoint": "http://otlp:4317", "sampling_rate": 0.5})
+        c = TelemetryConfig.from_dict(
+            {"enabled": False, "endpoint": "http://otlp:4317", "sampling_rate": 0.5}
+        )
         assert c.enabled is False
         assert c.endpoint == "http://otlp:4317"
         assert c.sampling_rate == 0.5
@@ -105,7 +109,11 @@ class TestTelemetryEngine:
         assert "[test]" in data
 
     def test_metrics(self, engine):
-        s = engine.start_span("llm.call", trace_id="t1", attributes={"prompt_tokens": 100, "completion_tokens": 50})
+        s = engine.start_span(
+            "llm.call",
+            trace_id="t1",
+            attributes={"prompt_tokens": 100, "completion_tokens": 50},
+        )
         engine.end_span(s.span_id)
         metrics = engine.metrics()
         assert metrics["counters"]["llm_calls"] == 1

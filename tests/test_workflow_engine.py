@@ -32,7 +32,13 @@ class TestWorkflowConfig:
     def test_workflow_to_dict_from_dict(self, engine):
         wf = engine.create_workflow(
             name="Roundtrip",
-            phases=[{"name": "p1", "pattern": "adversarial_verify", "config": {"voter_count": 5}}],
+            phases=[
+                {
+                    "name": "p1",
+                    "pattern": "adversarial_verify",
+                    "config": {"voter_count": 5},
+                }
+            ],
         )
         d = wf.to_dict()
         wf2 = WorkflowConfig.from_dict(d)
@@ -59,13 +65,23 @@ class TestWorkflowConfig:
 
 class TestWorkflowPhase:
     def test_phase_from_dict(self):
-        p = WorkflowPhase.from_dict({"name": "test", "pattern": "loop_until_dry", "config": {"dry_threshold": 3}})
+        p = WorkflowPhase.from_dict(
+            {
+                "name": "test",
+                "pattern": "loop_until_dry",
+                "config": {"dry_threshold": 3},
+            }
+        )
         assert p.name == "test"
         assert p.pattern == WorkflowPattern.LOOP_UNTIL_DRY
         assert p.config["dry_threshold"] == 3
 
     def test_phase_to_dict(self):
-        p = WorkflowPhase(name="test", pattern=WorkflowPattern.JUDGE_PANEL, config={"judge_agent": {"name": "j"}})
+        p = WorkflowPhase(
+            name="test",
+            pattern=WorkflowPattern.JUDGE_PANEL,
+            config={"judge_agent": {"name": "j"}},
+        )
         d = p.to_dict()
         assert d["pattern"] == "judge_panel"
         assert d["config"]["judge_agent"]["name"] == "j"
@@ -80,13 +96,15 @@ class TestWorkflowRun:
         assert d["id"].startswith("wf_run_")
 
     def test_run_from_dict(self):
-        run = WorkflowRun.from_dict({
-            "id": "wf_run_abc",
-            "workflow_id": "wf_123",
-            "status": "failed",
-            "current_phase": 2,
-            "error": "boom",
-        })
+        run = WorkflowRun.from_dict(
+            {
+                "id": "wf_run_abc",
+                "workflow_id": "wf_123",
+                "status": "failed",
+                "current_phase": 2,
+                "error": "boom",
+            }
+        )
         assert run.status == WorkflowStatus.FAILED
         assert run.current_phase == 2
         assert run.error == "boom"

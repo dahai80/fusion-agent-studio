@@ -1,4 +1,5 @@
 """Deployer — export and deploy agent graphs as standalone services."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -17,9 +18,12 @@ class GraphDeployer:
         return path
 
     @staticmethod
-    def export_as_python(graph: AgentGraph, filepath: str | Path, with_server: bool = True) -> Path:
+    def export_as_python(
+        graph: AgentGraph, filepath: str | Path, with_server: bool = True
+    ) -> Path:
         """Export graph as a standalone Python script."""
         from .exporter import GraphExporter
+
         path = Path(filepath).expanduser().resolve()
         code = GraphExporter.to_python(graph, include_runtime=True)
         path.write_text(code, encoding="utf-8")
@@ -30,12 +34,15 @@ class GraphDeployer:
     def export_as_yaml(graph: AgentGraph, filepath: str | Path) -> Path:
         """Export graph as a YAML-like config file."""
         from .exporter import GraphExporter
+
         path = Path(filepath).expanduser().resolve()
         path.write_text(GraphExporter.to_yaml(graph), encoding="utf-8")
         return path
 
     @staticmethod
-    def export_as_fastapi(graph: AgentGraph, filepath: str | Path, port: int = 11453) -> Path:
+    def export_as_fastapi(
+        graph: AgentGraph, filepath: str | Path, port: int = 11453
+    ) -> Path:
         """Export graph as a FastAPI server that can be run independently."""
         llm_model = graph.find_llm_model() or "qwen3.5-9b"
         code = f'''#!/usr/bin/env python3
@@ -81,8 +88,20 @@ if __name__ == "__main__":
     @staticmethod
     def list_formats() -> list[dict[str, str]]:
         return [
-            {"name": "json", "extension": ".json", "description": "Portable JSON format"},
-            {"name": "python", "extension": ".py", "description": "Standalone Python script"},
+            {
+                "name": "json",
+                "extension": ".json",
+                "description": "Portable JSON format",
+            },
+            {
+                "name": "python",
+                "extension": ".py",
+                "description": "Standalone Python script",
+            },
             {"name": "yaml", "extension": ".yaml", "description": "YAML-like config"},
-            {"name": "fastapi", "extension": ".py", "description": "FastAPI microservice"},
+            {
+                "name": "fastapi",
+                "extension": ".py",
+                "description": "FastAPI microservice",
+            },
         ]

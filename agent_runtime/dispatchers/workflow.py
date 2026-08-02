@@ -1,13 +1,43 @@
 """Sub-dispatcher: WorkflowDispatcher."""
+
 from __future__ import annotations
 import logging
-from typing import Any
 from .base import SubDispatcher
+from typing import Callable
 
 logger = logging.getLogger(__name__)
 
 
 class WorkflowDispatcher(SubDispatcher):
+    def get_handlers(self) -> dict[str, Callable]:
+        return {
+            "workflow.create": self._handle_workflow_create,
+            "workflow.execute": self._handle_workflow_execute,
+            "workflow.pause": self._handle_workflow_pause,
+            "workflow.resume": self._handle_workflow_resume,
+            "workflow.cancel": self._handle_workflow_cancel,
+            "workflow.status": self._handle_workflow_status,
+            "workflow.list": self._handle_workflow_list,
+            "workflow.get": self._handle_workflow_get,
+            "workflow.delete": self._handle_workflow_delete,
+            "langgraph.create": self._handle_langgraph_create,
+            "langgraph.get": self._handle_langgraph_get,
+            "langgraph.list": self._handle_langgraph_list,
+            "langgraph.delete": self._handle_langgraph_delete,
+            "langgraph.run": self._handle_langgraph_run,
+            "langgraph.approve": self._handle_langgraph_approve,
+            "langgraph.cancel": self._handle_langgraph_cancel,
+            "langgraph.get_run": self._handle_langgraph_get_run,
+            "artifact.create": self._handle_artifact_create,
+            "artifact.update": self._handle_artifact_update,
+            "artifact.search": self._handle_artifact_search,
+            "artifact.get": self._handle_artifact_get,
+            "artifact.list": self._handle_artifact_list,
+            "artifact.delete": self._handle_artifact_delete,
+            "artifact.export": self._handle_artifact_export,
+            "artifact.context": self._handle_artifact_context,
+        }
+
     async def _handle_workflow_create(self, params: dict) -> dict:
         engine = self._daemon._get_workflow_engine()
         name = params.get("name", "Untitled Workflow")
@@ -19,7 +49,9 @@ class WorkflowDispatcher(SubDispatcher):
             output_schema=params.get("output_schema", {}),
             metadata=params.get("metadata", {}),
         )
-        logger.info("workflow.create: name=%s id=%s phases=%d", name, wf.id, len(wf.phases))
+        logger.info(
+            "workflow.create: name=%s id=%s phases=%d", name, wf.id, len(wf.phases)
+        )
         return wf.to_dict()
 
     async def _handle_workflow_execute(self, params: dict) -> dict:
@@ -28,7 +60,12 @@ class WorkflowDispatcher(SubDispatcher):
         initial_input = params.get("input", "")
         budget = params.get("budget")
         run = await engine.execute_workflow(workflow_id, initial_input, budget)
-        logger.info("workflow.execute: workflow=%s run=%s status=%s", workflow_id, run.id, run.status.value)
+        logger.info(
+            "workflow.execute: workflow=%s run=%s status=%s",
+            workflow_id,
+            run.id,
+            run.status.value,
+        )
         return run.to_dict()
 
     async def _handle_workflow_pause(self, params: dict) -> dict:
@@ -85,11 +122,16 @@ class WorkflowDispatcher(SubDispatcher):
         return {"workflow_id": workflow_id, "deleted": ok}
 
     async def _handle_langgraph_create(self, params: dict) -> dict:
-        from .langgraph_engine import WorkflowDefinition
+        from ..langgraph_engine import WorkflowDefinition
+
         engine = self._daemon._get_langgraph_engine()
         wf = WorkflowDefinition.from_dict(params)
         result = engine.create_workflow(wf)
-        logger.info("langgraph.create: wf_id=%s name=%s", result.get("wf_id", ""), params.get("name", ""))
+        logger.info(
+            "langgraph.create: wf_id=%s name=%s",
+            result.get("wf_id", ""),
+            params.get("name", ""),
+        )
         return result
 
     async def _handle_langgraph_get(self, params: dict) -> dict:
@@ -112,7 +154,9 @@ class WorkflowDispatcher(SubDispatcher):
         trigger_type = params.get("trigger_type", "manual")
         input_data = params.get("input_data")
         engine = self._daemon._get_langgraph_engine()
-        result = await engine.run_workflow(wf_id, trigger_type=trigger_type, input_data=input_data)
+        result = await engine.run_workflow(
+            wf_id, trigger_type=trigger_type, input_data=input_data
+        )
         logger.info("langgraph.run: wf_id=%s status=%s", wf_id, result.get("status"))
         return result
 
@@ -122,7 +166,9 @@ class WorkflowDispatcher(SubDispatcher):
         reviewer = params.get("reviewer", "")
         comment = params.get("comment", "")
         engine = self._daemon._get_langgraph_engine()
-        result = engine.approve_run(run_id, action=action, reviewer=reviewer, comment=comment)
+        result = engine.approve_run(
+            run_id, action=action, reviewer=reviewer, comment=comment
+        )
         logger.info("langgraph.approve: run_id=%s action=%s", run_id, action)
         return result
 
@@ -145,7 +191,13 @@ class WorkflowDispatcher(SubDispatcher):
         content = params.get("content", "")
         metadata = params.get("metadata")
         mgr = self._daemon._get_artifact_manager()
-        return mgr.create_artifact(agent_id, name, artifact_type=artifact_type, content=content, metadata=metadata)
+        return mgr.create_artifact(
+            agent_id,
+            name,
+            artifact_type=artifact_type,
+            content=content,
+            metadata=metadata,
+        )
 
     async def _handle_artifact_update(self, params: dict) -> dict:
         artifact_id = params.get("artifact_id", "")
@@ -153,14 +205,18 @@ class WorkflowDispatcher(SubDispatcher):
         content = params.get("content")
         metadata = params.get("metadata")
         mgr = self._daemon._get_artifact_manager()
-        return mgr.update_artifact(artifact_id, agent_id, content=content, metadata=metadata)
+        return mgr.update_artifact(
+            artifact_id, agent_id, content=content, metadata=metadata
+        )
 
     async def _handle_artifact_search(self, params: dict) -> dict:
         query = params.get("query", "")
         artifact_type = params.get("artifact_type", "")
         owner_agent_id = params.get("owner_agent_id", "")
         mgr = self._daemon._get_artifact_manager()
-        results = mgr.search_artifacts(query=query, artifact_type=artifact_type, owner_agent_id=owner_agent_id)
+        results = mgr.search_artifacts(
+            query=query, artifact_type=artifact_type, owner_agent_id=owner_agent_id
+        )
         return {"results": results}
 
     async def _handle_artifact_get(self, params: dict) -> dict:

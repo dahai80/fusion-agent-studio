@@ -1,13 +1,32 @@
 """Sub-dispatcher: ChatDispatcher."""
+
 from __future__ import annotations
 import logging
-from typing import Any
 from .base import SubDispatcher
+from typing import Callable
 
 logger = logging.getLogger(__name__)
 
 
 class ChatDispatcher(SubDispatcher):
+    def get_handlers(self) -> dict[str, Callable]:
+        return {
+            "chat.create": self._handle_chat_create,
+            "chat.get": self._handle_chat_get,
+            "chat.list": self._handle_chat_list,
+            "chat.delete": self._handle_chat_delete,
+            "chat.send": self._handle_chat_send,
+            "chat.branch": self._handle_chat_branch,
+            "chat.edit": self._handle_chat_edit,
+            "chat.switch_branch": self._handle_chat_switch_branch,
+            "chat.branches": self._handle_chat_branches,
+            "chat.message_tree": self._handle_chat_message_tree,
+            "style.list": self._handle_style_list,
+            "style.get": self._handle_style_get,
+            "style.create": self._handle_style_create,
+            "style.apply": self._handle_style_apply,
+        }
+
     async def _handle_chat_create(self, params: dict) -> dict:
         engine = self._daemon._get_chat_engine()
         session = engine.create_session(
@@ -58,7 +77,7 @@ class ChatDispatcher(SubDispatcher):
                     return {
                         "status": "error",
                         "message": "Image input requires a vision model (e.g., llava, qwen-vl). "
-                                   f"Current model: {model or 'unknown'}",
+                        f"Current model: {model or 'unknown'}",
                         "code": 422,
                     }
 
@@ -69,13 +88,21 @@ class ChatDispatcher(SubDispatcher):
             events.append(ev_dict)
             if ev.type.value == "token":
                 full_content += ev.content
-            await self._broadcast_event("chat_event", {
-                "session_id": session_id,
-                "event": ev_dict,
-            })
+            await self._broadcast_event(
+                "chat_event",
+                {
+                    "session_id": session_id,
+                    "event": ev_dict,
+                },
+            )
 
-        logger.info("chat.send: session=%s events=%d content_len=%d multimodal=%s",
-                     session_id, len(events), len(full_content), bool(content))
+        logger.info(
+            "chat.send: session=%s events=%d content_len=%d multimodal=%s",
+            session_id,
+            len(events),
+            len(full_content),
+            bool(content),
+        )
         return {"events": events, "content": full_content}
 
     async def _handle_chat_branch(self, params: dict) -> dict:
@@ -102,7 +129,11 @@ class ChatDispatcher(SubDispatcher):
         message_id = params.get("message_id", "")
         engine = self._daemon._get_chat_engine()
         ok = engine.switch_branch(session_id, message_id)
-        return {"status": "ok" if ok else "error", "session_id": session_id, "active_branch": message_id}
+        return {
+            "status": "ok" if ok else "error",
+            "session_id": session_id,
+            "active_branch": message_id,
+        }
 
     async def _handle_chat_branches(self, params: dict) -> dict:
         session_id = params.get("session_id", "")
@@ -134,7 +165,9 @@ class ChatDispatcher(SubDispatcher):
         name = params.get("name", "")
         if not name:
             return {"status": "error", "message": "name parameter required"}
-        return mgr.create(name, params.get("suffix", ""), params.get("output_format", "markdown"))
+        return mgr.create(
+            name, params.get("suffix", ""), params.get("output_format", "markdown")
+        )
 
     async def _handle_style_apply(self, params: dict) -> dict:
         mgr = self._daemon._get_style_manager()

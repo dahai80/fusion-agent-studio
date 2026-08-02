@@ -1,4 +1,5 @@
 """Tests for new P0 capabilities: tools, undo_manager, error_handler, templates."""
+
 from __future__ import annotations
 
 import hashlib
@@ -19,6 +20,7 @@ from tools.utility_tools import DateTimeTool, UuidTool, HashTool, PathOpsTool, Z
 
 # ── UndoManager ──
 
+
 class TestUndoManager:
     def test_init(self):
         um = UndoManager()
@@ -30,7 +32,10 @@ class TestUndoManager:
     def test_record_and_undo(self):
         um = UndoManager()
         um.record({"n1": {"type": "start"}}, [{"source": "n1", "target": "n2"}])
-        um.record({"n1": {"type": "start"}, "n2": {"type": "end"}}, [{"source": "n1", "target": "n2"}])
+        um.record(
+            {"n1": {"type": "start"}, "n2": {"type": "end"}},
+            [{"source": "n1", "target": "n2"}],
+        )
         assert um.can_undo is True
         snap = um.undo()
         assert snap is not None
@@ -77,6 +82,7 @@ class TestUndoManager:
 
 # ── HttpRequestTool ──
 
+
 class TestHttpRequestTool:
     @pytest.mark.asyncio
     async def test_no_url(self):
@@ -87,17 +93,22 @@ class TestHttpRequestTool:
     @pytest.mark.asyncio
     async def test_invalid_url(self):
         tool = HttpRequestTool()
-        result = await tool.execute(method="GET", url="http://nonexistent-domain-xyz-123.com")
+        result = await tool.execute(
+            method="GET", url="http://nonexistent-domain-xyz-123.com"
+        )
         assert "Error" in result or "Connection" in result or "Failed" in result
 
     @pytest.mark.asyncio
     async def test_timeout(self):
         tool = HttpRequestTool()
         result = await tool.execute(method="GET", url="http://localhost:1", timeout=1)
-        assert "Error" in result or "timed out" in result.lower() or "Connection" in result
+        assert (
+            "Error" in result or "timed out" in result.lower() or "Connection" in result
+        )
 
 
 # ── CodeExecuteTool ──
+
 
 class TestCodeExecuteTool:
     @pytest.mark.asyncio
@@ -133,6 +144,7 @@ class TestCodeExecuteTool:
 
 # ── JsonParseTool ──
 
+
 class TestJsonParseTool:
     @pytest.mark.asyncio
     async def test_parse(self):
@@ -161,14 +173,16 @@ class TestJsonParseTool:
     @pytest.mark.asyncio
     async def test_extract_keys(self):
         tool = JsonParseTool()
-        result = await tool.execute(input='{"name": "test", "count": 5}', operation="extract_keys")
+        result = await tool.execute(
+            input='{"name": "test", "count": 5}', operation="extract_keys"
+        )
         assert "name" in result
         assert "count" in result
 
     @pytest.mark.asyncio
     async def test_count_array(self):
         tool = JsonParseTool()
-        result = await tool.execute(input='[1,2,3,4,5]', operation="count")
+        result = await tool.execute(input="[1,2,3,4,5]", operation="count")
         assert "5" in result
 
     @pytest.mark.asyncio
@@ -179,6 +193,7 @@ class TestJsonParseTool:
 
 
 # ── CsvParseTool ──
+
 
 class TestCsvParseTool:
     @pytest.mark.asyncio
@@ -222,6 +237,7 @@ class TestCsvParseTool:
 
 # ── Base64Tool ──
 
+
 class TestBase64Tool:
     @pytest.mark.asyncio
     async def test_encode(self):
@@ -251,6 +267,7 @@ class TestBase64Tool:
 
 # ── DateTimeTool ──
 
+
 class TestDateTimeTool:
     @pytest.mark.asyncio
     async def test_now(self):
@@ -272,6 +289,7 @@ class TestDateTimeTool:
 
 
 # ── UuidTool ──
+
 
 class TestUuidTool:
     @pytest.mark.asyncio
@@ -296,6 +314,7 @@ class TestUuidTool:
 
 # ── HashTool ──
 
+
 class TestHashTool:
     @pytest.mark.asyncio
     async def test_sha256(self):
@@ -317,6 +336,7 @@ class TestHashTool:
 
 
 # ── PathOpsTool ──
+
 
 class TestPathOpsTool:
     @pytest.mark.asyncio
@@ -364,6 +384,7 @@ class TestPathOpsTool:
 
 # ── ZipTool ──
 
+
 class TestZipTool:
     @pytest.mark.asyncio
     async def test_list_not_zip(self):
@@ -380,12 +401,18 @@ class TestZipTool:
 
 # ── Error Handler Node ──
 
+
 class TestErrorHandlerNode:
     @pytest.mark.asyncio
     async def test_error_handler_in_graph(self):
         graph = AgentGraph(name="Error Test")
         graph.add_node("start", NodeConfig(type="start", label="Start"))
-        graph.add_node("err", NodeConfig(type="error_handler", label="Retry", max_retries=2, retry_delay=0.01))
+        graph.add_node(
+            "err",
+            NodeConfig(
+                type="error_handler", label="Retry", max_retries=2, retry_delay=0.01
+            ),
+        )
         graph.add_node("end", NodeConfig(type="end", label="End"))
         graph.add_edge("start", "err")
         graph.add_edge("err", "end")
@@ -400,6 +427,7 @@ class TestErrorHandlerNode:
 
 
 # ── Templates ──
+
 
 class TestTemplates:
     def test_register_default_templates(self):

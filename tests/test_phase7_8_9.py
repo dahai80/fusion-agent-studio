@@ -1,13 +1,29 @@
 """Tests for Phase 7, 8, 9 modules."""
+
 from __future__ import annotations
 
 import asyncio
 
 import pytest
 
-from agent_runtime.knowledge_engine import KnowledgeEngine, KnowledgeEntry, _stub_embedding, EMBEDDING_DIM
-from agent_runtime.llm_gateway import LLMGateway, ModelConfig, ModelStats, _ModelCircuitBreaker
-from agent_runtime.swarm_router import SwarmRouter, SwarmAgent, TaskDelegation, HandoffContext
+from agent_runtime.knowledge_engine import (
+    KnowledgeEngine,
+    KnowledgeEntry,
+    _stub_embedding,
+    EMBEDDING_DIM,
+)
+from agent_runtime.llm_gateway import (
+    LLMGateway,
+    ModelConfig,
+    ModelStats,
+    _ModelCircuitBreaker,
+)
+from agent_runtime.swarm_router import (
+    SwarmRouter,
+    SwarmAgent,
+    TaskDelegation,
+    HandoffContext,
+)
 
 
 class TestKnowledgeEntry:
@@ -152,7 +168,9 @@ class TestModelConfig:
         assert "chat" in mc.capabilities
 
     def test_to_dict_from_dict_roundtrip(self):
-        mc = ModelConfig(name="m1", provider="cloud", priority=5, capabilities=["chat", "tool_use"])
+        mc = ModelConfig(
+            name="m1", provider="cloud", priority=5, capabilities=["chat", "tool_use"]
+        )
         d = mc.to_dict()
         mc2 = ModelConfig.from_dict(d)
         assert mc2.name == "m1"
@@ -224,7 +242,9 @@ class TestLLMGateway:
     def test_route_by_capability(self):
         gw = LLMGateway()
         gw.register_model(ModelConfig(name="chat-only", capabilities=["chat"]))
-        gw.register_model(ModelConfig(name="multimodal", capabilities=["chat", "vision"]))
+        gw.register_model(
+            ModelConfig(name="multimodal", capabilities=["chat", "vision"])
+        )
         selected = gw.route(capability="vision")
         assert selected.name == "multimodal"
 
@@ -314,7 +334,13 @@ class TestSwarmAgent:
         assert len(a.id) == 8
 
     def test_to_dict_from_dict_roundtrip(self):
-        a = SwarmAgent(id="a1", name="coder", capabilities=["code"], handoff_targets=["reviewer"], max_hops=2)
+        a = SwarmAgent(
+            id="a1",
+            name="coder",
+            capabilities=["code"],
+            handoff_targets=["reviewer"],
+            max_hops=2,
+        )
         d = a.to_dict()
         a2 = SwarmAgent.from_dict(d)
         assert a2.id == "a1"
@@ -330,7 +356,9 @@ class TestTaskDelegation:
         assert t.status == "pending"
 
     def test_to_dict_from_dict_roundtrip(self):
-        t = TaskDelegation(id="t1", task="review", delegator="a1", delegatee="a2", hop_count=1)
+        t = TaskDelegation(
+            id="t1", task="review", delegator="a1", delegatee="a2", hop_count=1
+        )
         d = t.to_dict()
         t2 = TaskDelegation.from_dict(d)
         assert t2.id == "t1"
@@ -339,7 +367,9 @@ class TestTaskDelegation:
 
 class TestHandoffContext:
     def test_to_dict_from_dict_roundtrip(self):
-        ctx = HandoffContext(conversation=[{"role": "user", "content": "hi"}], hop_count=1, task_id="t1")
+        ctx = HandoffContext(
+            conversation=[{"role": "user", "content": "hi"}], hop_count=1, task_id="t1"
+        )
         d = ctx.to_dict()
         ctx2 = HandoffContext.from_dict(d)
         assert ctx2.hop_count == 1
@@ -385,7 +415,9 @@ class TestSwarmRouter:
 
     def test_delegate_by_capability(self):
         sr = SwarmRouter()
-        sr.register_agent(SwarmAgent(id="a1", name="supervisor", capabilities=["manage"]))
+        sr.register_agent(
+            SwarmAgent(id="a1", name="supervisor", capabilities=["manage"])
+        )
         sr.register_agent(SwarmAgent(id="a2", name="coder", capabilities=["code"]))
         delegation = sr.delegate("a1", "write code", capability="code")
         assert delegation is not None
@@ -437,7 +469,9 @@ class TestSwarmRouter:
         sr = SwarmRouter()
         sr.register_agent(SwarmAgent(id="a1"))
         sr.register_agent(SwarmAgent(id="a2"))
-        ctx = HandoffContext(conversation=[{"role": "user", "content": "hello"}], hop_count=0)
+        ctx = HandoffContext(
+            conversation=[{"role": "user", "content": "hello"}], hop_count=0
+        )
         new_ctx = sr.handoff("a1", "a2", ctx)
         assert len(new_ctx.conversation) == 1
 
@@ -532,7 +566,9 @@ class TestSwarmRouterComposition:
 
     def test_delegate_sends_fmp_message(self):
         sr = SwarmRouter()
-        sr.register_agent(SwarmAgent(id="a1", name="supervisor", capabilities=["manage"]))
+        sr.register_agent(
+            SwarmAgent(id="a1", name="supervisor", capabilities=["manage"])
+        )
         sr.register_agent(SwarmAgent(id="a2", name="coder", capabilities=["code"]))
         sr.delegate("a1", "write code", capability="code")
         assert sr.fmp._stats["sent"] >= 1
@@ -543,7 +579,9 @@ class TestSwarmRouterComposition:
         sr = SwarmRouter()
         sr.register_agent(SwarmAgent(id="a1", name="coder"))
         sr.register_agent(SwarmAgent(id="a2", name="reviewer"))
-        ctx = HandoffContext(conversation=[{"role": "a1", "content": "done"}], hop_count=0, task_id="t1")
+        ctx = HandoffContext(
+            conversation=[{"role": "a1", "content": "done"}], hop_count=0, task_id="t1"
+        )
         sr.handoff("a1", "a2", ctx)
         assert sr.fmp._stats["sent"] >= 1
         types = [m.message_type for m in sr.fmp._message_log]
@@ -551,7 +589,9 @@ class TestSwarmRouterComposition:
 
     def test_escalate_routes_through_safety(self):
         sr = SwarmRouter()
-        sr.register_agent(SwarmAgent(id="a1", name="supervisor", capabilities=["manage"]))
+        sr.register_agent(
+            SwarmAgent(id="a1", name="supervisor", capabilities=["manage"])
+        )
         sr.register_agent(SwarmAgent(id="a2", name="coder", capabilities=["code"]))
         delegation = sr.delegate("a1", "run shell", capability="code")
         assert delegation is not None

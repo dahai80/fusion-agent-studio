@@ -1,13 +1,30 @@
 """Sub-dispatcher: SafetyDispatcher."""
+
 from __future__ import annotations
 import logging
-from typing import Any
 from .base import SubDispatcher
+from typing import Callable
 
 logger = logging.getLogger(__name__)
 
 
 class SafetyDispatcher(SubDispatcher):
+    def get_handlers(self) -> dict[str, Callable]:
+        return {
+            "safety.check": self._handle_safety_check,
+            "safety.evaluate_action": self._handle_safety_evaluate_action,
+            "safety.approve_action": self._handle_safety_approve_action,
+            "safety.reject_action": self._handle_safety_reject_action,
+            "safety.get_pending_actions": self._handle_safety_get_pending_actions,
+            "safety.add_policy": self._handle_safety_add_policy,
+            "safety.approve": self._handle_safety_approve,
+            "safety.reject": self._handle_safety_reject,
+            "safety.classify_action": self._handle_safety_classify_action,
+            "safety.set_auto_mode": self._handle_safety_set_auto_mode,
+            "safety.set_network_policy": self._handle_safety_set_network_policy,
+            "safety.get_network_policy": self._handle_safety_get_network_policy,
+        }
+
     async def _handle_safety_check(self, params: dict) -> dict:
         content = params.get("content", "")
         if not content:
@@ -50,7 +67,8 @@ class SafetyDispatcher(SubDispatcher):
         return {"actions": actions}
 
     async def _handle_safety_add_policy(self, params: dict) -> dict:
-        from .safety import SafetyLevel, SafetyPolicy
+        from ..safety import SafetyLevel, SafetyPolicy
+
         category = params.get("category", "")
         if not category:
             return {"status": "error", "message": "category parameter required"}
@@ -89,24 +107,40 @@ class SafetyDispatcher(SubDispatcher):
     # ── WebSocket Streaming ──
 
     async def _handle_safety_classify_action(self, params: dict) -> dict:
-        gateway = self._daemon._safety if self._daemon._safety else self._daemon._get_runtime()._safety
+        gateway = (
+            self._daemon._safety
+            if self._daemon._safety
+            else self._daemon._get_runtime()._safety
+        )
         action = params.get("action", "")
         context = params.get("context", "")
         result = gateway.classify_action(action, context)
         return result
 
     async def _handle_safety_set_auto_mode(self, params: dict) -> dict:
-        gateway = self._daemon._safety if self._daemon._safety else self._daemon._get_runtime()._safety
+        gateway = (
+            self._daemon._safety
+            if self._daemon._safety
+            else self._daemon._get_runtime()._safety
+        )
         enabled = params.get("enabled", True)
         threshold = params.get("threshold", 0.2)
         gateway.set_auto_mode(enabled, threshold)
         return {"auto_mode": enabled, "threshold": threshold}
 
     async def _handle_safety_set_network_policy(self, params: dict) -> dict:
-        gateway = self._daemon._safety if self._daemon._safety else self._daemon._get_runtime()._safety
+        gateway = (
+            self._daemon._safety
+            if self._daemon._safety
+            else self._daemon._get_runtime()._safety
+        )
         gateway.set_network_policy(params)
         return {"set": True}
 
     async def _handle_safety_get_network_policy(self, params: dict) -> dict:
-        gateway = self._daemon._safety if self._daemon._safety else self._daemon._get_runtime()._safety
+        gateway = (
+            self._daemon._safety
+            if self._daemon._safety
+            else self._daemon._get_runtime()._safety
+        )
         return gateway.get_network_policy()

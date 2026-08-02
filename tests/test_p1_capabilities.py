@@ -1,4 +1,5 @@
 """Tests for P1 capabilities: plugin, debugger, variable, schema, prompt, subgraph, deploy."""
+
 from __future__ import annotations
 
 import tempfile
@@ -9,7 +10,11 @@ import pytest
 from agent_runtime.variable_manager import VariableManager
 from agent_runtime.debugger import StepDebugger, DebuggerState
 from agent_runtime.json_schema import JsonSchemaValidator
-from agent_runtime.prompt_templates import PromptTemplate, PromptTemplateManager, register_default_prompt_templates
+from agent_runtime.prompt_templates import (
+    PromptTemplate,
+    PromptTemplateManager,
+    register_default_prompt_templates,
+)
 from agent_runtime.sub_graph import SubGraphNode, SubGraphRegistry
 from agent_runtime.graph import AgentGraph, NodeConfig
 from agent_runtime.deployer import GraphDeployer
@@ -18,6 +23,7 @@ from tools.registry import ToolRegistry
 
 
 # ── VariableManager ──
+
 
 class TestVariableManager:
     def test_set_get(self):
@@ -93,6 +99,7 @@ class TestVariableManager:
 
 # ── StepDebugger ──
 
+
 class TestStepDebugger:
     @pytest.mark.asyncio
     async def test_initial_state(self):
@@ -137,34 +144,60 @@ class TestStepDebugger:
 
 # ── JsonSchemaValidator ──
 
+
 class TestJsonSchemaValidator:
     def test_empty_schema(self):
         v = JsonSchemaValidator()
         assert v.is_empty is True
 
     def test_validate_required_fields(self):
-        v = JsonSchemaValidator({"type": "object", "required": ["name"], "properties": {"name": {"type": "string"}}})
+        v = JsonSchemaValidator(
+            {
+                "type": "object",
+                "required": ["name"],
+                "properties": {"name": {"type": "string"}},
+            }
+        )
         errors = v.validate({"name": "test"})
         assert len(errors) == 0
 
     def test_validate_missing_required(self):
-        v = JsonSchemaValidator({"type": "object", "required": ["name"], "properties": {"name": {"type": "string"}}})
+        v = JsonSchemaValidator(
+            {
+                "type": "object",
+                "required": ["name"],
+                "properties": {"name": {"type": "string"}},
+            }
+        )
         errors = v.validate({})
         assert len(errors) >= 1
 
     def test_validate_type_mismatch(self):
-        v = JsonSchemaValidator({"type": "object", "required": [], "properties": {"age": {"type": "integer"}}})
+        v = JsonSchemaValidator(
+            {
+                "type": "object",
+                "required": [],
+                "properties": {"age": {"type": "integer"}},
+            }
+        )
         errors = v.validate({"age": "not_a_number"})
         assert len(errors) >= 1
 
     def test_coerce_types(self):
-        v = JsonSchemaValidator({"type": "object", "properties": {"age": {"type": "integer"}, "name": {"type": "string"}}})
+        v = JsonSchemaValidator(
+            {
+                "type": "object",
+                "properties": {"age": {"type": "integer"}, "name": {"type": "string"}},
+            }
+        )
         result = v.coerce({"age": "42", "name": "test"})
         assert isinstance(result["age"], int)
         assert isinstance(result["name"], str)
 
     def test_coerce_defaults(self):
-        v = JsonSchemaValidator({"type": "object", "properties": {"x": {"type": "integer", "default": 10}}})
+        v = JsonSchemaValidator(
+            {"type": "object", "properties": {"x": {"type": "integer", "default": 10}}}
+        )
         result = v.coerce({})
         assert result["x"] == 10
 
@@ -184,7 +217,9 @@ class TestJsonSchemaValidator:
         assert result is None
 
     def test_to_instruction(self):
-        v = JsonSchemaValidator({"type": "object", "properties": {"name": {"type": "string"}}})
+        v = JsonSchemaValidator(
+            {"type": "object", "properties": {"name": {"type": "string"}}}
+        )
         instruction = v.to_instruction()
         assert "name" in instruction
         assert "string" in instruction
@@ -192,26 +227,41 @@ class TestJsonSchemaValidator:
 
 # ── PromptTemplate ──
 
+
 class TestPromptTemplate:
     def test_render(self):
-        t = PromptTemplate(name="test", template="Hello {{ name }}!", variables={"name": {"type": "string"}})
+        t = PromptTemplate(
+            name="test",
+            template="Hello {{ name }}!",
+            variables={"name": {"type": "string"}},
+        )
         result = t.render(name="World")
         assert result == "Hello World!"
 
     def test_render_default(self):
-        t = PromptTemplate(name="test", template="Hello {{ name }}!", variables={"name": {"type": "string", "default": "World"}})
+        t = PromptTemplate(
+            name="test",
+            template="Hello {{ name }}!",
+            variables={"name": {"type": "string", "default": "World"}},
+        )
         result = t.render()
         assert result == "Hello World!"
 
     def test_validate(self):
-        t = PromptTemplate(name="test", template="{{ x }}", variables={"x": {"type": "string", "required": True}})
+        t = PromptTemplate(
+            name="test",
+            template="{{ x }}",
+            variables={"x": {"type": "string", "required": True}},
+        )
         errors = t.validate()
         assert len(errors) >= 1
         errors = t.validate(x="ok")
         assert len(errors) == 0
 
     def test_to_dict(self):
-        t = PromptTemplate(name="test", template="Hello", description="A test", category="general")
+        t = PromptTemplate(
+            name="test", template="Hello", description="A test", category="general"
+        )
         d = t.to_dict()
         assert d["name"] == "test"
 
@@ -230,7 +280,13 @@ class TestPromptTemplateManager:
 
     def test_render(self):
         m = PromptTemplateManager()
-        m.register(PromptTemplate(name="greet", template="Hi {{ username }}!", variables={"username": {"type": "string"}}))
+        m.register(
+            PromptTemplate(
+                name="greet",
+                template="Hi {{ username }}!",
+                variables={"username": {"type": "string"}},
+            )
+        )
         result = m.render("greet", username="Alice")
         assert result == "Hi Alice!"
 
@@ -248,6 +304,7 @@ class TestPromptTemplateManager:
 
 
 # ── SubGraph ──
+
 
 class TestSubGraph:
     def test_to_node_config(self):
@@ -275,6 +332,7 @@ class TestSubGraph:
 
 
 # ── GraphDeployer ──
+
 
 class TestGraphDeployer:
     def test_export_import_json(self):
@@ -326,6 +384,7 @@ class TestGraphDeployer:
 
 
 # ── PluginManager ──
+
 
 class TestPluginManager:
     def test_init(self):

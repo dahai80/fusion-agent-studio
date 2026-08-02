@@ -127,18 +127,27 @@ class SessionManager:
                     graphs = self.store.list_graphs()
                     if graphs:
                         from .graph import AgentGraph
+
                         graph = AgentGraph.from_dict(graphs[0])
                 except Exception:
                     pass
 
             if graph is None:
                 from .graph import AgentGraph, NodeConfig, NodeType
+
                 graph = AgentGraph(name=f"bg_{bg.id}")
                 start_id = "start"
                 llm_id = "llm"
                 end_id = "end"
                 graph.add_node(start_id, NodeConfig(type=NodeType.START, label="Start"))
-                graph.add_node(llm_id, NodeConfig(type=NodeType.LLM, label="LLM", system_prompt="You are a helpful assistant."))
+                graph.add_node(
+                    llm_id,
+                    NodeConfig(
+                        type=NodeType.LLM,
+                        label="LLM",
+                        system_prompt="You are a helpful assistant.",
+                    ),
+                )
                 graph.add_node(end_id, NodeConfig(type=NodeType.END, label="End"))
                 graph.add_edge(start_id, llm_id)
                 graph.add_edge(llm_id, end_id)
@@ -171,7 +180,9 @@ class SessionManager:
             bg.output = output
             bg.status = SessionStatus.COMPLETED
             bg.finished_at = time.time()
-            logger.info("Background session %s completed, output len=%d", bg.id, len(output))
+            logger.info(
+                "Background session %s completed, output len=%d", bg.id, len(output)
+            )
 
         except asyncio.CancelledError:
             bg.status = SessionStatus.KILLED
@@ -190,7 +201,9 @@ class SessionManager:
         q: asyncio.Queue = asyncio.Queue(maxsize=1000)
         bg._subscribers.append(q)
         buffered = list(bg.event_buffer)
-        logger.info("Attached to background session %s, buffered=%d", session_id, len(buffered))
+        logger.info(
+            "Attached to background session %s, buffered=%d", session_id, len(buffered)
+        )
         return buffered
 
     def detach(self, session_id: str) -> bool:

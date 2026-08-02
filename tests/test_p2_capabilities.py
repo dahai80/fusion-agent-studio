@@ -1,4 +1,5 @@
 """Tests for P2 capabilities: triggers, i18n, db tools, annotation, performance monitor."""
+
 from __future__ import annotations
 
 import json
@@ -14,6 +15,7 @@ from tools.db_tools import SqliteQueryTool, AnnotationNode, PerformanceMonitor
 
 
 # ── WebhookManager ──
+
 
 class TestWebhookManager:
     def test_register_and_get(self):
@@ -65,6 +67,7 @@ class TestWebhookManager:
 
 
 # ── CronManager ──
+
 
 class TestCronManager:
     def test_register_and_get(self):
@@ -120,6 +123,7 @@ class TestCronManager:
 
 # ── I18n ──
 
+
 class TestI18n:
     def test_english_default(self):
         i18n = I18n()
@@ -172,6 +176,7 @@ class TestI18n:
 
 # ── SqliteQueryTool ──
 
+
 class TestSqliteQueryTool:
     @pytest.mark.asyncio
     async def test_no_database(self):
@@ -188,17 +193,21 @@ class TestSqliteQueryTool:
     @pytest.mark.asyncio
     async def test_create_table(self):
         tool = SqliteQueryTool()
-        result = await tool.execute(database=":memory:", query="CREATE TABLE test (id INT, name TEXT)")
+        result = await tool.execute(
+            database=":memory:", query="CREATE TABLE test (id INT, name TEXT)"
+        )
         assert "executed" in result.lower() or "affected" in result.lower()
 
     @pytest.mark.asyncio
     async def test_select(self):
         import tempfile
         import os
+
         with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
             db_path = f.name
         try:
             import sqlite3
+
             conn = sqlite3.connect(db_path)
             conn.execute("CREATE TABLE test (id INT, name TEXT)")
             conn.execute("INSERT INTO test VALUES (1, 'Alice')")
@@ -214,10 +223,12 @@ class TestSqliteQueryTool:
     async def test_select_empty(self):
         import tempfile
         import os
+
         with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
             db_path = f.name
         try:
             import sqlite3
+
             conn = sqlite3.connect(db_path)
             conn.execute("CREATE TABLE test (id INT)")
             conn.commit()
@@ -236,6 +247,7 @@ class TestSqliteQueryTool:
 
 
 # ── AnnotationNode ──
+
 
 class TestAnnotationNode:
     @pytest.mark.asyncio
@@ -259,6 +271,7 @@ class TestAnnotationNode:
 
 
 # ── PerformanceMonitor ──
+
 
 class TestPerformanceMonitor:
     @pytest.mark.asyncio

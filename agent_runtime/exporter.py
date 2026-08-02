@@ -66,7 +66,9 @@ class GraphExporter:
         lines.append("edges = [")
         for edge in graph.edges:
             label = f", 'label': '{edge.label}'" if edge.label else ""
-            lines.append(f"    {{'source': '{edge.source_id}', 'target': '{edge.target_id}'{label}}},")
+            lines.append(
+                f"    {{'source': '{edge.source_id}', 'target': '{edge.target_id}'{label}}},"
+            )
         lines.append("]")
         lines.append("")
 
@@ -77,10 +79,16 @@ class GraphExporter:
         # Main execution
         lines.append("")
         lines.append("async def main():")
-        lines.append("    client = httpx.AsyncClient(base_url='http://localhost:11434/v1', timeout=120.0)")
+        lines.append(
+            "    client = httpx.AsyncClient(base_url='http://localhost:11434/v1', timeout=120.0)"
+        )
         lines.append("    try:")
-        lines.append("        result = await execute_agent(client, nodes, edges, start_node,")
-        lines.append("                                     initial_input=input('Enter your input: '))")
+        lines.append(
+            "        result = await execute_agent(client, nodes, edges, start_node,"
+        )
+        lines.append(
+            "                                     initial_input=input('Enter your input: '))"
+        )
         lines.append("        print('\\n=== Result ===')")
         lines.append("        print(result)")
         lines.append("    finally:")
@@ -186,17 +194,17 @@ class GraphExporter:
         for nid, node in graph.nodes.items():
             lines.append(f"  {nid}:")
             lines.append(f"    type: {node.type}")
-            lines.append(f"    label: \"{node.label}\"")
+            lines.append(f'    label: "{node.label}"')
             if node.model:
                 lines.append(f"    model: {node.model}")
             if node.system_prompt:
                 # Truncate long prompts for readability
                 prompt = node.system_prompt[:60].replace("\n", "\\n")
-                lines.append(f"    system_prompt: \"{prompt}...\"")
+                lines.append(f'    system_prompt: "{prompt}..."')
             if node.tool_name:
                 lines.append(f"    tool_name: {node.tool_name}")
             if node.condition_expr:
-                lines.append(f"    condition_expr: \"{node.condition_expr}\"")
+                lines.append(f'    condition_expr: "{node.condition_expr}"')
         lines.append("")
         lines.append("edges:")
         for edge in graph.edges:

@@ -1,13 +1,27 @@
 """Sub-dispatcher: MemoryDispatcher."""
+
 from __future__ import annotations
 import logging
-from typing import Any
 from .base import SubDispatcher
+from typing import Callable
 
 logger = logging.getLogger(__name__)
 
 
 class MemoryDispatcher(SubDispatcher):
+    def get_handlers(self) -> dict[str, Callable]:
+        return {
+            "memory.store": self._handle_memory_store,
+            "memory.recall": self._handle_memory_recall,
+            "memory.list_recent": self._handle_memory_list_recent,
+            "memory.get": self._handle_memory_get,
+            "memory.delete": self._handle_memory_delete,
+            "memory.delete_scope": self._handle_memory_delete_scope,
+            "memory.count": self._handle_memory_count,
+            "memory.recall_relevant": self._handle_memory_recall_relevant,
+            "memory.auto_forget": self._handle_memory_auto_forget,
+        }
+
     async def _handle_memory_store(self, params: dict) -> dict:
         content = params.get("content", "")
         if not content:
@@ -21,7 +35,11 @@ class MemoryDispatcher(SubDispatcher):
             metadata=params.get("metadata"),
             tier=params.get("tier", ""),
         )
-        logger.info("memory.store: entry_id=%s scope=%s", entry_id, params.get("scope", "default"))
+        logger.info(
+            "memory.store: entry_id=%s scope=%s",
+            entry_id,
+            params.get("scope", "default"),
+        )
         return {"entry_id": entry_id}
 
     async def _handle_memory_recall(self, params: dict) -> dict:
@@ -85,7 +103,9 @@ class MemoryDispatcher(SubDispatcher):
         mem = self._daemon._get_memory()
         max_entries = params.get("max_entries", 1000)
         min_importance = params.get("min_importance", 3)
-        removed = mem.auto_forget(max_entries=max_entries, min_importance=min_importance)
+        removed = mem.auto_forget(
+            max_entries=max_entries, min_importance=min_importance
+        )
         return {"removed": removed}
 
     # ── Safety handlers ──

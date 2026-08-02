@@ -1,4 +1,5 @@
 """Tests for agent runtime engine."""
+
 from __future__ import annotations
 
 import pytest
@@ -38,13 +39,17 @@ class MockMLXClient:
     def add_response(self, content: str, tool_calls: list | None = None):
         self.responses.append({"content": content, "tool_calls": tool_calls or []})
 
-    async def chat(self, model, messages, tools=None, temperature=0.7, max_tokens=4096, **kwargs):
+    async def chat(
+        self, model, messages, tools=None, temperature=0.7, max_tokens=4096, **kwargs
+    ):
         self.call_count += 1
         if not self.responses:
             from server.fusion_mlx_client import LLMResponse
+
             return LLMResponse(content="Final answer", tool_calls=[])
         resp = self.responses.pop(0)
         from server.fusion_mlx_client import LLMResponse
+
         return LLMResponse(content=resp["content"], tool_calls=resp["tool_calls"])
 
 
@@ -87,14 +92,19 @@ class TestAgentRuntime:
         # LLM should have been called
         assert mlx_client.call_count == 1
 
-    async def test_execute_with_tool_call(self, mlx_client, tool_registry, simple_graph):
+    async def test_execute_with_tool_call(
+        self, mlx_client, tool_registry, simple_graph
+    ):
         # First response has a tool call, second is final
         mlx_client.add_response(
-            "Let me check", tool_calls=[{
-                "id": "call_1",
-                "type": "function",
-                "function": {"name": "mock_tool", "arguments": '{"input": "test"}'},
-            }]
+            "Let me check",
+            tool_calls=[
+                {
+                    "id": "call_1",
+                    "type": "function",
+                    "function": {"name": "mock_tool", "arguments": '{"input": "test"}'},
+                }
+            ],
         )
         mlx_client.add_response("Here is the result")
 
@@ -116,8 +126,11 @@ class TestAgentRuntime:
         graph.add_node(
             "llm",
             NodeConfig(
-                type="llm", label="LLM", model="test-model",
-                loop_mode="agent", max_loop_iterations=5,
+                type="llm",
+                label="LLM",
+                model="test-model",
+                loop_mode="agent",
+                max_loop_iterations=5,
             ),
         )
         graph.add_node("end", NodeConfig(type="end", label="End"))
@@ -126,10 +139,13 @@ class TestAgentRuntime:
 
         mlx_client.add_response(
             "Let me check",
-            tool_calls=[{
-                "id": "call_1", "type": "function",
-                "function": {"name": "mock_tool", "arguments": '{"input": "x"}'},
-            }],
+            tool_calls=[
+                {
+                    "id": "call_1",
+                    "type": "function",
+                    "function": {"name": "mock_tool", "arguments": '{"input": "x"}'},
+                }
+            ],
         )
         mlx_client.add_response("Here is the result")
 
@@ -150,8 +166,11 @@ class TestAgentRuntime:
         graph.add_node(
             "llm",
             NodeConfig(
-                type="llm", label="LLM", model="test-model",
-                loop_mode="agent", max_loop_iterations=2,
+                type="llm",
+                label="LLM",
+                model="test-model",
+                loop_mode="agent",
+                max_loop_iterations=2,
             ),
         )
         graph.add_node("end", NodeConfig(type="end", label="End"))
@@ -161,10 +180,16 @@ class TestAgentRuntime:
         for _ in range(10):
             mlx_client.add_response(
                 "again",
-                tool_calls=[{
-                    "id": "c", "type": "function",
-                    "function": {"name": "mock_tool", "arguments": '{"input": "x"}'},
-                }],
+                tool_calls=[
+                    {
+                        "id": "c",
+                        "type": "function",
+                        "function": {
+                            "name": "mock_tool",
+                            "arguments": '{"input": "x"}',
+                        },
+                    }
+                ],
             )
 
         runtime = AgentRuntime(mlx_client, tool_registry)
@@ -176,13 +201,18 @@ class TestAgentRuntime:
         assert mlx_client.call_count == 3
         assert any(e.type == AgentEventType.END for e in events)
 
-    async def test_execute_with_invalid_tool_json(self, mlx_client, tool_registry, simple_graph):
+    async def test_execute_with_invalid_tool_json(
+        self, mlx_client, tool_registry, simple_graph
+    ):
         mlx_client.add_response(
-            "Let me check", tool_calls=[{
-                "id": "call_1",
-                "type": "function",
-                "function": {"name": "mock_tool", "arguments": "invalid json"},
-            }]
+            "Let me check",
+            tool_calls=[
+                {
+                    "id": "call_1",
+                    "type": "function",
+                    "function": {"name": "mock_tool", "arguments": "invalid json"},
+                }
+            ],
         )
 
         runtime = AgentRuntime(mlx_client, tool_registry)
@@ -194,13 +224,18 @@ class TestAgentRuntime:
         errors = [e for e in events if e.type == AgentEventType.ERROR]
         assert len(errors) >= 1
 
-    async def test_execute_with_nonexistent_tool(self, mlx_client, tool_registry, simple_graph):
+    async def test_execute_with_nonexistent_tool(
+        self, mlx_client, tool_registry, simple_graph
+    ):
         mlx_client.add_response(
-            "Let me check", tool_calls=[{
-                "id": "call_1",
-                "type": "function",
-                "function": {"name": "nonexistent_tool", "arguments": '{}'},
-            }]
+            "Let me check",
+            tool_calls=[
+                {
+                    "id": "call_1",
+                    "type": "function",
+                    "function": {"name": "nonexistent_tool", "arguments": "{}"},
+                }
+            ],
         )
         mlx_client.add_response("Done")
 
@@ -214,13 +249,18 @@ class TestAgentRuntime:
         assert len(tool_results) >= 1
         assert "not found" in tool_results[0].content
 
-    async def test_execute_with_failing_tool(self, mlx_client, tool_registry, simple_graph):
+    async def test_execute_with_failing_tool(
+        self, mlx_client, tool_registry, simple_graph
+    ):
         mlx_client.add_response(
-            "Let me check", tool_calls=[{
-                "id": "call_2",
-                "type": "function",
-                "function": {"name": "failing_tool", "arguments": '{}'},
-            }]
+            "Let me check",
+            tool_calls=[
+                {
+                    "id": "call_2",
+                    "type": "function",
+                    "function": {"name": "failing_tool", "arguments": "{}"},
+                }
+            ],
         )
         mlx_client.add_response("Done")
 
@@ -259,7 +299,9 @@ class TestAgentRuntime:
         end_events = [e for e in events if e.type == AgentEventType.END]
         assert len(end_events) >= 1
 
-    async def test_execute_with_existing_context(self, mlx_client, tool_registry, simple_graph):
+    async def test_execute_with_existing_context(
+        self, mlx_client, tool_registry, simple_graph
+    ):
         mlx_client.add_response("Continuing...")
         ctx = AgentContext(session_id="existing-session")
         ctx.add_message("user", "Previous message")
@@ -276,9 +318,14 @@ class TestAgentRuntime:
     async def test_execute_node_condition_true(self, mlx_client, tool_registry):
         graph = AgentGraph(name="Condition Test")
         graph.add_node("start", NodeConfig(type="start", label="Start"))
-        graph.add_node("cond", NodeConfig(
-            type="condition", label="Check", condition_expr="true",
-        ))
+        graph.add_node(
+            "cond",
+            NodeConfig(
+                type="condition",
+                label="Check",
+                condition_expr="true",
+            ),
+        )
         graph.add_node("end", NodeConfig(type="end", label="End"))
         graph.add_edge("start", "cond")
         graph.add_edge("cond", "end", "true")
@@ -295,10 +342,15 @@ class TestAgentRuntime:
     async def test_execute_tool_node(self, mlx_client, tool_registry):
         graph = AgentGraph(name="Tool Test")
         graph.add_node("start", NodeConfig(type="start", label="Start"))
-        graph.add_node("tool_node", NodeConfig(
-            type="tool", label="Read", tool_name="mock_tool",
-            tool_params={"input": "hello"},
-        ))
+        graph.add_node(
+            "tool_node",
+            NodeConfig(
+                type="tool",
+                label="Read",
+                tool_name="mock_tool",
+                tool_params={"input": "hello"},
+            ),
+        )
         graph.add_node("end", NodeConfig(type="end", label="End"))
         graph.add_edge("start", "tool_node")
         graph.add_edge("tool_node", "end")
@@ -324,10 +376,14 @@ class TestAgentRuntime:
 
         # Always respond with tool calls to keep looping
         mlx_client.add_response(
-            "Thinking...", tool_calls=[{
-                "id": "c1", "type": "function",
-                "function": {"name": "mock_tool", "arguments": '{"input": "x"}'},
-            }],
+            "Thinking...",
+            tool_calls=[
+                {
+                    "id": "c1",
+                    "type": "function",
+                    "function": {"name": "mock_tool", "arguments": '{"input": "x"}'},
+                }
+            ],
         )
 
         runtime = AgentRuntime(mlx_client, tool_registry, max_iterations=3)
@@ -355,9 +411,14 @@ class TestAgentRuntime:
 
     async def test_start_node_system_prompt(self, mlx_client, tool_registry):
         graph = AgentGraph(name="System Prompt Test")
-        graph.add_node("start", NodeConfig(
-            type="start", label="Start", system_prompt="You are a test assistant.",
-        ))
+        graph.add_node(
+            "start",
+            NodeConfig(
+                type="start",
+                label="Start",
+                system_prompt="You are a test assistant.",
+            ),
+        )
         graph.add_node("llm", NodeConfig(type="llm", label="LLM", model="test-model"))
         graph.add_node("end", NodeConfig(type="end", label="End"))
         graph.add_edge("start", "llm")
@@ -412,7 +473,9 @@ class TestAgentRuntime:
         runtime = AgentRuntime(mlx_client, tool_registry)
         ctx = AgentContext()
         vm = runtime.variables
-        assert runtime.condition_engine.evaluate("unknown_expression", ctx, vm) == "false"
+        assert (
+            runtime.condition_engine.evaluate("unknown_expression", ctx, vm) == "false"
+        )
 
 
 class TestValidateToolArgs:
@@ -434,6 +497,7 @@ class TestValidateToolArgs:
             name = "int_tool"
             description = "int tool"
             parameters = {"count": {"type": "integer", "description": "count"}}
+
             async def execute(self, **kwargs) -> str:
                 return str(kwargs.get("count", 0))
 
@@ -461,6 +525,7 @@ class TestValidateToolArgs:
             name = "noschema"
             description = "no schema"
             parameters = {}
+
             async def execute(self, **kwargs) -> str:
                 return "ok"
 
@@ -473,11 +538,20 @@ class TestValidateToolArgs:
 
 
 class TestErrorHandlerToolCallId:
-    async def test_error_handler_with_call_xxx_tool_call_id(self, mlx_client, tool_registry):
+    async def test_error_handler_with_call_xxx_tool_call_id(
+        self, mlx_client, tool_registry
+    ):
         graph = AgentGraph()
         start = NodeConfig(label="start", type="start")
-        tool1 = NodeConfig(label="tool1", type="tool", tool_name="mock_tool", tool_params={"input": "test"})
-        err = NodeConfig(label="err_handler", type="error_handler", max_retries=1, retry_delay=0)
+        tool1 = NodeConfig(
+            label="tool1",
+            type="tool",
+            tool_name="mock_tool",
+            tool_params={"input": "test"},
+        )
+        err = NodeConfig(
+            label="err_handler", type="error_handler", max_retries=1, retry_delay=0
+        )
         end = NodeConfig(label="end", type="end")
         graph.add_node("start", start)
         graph.add_node("tool1", tool1)
@@ -499,11 +573,20 @@ class TestErrorHandlerToolCallId:
 
         assert ctx.error == ""
 
-    async def test_error_handler_with_tool_prefix_tool_call_id(self, mlx_client, tool_registry):
+    async def test_error_handler_with_tool_prefix_tool_call_id(
+        self, mlx_client, tool_registry
+    ):
         graph = AgentGraph()
         start = NodeConfig(label="start", type="start")
-        tool1 = NodeConfig(label="tool1", type="tool", tool_name="mock_tool", tool_params={"input": "test"})
-        err = NodeConfig(label="err_handler", type="error_handler", max_retries=1, retry_delay=0)
+        tool1 = NodeConfig(
+            label="tool1",
+            type="tool",
+            tool_name="mock_tool",
+            tool_params={"input": "test"},
+        )
+        err = NodeConfig(
+            label="err_handler", type="error_handler", max_retries=1, retry_delay=0
+        )
         end = NodeConfig(label="end", type="end")
         graph.add_node("start", start)
         graph.add_node("tool1", tool1)
@@ -528,10 +611,12 @@ class TestErrorHandlerToolCallId:
 class TestExecutorCompatShim:
     def test_node_executor_importable(self):
         from agent_runtime.executor import NodeExecutor
+
         assert NodeExecutor is not None
 
     def test_node_executor_init_raises_on_handler(self, mlx_client, tool_registry):
         from agent_runtime.executor import NodeExecutor
+
         ne = NodeExecutor(mlx_client, tool_registry)
         with pytest.raises(NotImplementedError):
             ne.get_handler("llm")

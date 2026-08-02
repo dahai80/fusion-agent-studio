@@ -14,15 +14,27 @@ import time
 
 from agent_runtime.plaza import Plaza, PlazaMessage, PlazaChannel
 from agent_runtime.safety import (
-    SafetyGateway, SafetyLevel, SafetyAction, SafetyPolicy, DiffPreviewRequest,
-    CAT_CODE_ANALYSIS, CAT_DOC_RETRIEVAL, CAT_FILE_WRITE,
-    CAT_SHELL_EXEC, CAT_GIT_PUSH, CAT_CODE_EDIT,
+    SafetyGateway,
+    SafetyLevel,
+    SafetyAction,
+    SafetyPolicy,
+    DiffPreviewRequest,
+    CAT_CODE_ANALYSIS,
+    CAT_DOC_RETRIEVAL,
+    CAT_FILE_WRITE,
+    CAT_SHELL_EXEC,
+    CAT_GIT_PUSH,
+    CAT_CODE_EDIT,
 )
 from agent_runtime.rag_pipeline import RAGPipeline, RAGConfig, RAGResult
 from agent_runtime.memory_engine import MemoryEngine, MemoryTier
 from agent_runtime.planner import PlannerEngine, ExecutionPlan, PlanStep
 from agent_runtime.data_ingestion import (
-    WebReader, GitHubReader, NotionReader, PDFReader, DirectoryReader,
+    WebReader,
+    GitHubReader,
+    NotionReader,
+    PDFReader,
+    DirectoryReader,
 )
 from agent_runtime.agent_package import AgentPackage, AgentManifest
 from agent_runtime.llm_gateway import LLMGateway, ModelConfig, GatewayResponse
@@ -31,6 +43,7 @@ from agent_runtime.runtime import AgentRuntime
 
 
 # ─── P0: Plaza ──────────────────────────────────────────────
+
 
 class TestPlazaMessage:
     def test_init_defaults(self):
@@ -42,8 +55,14 @@ class TestPlazaMessage:
         assert msg.timestamp > 0
 
     def test_to_dict_from_dict(self):
-        msg = PlazaMessage(id="m1", channel="ch1", sender="a1",
-                           content="hello", mentions=["a2"], round_number=1)
+        msg = PlazaMessage(
+            id="m1",
+            channel="ch1",
+            sender="a1",
+            content="hello",
+            mentions=["a2"],
+            round_number=1,
+        )
         d = msg.to_dict()
         assert d["channel"] == "ch1"
         restored = PlazaMessage.from_dict(d)
@@ -150,6 +169,7 @@ class TestPlaza:
 
 # ─── P0: HITL L1/L2 ────────────────────────────────────────
 
+
 class TestSafetyPolicy:
     def test_init(self):
         p = SafetyPolicy(category=CAT_FILE_WRITE, default_level=SafetyLevel.L2)
@@ -157,8 +177,12 @@ class TestSafetyPolicy:
         assert p.default_level == SafetyLevel.L2
 
     def test_to_dict_from_dict(self):
-        p = SafetyPolicy(category=CAT_SHELL_EXEC, default_level=SafetyLevel.L3,
-                         requires_diff=False, description="Dangerous")
+        p = SafetyPolicy(
+            category=CAT_SHELL_EXEC,
+            default_level=SafetyLevel.L3,
+            requires_diff=False,
+            description="Dangerous",
+        )
         d = p.to_dict()
         restored = SafetyPolicy.from_dict(d)
         assert restored.category == CAT_SHELL_EXEC
@@ -166,13 +190,23 @@ class TestSafetyPolicy:
 
 class TestDiffPreviewRequest:
     def test_init(self):
-        r = DiffPreviewRequest(action_id="a1", category=CAT_CODE_EDIT,
-                               original="old", proposed="new", diff="@@ -1 +1 @@")
+        r = DiffPreviewRequest(
+            action_id="a1",
+            category=CAT_CODE_EDIT,
+            original="old",
+            proposed="new",
+            diff="@@ -1 +1 @@",
+        )
         assert r.requires_approval
 
     def test_to_dict_from_dict(self):
-        r = DiffPreviewRequest(action_id="a1", category=CAT_FILE_WRITE,
-                               original="a", proposed="b", diff="-a\n+b")
+        r = DiffPreviewRequest(
+            action_id="a1",
+            category=CAT_FILE_WRITE,
+            original="a",
+            proposed="b",
+            diff="-a\n+b",
+        )
         d = r.to_dict()
         restored = DiffPreviewRequest.from_dict(d)
         assert restored.action_id == "a1"
@@ -245,6 +279,7 @@ class TestSafetyGatewayL1L2:
 
 # ─── P0/P1: LLM Gateway as Proxy ───────────────────────────
 
+
 class TestGatewayResponse:
     def test_init(self):
         r = GatewayResponse(content="hi", model="test-model")
@@ -253,8 +288,13 @@ class TestGatewayResponse:
         assert r.fallback_from == ""
 
     def test_to_dict_from_dict(self):
-        r = GatewayResponse(content="hi", model="m1", tool_calls=[{"f": "x"}],
-                            finish_reason="stop", usage={"prompt_tokens": 5})
+        r = GatewayResponse(
+            content="hi",
+            model="m1",
+            tool_calls=[{"f": "x"}],
+            finish_reason="stop",
+            usage={"prompt_tokens": 5},
+        )
         d = r.to_dict()
         restored = GatewayResponse.from_dict(d)
         assert restored.content == "hi"
@@ -264,7 +304,9 @@ class TestGatewayResponse:
 class TestLLMGatewayProxy:
     def test_register_default_local(self):
         gw = LLMGateway()
-        config = gw.register_default_local(name="test-local", base_url="http://localhost:11434/v1")
+        config = gw.register_default_local(
+            name="test-local", base_url="http://localhost:11434/v1"
+        )
         assert config.name == "test-local"
         assert config.provider == "local"
         assert gw._default_model == "test-local"
@@ -285,6 +327,7 @@ class TestLLMGatewayProxy:
 
 
 # ─── P1: RAG Pipeline ──────────────────────────────────────
+
 
 class TestRAGConfig:
     def test_defaults(self):
@@ -311,6 +354,7 @@ class TestRAGResult:
 class TestRAGPipeline:
     def test_retrieve_with_engine(self, tmp_path):
         from agent_runtime.knowledge_engine import KnowledgeEngine
+
         engine = KnowledgeEngine(db_path=str(tmp_path / "test.db"))
         engine.ingest("Python is a programming language", scope="general")
         engine.ingest("Rust is a systems language", scope="general")
@@ -323,6 +367,7 @@ class TestRAGPipeline:
 
     async def test_query_with_engine(self, tmp_path):
         from agent_runtime.knowledge_engine import KnowledgeEngine
+
         engine = KnowledgeEngine(db_path=str(tmp_path / "test.db"))
         engine.ingest("Python is a programming language", scope="general")
         pipeline = RAGPipeline(knowledge_engine=engine)
@@ -332,6 +377,7 @@ class TestRAGPipeline:
 
     async def test_generate_stub(self, tmp_path):
         from agent_runtime.knowledge_engine import KnowledgeEngine
+
         engine = KnowledgeEngine(db_path=str(tmp_path / "test.db"))
         pipeline = RAGPipeline(knowledge_engine=engine)
         answer = await pipeline.generate("what is X?", "X is something")
@@ -341,14 +387,19 @@ class TestRAGPipeline:
 
 # ─── P1: Memory Auto-Compression ───────────────────────────
 
+
 class TestMemoryTier:
     def test_init(self):
-        t = MemoryTier(name="short_term", max_entries=50, max_age_hours=24, importance_threshold=7)
+        t = MemoryTier(
+            name="short_term", max_entries=50, max_age_hours=24, importance_threshold=7
+        )
         assert t.name == "short_term"
         assert t.max_entries == 50
 
     def test_to_dict_from_dict(self):
-        t = MemoryTier(name="archive", max_entries=500, max_age_hours=0, importance_threshold=0)
+        t = MemoryTier(
+            name="archive", max_entries=500, max_age_hours=0, importance_threshold=0
+        )
         d = t.to_dict()
         restored = MemoryTier.from_dict(d)
         assert restored.name == "archive"
@@ -364,7 +415,9 @@ class TestMemoryAutoCompression:
         engine.close()
 
     def test_auto_compress_on_threshold(self, tmp_path):
-        engine = MemoryEngine(db_path=str(tmp_path / "mem.db"), max_entries=10, summary_batch=5)
+        engine = MemoryEngine(
+            db_path=str(tmp_path / "mem.db"), max_entries=10, summary_batch=5
+        )
         for i in range(15):
             engine.store(f"memory entry {i}", scope="test", importance=3)
         count = engine.count(scope="test")
@@ -395,15 +448,28 @@ class TestMemoryAutoCompression:
 
 # ─── P1: Planner ───────────────────────────────────────────
 
+
 class TestPlanStep:
     def test_init(self):
-        s = PlanStep(id="s1", description="do stuff", target_files=["a.py"],
-                     action="modify", estimated_complexity="medium", dependencies=[])
+        s = PlanStep(
+            id="s1",
+            description="do stuff",
+            target_files=["a.py"],
+            action="modify",
+            estimated_complexity="medium",
+            dependencies=[],
+        )
         assert s.status == "pending"
 
     def test_to_dict_from_dict(self):
-        s = PlanStep(id="s1", description="do stuff", target_files=["a.py"],
-                     action="modify", estimated_complexity="low", dependencies=["step_0"])
+        s = PlanStep(
+            id="s1",
+            description="do stuff",
+            target_files=["a.py"],
+            action="modify",
+            estimated_complexity="low",
+            dependencies=["step_0"],
+        )
         d = s.to_dict()
         restored = PlanStep.from_dict(d)
         assert restored.id == "s1"
@@ -462,27 +528,52 @@ class TestPlannerEngine:
 
     def test_assess_risk_delete(self):
         planner = PlannerEngine(gateway=None)
-        steps = [PlanStep(id="s1", description="del", target_files=["a.py"],
-                          action="delete", estimated_complexity="high", dependencies=[])]
+        steps = [
+            PlanStep(
+                id="s1",
+                description="del",
+                target_files=["a.py"],
+                action="delete",
+                estimated_complexity="high",
+                dependencies=[],
+            )
+        ]
         risk = planner._assess_risk(steps)
         assert risk == "high"
 
     def test_assess_risk_modify_many(self):
         planner = PlannerEngine(gateway=None)
-        steps = [PlanStep(id="s1", description="mod", target_files=["a.py", "b.py", "c.py", "d.py"],
-                          action="modify", estimated_complexity="medium", dependencies=[])]
+        steps = [
+            PlanStep(
+                id="s1",
+                description="mod",
+                target_files=["a.py", "b.py", "c.py", "d.py"],
+                action="modify",
+                estimated_complexity="medium",
+                dependencies=[],
+            )
+        ]
         risk = planner._assess_risk(steps)
         assert risk == "medium"
 
     def test_assess_risk_low(self):
         planner = PlannerEngine(gateway=None)
-        steps = [PlanStep(id="s1", description="mod", target_files=["a.py"],
-                          action="modify", estimated_complexity="low", dependencies=[])]
+        steps = [
+            PlanStep(
+                id="s1",
+                description="mod",
+                target_files=["a.py"],
+                action="modify",
+                estimated_complexity="low",
+                dependencies=[],
+            )
+        ]
         risk = planner._assess_risk(steps)
         assert risk == "low"
 
 
 # ─── P2: LlamaIndex Readers ────────────────────────────────
+
 
 class TestWebReader:
     def test_init(self):
@@ -555,6 +646,7 @@ class TestDirectoryReader:
 
 
 # ─── P2: AgentPackage workspace snapshot ───────────────────
+
 
 class TestAgentPackageWorkspace:
     def setup_method(self):
@@ -646,6 +738,7 @@ class TestAgentPackageWorkspace:
 
 # ─── NodeType integration ──────────────────────────────────
 
+
 class TestNodeTypeExtensions:
     def test_rag_node_type_exists(self):
         node = NodeConfig(type="rag", label="RAG Node")
@@ -658,8 +751,14 @@ class TestNodeTypeExtensions:
     def test_rag_node_in_graph(self):
         graph = AgentGraph(name="rag-test")
         graph.add_node("start", NodeConfig(type="start", label="Start"))
-        graph.add_node("rag1", NodeConfig(type="rag", label="RAG Search",
-                                          tool_params={"rag_config": {"top_k": 3, "mode": "hybrid"}}))
+        graph.add_node(
+            "rag1",
+            NodeConfig(
+                type="rag",
+                label="RAG Search",
+                tool_params={"rag_config": {"top_k": 3, "mode": "hybrid"}},
+            ),
+        )
         graph.add_node("end", NodeConfig(type="end", label="End"))
         graph.add_edge("start", "rag1")
         graph.add_edge("rag1", "end")
@@ -669,8 +768,10 @@ class TestNodeTypeExtensions:
     def test_planner_node_in_graph(self):
         graph = AgentGraph(name="planner-test")
         graph.add_node("start", NodeConfig(type="start", label="Start"))
-        graph.add_node("plan1", NodeConfig(type="planner", label="Plan",
-                                           tool_params={"task": "refactor"}))
+        graph.add_node(
+            "plan1",
+            NodeConfig(type="planner", label="Plan", tool_params={"task": "refactor"}),
+        )
         graph.add_node("end", NodeConfig(type="end", label="End"))
         graph.add_edge("start", "plan1")
         graph.add_edge("plan1", "end")
@@ -679,6 +780,7 @@ class TestNodeTypeExtensions:
 
 
 # ─── Runtime integration with new node types ────────────────
+
 
 class TestRuntimeNewNodes:
     def test_set_knowledge_engine(self):
@@ -689,5 +791,6 @@ class TestRuntimeNewNodes:
 
     def test_runtime_has_llm_gateway_param(self):
         import inspect
+
         sig = inspect.signature(AgentRuntime.__init__)
         assert "llm_gateway" in sig.parameters

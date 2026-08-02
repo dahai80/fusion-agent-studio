@@ -134,14 +134,23 @@ class AgentStore:
                        data=excluded.data,
                        version=excluded.version,
                        updated_at=excluded.updated_at""",
-                (graph.id, graph.name, graph.description, graph.to_json(),
-                 graph.version, now, now),
+                (
+                    graph.id,
+                    graph.name,
+                    graph.description,
+                    graph.to_json(),
+                    graph.version,
+                    now,
+                    now,
+                ),
             )
 
     def load_graph(self, graph_id: str) -> AgentGraph | None:
         """Load an agent graph by ID."""
         with self._cursor() as conn:
-            row = conn.execute("SELECT data FROM graphs WHERE id = ?", (graph_id,)).fetchone()
+            row = conn.execute(
+                "SELECT data FROM graphs WHERE id = ?", (graph_id,)
+            ).fetchone()
         if row is None:
             return None
         return AgentGraph.from_json(row["data"])
@@ -209,15 +218,21 @@ class AgentStore:
 
     # ── Checkpoint Management ──
 
-    def save_checkpoint(self, session_id: str, context: AgentContext,
-                        current_node_id: str) -> int:
+    def save_checkpoint(
+        self, session_id: str, context: AgentContext, current_node_id: str
+    ) -> int:
         """Save an execution checkpoint. Returns checkpoint ID."""
         with self._cursor() as conn:
             cursor = conn.execute(
                 """INSERT INTO checkpoints (session_id, context_json, current_node_id, iteration_count, created_at)
                    VALUES (?, ?, ?, ?, ?)""",
-                (session_id, json.dumps(context.to_dict()), current_node_id,
-                 context.iteration_count, time.time()),
+                (
+                    session_id,
+                    json.dumps(context.to_dict()),
+                    current_node_id,
+                    context.iteration_count,
+                    time.time(),
+                ),
             )
         return cursor.lastrowid or 0
 
@@ -269,16 +284,24 @@ class AgentStore:
                        graph_id=excluded.graph_id,
                        metadata_json=excluded.metadata_json,
                        updated_at=excluded.updated_at""",
-                (session.id, session.title, session.mode,
-                 json.dumps([m.to_dict() for m in session.messages]),
-                 session.active_branch, session.graph_id,
-                 json.dumps(session.metadata),
-                 session.created_at, session.updated_at),
+                (
+                    session.id,
+                    session.title,
+                    session.mode,
+                    json.dumps([m.to_dict() for m in session.messages]),
+                    session.active_branch,
+                    session.graph_id,
+                    json.dumps(session.metadata),
+                    session.created_at,
+                    session.updated_at,
+                ),
             )
 
     def load_chat_session(self, session_id: str) -> ChatSession | None:
         with self._cursor() as conn:
-            row = conn.execute("SELECT * FROM chat_sessions WHERE id = ?", (session_id,)).fetchone()
+            row = conn.execute(
+                "SELECT * FROM chat_sessions WHERE id = ?", (session_id,)
+            ).fetchone()
         if row is None:
             return None
         data = {
@@ -299,7 +322,8 @@ class AgentStore:
             rows = conn.execute(
                 "SELECT id, title, mode, active_branch, graph_id, "
                 "metadata_json, created_at, updated_at "
-                "FROM chat_sessions ORDER BY updated_at DESC LIMIT ?", (limit,)
+                "FROM chat_sessions ORDER BY updated_at DESC LIMIT ?",
+                (limit,),
             ).fetchall()
         sessions = []
         for row in rows:
@@ -319,7 +343,9 @@ class AgentStore:
 
     def delete_chat_session(self, session_id: str) -> bool:
         with self._cursor() as conn:
-            cursor = conn.execute("DELETE FROM chat_sessions WHERE id = ?", (session_id,))
+            cursor = conn.execute(
+                "DELETE FROM chat_sessions WHERE id = ?", (session_id,)
+            )
         return cursor.rowcount > 0
 
     def close(self) -> None:

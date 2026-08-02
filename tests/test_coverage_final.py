@@ -1,4 +1,5 @@
 """Final coverage push — targets remaining uncovered lines."""
+
 from __future__ import annotations
 
 import asyncio
@@ -17,15 +18,16 @@ from tools.git_tools import GitTool
 
 # ── BaseTool: line 35 (__init_subclass__ sets name) ──
 
+
 class ImplicitNameTool(BaseTool):
     description = "No explicit name"
     parameters = {"x": {"type": "string"}}
+
     async def execute(self, **kwargs):
         return "ok"
 
 
 class TestBaseToolFinal:
-
     def test_init_subclass_sets_name_from_class_name(self):
         """Line 35: cls.name = cls.__name__.lower()"""
         tool = ImplicitNameTool()
@@ -38,8 +40,8 @@ class TestBaseToolFinal:
 
 # ── TerminalTool: line 73 (nonzero exit, no output) ──
 
-class TestTerminalToolFinal:
 
+class TestTerminalToolFinal:
     @pytest.mark.asyncio
     async def test_nonzero_exit_no_output(self):
         """Line 73: return prefix when command fails with no output."""
@@ -50,8 +52,8 @@ class TestTerminalToolFinal:
 
 # ── FileTool: lines 47-50 (UnicodeDecodeError, generic Exception) ──
 
-class TestFileToolFinal:
 
+class TestFileToolFinal:
     @pytest.mark.asyncio
     async def test_unicode_decode_error(self):
         """Line 47-48: catch UnicodeDecodeError."""
@@ -105,8 +107,8 @@ class TestFileToolFinal:
 
 # ── TextTool: lines 129, 155-156 (regex edge cases, generic exception) ──
 
-class TestTextToolFinal:
 
+class TestTextToolFinal:
     @pytest.mark.asyncio
     async def test_regex_no_match_no_results(self):
         """Line 129: return 'No matches found' for regex with no matches."""
@@ -132,12 +134,16 @@ class TestTextToolFinal:
 
 # ── GitTool: lines 64, 69, 73, 83, 100->102 (git commands) ──
 
-class TestGitToolFinal:
 
+class TestGitToolFinal:
     @pytest.mark.asyncio
     async def _repo(self, tmpdir: str, commit: bool = True) -> Path:
         repo = Path(tmpdir)
-        for c in [["git", "init"], ["git", "config", "user.email", "x@x.com"], ["git", "config", "user.name", "X"]]:
+        for c in [
+            ["git", "init"],
+            ["git", "config", "user.email", "x@x.com"],
+            ["git", "config", "user.name", "X"],
+        ]:
             p = await asyncio.create_subprocess_exec(*c, cwd=str(repo))
             await p.wait()
         (repo / "f.txt").write_text("hello")
@@ -169,8 +175,12 @@ class TestGitToolFinal:
         """Line 73: commit with message succeeds."""
         with tempfile.TemporaryDirectory() as tmpdir:
             repo = await self._repo(tmpdir, commit=False)
-            r = await GitTool().execute(action="commit", repo_path=str(repo), message="test")
-            assert "commit" in r.lower() or "file" in r.lower() or "changed" in r.lower()
+            r = await GitTool().execute(
+                action="commit", repo_path=str(repo), message="test"
+            )
+            assert (
+                "commit" in r.lower() or "file" in r.lower() or "changed" in r.lower()
+            )
 
     @pytest.mark.asyncio
     async def test_branch_list(self):

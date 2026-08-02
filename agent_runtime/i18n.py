@@ -1,4 +1,5 @@
 """Internationalization (i18n) — multi-language support for UI strings."""
+
 from __future__ import annotations
 
 import json

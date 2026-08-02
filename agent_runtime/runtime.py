@@ -66,11 +66,19 @@ class ConditionEngine:
 
         if re.search(r"\bor\b", expr_lower):
             parts = re.split(r"\s+or\s+", expr, flags=re.IGNORECASE)
-            return "true" if any(self.evaluate(p, ctx, variables) == "true" for p in parts) else "false"
+            return (
+                "true"
+                if any(self.evaluate(p, ctx, variables) == "true" for p in parts)
+                else "false"
+            )
 
         if re.search(r"\band\b", expr_lower):
             parts = re.split(r"\s+and\s+", expr, flags=re.IGNORECASE)
-            return "true" if all(self.evaluate(p, ctx, variables) == "true" for p in parts) else "false"
+            return (
+                "true"
+                if all(self.evaluate(p, ctx, variables) == "true" for p in parts)
+                else "false"
+            )
 
         if expr_lower.startswith("not "):
             inner = self.evaluate(expr[4:], ctx, variables)
@@ -113,7 +121,9 @@ class ConditionEngine:
 
         return "false"
 
-    def _resolve_value(self, name: str, ctx: AgentContext, variables: VariableManager) -> Any:
+    def _resolve_value(
+        self, name: str, ctx: AgentContext, variables: VariableManager
+    ) -> Any:
         if name == "iteration":
             return ctx.iteration_count
         if name == "token_count":
@@ -278,7 +288,9 @@ class AgentRuntime:
         ctx.add_message("user", initial_input)
 
         if self.memory_engine and initial_input:
-            mem_ctx = await asyncio.to_thread(self.memory_engine.recall_relevant, initial_input, 5)
+            mem_ctx = await asyncio.to_thread(
+                self.memory_engine.recall_relevant, initial_input, 5
+            )
             if mem_ctx:
                 ctx.add_message("system", f"[Relevant memory]: {mem_ctx}")
                 logger.info("Auto-loaded memory for input")
@@ -315,7 +327,9 @@ class AgentRuntime:
             ctx.current_node_id = current_node_id
 
             if self.debugger:
-                await self.debugger.check_pause(current_node_id, self.variables.to_dict())
+                await self.debugger.check_pause(
+                    current_node_id, self.variables.to_dict()
+                )
 
             if node.type == "start":
                 next_id = graph.get_next_node(current_node_id)
@@ -335,10 +349,17 @@ class AgentRuntime:
 
                 if token_budget:
                     usage = ctx.token_usage()
-                    token_budget.record_usage(usage.get("prompt_tokens", 0), usage.get("completion_tokens", 0))
+                    token_budget.record_usage(
+                        usage.get("prompt_tokens", 0), usage.get("completion_tokens", 0)
+                    )
                     if token_budget.is_exceeded():
                         mode = "stream" if stream else "batch"
-                        logger.warning("Token budget exceeded (%s): %d/%d", mode, token_budget.spent_tokens, token_budget.max_tokens)
+                        logger.warning(
+                            "Token budget exceeded (%s): %d/%d",
+                            mode,
+                            token_budget.spent_tokens,
+                            token_budget.max_tokens,
+                        )
                         yield AgentEvent(
                             type=AgentEventType.TOKEN_BUDGET_EXCEEDED,
                             content=f"Token budget exceeded: {token_budget.spent_tokens}/{token_budget.max_tokens}",
@@ -360,19 +381,33 @@ class AgentRuntime:
                             level = self.compactor.should_compact(ctx.messages)
                             if level != "none":
                                 before = len(ctx.messages)
-                                ctx.messages = self.compactor.compact(ctx.messages, level)
+                                ctx.messages = self.compactor.compact(
+                                    ctx.messages, level
+                                )
                                 logger.info(
                                     "compaction applied level=%s before=%d after=%d node=%s",
-                                    level, before, len(ctx.messages), current_node_id,
+                                    level,
+                                    before,
+                                    len(ctx.messages),
+                                    current_node_id,
                                 )
                         # Hooks 接入点 (M3)
                         self._tool_call_chain_count = 0
                         logger.info(
                             "agent loop iter=%d/%d node=%s msgs=%d",
-                            loop_i + 1, max_iter, current_node_id, len(ctx.messages),
+                            loop_i + 1,
+                            max_iter,
+                            current_node_id,
+                            len(ctx.messages),
                         )
                         async for event in self._execute_llm_node(
-                            ctx, node, graph, model, tools_schema, system_prompt, stream=stream
+                            ctx,
+                            node,
+                            graph,
+                            model,
+                            tools_schema,
+                            system_prompt,
+                            stream=stream,
                         ):
                             yield event
                             if event.type == AgentEventType.ERROR:
@@ -382,7 +417,8 @@ class AgentRuntime:
                     else:
                         logger.warning(
                             "agent loop max iterations reached: %d node=%s",
-                            max_iter, current_node_id,
+                            max_iter,
+                            current_node_id,
                         )
 
                 last_msg = ctx.messages[-1] if ctx.messages else {}
@@ -406,9 +442,10 @@ class AgentRuntime:
             elif node.type == "condition":
                 event = self._execute_condition_node(ctx, node)
                 yield event
-                current_node_id = graph.get_next_node(
-                    current_node_id, condition_result=event.content
-                ) or ""
+                current_node_id = (
+                    graph.get_next_node(current_node_id, condition_result=event.content)
+                    or ""
+                )
 
             elif node.type == "loop":
                 event = self._execute_loop_node(ctx, node, graph)
@@ -457,7 +494,9 @@ class AgentRuntime:
                 current_node_id = next_id or ""
 
             elif node.type == "end":
-                yield AgentEvent(type=AgentEventType.END, content="Graph execution complete")
+                yield AgentEvent(
+                    type=AgentEventType.END, content="Graph execution complete"
+                )
                 ctx.finished_at = time.time()
                 await self._auto_store_memory(ctx, graph)
                 return
@@ -485,7 +524,9 @@ class AgentRuntime:
                     "tool_call_chain_count": self._tool_call_chain_count,
                 },
             )
-            logger.debug("Checkpoint saved: graph=%s node=%s", graph.name, ctx.current_node_id)
+            logger.debug(
+                "Checkpoint saved: graph=%s node=%s", graph.name, ctx.current_node_id
+            )
         except Exception as e:
             logger.warning("Checkpoint save failed: %s", e)
 
@@ -497,12 +538,20 @@ class AgentRuntime:
     ) -> AsyncIterator[AgentEvent]:
         """Resume graph execution from the latest checkpoint."""
         if not self.store:
-            yield AgentEvent(type=AgentEventType.ERROR, content="No store configured for checkpoint resume")
+            yield AgentEvent(
+                type=AgentEventType.ERROR,
+                content="No store configured for checkpoint resume",
+            )
             return
 
-        checkpoint = self.store.load_latest_checkpoint(graph_id=graph.name, session_id=session_id)
+        checkpoint = self.store.load_latest_checkpoint(
+            graph_id=graph.name, session_id=session_id
+        )
         if not checkpoint:
-            yield AgentEvent(type=AgentEventType.ERROR, content=f"No checkpoint found for graph={graph.name} session={session_id}")
+            yield AgentEvent(
+                type=AgentEventType.ERROR,
+                content=f"No checkpoint found for graph={graph.name} session={session_id}",
+            )
             return
 
         ctx = AgentContext(session_id=session_id)
@@ -518,7 +567,9 @@ class AgentRuntime:
 
         logger.info(
             "Resumed from checkpoint: graph=%s node=%s iteration=%d",
-            graph.name, ctx.current_node_id, ctx.iteration_count,
+            graph.name,
+            ctx.current_node_id,
+            ctx.iteration_count,
         )
 
         yield AgentEvent(
@@ -549,7 +600,9 @@ class AgentRuntime:
             template_name = self._extract_template_name(node_prompt)
             if template_name:
                 try:
-                    node_prompt = self.templates.render(template_name, **self.variables.to_dict())
+                    node_prompt = self.templates.render(
+                        template_name, **self.variables.to_dict()
+                    )
                 except KeyError:
                     pass
             node_prompt = self.variables.interpolate(node_prompt)
@@ -565,7 +618,9 @@ class AgentRuntime:
                 if messages and messages[0].get("role") == "system":
                     messages[0]["content"] += "\n\n" + schema_instruction
                 else:
-                    messages.insert(0, {"role": "system", "content": schema_instruction})
+                    messages.insert(
+                        0, {"role": "system", "content": schema_instruction}
+                    )
 
         if self.safety_gateway:
             safety_result = self.safety_gateway.evaluate_action(
@@ -573,7 +628,10 @@ class AgentRuntime:
                 content=str(messages[-1]) if messages else "",
                 context=f"model={model} node={node.label}",
             )
-            if safety_result.action.value == "block" and not safety_result.requires_approval:
+            if (
+                safety_result.action.value == "block"
+                and not safety_result.requires_approval
+            ):
                 ctx.error = f"SafetyGateway blocked LLM call: {safety_result.reason}"
                 yield AgentEvent(
                     type=AgentEventType.SAFETY_APPROVAL,
@@ -583,7 +641,9 @@ class AgentRuntime:
                 yield AgentEvent(type=AgentEventType.ERROR, content=ctx.error)
                 return
             if safety_result.requires_approval:
-                async for evt in self._await_safety_approval(ctx, safety_result, "llm_call", node.label):
+                async for evt in self._await_safety_approval(
+                    ctx, safety_result, "llm_call", node.label
+                ):
                     yield evt
                     if evt.type == AgentEventType.ERROR:
                         return
@@ -651,7 +711,9 @@ class AgentRuntime:
                             resp_model = chunk["model"]
 
                 content = "".join(content_parts)
-                tool_calls = list(current_tool_calls.values()) if current_tool_calls else []
+                tool_calls = (
+                    list(current_tool_calls.values()) if current_tool_calls else []
+                )
                 for tc in tool_calls:
                     args_str = tc.get("function", {}).get("arguments", "")
                     if args_str:
@@ -683,7 +745,10 @@ class AgentRuntime:
                                 if gw_resp.model:
                                     resp_model = gw_resp.model
                             except Exception as fallback_exc:
-                                logger.error("fallback non-streaming also failed: %s", fallback_exc)
+                                logger.error(
+                                    "fallback non-streaming also failed: %s",
+                                    fallback_exc,
+                                )
             else:
                 logger.debug("LLM call via gateway, model=%s", model)
                 gw_resp = await asyncio.wait_for(
@@ -717,9 +782,13 @@ class AgentRuntime:
                     content = json.dumps(extracted, ensure_ascii=False)
                     self.variables.set("structured_output", extracted)
                 else:
-                    logger.warning("Structured output schema validation failed: %s", errors)
+                    logger.warning(
+                        "Structured output schema validation failed: %s", errors
+                    )
             else:
-                logger.warning("Structured output: could not extract JSON from LLM response")
+                logger.warning(
+                    "Structured output: could not extract JSON from LLM response"
+                )
 
         ctx.add_message("assistant", content, tool_calls=tool_calls or None)
 
@@ -766,13 +835,23 @@ class AgentRuntime:
                 if func_name == "register_tool":
                     result = self._dynamic_register_tool(func_args)
                     ctx.add_message("tool", result, tool_call_id=tc.get("id", ""))
-                    yield AgentEvent(type=AgentEventType.TOOL_RESULT, content=result, name=func_name, node_id=node.label)
+                    yield AgentEvent(
+                        type=AgentEventType.TOOL_RESULT,
+                        content=result,
+                        name=func_name,
+                        node_id=node.label,
+                    )
                     continue
 
                 if func_name == "unregister_tool":
                     result = self._dynamic_unregister_tool(func_args)
                     ctx.add_message("tool", result, tool_call_id=tc.get("id", ""))
-                    yield AgentEvent(type=AgentEventType.TOOL_RESULT, content=result, name=func_name, node_id=node.label)
+                    yield AgentEvent(
+                        type=AgentEventType.TOOL_RESULT,
+                        content=result,
+                        name=func_name,
+                        node_id=node.label,
+                    )
                     continue
 
                 yield AgentEvent(
@@ -785,7 +864,9 @@ class AgentRuntime:
                 pre = await self._fire_tool_hooks("PRE_TOOL_USE", func_name, func_args)
                 if pre is not None and pre.decision == "block":
                     result = f"Blocked by hook: {pre.reason or 'pre_tool_use'}"
-                    logger.info("tool blocked by hook tool=%s reason=%s", func_name, pre.reason)
+                    logger.info(
+                        "tool blocked by hook tool=%s reason=%s", func_name, pre.reason
+                    )
                     ctx.add_message("tool", result, tool_call_id=tc.get("id", ""))
                     yield AgentEvent(
                         type=AgentEventType.TOOL_RESULT,
@@ -809,8 +890,14 @@ class AgentRuntime:
                 ctx.add_message("tool", result, tool_call_id=tc.get("id", ""))
                 ctx.messages[-1]["_node_id"] = node.label
 
-                post_event = "POST_TOOL_USE_FAILURE" if str(result).startswith("Error:") else "POST_TOOL_USE"
-                await self._fire_tool_hooks(post_event, func_name, func_args, str(result))
+                post_event = (
+                    "POST_TOOL_USE_FAILURE"
+                    if str(result).startswith("Error:")
+                    else "POST_TOOL_USE"
+                )
+                await self._fire_tool_hooks(
+                    post_event, func_name, func_args, str(result)
+                )
 
                 yield AgentEvent(
                     type=AgentEventType.TOOL_RESULT,
@@ -825,7 +912,12 @@ class AgentRuntime:
             if tool_errors and node.retry_on_error and node.max_retries > 0:
                 max_retries = min(node.max_retries, 5)
                 for retry_count in range(1, max_retries + 1):
-                    logger.info("Self-repair retry %d/%d for node=%s", retry_count, max_retries, node.label)
+                    logger.info(
+                        "Self-repair retry %d/%d for node=%s",
+                        retry_count,
+                        max_retries,
+                        node.label,
+                    )
                     yield AgentEvent(
                         type=AgentEventType.RETRY,
                         content=f"Retrying due to tool errors (attempt {retry_count}/{max_retries})",
@@ -843,7 +935,8 @@ class AgentRuntime:
                     try:
                         gw_resp = await asyncio.wait_for(
                             self.llm_gateway.chat(
-                                messages=messages + ctx.messages[-_MAX_RETRY_CONTEXT_MESSAGES:],
+                                messages=messages
+                                + ctx.messages[-_MAX_RETRY_CONTEXT_MESSAGES:],
                                 model=model,
                                 capability=node.tool_params.get("capability", ""),
                                 tools=tools_schema if tools_schema else None,
@@ -854,12 +947,18 @@ class AgentRuntime:
                             timeout=120.0,
                         )
                     except Exception as e:
-                        logger.warning("Self-repair LLM call failed on retry %d: %s", retry_count, e)
+                        logger.warning(
+                            "Self-repair LLM call failed on retry %d: %s",
+                            retry_count,
+                            e,
+                        )
                         continue
 
                     retry_content = gw_resp.content
                     retry_tool_calls = gw_resp.tool_calls or []
-                    ctx.add_message("assistant", retry_content, tool_calls=retry_tool_calls or None)
+                    ctx.add_message(
+                        "assistant", retry_content, tool_calls=retry_tool_calls or None
+                    )
 
                     if not retry_tool_calls:
                         yield AgentEvent(
@@ -878,7 +977,12 @@ class AgentRuntime:
                         except (KeyError, json.JSONDecodeError):
                             continue
 
-                        yield AgentEvent(type=AgentEventType.TOOL_CALL, name=fn, args=fa, node_id=node.label)
+                        yield AgentEvent(
+                            type=AgentEventType.TOOL_CALL,
+                            name=fn,
+                            args=fa,
+                            node_id=node.label,
+                        )
                         try:
                             t = self.tools.get(fn)
                             if t is None:
@@ -888,7 +992,12 @@ class AgentRuntime:
                             r = f"Error: {e}"
 
                         ctx.add_message("tool", str(r), tool_call_id=tc.get("id", ""))
-                        yield AgentEvent(type=AgentEventType.TOOL_RESULT, content=str(r), name=fn, node_id=node.label)
+                        yield AgentEvent(
+                            type=AgentEventType.TOOL_RESULT,
+                            content=str(r),
+                            name=fn,
+                            node_id=node.label,
+                        )
                         if str(r).startswith("Error:"):
                             tool_errors.append(f"{fn}: {r}")
 
@@ -901,7 +1010,9 @@ class AgentRuntime:
                         )
                         break
 
-    async def _fire_tool_hooks(self, event: str, tool_name: str, args: dict, result: str | None = None):
+    async def _fire_tool_hooks(
+        self, event: str, tool_name: str, args: dict, result: str | None = None
+    ):
         if self.hooks is None:
             return None
         payload = {"tool_name": tool_name, "args": args}
@@ -910,7 +1021,9 @@ class AgentRuntime:
         try:
             return await self.hooks.fire(event, payload, tool_name=tool_name)
         except Exception as e:
-            logger.warning("hook fire error event=%s tool=%s err=%s", event, tool_name, e)
+            logger.warning(
+                "hook fire error event=%s tool=%s err=%s", event, tool_name, e
+            )
             return None
 
     def _validate_tool_args(self, tool: "BaseTool", args: dict) -> dict:
@@ -932,21 +1045,34 @@ class AgentRuntime:
                     validated[key] = float(value)
                 except (ValueError, TypeError):
                     validated[key] = value
-                    logger.warning("Tool '%s': could not coerce arg '%s' to number", tool.name, key)
+                    logger.warning(
+                        "Tool '%s': could not coerce arg '%s' to number", tool.name, key
+                    )
             elif expected_type == "integer" and not isinstance(value, int):
                 try:
                     validated[key] = int(value)
                 except (ValueError, TypeError):
                     validated[key] = value
-                    logger.warning("Tool '%s': could not coerce arg '%s' to integer", tool.name, key)
+                    logger.warning(
+                        "Tool '%s': could not coerce arg '%s' to integer",
+                        tool.name,
+                        key,
+                    )
             elif expected_type == "boolean" and not isinstance(value, bool):
                 validated[key] = bool(value)
                 logger.warning("Tool '%s': coerced arg '%s' to boolean", tool.name, key)
             else:
                 validated[key] = value
-        for req_key in (tool.openai_schema().get("function", {}).get("parameters", {}).get("required", [])):
+        for req_key in (
+            tool.openai_schema()
+            .get("function", {})
+            .get("parameters", {})
+            .get("required", [])
+        ):
             if req_key not in validated:
-                logger.warning("Tool '%s': missing required arg '%s'", tool.name, req_key)
+                logger.warning(
+                    "Tool '%s': missing required arg '%s'", tool.name, req_key
+                )
         return validated
 
     @staticmethod
@@ -960,10 +1086,23 @@ class AgentRuntime:
                     "parameters": {
                         "type": "object",
                         "properties": {
-                            "name": {"type": "string", "description": "Unique name for the tool"},
-                            "type": {"type": "string", "description": "Tool type (all types use safe subprocess execution)", "default": "custom"},
-                            "description": {"type": "string", "description": "What this tool does"},
-                            "parameters": {"type": "object", "description": "OpenAI-style parameter definitions"},
+                            "name": {
+                                "type": "string",
+                                "description": "Unique name for the tool",
+                            },
+                            "type": {
+                                "type": "string",
+                                "description": "Tool type (all types use safe subprocess execution)",
+                                "default": "custom",
+                            },
+                            "description": {
+                                "type": "string",
+                                "description": "What this tool does",
+                            },
+                            "parameters": {
+                                "type": "object",
+                                "description": "OpenAI-style parameter definitions",
+                            },
                         },
                         "required": ["name"],
                     },
@@ -977,7 +1116,10 @@ class AgentRuntime:
                     "parameters": {
                         "type": "object",
                         "properties": {
-                            "name": {"type": "string", "description": "Name of the tool to remove"},
+                            "name": {
+                                "type": "string",
+                                "description": "Name of the tool to remove",
+                            },
                         },
                         "required": ["name"],
                     },
@@ -1026,6 +1168,7 @@ class AgentRuntime:
             if cmd:
                 import asyncio
                 import shlex
+
                 try:
                     split_args = shlex.split(str(cmd))
                 except ValueError:
@@ -1119,12 +1262,15 @@ class AgentRuntime:
 
         if self.safety_gateway:
             with self.safety_gateway._lock:
-                self.safety_gateway._pending_action_approvals.setdefault(action_id, {
-                    "category": category,
-                    "content": safety_result.reason,
-                    "level": safety_result.metadata.get("level", "L2"),
-                    "status": "pending",
-                })
+                self.safety_gateway._pending_action_approvals.setdefault(
+                    action_id,
+                    {
+                        "category": category,
+                        "content": safety_result.reason,
+                        "level": safety_result.metadata.get("level", "L2"),
+                        "status": "pending",
+                    },
+                )
             self.safety_gateway._pending_approvals[action_id] = future
 
         yield AgentEvent(
@@ -1135,7 +1281,9 @@ class AgentRuntime:
                 "category": category,
                 "action_id": action_id,
                 "level": safety_result.metadata.get("level", ""),
-                "diff_preview": safety_result.diff_preview.to_dict() if safety_result.diff_preview else None,
+                "diff_preview": safety_result.diff_preview.to_dict()
+                if safety_result.diff_preview
+                else None,
             },
             node_id=node_label,
         )
@@ -1162,7 +1310,11 @@ class AgentRuntime:
             yield AgentEvent(
                 type=AgentEventType.SAFETY_APPROVAL,
                 content=safety_result.reason,
-                metadata={"action": "rejected", "category": category, "action_id": action_id},
+                metadata={
+                    "action": "rejected",
+                    "category": category,
+                    "action_id": action_id,
+                },
                 node_id=node_label,
             )
             yield AgentEvent(type=AgentEventType.ERROR, content=ctx.error)
@@ -1171,7 +1323,11 @@ class AgentRuntime:
         yield AgentEvent(
             type=AgentEventType.SAFETY_APPROVAL,
             content=safety_result.reason or "approved",
-            metadata={"action": "approved", "category": category, "action_id": action_id},
+            metadata={
+                "action": "approved",
+                "category": category,
+                "action_id": action_id,
+            },
             node_id=node_label,
         )
 
@@ -1197,7 +1353,10 @@ class AgentRuntime:
                 content=f"{node.tool_name}({params})",
                 context=f"tool={node.tool_name} node={node.label}",
             )
-            if safety_result.action.value == "block" and not safety_result.requires_approval:
+            if (
+                safety_result.action.value == "block"
+                and not safety_result.requires_approval
+            ):
                 ctx.error = f"SafetyGateway blocked tool call: {safety_result.reason}"
                 yield AgentEvent(
                     type=AgentEventType.SAFETY_APPROVAL,
@@ -1207,7 +1366,9 @@ class AgentRuntime:
                 yield AgentEvent(type=AgentEventType.ERROR, content=ctx.error)
                 return
             if safety_result.requires_approval:
-                async for evt in self._await_safety_approval(ctx, safety_result, "tool_call", node.label):
+                async for evt in self._await_safety_approval(
+                    ctx, safety_result, "tool_call", node.label
+                ):
                     yield evt
                     if evt.type == AgentEventType.ERROR:
                         return
@@ -1310,7 +1471,11 @@ class AgentRuntime:
                 type=AgentEventType.THINK,
                 content=f"Retry attempt {attempt}/{max_retries} for error: {error_msg}",
                 node_id=node.label,
-                metadata={"attempt": attempt, "max_retries": max_retries, "error": error_msg},
+                metadata={
+                    "attempt": attempt,
+                    "max_retries": max_retries,
+                    "error": error_msg,
+                },
             )
 
             if attempt > 1:
@@ -1333,7 +1498,9 @@ class AgentRuntime:
 
             if not ctx.error:
                 break
-            logger.warning("Retry %d/%d still has error: %s", attempt, max_retries, ctx.error)
+            logger.warning(
+                "Retry %d/%d still has error: %s", attempt, max_retries, ctx.error
+            )
 
         yield AgentEvent(
             type=AgentEventType.TOOL_RESULT,
@@ -1353,13 +1520,17 @@ class AgentRuntime:
         output_mapping = params.get("output_mapping", {})
 
         if not graph_json:
-            yield AgentEvent(type=AgentEventType.ERROR, content="Sub-graph: no graph_json provided")
+            yield AgentEvent(
+                type=AgentEventType.ERROR, content="Sub-graph: no graph_json provided"
+            )
             return
 
         try:
             sub_graph = AgentGraph.from_json(graph_json)
         except Exception as e:
-            yield AgentEvent(type=AgentEventType.ERROR, content=f"Sub-graph parse error: {e}")
+            yield AgentEvent(
+                type=AgentEventType.ERROR, content=f"Sub-graph parse error: {e}"
+            )
             return
 
         sub_input = ""
@@ -1415,7 +1586,9 @@ class AgentRuntime:
         try:
             from .rag_pipeline import RAGConfig, RAGPipeline
         except ImportError:
-            yield AgentEvent(type=AgentEventType.ERROR, content="RAG pipeline not available")
+            yield AgentEvent(
+                type=AgentEventType.ERROR, content="RAG pipeline not available"
+            )
             return
 
         query = ""
@@ -1425,19 +1598,35 @@ class AgentRuntime:
                 break
         if not query:
             query = " ".join(
-                m.get("content", "") for m in ctx.messages
+                m.get("content", "")
+                for m in ctx.messages
                 if isinstance(m, dict) and m.get("role") == "user"
             )[:500]
 
         rag_config_dict = node.tool_params.get("rag_config", {})
-        rag_config = RAGConfig(**{k: v for k, v in rag_config_dict.items()
-                                   if k in ("top_k", "similarity_threshold", "rerank", "mode", "scope", "max_context_tokens")})
+        rag_config = RAGConfig(
+            **{
+                k: v
+                for k, v in rag_config_dict.items()
+                if k
+                in (
+                    "top_k",
+                    "similarity_threshold",
+                    "rerank",
+                    "mode",
+                    "scope",
+                    "max_context_tokens",
+                )
+            }
+        )
 
         knowledge_engine = None
         if hasattr(self, "_knowledge_engine") and self._knowledge_engine:
             knowledge_engine = self._knowledge_engine
 
-        pipeline = RAGPipeline(knowledge_engine=knowledge_engine, gateway=self.llm_gateway)
+        pipeline = RAGPipeline(
+            knowledge_engine=knowledge_engine, gateway=self.llm_gateway
+        )
 
         try:
             rag_result = pipeline.retrieve(query, config=rag_config)
@@ -1465,7 +1654,12 @@ class AgentRuntime:
             )
 
             async for event in self._execute_llm_node(
-                ctx, augmented_node, graph, augmented_node.model or model, tools_schema, ""
+                ctx,
+                augmented_node,
+                graph,
+                augmented_node.model or model,
+                tools_schema,
+                "",
             ):
                 yield event
 
@@ -1501,7 +1695,9 @@ class AgentRuntime:
         try:
             from .planner import PlannerEngine
         except ImportError:
-            yield AgentEvent(type=AgentEventType.ERROR, content="Planner engine not available")
+            yield AgentEvent(
+                type=AgentEventType.ERROR, content="Planner engine not available"
+            )
             return
 
         task = ""
@@ -1536,13 +1732,15 @@ class AgentRuntime:
 
         step_summaries = []
         for step in plan.steps:
-            step_summaries.append({
-                "id": step.id,
-                "description": step.description,
-                "action": step.action,
-                "target_files": step.target_files,
-                "complexity": step.estimated_complexity,
-            })
+            step_summaries.append(
+                {
+                    "id": step.id,
+                    "description": step.description,
+                    "action": step.action,
+                    "target_files": step.target_files,
+                    "complexity": step.estimated_complexity,
+                }
+            )
 
         yield AgentEvent(
             type=AgentEventType.TOOL_RESULT,
@@ -1565,7 +1763,9 @@ class AgentRuntime:
         try:
             from .verifier import VerificationEngine
         except ImportError:
-            yield AgentEvent(type=AgentEventType.ERROR, content="Verification engine not available")
+            yield AgentEvent(
+                type=AgentEventType.ERROR, content="Verification engine not available"
+            )
             return
 
         task = node.tool_params.get("task", "")
@@ -1618,8 +1818,12 @@ class AgentRuntime:
     async def _auto_store_memory(self, ctx: AgentContext, graph: AgentGraph) -> None:
         if not self.memory_engine:
             return
-        user_msgs = [m.get("content", "") for m in ctx.messages if m.get("role") == "user"]
-        assistant_msgs = [m.get("content", "") for m in ctx.messages if m.get("role") == "assistant"]
+        user_msgs = [
+            m.get("content", "") for m in ctx.messages if m.get("role") == "user"
+        ]
+        assistant_msgs = [
+            m.get("content", "") for m in ctx.messages if m.get("role") == "assistant"
+        ]
         if not user_msgs and not assistant_msgs:
             return
         last_user = user_msgs[-1] if user_msgs else ""
@@ -1631,12 +1835,20 @@ class AgentRuntime:
             scope=scope,
             tags="auto-store",
             importance=7 if not ctx.error else 3,
-            metadata={"graph_id": graph.id, "error": ctx.error, "iterations": ctx.iteration_count},
+            metadata={
+                "graph_id": graph.id,
+                "error": ctx.error,
+                "iterations": ctx.iteration_count,
+            },
         )
         logger.info("Auto-stored execution result to memory (scope=%s)", scope)
 
     def set_knowledge_engine(self, engine: Any) -> None:
-        if hasattr(engine, "embedding_fn") and engine.embedding_fn is None and self.llm_gateway:
+        if (
+            hasattr(engine, "embedding_fn")
+            and engine.embedding_fn is None
+            and self.llm_gateway
+        ):
             import asyncio
             import concurrent.futures
 
@@ -1644,7 +1856,9 @@ class AgentRuntime:
                 try:
                     asyncio.get_running_loop()
                     with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-                        return pool.submit(asyncio.run, self.llm_gateway.aembed(text)).result()
+                        return pool.submit(
+                            asyncio.run, self.llm_gateway.aembed(text)
+                        ).result()
                 except RuntimeError:
                     return asyncio.run(self.llm_gateway.aembed(text))
 

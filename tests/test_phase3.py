@@ -1,4 +1,5 @@
 """Tests for Phase 3 modules: graph_editor, metrics_engine, agent_marketplace."""
+
 from __future__ import annotations
 
 import time
@@ -37,8 +38,10 @@ def _build_graph(nodes_spec, edges_spec):
 
 class TestGraphValidation:
     def test_valid_simple_graph(self):
-        g = _build_graph([("start", "start"), ("llm", "llm"), ("end", "end")],
-                         [("start", "llm"), ("llm", "end")])
+        g = _build_graph(
+            [("start", "start"), ("llm", "llm"), ("end", "end")],
+            [("start", "llm"), ("llm", "end")],
+        )
         result = validate_graph(g)
         assert result.valid
 
@@ -49,27 +52,34 @@ class TestGraphValidation:
         assert any("No start" in i.message for i in result.issues)
 
     def test_multiple_start_nodes(self):
-        g = _build_graph([("s1", "start"), ("s2", "start"), ("end", "end")],
-                         [("s1", "end"), ("s2", "end")])
+        g = _build_graph(
+            [("s1", "start"), ("s2", "start"), ("end", "end")],
+            [("s1", "end"), ("s2", "end")],
+        )
         result = validate_graph(g)
         assert not result.valid
 
     def test_cycle_detection(self):
-        g = _build_graph([("start", "start"), ("a", "llm"), ("b", "llm"), ("end", "end")],
-                         [("start", "a"), ("a", "b"), ("b", "a"), ("b", "end")])
+        g = _build_graph(
+            [("start", "start"), ("a", "llm"), ("b", "llm"), ("end", "end")],
+            [("start", "a"), ("a", "b"), ("b", "a"), ("b", "end")],
+        )
         result = validate_graph(g)
         assert not result.valid
         assert any("cycle" in i.message.lower() for i in result.issues)
 
     def test_unreachable_node(self):
-        g = _build_graph([("start", "start"), ("end", "end"), ("orphan", "llm")],
-                         [("start", "end")])
+        g = _build_graph(
+            [("start", "start"), ("end", "end"), ("orphan", "llm")], [("start", "end")]
+        )
         result = validate_graph(g)
         assert any("Unreachable" in i.message for i in result.issues)
 
     def test_condition_few_branches(self):
-        g = _build_graph([("start", "start"), ("cond", "condition"), ("end", "end")],
-                         [("start", "cond"), ("cond", "end")])
+        g = _build_graph(
+            [("start", "start"), ("cond", "condition"), ("end", "end")],
+            [("start", "cond"), ("cond", "end")],
+        )
         result = validate_graph(g)
         assert any("fewer than 2" in i.message for i in result.issues)
 
@@ -92,8 +102,10 @@ class TestGraphValidation:
 
 class TestAutoLayout:
     def test_linear_graph(self):
-        g = _build_graph([("start", "start"), ("llm", "llm"), ("end", "end")],
-                         [("start", "llm"), ("llm", "end")])
+        g = _build_graph(
+            [("start", "start"), ("llm", "llm"), ("end", "end")],
+            [("start", "llm"), ("llm", "end")],
+        )
         positions = auto_layout(g)
         assert len(positions) == 3
         pos_map = {p.node_id: p for p in positions}
@@ -101,8 +113,10 @@ class TestAutoLayout:
         assert pos_map["llm"].y < pos_map["end"].y
 
     def test_branching_graph(self):
-        g = _build_graph([("start", "start"), ("a", "llm"), ("b", "llm"), ("end", "end")],
-                         [("start", "a"), ("start", "b"), ("a", "end"), ("b", "end")])
+        g = _build_graph(
+            [("start", "start"), ("a", "llm"), ("b", "llm"), ("end", "end")],
+            [("start", "a"), ("start", "b"), ("a", "end"), ("b", "end")],
+        )
         positions = auto_layout(g)
         assert len(positions) == 4
         layer0 = [p for p in positions if p.y == min(p2.y for p2 in positions)]
@@ -138,7 +152,9 @@ class TestNodePosition:
 
 class TestGraphDocument:
     def test_to_dict_roundtrip(self):
-        doc = GraphDocument(id="abc", name="test", positions=[NodePosition("n1", 0, 0)], tags=["demo"])
+        doc = GraphDocument(
+            id="abc", name="test", positions=[NodePosition("n1", 0, 0)], tags=["demo"]
+        )
         d = doc.to_dict()
         restored = GraphDocument.from_dict(d)
         assert restored.id == "abc"
@@ -224,6 +240,7 @@ class TestGraphEditor:
 
 # ── Metrics Engine ───────────────────────────────────────
 
+
 class TestMetricsEngine:
     @pytest.fixture
     def engine(self, tmp_path):
@@ -238,7 +255,9 @@ class TestMetricsEngine:
         assert row_id > 0
 
     def test_record_session(self, engine):
-        s = SessionRecord(session_id="s1", graph_id="g1", status="completed", duration_ms=500)
+        s = SessionRecord(
+            session_id="s1", graph_id="g1", status="completed", duration_ms=500
+        )
         row_id = engine.record_session(s)
         assert row_id > 0
 
@@ -262,7 +281,15 @@ class TestMetricsEngine:
         assert len(results) == 1
 
     def test_get_summary(self, engine):
-        engine.record_inference(InferenceMetrics(model="qwen3-0.6b", latency_ms=100, tokens_in=10, tokens_out=20, vram_mb=1024))
+        engine.record_inference(
+            InferenceMetrics(
+                model="qwen3-0.6b",
+                latency_ms=100,
+                tokens_in=10,
+                tokens_out=20,
+                vram_mb=1024,
+            )
+        )
         engine.record_session(SessionRecord(session_id="s1", status="completed"))
         summary = engine.get_summary()
         assert summary.total_inferences == 1
@@ -318,6 +345,7 @@ class TestMetricsSummary:
 
 # ── Agent Marketplace ────────────────────────────────────
 
+
 class TestAgentMarketplace:
     @pytest.fixture
     def marketplace(self, tmp_path):
@@ -371,8 +399,13 @@ class TestAgentMarketplace:
         assert "data" in cats
 
     def test_export_import(self, marketplace, tmp_path):
-        entry = MarketEntry(name="Export Test", author="test", category="dev", tags=["test"],
-                           graph_data={"nodes": {}, "edges": []})
+        entry = MarketEntry(
+            name="Export Test",
+            author="test",
+            category="dev",
+            tags=["test"],
+            graph_data={"nodes": {}, "edges": []},
+        )
         entry_id = marketplace.publish(entry)
         export_dir = tmp_path / "exports"
         exported_path = marketplace.export_agent(entry_id, export_dir)

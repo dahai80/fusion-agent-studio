@@ -44,7 +44,9 @@ class TestFusionRAGClientInit:
         assert client.timeout == 60.0
 
     def test_custom_config(self):
-        client = FusionRAGClient(base_url="http://custom:9999", api_key="test", timeout=30.0)
+        client = FusionRAGClient(
+            base_url="http://custom:9999", api_key="test", timeout=30.0
+        )
         assert client.base_url == "http://custom:9999"
 
     def test_base_url_trailing_slash_stripped(self):
@@ -79,7 +81,9 @@ class TestFusionRAGClientKB:
     @pytest.mark.asyncio
     async def test_list_bases(self):
         client, mock_http = _mocked_client()
-        mock_http.get = AsyncMock(return_value=_mock_response({"bases": [{"id": "kb1"}]}))
+        mock_http.get = AsyncMock(
+            return_value=_mock_response({"bases": [{"id": "kb1"}]})
+        )
         result = await client.list_bases()
         assert len(result) == 1
         assert result[0]["id"] == "kb1"
@@ -94,14 +98,18 @@ class TestFusionRAGClientKB:
     @pytest.mark.asyncio
     async def test_create_base(self):
         client, mock_http = _mocked_client()
-        mock_http.post = AsyncMock(return_value=_mock_response({"id": "kb1", "name": "test"}))
+        mock_http.post = AsyncMock(
+            return_value=_mock_response({"id": "kb1", "name": "test"})
+        )
         result = await client.create_base(name="test", description="desc")
         assert result["name"] == "test"
 
     @pytest.mark.asyncio
     async def test_get_base(self):
         client, mock_http = _mocked_client()
-        mock_http.get = AsyncMock(return_value=_mock_response({"id": "kb1", "name": "test"}))
+        mock_http.get = AsyncMock(
+            return_value=_mock_response({"id": "kb1", "name": "test"})
+        )
         result = await client.get_base("kb1")
         assert result["id"] == "kb1"
 
@@ -117,11 +125,21 @@ class TestFusionRAGClientSearch:
     @pytest.mark.asyncio
     async def test_search_returns_results(self):
         client, mock_http = _mocked_client()
-        mock_http.post = AsyncMock(return_value=_mock_response({
-            "results": [
-                {"content": "hello", "score": 0.95, "source": "a.txt", "metadata": {}, "chunk_id": "c1"},
-            ]
-        }))
+        mock_http.post = AsyncMock(
+            return_value=_mock_response(
+                {
+                    "results": [
+                        {
+                            "content": "hello",
+                            "score": 0.95,
+                            "source": "a.txt",
+                            "metadata": {},
+                            "chunk_id": "c1",
+                        },
+                    ]
+                }
+            )
+        )
         results = await client.search(kb_id="kb1", query="hello")
         assert len(results) == 1
         assert isinstance(results[0], SearchResult)
@@ -160,11 +178,15 @@ class TestFusionRAGClientAsk:
     @pytest.mark.asyncio
     async def test_ask_returns_answer(self):
         client, mock_http = _mocked_client()
-        mock_http.post = AsyncMock(return_value=_mock_response({
-            "answer": "42",
-            "sources": [{"source": "a.txt"}],
-            "confidence": 0.95,
-        }))
+        mock_http.post = AsyncMock(
+            return_value=_mock_response(
+                {
+                    "answer": "42",
+                    "sources": [{"source": "a.txt"}],
+                    "confidence": 0.95,
+                }
+            )
+        )
         result = await client.ask(kb_id="kb1", question="what?")
         assert isinstance(result, AskResult)
         assert result.answer == "42"
@@ -176,14 +198,18 @@ class TestFusionRAGClientDocuments:
     @pytest.mark.asyncio
     async def test_list_documents(self):
         client, mock_http = _mocked_client()
-        mock_http.get = AsyncMock(return_value=_mock_response({"documents": [{"doc_id": "d1"}]}))
+        mock_http.get = AsyncMock(
+            return_value=_mock_response({"documents": [{"doc_id": "d1"}]})
+        )
         result = await client.list_documents("kb1")
         assert len(result) == 1
 
     @pytest.mark.asyncio
     async def test_ingest_content(self):
         client, mock_http = _mocked_client()
-        mock_http.post = AsyncMock(return_value=_mock_response({"doc_id": "d1", "status": "indexed"}))
+        mock_http.post = AsyncMock(
+            return_value=_mock_response({"doc_id": "d1", "status": "indexed"})
+        )
         result = await client.ingest_content(kb_id="kb1", content="hello", title="test")
         assert result["doc_id"] == "d1"
 
@@ -199,8 +225,12 @@ class TestFusionRAGClientScan:
     @pytest.mark.asyncio
     async def test_scan_directory(self):
         client, mock_http = _mocked_client()
-        mock_http.post = AsyncMock(return_value=_mock_response({"scanned": 5, "indexed": 3}))
-        result = await client.scan_directory(kb_id="kb1", path="/data/docs", recursive=True)
+        mock_http.post = AsyncMock(
+            return_value=_mock_response({"scanned": 5, "indexed": 3})
+        )
+        result = await client.scan_directory(
+            kb_id="kb1", path="/data/docs", recursive=True
+        )
         assert result["scanned"] == 5
 
 
@@ -208,14 +238,18 @@ class TestFusionRAGClientProjects:
     @pytest.mark.asyncio
     async def test_map_project(self):
         client, mock_http = _mocked_client()
-        mock_http.post = AsyncMock(return_value=_mock_response({"project_id": "p1", "kb_id": "kb1"}))
+        mock_http.post = AsyncMock(
+            return_value=_mock_response({"project_id": "p1", "kb_id": "kb1"})
+        )
         result = await client.map_project(project_id="p1", kb_id="kb1")
         assert result["project_id"] == "p1"
 
     @pytest.mark.asyncio
     async def test_get_project_kb(self):
         client, mock_http = _mocked_client()
-        mock_http.get = AsyncMock(return_value=_mock_response({"project_id": "p1", "kb_id": "kb1"}))
+        mock_http.get = AsyncMock(
+            return_value=_mock_response({"project_id": "p1", "kb_id": "kb1"})
+        )
         result = await client.get_project_kb("p1")
         assert result["kb_id"] == "kb1"
 
@@ -271,7 +305,9 @@ class TestFusionRAGClientStatus:
     @pytest.mark.asyncio
     async def test_status_ok(self):
         client, mock_http = _mocked_client()
-        mock_http.get = AsyncMock(return_value=_mock_response({"available": True, "version": "0.1.0"}))
+        mock_http.get = AsyncMock(
+            return_value=_mock_response({"available": True, "version": "0.1.0"})
+        )
         result = await client.status()
         assert result["available"] is True
 

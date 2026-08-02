@@ -4,6 +4,7 @@ Reads plain text, markdown, JSON, CSV files; splits into chunks
 using fixed-size, sentence-boundary, or semantic overlap strategies;
 pipelines through extract -> transform -> load with pluggable stages.
 """
+
 from __future__ import annotations
 
 import base64
@@ -115,7 +116,9 @@ class DocumentReader:
         logger.info("Read document: %s (%d chars)", path.name, len(content))
         return Document(content=content, source=str(path), metadata=meta)
 
-    def read_text(self, text: str, source: str = "inline", metadata: dict | None = None) -> Document:
+    def read_text(
+        self, text: str, source: str = "inline", metadata: dict | None = None
+    ) -> Document:
         return Document(content=text, source=source, metadata=metadata or {})
 
     def _read_text(self, path: Path) -> tuple[str, dict]:
@@ -177,14 +180,16 @@ class FixedSizeChunker(ChunkingStrategy):
         while start < len(text):
             end = min(start + chunk_size, len(text))
             chunk_text = text[start:end]
-            chunks.append(Chunk(
-                document_id=document.id,
-                content=chunk_text,
-                index=idx,
-                start_char=start,
-                end_char=end,
-                metadata={"strategy": "fixed", "chunk_size": chunk_size},
-            ))
+            chunks.append(
+                Chunk(
+                    document_id=document.id,
+                    content=chunk_text,
+                    index=idx,
+                    start_char=start,
+                    end_char=end,
+                    metadata={"strategy": "fixed", "chunk_size": chunk_size},
+                )
+            )
             idx += 1
             step = chunk_size - overlap
             if step <= 0:
@@ -215,14 +220,16 @@ class SentenceChunker(ChunkingStrategy):
         for sent in sentences:
             if len(current) + len(sent) > max_size and len(current) >= min_size:
                 end_char = start_char + len(current)
-                chunks.append(Chunk(
-                    document_id=document.id,
-                    content=current.strip(),
-                    index=idx,
-                    start_char=start_char,
-                    end_char=end_char,
-                    metadata={"strategy": "sentence"},
-                ))
+                chunks.append(
+                    Chunk(
+                        document_id=document.id,
+                        content=current.strip(),
+                        index=idx,
+                        start_char=start_char,
+                        end_char=end_char,
+                        metadata={"strategy": "sentence"},
+                    )
+                )
                 idx += 1
                 start_char = end_char
                 current = sent
@@ -230,14 +237,16 @@ class SentenceChunker(ChunkingStrategy):
                 current += " " + sent if current else sent
 
         if current.strip():
-            chunks.append(Chunk(
-                document_id=document.id,
-                content=current.strip(),
-                index=idx,
-                start_char=start_char,
-                end_char=start_char + len(current),
-                metadata={"strategy": "sentence"},
-            ))
+            chunks.append(
+                Chunk(
+                    document_id=document.id,
+                    content=current.strip(),
+                    index=idx,
+                    start_char=start_char,
+                    end_char=start_char + len(current),
+                    metadata={"strategy": "sentence"},
+                )
+            )
 
         logger.debug("Sentence chunked doc %s: %d chunks", document.id, len(chunks))
         return chunks
@@ -261,34 +270,40 @@ class MarkdownChunker(ChunkingStrategy):
         prev_end = 0
         for i, match in enumerate(headings):
             if match.start() > prev_end:
-                pre_text = text[prev_end:match.start()].strip()
+                pre_text = text[prev_end : match.start()].strip()
                 if pre_text:
-                    chunks.append(Chunk(
-                        document_id=document.id,
-                        content=pre_text,
-                        index=idx,
-                        start_char=prev_end,
-                        end_char=match.start(),
-                        metadata={"strategy": "markdown", "section": "preamble"},
-                    ))
+                    chunks.append(
+                        Chunk(
+                            document_id=document.id,
+                            content=pre_text,
+                            index=idx,
+                            start_char=prev_end,
+                            end_char=match.start(),
+                            metadata={"strategy": "markdown", "section": "preamble"},
+                        )
+                    )
                     idx += 1
 
-            section_end = headings[i + 1].start() if i + 1 < len(headings) else len(text)
-            section_text = text[match.start():section_end].strip()
+            section_end = (
+                headings[i + 1].start() if i + 1 < len(headings) else len(text)
+            )
+            section_text = text[match.start() : section_end].strip()
             heading_level = len(match.group(1))
             heading_text = match.group(2)
-            chunks.append(Chunk(
-                document_id=document.id,
-                content=section_text,
-                index=idx,
-                start_char=match.start(),
-                end_char=section_end,
-                metadata={
-                    "strategy": "markdown",
-                    "heading": heading_text,
-                    "heading_level": heading_level,
-                },
-            ))
+            chunks.append(
+                Chunk(
+                    document_id=document.id,
+                    content=section_text,
+                    index=idx,
+                    start_char=match.start(),
+                    end_char=section_end,
+                    metadata={
+                        "strategy": "markdown",
+                        "heading": heading_text,
+                        "heading_level": heading_level,
+                    },
+                )
+            )
             idx += 1
             prev_end = section_end
 
@@ -336,7 +351,10 @@ class ETLPipeline:
 
         logger.info(
             "ETL pipeline: doc %s -> %d chunks (%d doc transforms, %d chunk transforms)",
-            doc.id, len(chunks), len(self._doc_transforms), len(self._chunk_transforms),
+            doc.id,
+            len(chunks),
+            len(self._doc_transforms),
+            len(self._chunk_transforms),
         )
         return chunks
 
@@ -345,7 +363,9 @@ class ETLPipeline:
         doc = reader.read_file(path)
         return self.process(doc, **chunk_kwargs)
 
-    def process_text(self, text: str, source: str = "inline", **chunk_kwargs) -> list[Chunk]:
+    def process_text(
+        self, text: str, source: str = "inline", **chunk_kwargs
+    ) -> list[Chunk]:
         reader = DocumentReader()
         doc = reader.read_text(text, source=source)
         return self.process(doc, **chunk_kwargs)
@@ -362,6 +382,7 @@ def truncate(max_chars: int = 10000) -> TransformFn:
             doc.content = doc.content[:max_chars]
             doc.metadata["truncated"] = True
         return doc
+
     return _truncate
 
 
@@ -369,6 +390,7 @@ def add_metadata(key: str, value: Any) -> TransformFn:
     def _add(doc: Document) -> Document:
         doc.metadata[key] = value
         return doc
+
     return _add
 
 
@@ -387,7 +409,9 @@ class WebReader:
     def read_url(self, url: str, timeout: int = 30) -> Document:
         logger.info("WebReader fetching: %s", url)
         try:
-            req = urllib.request.Request(url, headers={"User-Agent": "FusionAgentStudio/1.0"})
+            req = urllib.request.Request(
+                url, headers={"User-Agent": "FusionAgentStudio/1.0"}
+            )
             with urllib.request.urlopen(req, timeout=timeout) as resp:
                 html = resp.read().decode("utf-8", errors="replace")
             content = self._strip_html(html)
@@ -413,12 +437,20 @@ class WebReader:
         docs = []
         for url in urls:
             docs.append(self.read_url(url, timeout=timeout))
-        logger.info("WebReader batch: %d URLs, %d succeeded", len(urls), sum(1 for d in docs if not d.metadata.get("error")))
+        logger.info(
+            "WebReader batch: %d URLs, %d succeeded",
+            len(urls),
+            sum(1 for d in docs if not d.metadata.get("error")),
+        )
         return docs
 
     def _strip_html(self, html: str) -> str:
-        text = re.sub(r"<script[^>]*>.*?</script>", " ", html, flags=re.DOTALL | re.IGNORECASE)
-        text = re.sub(r"<style[^>]*>.*?</style>", " ", text, flags=re.DOTALL | re.IGNORECASE)
+        text = re.sub(
+            r"<script[^>]*>.*?</script>", " ", html, flags=re.DOTALL | re.IGNORECASE
+        )
+        text = re.sub(
+            r"<style[^>]*>.*?</style>", " ", text, flags=re.DOTALL | re.IGNORECASE
+        )
         text = re.sub(r"<br\s*/?>", "\n", text, flags=re.IGNORECASE)
         text = re.sub(r"</p>", "\n", text, flags=re.IGNORECASE)
         text = re.sub(r"</div>", "\n", text, flags=re.IGNORECASE)
@@ -468,13 +500,17 @@ class GitHubReader:
         self.token = token
         self.base_url = base_url.rstrip("/")
 
-    def read_repo_file(self, owner: str, repo: str, path: str, ref: str = "main") -> Document:
+    def read_repo_file(
+        self, owner: str, repo: str, path: str, ref: str = "main"
+    ) -> Document:
         url = f"{self.base_url}/repos/{owner}/{repo}/contents/{path}?ref={ref}"
         logger.info("GitHubReader fetching: %s/%s/%s @%s", owner, repo, path, ref)
         try:
             data = self._api_get(url)
             if isinstance(data, dict) and data.get("encoding") == "base64":
-                content = base64.b64decode(data.get("content", "")).decode("utf-8", errors="replace")
+                content = base64.b64decode(data.get("content", "")).decode(
+                    "utf-8", errors="replace"
+                )
             else:
                 content = json.dumps(data, indent=2, ensure_ascii=False)
             return Document(
@@ -505,18 +541,51 @@ class GitHubReader:
                 },
             )
 
-    def read_repo_tree(self, owner: str, repo: str, path: str = "", ref: str = "main", extensions: set[str] | None = None) -> list[Document]:
-        logger.info("GitHubReader tree: %s/%s/%s @%s", owner, repo, path or "(root)", ref)
+    def read_repo_tree(
+        self,
+        owner: str,
+        repo: str,
+        path: str = "",
+        ref: str = "main",
+        extensions: set[str] | None = None,
+    ) -> list[Document]:
+        logger.info(
+            "GitHubReader tree: %s/%s/%s @%s", owner, repo, path or "(root)", ref
+        )
         tree_url = f"{self.base_url}/repos/{owner}/{repo}/git/trees/{ref}?recursive=1"
         try:
             data = self._api_get(tree_url)
             tree = data.get("tree", []) if isinstance(data, dict) else []
             docs = []
             code_extensions = extensions or {
-                ".py", ".js", ".ts", ".jsx", ".tsx", ".md", ".txt", ".json",
-                ".yaml", ".yml", ".toml", ".cfg", ".ini", ".sh", ".bash",
-                ".go", ".rs", ".java", ".c", ".cpp", ".h", ".hpp", ".rb",
-                ".sql", ".html", ".css", ".vue", ".svelte",
+                ".py",
+                ".js",
+                ".ts",
+                ".jsx",
+                ".tsx",
+                ".md",
+                ".txt",
+                ".json",
+                ".yaml",
+                ".yml",
+                ".toml",
+                ".cfg",
+                ".ini",
+                ".sh",
+                ".bash",
+                ".go",
+                ".rs",
+                ".java",
+                ".c",
+                ".cpp",
+                ".h",
+                ".hpp",
+                ".rb",
+                ".sql",
+                ".html",
+                ".css",
+                ".vue",
+                ".svelte",
             }
             for item in tree:
                 if item.get("type") != "blob":
@@ -530,18 +599,30 @@ class GitHubReader:
                 doc = self.read_repo_file(owner, repo, item_path, ref)
                 if not doc.metadata.get("error"):
                     docs.append(doc)
-            logger.info("GitHubReader tree: %d files read from %s/%s", len(docs), owner, repo)
+            logger.info(
+                "GitHubReader tree: %d files read from %s/%s", len(docs), owner, repo
+            )
             return docs
         except Exception as e:
             logger.error("GitHubReader tree failed for %s/%s: %s", owner, repo, e)
-            return [Document(
-                content="",
-                source=f"github:{owner}/{repo}/{path}@{ref}",
-                metadata={"reader": "github", "owner": owner, "repo": repo, "error": str(e)},
-            )]
+            return [
+                Document(
+                    content="",
+                    source=f"github:{owner}/{repo}/{path}@{ref}",
+                    metadata={
+                        "reader": "github",
+                        "owner": owner,
+                        "repo": repo,
+                        "error": str(e),
+                    },
+                )
+            ]
 
     def _api_get(self, url: str) -> Any:
-        headers = {"Accept": "application/vnd.github.v3+json", "User-Agent": "FusionAgentStudio/1.0"}
+        headers = {
+            "Accept": "application/vnd.github.v3+json",
+            "User-Agent": "FusionAgentStudio/1.0",
+        }
         if self.token:
             headers["Authorization"] = f"token {self.token}"
         req = urllib.request.Request(url, headers=headers)
@@ -602,10 +683,14 @@ class NotionReader:
             )
 
     def read_database(self, database_id: str, max_pages: int = 50) -> list[Document]:
-        logger.info("NotionReader fetching database: %s (max %d)", database_id, max_pages)
+        logger.info(
+            "NotionReader fetching database: %s (max %d)", database_id, max_pages
+        )
         try:
             body = {"page_size": min(max_pages, 100)}
-            result = self._api_post(f"{self.base_url}/databases/{database_id}/query", body)
+            result = self._api_post(
+                f"{self.base_url}/databases/{database_id}/query", body
+            )
             pages = result.get("results", [])
             docs = []
             for page_obj in pages[:max_pages]:
@@ -613,15 +698,23 @@ class NotionReader:
                 if pid:
                     doc = self.read_page(pid)
                     docs.append(doc)
-            logger.info("NotionReader database: %d pages read from %s", len(docs), database_id)
+            logger.info(
+                "NotionReader database: %d pages read from %s", len(docs), database_id
+            )
             return docs
         except Exception as e:
             logger.error("NotionReader database failed for %s: %s", database_id, e)
-            return [Document(
-                content="",
-                source=f"notion:database:{database_id}",
-                metadata={"reader": "notion", "database_id": database_id, "error": str(e)},
-            )]
+            return [
+                Document(
+                    content="",
+                    source=f"notion:database:{database_id}",
+                    metadata={
+                        "reader": "notion",
+                        "database_id": database_id,
+                        "error": str(e),
+                    },
+                )
+            ]
 
     def _api_get(self, url: str) -> Any:
         headers = {
@@ -726,7 +819,9 @@ class PDFReader:
             )
 
     def read_bytes(self, data: bytes, source: str = "") -> Document:
-        logger.info("PDFReader reading bytes (%d bytes) from %s", len(data), source or "unknown")
+        logger.info(
+            "PDFReader reading bytes (%d bytes) from %s", len(data), source or "unknown"
+        )
         try:
             content = self._extract_bytes_with_pypdf(data)
             if not content:
@@ -751,6 +846,7 @@ class PDFReader:
     def _extract_with_pypdf(self, path: Path) -> str:
         try:
             from pypdf import PdfReader as _PdfReader
+
             reader = _PdfReader(str(path))
             pages = []
             for i, page in enumerate(reader.pages):
@@ -762,6 +858,7 @@ class PDFReader:
         except ImportError:
             try:
                 from PyPDF2 import PdfReader as _PdfReader2
+
                 reader = _PdfReader2(str(path))
                 pages = []
                 for i, page in enumerate(reader.pages):
@@ -781,6 +878,7 @@ class PDFReader:
         try:
             from pypdf import PdfReader as _PdfReader
             import io as _io
+
             reader = _PdfReader(_io.BytesIO(data))
             pages = []
             for page in reader.pages:
@@ -792,6 +890,7 @@ class PDFReader:
             try:
                 from PyPDF2 import PdfReader as _PdfReader2
                 import io as _io2
+
                 reader = _PdfReader2(_io2.BytesIO(data))
                 pages = []
                 for page in reader.pages:
@@ -814,19 +913,33 @@ class PDFReader:
 
 
 class DirectoryReader:
-    def __init__(self, extensions: set[str] | None = None, exclude_dirs: set[str] | None = None):
+    def __init__(
+        self, extensions: set[str] | None = None, exclude_dirs: set[str] | None = None
+    ):
         self.extensions = extensions or SUPPORTED_EXTENSIONS
-        self.exclude_dirs = exclude_dirs or {".git", "__pycache__", "node_modules", ".venv", ".mypy_cache", ".pytest_cache"}
+        self.exclude_dirs = exclude_dirs or {
+            ".git",
+            "__pycache__",
+            "node_modules",
+            ".venv",
+            ".mypy_cache",
+            ".pytest_cache",
+        }
 
     def read_directory(self, path: str | Path, max_depth: int = 10) -> list[Document]:
         root = Path(path)
         if not root.is_dir():
             logger.error("DirectoryReader: not a directory: %s", path)
-            return [Document(
-                content="",
-                source=str(path),
-                metadata={"reader": "directory", "error": f"Not a directory: {path}"},
-            )]
+            return [
+                Document(
+                    content="",
+                    source=str(path),
+                    metadata={
+                        "reader": "directory",
+                        "error": f"Not a directory: {path}",
+                    },
+                )
+            ]
         logger.info("DirectoryReader scanning: %s (max_depth=%d)", path, max_depth)
         docs = []
         doc_reader = DocumentReader()
@@ -844,15 +957,23 @@ class DirectoryReader:
                 docs.append(doc)
             except Exception as e:
                 logger.warning("DirectoryReader skipped %s: %s", file_path, e)
-                docs.append(Document(
-                    content="",
-                    source=str(file_path),
-                    metadata={"reader": "directory", "file_name": file_path.name, "error": str(e)},
-                ))
+                docs.append(
+                    Document(
+                        content="",
+                        source=str(file_path),
+                        metadata={
+                            "reader": "directory",
+                            "file_name": file_path.name,
+                            "error": str(e),
+                        },
+                    )
+                )
         logger.info("DirectoryReader: %d documents from %s", len(docs), path)
         return docs
 
-    def _walk(self, root: Path, max_depth: int = 10, current_depth: int = 0) -> list[Path]:
+    def _walk(
+        self, root: Path, max_depth: int = 10, current_depth: int = 0
+    ) -> list[Path]:
         if current_depth > max_depth:
             return []
         files = []

@@ -5,6 +5,7 @@ Callers: api_server.py, auth_middleware.py, rate_limiter.py, daemon_server.py.
 Data schema: ErrorResponse with code, type, message, user_message, param.
 User instruction: "对比fusion-agent-studio看还有哪些缺失，尽快补齐"
 """
+
 from __future__ import annotations
 
 import logging
@@ -240,7 +241,9 @@ class ErrorResponse:
         return d
 
     @classmethod
-    def from_error_code(cls, code: ErrorCode, param: str | None = None) -> ErrorResponse:
+    def from_error_code(
+        cls, code: ErrorCode, param: str | None = None
+    ) -> ErrorResponse:
         entry = _ERROR_REGISTRY.get(code.value, {})
         return cls(
             code=code.value,
@@ -251,7 +254,9 @@ class ErrorResponse:
         )
 
 
-def raise_api_error(code: ErrorCode, param: str | None = None, detail: str | None = None):
+def raise_api_error(
+    code: ErrorCode, param: str | None = None, detail: str | None = None
+):
     from fastapi import HTTPException
 
     err = ErrorResponse.from_error_code(code, param=param)

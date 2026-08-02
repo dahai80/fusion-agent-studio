@@ -7,6 +7,7 @@ Affected API: /v1/* REST endpoints, WebSocket /ws/execute/*
 Data schemas: AgentStatusTracker, ArtifactManager, KnowledgeBaseManager, AuditLogger, etc.
 User instruction: "对比fusion-agent-studio看还有哪些缺失，尽快补齐"
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -100,6 +101,7 @@ def _get_status_tracker():
     global _status_tracker
     if _status_tracker is None:
         from agent_runtime.agent_api import AgentStatusTracker
+
         _status_tracker = AgentStatusTracker()
     return _status_tracker
 
@@ -108,6 +110,7 @@ def _get_artifact_mgr():
     global _artifact_mgr
     if _artifact_mgr is None:
         from agent_runtime.artifact_tools import ArtifactManager
+
         _artifact_mgr = ArtifactManager()
     return _artifact_mgr
 
@@ -116,6 +119,7 @@ def _get_kb_manager():
     global _kb_manager
     if _kb_manager is None:
         from agent_runtime.knowledge_base import KnowledgeBaseManager
+
         _kb_manager = KnowledgeBaseManager()
     return _kb_manager
 
@@ -124,6 +128,7 @@ def _get_version_store():
     global _version_store
     if _version_store is None:
         from agent_runtime.agent_version import AgentVersionStore
+
         _version_store = AgentVersionStore()
     return _version_store
 
@@ -132,6 +137,7 @@ def _get_audit_logger():
     global _audit_logger
     if _audit_logger is None:
         from agent_runtime.audit_logger import AuditLogger
+
         _audit_logger = AuditLogger()
     return _audit_logger
 
@@ -140,6 +146,7 @@ def _get_metrics_engine():
     global _metrics_engine
     if _metrics_engine is None:
         from agent_runtime.metrics_engine import MetricsEngine
+
         _metrics_engine = MetricsEngine()
     return _metrics_engine
 
@@ -148,6 +155,7 @@ def _get_telemetry():
     global _telemetry
     if _telemetry is None:
         from agent_runtime.telemetry import TelemetryEngine
+
         _telemetry = TelemetryEngine()
     return _telemetry
 
@@ -189,6 +197,7 @@ async def _optional_auth(request: Request) -> dict | None:
     if not api_key:
         return None
     from agent_runtime.apikey_manager import ApiKeyManager
+
     mgr = ApiKeyManager(Path.home() / ".fusion-agent-studio")
     client_ip = request.client.host if request.client else ""
     result = mgr.validate(api_key, client_ip=client_ip)
@@ -211,6 +220,7 @@ async def health():
 
 # ── /v1 versioned routes ──
 
+
 @app.get("/v1/health")
 async def v1_health():
     return {"status": "ok", "version": "0.3.0", "persistence": "sqlite"}
@@ -227,26 +237,47 @@ async def get_dashboard(request: Request):
     tele_metrics = tele.metrics() if tele else {}
     recent_sessions = metrics.query_sessions(status="", limit=5) if metrics else []
     today_ts = time.time() - 86400
-    today_sessions = [s for s in metrics.query_sessions(status="", limit=1000) if getattr(s, "started_at", 0) > today_ts] if metrics else []
-    error_count = len([s for s in today_sessions if getattr(s, "status", "") == "error"])
+    today_sessions = (
+        [
+            s
+            for s in metrics.query_sessions(status="", limit=1000)
+            if getattr(s, "started_at", 0) > today_ts
+        ]
+        if metrics
+        else []
+    )
+    error_count = len(
+        [s for s in today_sessions if getattr(s, "status", "") == "error"]
+    )
     dashboard = {
         "today_requests": len(today_sessions),
         "total_token_consumption": tele_metrics.get("tokens", {}).get("total", 0),
         "active_agents": active_count,
         "error_count": error_count,
         "recent_agents": published[:5],
-        "recent_errors": [s.to_dict() if hasattr(s, "to_dict") else s for s in recent_sessions if getattr(s, "status", "") == "error"][:5],
+        "recent_errors": [
+            s.to_dict() if hasattr(s, "to_dict") else s
+            for s in recent_sessions
+            if getattr(s, "status", "") == "error"
+        ][:5],
         "telemetry": tele_metrics,
     }
-    logger.info("dashboard: requests=%d active=%d errors=%d", len(today_sessions), active_count, error_count)
+    logger.info(
+        "dashboard: requests=%d active=%d errors=%d",
+        len(today_sessions),
+        active_count,
+        error_count,
+    )
     return dashboard
 
 
 # ── Graph endpoints ──
 
+
 @app.post("/v1/graphs", response_model=GraphResponse)
 async def v1_create_graph(req: GraphCreateRequest):
     from agent_runtime.graph import AgentGraph
+
     graph = AgentGraph.from_dict(req.graph_data)
     if req.name:
         graph.name = req.name
@@ -255,20 +286,33 @@ async def v1_create_graph(req: GraphCreateRequest):
     _get_store().save_graph(graph)
     logger.info("Created graph %s: %s", graph.id, graph.name)
     return GraphResponse(
-        graph_id=graph.id, name=graph.name, description=graph.description, graph_data=graph.to_dict(),
+        graph_id=graph.id,
+        name=graph.name,
+        description=graph.description,
+        graph_data=graph.to_dict(),
     )
 
 
 @app.get("/v1/graphs")
-async def v1_list_graphs(page: int = 1, limit: int = 20, sort_field: str = "created_at", sort_order: str = "desc"):
+async def v1_list_graphs(
+    page: int = 1,
+    limit: int = 20,
+    sort_field: str = "created_at",
+    sort_order: str = "desc",
+):
     graphs = _get_store().list_graphs()
     results = []
     for g in graphs:
         full = _get_store().load_graph(g["id"])
         if full:
-            results.append(GraphResponse(
-                graph_id=full.id, name=full.name, description=full.description, graph_data=full.to_dict(),
-            ).model_dump())
+            results.append(
+                GraphResponse(
+                    graph_id=full.id,
+                    name=full.name,
+                    description=full.description,
+                    graph_data=full.to_dict(),
+                ).model_dump()
+            )
     if sort_order == "asc":
         results.reverse()
     return _paginate(results, page, limit)
@@ -279,7 +323,12 @@ async def v1_get_graph(graph_id: str):
     graph = _get_store().load_graph(graph_id)
     if graph is None:
         raise_api_error(ErrorCode.AGENT_NOT_FOUND, param="graph_id")
-    return GraphResponse(graph_id=graph.id, name=graph.name, description=graph.description, graph_data=graph.to_dict())
+    return GraphResponse(
+        graph_id=graph.id,
+        name=graph.name,
+        description=graph.description,
+        graph_data=graph.to_dict(),
+    )
 
 
 @app.delete("/v1/graphs/{graph_id}")
@@ -301,7 +350,9 @@ async def v1_execute_graph(graph_id: str, req: GraphExecuteRequest):
     events = []
     try:
         async for event in rt.execute_graph(graph, req.input_text):
-            ev_dict = event.to_dict() if hasattr(event, "to_dict") else {"type": str(event)}
+            ev_dict = (
+                event.to_dict() if hasattr(event, "to_dict") else {"type": str(event)}
+            )
             events.append(ev_dict)
     except Exception:
         logger.exception("Graph execution failed: %s", graph_id)
@@ -312,8 +363,11 @@ async def v1_execute_graph(graph_id: str, req: GraphExecuteRequest):
 
 # ── Agent endpoints ──
 
+
 @app.get("/v1/agents")
-async def v1_list_agents(page: int = 1, limit: int = 20, status: str = "", keyword: str = ""):
+async def v1_list_agents(
+    page: int = 1, limit: int = 20, status: str = "", keyword: str = ""
+):
     agents_index = _load_agents_index()
     agents = list(agents_index.values())
     if status:
@@ -345,7 +399,10 @@ async def v1_get_agent_definition(agent_id: str):
 async def v1_get_agent_status(agent_id: str):
     tracker = _get_status_tracker()
     status = tracker.get_status(agent_id)
-    return {"agent_id": agent_id, "status": status.to_dict() if hasattr(status, "to_dict") else status}
+    return {
+        "agent_id": agent_id,
+        "status": status.to_dict() if hasattr(status, "to_dict") else status,
+    }
 
 
 @app.get("/v1/agents/{agent_id}/history")
@@ -378,27 +435,42 @@ async def v1_get_agent_preview(agent_id: str):
         "avatar": meta.get("style", "") or "🤖",
         "tools": meta.get("tools", []),
         "ragEnabled": bool(kb_ids) or rag_strategy not in ("none", ""),
-        "permissions": meta.get("permissions", {
-            "readKnowledge": bool(kb_ids),
-            "writeKnowledge": False,
-            "deleteKnowledge": False,
-            "executeCode": "code_execution" in meta.get("tools", []),
-            "accessNetwork": meta.get("web_search_enabled", False),
-        }),
+        "permissions": meta.get(
+            "permissions",
+            {
+                "readKnowledge": bool(kb_ids),
+                "writeKnowledge": False,
+                "deleteKnowledge": False,
+                "executeCode": "code_execution" in meta.get("tools", []),
+                "accessNetwork": meta.get("web_search_enabled", False),
+            },
+        ),
     }
     return {"preview": preview}
 
 
 @app.post("/v1/agents/{agent_id}/test")
-async def v1_test_agent(agent_id: str, project_id: str = "", kb_id: str = "", message: str = "hello"):
+async def v1_test_agent(
+    agent_id: str, project_id: str = "", kb_id: str = "", message: str = "hello"
+):
     if not message:
         raise_api_error(ErrorCode.PARAM_REQUIRED, param="message")
     agents_index = _load_agents_index()
     meta = agents_index.get(agent_id)
     if not meta:
         raise_api_error(ErrorCode.AGENT_NOT_FOUND, param="agent_id")
-    effective_kb = kb_id or (meta.get("knowledge_base_ids", [""])[0] if meta.get("knowledge_base_ids") else "")
-    return {"agent_id": agent_id, "project_id": project_id, "kb_id": effective_kb, "status": "test_dispatched", "message": message}
+    effective_kb = kb_id or (
+        meta.get("knowledge_base_ids", [""])[0]
+        if meta.get("knowledge_base_ids")
+        else ""
+    )
+    return {
+        "agent_id": agent_id,
+        "project_id": project_id,
+        "kb_id": effective_kb,
+        "status": "test_dispatched",
+        "message": message,
+    }
 
 
 @app.post("/v1/agents/{agent_id}/duplicate")
@@ -409,12 +481,16 @@ async def v1_duplicate_agent(agent_id: str):
         raise_api_error(ErrorCode.AGENT_NOT_FOUND, param="agent_id")
     try:
         from agent_runtime.agent_package import AgentPackage
+
         pkg = AgentPackage(agent_id)
         new_pkg = pkg.fork()
         logger.info("Duplicated agent %s -> %s", agent_id, new_pkg.agent_id)
         _get_audit_logger().log_action(
-            actor_id="api", action="agent.duplicate", resource_type="agent",
-            resource_id=agent_id, result="success",
+            actor_id="api",
+            action="agent.duplicate",
+            resource_type="agent",
+            resource_id=agent_id,
+            result="success",
         )
         return {"original_id": agent_id, "new_agent_id": new_pkg.agent_id}
     except Exception as exc:
@@ -432,10 +508,19 @@ async def v1_snapshot_agent(agent_id: str, label: str = ""):
     record = vs.save_snapshot(agent_id, snapshot_data=meta, label=label)
     logger.info("Snapshot agent %s: version=%s", agent_id, record.version_id)
     _get_audit_logger().log_action(
-        actor_id="api", action="agent.snapshot", resource_type="agent",
-        resource_id=agent_id, details={"version_id": record.version_id}, result="success",
+        actor_id="api",
+        action="agent.snapshot",
+        resource_type="agent",
+        resource_id=agent_id,
+        details={"version_id": record.version_id},
+        result="success",
     )
-    return {"version_id": record.version_id, "agent_id": agent_id, "label": label, "created_at": record.created_at}
+    return {
+        "version_id": record.version_id,
+        "agent_id": agent_id,
+        "label": label,
+        "created_at": record.created_at,
+    }
 
 
 @app.get("/v1/agents/{agent_id}/versions")
@@ -454,13 +539,18 @@ async def v1_restore_agent_version(agent_id: str, version_id: str):
         raise_api_error(ErrorCode.RESOURCE_NOT_FOUND, param="version_id")
     logger.info("Restored agent %s to version %s", agent_id, version_id)
     _get_audit_logger().log_action(
-        actor_id="api", action="agent.restore_version", resource_type="agent",
-        resource_id=agent_id, details={"version_id": version_id}, result="success",
+        actor_id="api",
+        action="agent.restore_version",
+        resource_type="agent",
+        resource_id=agent_id,
+        details={"version_id": version_id},
+        result="success",
     )
     return {"agent_id": agent_id, "version_id": version_id, "snapshot_data": snapshot}
 
 
 # ── Knowledge Base endpoints ──
+
 
 @app.post("/v1/knowledge-bases")
 async def v1_create_kb(request: Request):
@@ -477,14 +567,19 @@ async def v1_create_kb(request: Request):
     )
     logger.info("Created KB %s: %s", kb.id, kb.name)
     _get_audit_logger().log_action(
-        actor_id="api", action="kb.create", resource_type="knowledge_base",
-        resource_id=kb.id, result="success",
+        actor_id="api",
+        action="kb.create",
+        resource_type="knowledge_base",
+        resource_id=kb.id,
+        result="success",
     )
     return {"knowledge_base": kb.to_dict()}
 
 
 @app.get("/v1/knowledge-bases")
-async def v1_list_kbs(page: int = 1, limit: int = 20, keyword: str = "", scope: str = ""):
+async def v1_list_kbs(
+    page: int = 1, limit: int = 20, keyword: str = "", scope: str = ""
+):
     mgr = _get_kb_manager()
     return mgr.list_kbs(page=page, limit=limit, keyword=keyword, scope=scope)
 
@@ -516,8 +611,11 @@ async def v1_delete_kb(kb_id: str):
     if not deleted:
         raise_api_error(ErrorCode.KNOWLEDGE_BASE_NOT_FOUND, param="kb_id")
     _get_audit_logger().log_action(
-        actor_id="api", action="kb.delete", resource_type="knowledge_base",
-        resource_id=kb_id, result="success",
+        actor_id="api",
+        action="kb.delete",
+        resource_type="knowledge_base",
+        resource_id=kb_id,
+        result="success",
     )
     return {"deleted": True}
 
@@ -532,7 +630,10 @@ async def v1_upload_kb_file(kb_id: str, request: Request):
         if not upload:
             raise_api_error(ErrorCode.PARAM_REQUIRED, param="file")
         import tempfile
-        with tempfile.NamedTemporaryFile(delete=False, suffix=f"_{upload.filename}") as tmp:
+
+        with tempfile.NamedTemporaryFile(
+            delete=False, suffix=f"_{upload.filename}"
+        ) as tmp:
             content = await upload.read()
             tmp.write(content)
             tmp_path = tmp.name
@@ -540,8 +641,12 @@ async def v1_upload_kb_file(kb_id: str, request: Request):
             info = mgr.add_file(kb_id, tmp_path, content_type=upload.content_type or "")
             logger.info("Uploaded file to KB %s: %s", kb_id, info.filename)
             _get_audit_logger().log_action(
-                actor_id="api", action="kb.upload_file", resource_type="knowledge_base",
-                resource_id=kb_id, details={"filename": info.filename, "size": info.size}, result="success",
+                actor_id="api",
+                action="kb.upload_file",
+                resource_type="knowledge_base",
+                resource_id=kb_id,
+                details={"filename": info.filename, "size": info.size},
+                result="success",
             )
             return {"file": info.to_dict()}
         finally:
@@ -613,14 +718,27 @@ async def v1_search_kb(kb_id: str, request: Request):
         raise_api_error(ErrorCode.PARAM_REQUIRED, param="query")
     mgr = _get_kb_manager()
     search_kwargs = {}
-    for key in ("top_k", "threshold", "hybrid", "hybrid_alpha", "hybrid_method",
-                 "rerank", "folder_prefix", "rewrite_mode"):
+    for key in (
+        "top_k",
+        "threshold",
+        "hybrid",
+        "hybrid_alpha",
+        "hybrid_method",
+        "rerank",
+        "folder_prefix",
+        "rewrite_mode",
+    ):
         if key in body:
             search_kwargs[key] = body[key]
     if "filter" in body:
         search_kwargs["filter"] = body["filter"]
     result = await mgr.search(kb_id=kb_id, query=query, **search_kwargs)
-    logger.info("KB search kb_id=%s query=%s count=%d", kb_id, query[:50], result.get("count", 0))
+    logger.info(
+        "KB search kb_id=%s query=%s count=%d",
+        kb_id,
+        query[:50],
+        result.get("count", 0),
+    )
     return result
 
 
@@ -632,7 +750,14 @@ async def v1_ask_kb(kb_id: str, request: Request):
         raise_api_error(ErrorCode.PARAM_REQUIRED, param="question")
     mgr = _get_kb_manager()
     ask_kwargs = {}
-    for key in ("model", "max_tokens", "temperature", "hybrid", "rerank", "folder_prefix"):
+    for key in (
+        "model",
+        "max_tokens",
+        "temperature",
+        "hybrid",
+        "rerank",
+        "folder_prefix",
+    ):
         if key in body:
             ask_kwargs[key] = body[key]
     result = await mgr.ask(kb_id=kb_id, question=question, **ask_kwargs)
@@ -667,10 +792,12 @@ async def v1_rag_status():
 
 # ── API Key endpoints ──
 
+
 @app.get("/v1/api-keys")
 async def v1_list_api_keys(request: Request):
     await _require_auth(request)
     from agent_runtime.apikey_manager import ApiKeyManager
+
     mgr = ApiKeyManager(Path.home() / ".fusion-agent-studio")
     return {"data": mgr.list_keys()}
 
@@ -683,6 +810,7 @@ async def v1_create_api_key(request: Request):
     if not name:
         raise_api_error(ErrorCode.PARAM_REQUIRED, param="name")
     from agent_runtime.apikey_manager import ApiKeyManager
+
     mgr = ApiKeyManager(Path.home() / ".fusion-agent-studio")
     result = mgr.create(
         name=name,
@@ -692,8 +820,11 @@ async def v1_create_api_key(request: Request):
         expires_at=body.get("expires_at"),
     )
     _get_audit_logger().log_action(
-        actor_id="api", action="apikey.create", resource_type="api_key",
-        resource_id=result["key_id"], result="success",
+        actor_id="api",
+        action="apikey.create",
+        resource_type="api_key",
+        resource_id=result["key_id"],
+        result="success",
     )
     return result
 
@@ -702,11 +833,15 @@ async def v1_create_api_key(request: Request):
 async def v1_revoke_api_key(key_id: str, request: Request):
     await _require_auth(request)
     from agent_runtime.apikey_manager import ApiKeyManager
+
     mgr = ApiKeyManager(Path.home() / ".fusion-agent-studio")
     result = mgr.revoke(key_id)
     _get_audit_logger().log_action(
-        actor_id="api", action="apikey.revoke", resource_type="api_key",
-        resource_id=key_id, result="success" if result.get("revoked") else "failed",
+        actor_id="api",
+        action="apikey.revoke",
+        resource_type="api_key",
+        resource_id=key_id,
+        result="success" if result.get("revoked") else "failed",
     )
     return result
 
@@ -715,22 +850,30 @@ async def v1_revoke_api_key(key_id: str, request: Request):
 async def v1_rotate_api_key(key_id: str, request: Request):
     await _require_auth(request)
     from agent_runtime.apikey_manager import ApiKeyManager
+
     mgr = ApiKeyManager(Path.home() / ".fusion-agent-studio")
     result = mgr.rotate(key_id)
     _get_audit_logger().log_action(
-        actor_id="api", action="apikey.rotate", resource_type="api_key",
-        resource_id=key_id, result="success" if result.get("key_secret") else "failed",
+        actor_id="api",
+        action="apikey.rotate",
+        resource_type="api_key",
+        resource_id=key_id,
+        result="success" if result.get("key_secret") else "failed",
     )
     return result
 
 
 # ── Audit endpoints ──
 
+
 @app.get("/v1/audit-logs")
 async def v1_list_audit_logs(
     request: Request,
-    page: int = 1, limit: int = 20,
-    action: str = "", resource_type: str = "", actor_id: str = "",
+    page: int = 1,
+    limit: int = 20,
+    action: str = "",
+    resource_type: str = "",
+    actor_id: str = "",
 ):
     await _require_auth(request)
     al = _get_audit_logger()
@@ -738,16 +881,19 @@ async def v1_list_audit_logs(
         actor_id=actor_id or None,
         action=action or None,
         resource_type=resource_type or None,
-        page=page, limit=limit,
+        page=page,
+        limit=limit,
     )
 
 
 # ── Usage / Metrics endpoints ──
 
+
 @app.get("/v1/usage/summary")
 async def v1_usage_summary(
     request: Request,
-    start_date: float = 0, end_date: float = 0,
+    start_date: float = 0,
+    end_date: float = 0,
     agent_id: str = "",
 ):
     await _optional_auth(request)
@@ -780,9 +926,11 @@ async def v1_get_agent_logs(agent_id: str, page: int = 1, limit: int = 20):
 
 # ── Connector endpoints ──
 
+
 @app.get("/v1/connectors")
 async def v1_list_connectors(request: Request):
     from agent_runtime.connectors import ConnectorManager
+
     mgr = ConnectorManager(Path.home() / ".fusion-agent-studio")
     return {"data": mgr.list_connectors()}
 
@@ -792,6 +940,7 @@ async def v1_create_connector(request: Request):
     await _require_auth(request)
     body = await request.json()
     from agent_runtime.connectors import ConnectorManager
+
     mgr = ConnectorManager(Path.home() / ".fusion-agent-studio")
     result = mgr.add(
         name=body.get("name", ""),
@@ -799,8 +948,11 @@ async def v1_create_connector(request: Request):
         auth_config=body.get("auth_config", {}),
     )
     _get_audit_logger().log_action(
-        actor_id="api", action="connector.create", resource_type="connector",
-        resource_id=result.get("id", ""), result="success",
+        actor_id="api",
+        action="connector.create",
+        resource_type="connector",
+        resource_id=result.get("id", ""),
+        result="success",
     )
     return result
 
@@ -809,12 +961,14 @@ async def v1_create_connector(request: Request):
 async def v1_delete_connector(connector_id: str, request: Request):
     await _require_auth(request)
     from agent_runtime.connectors import ConnectorManager
+
     mgr = ConnectorManager(Path.home() / ".fusion-agent-studio")
     result = mgr.delete(connector_id)
     return result
 
 
 # ── Legacy endpoints (no /v1 prefix, for backward compat) ──
+
 
 @app.post("/graphs", response_model=GraphResponse)
 async def create_graph(req: GraphCreateRequest):
@@ -828,7 +982,14 @@ async def list_graphs():
     for g in graphs:
         full = _get_store().load_graph(g["id"])
         if full:
-            results.append(GraphResponse(graph_id=full.id, name=full.name, description=full.description, graph_data=full.to_dict()))
+            results.append(
+                GraphResponse(
+                    graph_id=full.id,
+                    name=full.name,
+                    description=full.description,
+                    graph_data=full.to_dict(),
+                )
+            )
     return results
 
 
@@ -863,7 +1024,9 @@ async def ws_execute(websocket: WebSocket, graph_id: str):
         if isinstance(init_msg, dict):
             input_text = init_msg.get("input", "")
         async for event in rt.execute_graph(graph, input_text):
-            ev_dict = event.to_dict() if hasattr(event, "to_dict") else {"type": str(event)}
+            ev_dict = (
+                event.to_dict() if hasattr(event, "to_dict") else {"type": str(event)}
+            )
             await websocket.send_json(ev_dict)
         await websocket.send_json({"type": "done"})
     except WebSocketDisconnect:
@@ -903,7 +1066,10 @@ async def get_agent_status(agent_id: str):
 async def get_agent_history(agent_id: str, limit: int = 20):
     tracker = _get_status_tracker()
     history = tracker.get_history(agent_id, limit=limit)
-    return {"agent_id": agent_id, "history": [h.to_dict() if hasattr(h, "to_dict") else h for h in history]}
+    return {
+        "agent_id": agent_id,
+        "history": [h.to_dict() if hasattr(h, "to_dict") else h for h in history],
+    }
 
 
 @app.get("/agents/{agent_id}/artifacts")
@@ -917,12 +1083,15 @@ async def get_agent_preview(agent_id: str):
 
 
 @app.post("/agents/{agent_id}/test")
-async def test_agent_with_project(agent_id: str, project_id: str = "", kb_id: str = "", message: str = "hello"):
+async def test_agent_with_project(
+    agent_id: str, project_id: str = "", kb_id: str = "", message: str = "hello"
+):
     return await v1_test_agent(agent_id, project_id, kb_id, message)
 
 
 def run_server(host: str = "127.0.0.1", port: int = 11453):
     import uvicorn
+
     uvicorn.run(app, host=host, port=port, log_level="info")
 
 

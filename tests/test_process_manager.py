@@ -1,4 +1,5 @@
 """Tests for fusion-mlx process manager."""
+
 from __future__ import annotations
 
 
@@ -15,9 +16,12 @@ class TestFusionMLXProcessManager:
 
     def test_init_custom(self):
         mgr = FusionMLXProcessManager(
-            port=8080, model="qwen3.5-9b",
-            model_dir="/tmp/models", host="0.0.0.0",
-            log_level="DEBUG", extra_args=["--cors-origins", "*"],
+            port=8080,
+            model="qwen3.5-9b",
+            model_dir="/tmp/models",
+            host="0.0.0.0",
+            log_level="DEBUG",
+            extra_args=["--cors-origins", "*"],
         )
         assert mgr.port == 8080
         assert mgr.model == "qwen3.5-9b"

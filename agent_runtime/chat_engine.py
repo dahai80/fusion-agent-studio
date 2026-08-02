@@ -223,9 +223,11 @@ class ChatEngine:
         self.runtime = runtime
         self.store = store
         self._sessions: dict[str, ChatSession] = {}
-        logger.info("ChatEngine init, runtime=%s, store=%s",
-                     "provided" if runtime else "none",
-                     "provided" if store else "none")
+        logger.info(
+            "ChatEngine init, runtime=%s, store=%s",
+            "provided" if runtime else "none",
+            "provided" if store else "none",
+        )
 
     def create_session(
         self,
@@ -291,7 +293,9 @@ class ChatEngine:
     ) -> AsyncIterator[ChatEvent]:
         session = self.get_session(session_id)
         if not session:
-            yield ChatEvent(type=ChatEventType.ERROR, content=f"Session {session_id} not found")
+            yield ChatEvent(
+                type=ChatEventType.ERROR, content=f"Session {session_id} not found"
+            )
             return
 
         effective_mode = mode or session.mode
@@ -300,7 +304,12 @@ class ChatEngine:
         parent_id = session.active_branch
         session.add_message(user_msg, parent_id=parent_id)
 
-        logger.info("ChatEngine send session=%s mode=%s msg_len=%d", session_id, effective_mode, len(message))
+        logger.info(
+            "ChatEngine send session=%s mode=%s msg_len=%d",
+            session_id,
+            effective_mode,
+            len(message),
+        )
 
         assistant_msg = ChatMessage(role="assistant", content="", mode=effective_mode)
         session.add_message(assistant_msg, parent_id=user_msg.id)
@@ -367,14 +376,23 @@ class ChatEngine:
                 tool_call_id=msg.tool_call_id,
                 metadata=dict(msg.metadata),
             )
-            branched.add_message(new_msg, parent_id=branched.active_branch if branched.messages else "")
+            branched.add_message(
+                new_msg, parent_id=branched.active_branch if branched.messages else ""
+            )
 
         self._sessions[branched.id] = branched
         self._persist_session(branched)
-        logger.info("ChatEngine branch from session=%s msg=%s -> new=%s", session_id, message_id, branched.id)
+        logger.info(
+            "ChatEngine branch from session=%s msg=%s -> new=%s",
+            session_id,
+            message_id,
+            branched.id,
+        )
         return branched
 
-    def edit(self, session_id: str, message_id: str, new_content: str) -> ChatMessage | None:
+    def edit(
+        self, session_id: str, message_id: str, new_content: str
+    ) -> ChatMessage | None:
         session = self.get_session(session_id)
         if not session:
             logger.warning("ChatEngine edit: session %s not found", session_id)
@@ -384,7 +402,10 @@ class ChatEngine:
             logger.warning("ChatEngine edit: message %s not found", message_id)
             return None
         if original.role != "user":
-            logger.warning("ChatEngine edit: can only edit user messages, got role=%s", original.role)
+            logger.warning(
+                "ChatEngine edit: can only edit user messages, got role=%s",
+                original.role,
+            )
             return None
 
         edited = ChatMessage(
@@ -398,7 +419,12 @@ class ChatEngine:
         session.messages.append(edited)
         session.active_branch = edited.id
         self._persist_session(session)
-        logger.info("ChatEngine edit session=%s msg=%s -> new=%s", session_id, message_id, edited.id)
+        logger.info(
+            "ChatEngine edit session=%s msg=%s -> new=%s",
+            session_id,
+            message_id,
+            edited.id,
+        )
         return edited
 
     def switch_branch(self, session_id: str, message_id: str) -> bool:
@@ -415,10 +441,14 @@ class ChatEngine:
             return False
         session.active_branch = message_id
         self._persist_session(session)
-        logger.info("ChatEngine switch_branch session=%s -> msg=%s", session_id, message_id)
+        logger.info(
+            "ChatEngine switch_branch session=%s -> msg=%s", session_id, message_id
+        )
         return True
 
-    def get_branches(self, session_id: str, message_id: str = "") -> list[dict[str, Any]]:
+    def get_branches(
+        self, session_id: str, message_id: str = ""
+    ) -> list[dict[str, Any]]:
         session = self.get_session(session_id)
         if not session:
             return []
@@ -436,14 +466,16 @@ class ChatEngine:
         branches = []
         for sib in siblings:
             branch_msg = session.get_linear_branch(sib.id)
-            branches.append({
-                "leaf_id": sib.id,
-                "content_preview": sib.content[:100] if sib.content else "",
-                "role": sib.role,
-                "created_at": sib.created_at,
-                "message_count": len(branch_msg),
-                "is_active": sib.id == session.active_branch,
-            })
+            branches.append(
+                {
+                    "leaf_id": sib.id,
+                    "content_preview": sib.content[:100] if sib.content else "",
+                    "role": sib.role,
+                    "created_at": sib.created_at,
+                    "message_count": len(branch_msg),
+                    "is_active": sib.id == session.active_branch,
+                }
+            )
         return branches
 
     def get_message_tree(self, session_id: str) -> dict[str, Any]:
@@ -452,14 +484,16 @@ class ChatEngine:
             return {"nodes": [], "active_branch": ""}
         nodes = []
         for msg in session.messages:
-            nodes.append({
-                "id": msg.id,
-                "role": msg.role,
-                "content_preview": msg.content[:80] if msg.content else "",
-                "parent_id": msg.parent_id,
-                "children_ids": msg.children_ids,
-                "created_at": msg.created_at,
-            })
+            nodes.append(
+                {
+                    "id": msg.id,
+                    "role": msg.role,
+                    "content_preview": msg.content[:80] if msg.content else "",
+                    "parent_id": msg.parent_id,
+                    "children_ids": msg.children_ids,
+                    "created_at": msg.created_at,
+                }
+            )
         return {
             "nodes": nodes,
             "active_branch": session.active_branch,
@@ -483,7 +517,9 @@ class ChatEngine:
                     model="default",
                 ):
                     if chunk.get("delta_content"):
-                        yield ChatEvent(type=ChatEventType.TOKEN, content=chunk["delta_content"])
+                        yield ChatEvent(
+                            type=ChatEventType.TOKEN, content=chunk["delta_content"]
+                        )
                     if chunk.get("delta_tool_calls"):
                         for tc in chunk["delta_tool_calls"]:
                             yield ChatEvent(
@@ -492,7 +528,9 @@ class ChatEngine:
                                 args=tc,
                             )
             else:
-                resp = await self.runtime.llm_gateway.chat(messages=history, model="default")
+                resp = await self.runtime.llm_gateway.chat(
+                    messages=history, model="default"
+                )
                 if resp.content:
                     yield ChatEvent(type=ChatEventType.TOKEN, content=resp.content)
         except Exception as e:
@@ -505,7 +543,9 @@ class ChatEngine:
         message: str,
     ) -> AsyncIterator[ChatEvent]:
         if not self.runtime:
-            yield ChatEvent(type=ChatEventType.ERROR, content="no runtime for agent mode")
+            yield ChatEvent(
+                type=ChatEventType.ERROR, content="no runtime for agent mode"
+            )
             return
 
         graph_id = session.graph_id
@@ -515,8 +555,12 @@ class ChatEngine:
 
         if not graph:
             from .graph import AgentGraph, NodeConfig
+
             graph = AgentGraph(name=f"chat-agent-{session.id}")
-            graph.add_node("start", NodeConfig(type="start", system_prompt="You are a helpful assistant."))
+            graph.add_node(
+                "start",
+                NodeConfig(type="start", system_prompt="You are a helpful assistant."),
+            )
             graph.add_node("llm", NodeConfig(type="llm", model="default"))
             graph.add_node("end", NodeConfig(type="end"))
             graph.add_edge("start", "llm")
@@ -524,6 +568,7 @@ class ChatEngine:
 
         try:
             from .context import AgentEventType, AgentContext
+
             # 预加载会话历史，避免 agent 模式丢失上下文 (bug2/3/4)
             # send() 已追加新 user 消息 + 空 assistant 消息，排除最后两条，
             # 否则与 initial_input=message 重复
@@ -542,7 +587,8 @@ class ChatEngine:
                 )
             logger.info(
                 "ChatEngine _execute_agent session=%s preloaded %d history msgs",
-                session.id, len(history),
+                session.id,
+                len(history),
             )
             async for event in self.runtime.execute_graph_stream(
                 graph, initial_input=message, context=ctx
@@ -551,13 +597,19 @@ class ChatEngine:
                     yield ChatEvent(type=ChatEventType.TOKEN, content=event.content)
                 elif event.type == AgentEventType.THINKING_TOKEN:
                     yield ChatEvent(type=ChatEventType.THINKING, content=event.content)
-                elif event.type == AgentEventType.TOOL_CALL or event.type == AgentEventType.TOOL_CALL_START:
+                elif (
+                    event.type == AgentEventType.TOOL_CALL
+                    or event.type == AgentEventType.TOOL_CALL_START
+                ):
                     yield ChatEvent(
                         type=ChatEventType.TOOL_CALL,
                         name=event.name,
                         args=event.args,
                     )
-                elif event.type == AgentEventType.TOOL_RESULT or event.type == AgentEventType.TOOL_CALL_END:
+                elif (
+                    event.type == AgentEventType.TOOL_RESULT
+                    or event.type == AgentEventType.TOOL_CALL_END
+                ):
                     yield ChatEvent(
                         type=ChatEventType.TOOL_RESULT,
                         name=event.name,
@@ -582,11 +634,21 @@ class ChatEngine:
         context_text = ""
         if hasattr(self.runtime, "knowledge_engine") and self.runtime.knowledge_engine:
             import asyncio
-            results = await asyncio.to_thread(self.runtime.knowledge_engine.search, message, top_k=5)
-            context_text = "\n".join(r.get("content", "") for r in results)
-            logger.info("ChatEngine _execute_rag: %d results from knowledge_engine", len(results))
 
-        rag_prompt = f"Based on the following context, answer the question.\n\nContext:\n{context_text}\n\nQuestion: {message}" if context_text else message
+            results = await asyncio.to_thread(
+                self.runtime.knowledge_engine.search, message, top_k=5
+            )
+            context_text = "\n".join(r.get("content", "") for r in results)
+            logger.info(
+                "ChatEngine _execute_rag: %d results from knowledge_engine",
+                len(results),
+            )
+
+        rag_prompt = (
+            f"Based on the following context, answer the question.\n\nContext:\n{context_text}\n\nQuestion: {message}"
+            if context_text
+            else message
+        )
         async for event in self._execute_simple(session, rag_prompt):
             yield event
 

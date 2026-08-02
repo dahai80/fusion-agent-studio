@@ -26,9 +26,12 @@ class MockMLXClient:
     def add_response(self, content, tool_calls=None):
         self.responses.append({"content": content, "tool_calls": tool_calls or []})
 
-    async def chat(self, model, messages, tools=None, temperature=0.7, max_tokens=4096, **kwargs):
+    async def chat(
+        self, model, messages, tools=None, temperature=0.7, max_tokens=4096, **kwargs
+    ):
         self.call_count += 1
         from server.fusion_mlx_client import LLMResponse
+
         if not self.responses:
             return LLMResponse(content="done", tool_calls=[])
         resp = self.responses.pop(0)
@@ -46,7 +49,11 @@ def _msgs():
 
 
 def test_estimate_tokens_and_thresholds():
-    c = Compactor(CompactionConfig(context_window=100, warning_buffer=30, error_buffer=50, manual_buffer=10))
+    c = Compactor(
+        CompactionConfig(
+            context_window=100, warning_buffer=30, error_buffer=50, manual_buffer=10
+        )
+    )
     assert c.estimate_tokens([{"role": "user", "content": "a" * 400}]) == 100
     assert c.should_compact([{"role": "user", "content": "a" * 40}]) == "none"
     assert c.should_compact([{"role": "user", "content": "a" * 400}]) == "error"
@@ -63,7 +70,9 @@ def test_microcompact_truncates_tool_results():
 def test_smart_truncate_keeps_recent_rounds():
     c = Compactor(CompactionConfig(keep_recent_rounds=1))
     out = c._smart_truncate(_msgs())
-    assert any(m.get("role") == "system" and "Compacted" in m.get("content", "") for m in out)
+    assert any(
+        m.get("role") == "system" and "Compacted" in m.get("content", "") for m in out
+    )
     assert out[-1]["content"] == "yo"
 
 
@@ -76,9 +85,14 @@ def test_hard_compact_keeps_only_last_round():
 
 
 def test_compact_pipeline_reduces_tokens():
-    c = Compactor(CompactionConfig(
-        context_window=20, warning_buffer=0, error_buffer=0, keep_recent_rounds=1,
-    ))
+    c = Compactor(
+        CompactionConfig(
+            context_window=20,
+            warning_buffer=0,
+            error_buffer=0,
+            keep_recent_rounds=1,
+        )
+    )
     msgs = [
         {"role": "system", "content": "sys"},
         {"role": "user", "content": "U" * 200},
@@ -114,28 +128,46 @@ async def test_agent_loop_applies_compaction():
     registry = ToolRegistry()
     registry.register(BigTool())
     client = MockMLXClient()
-    client.add_response("check", tool_calls=[{
-        "id": "c1", "type": "function",
-        "function": {"name": "big_tool", "arguments": '{"input": "x"}'},
-    }])
+    client.add_response(
+        "check",
+        tool_calls=[
+            {
+                "id": "c1",
+                "type": "function",
+                "function": {"name": "big_tool", "arguments": '{"input": "x"}'},
+            }
+        ],
+    )
     client.add_response("done")
 
     graph = AgentGraph(name="Compact Loop")
     graph.add_node("start", NodeConfig(type="start", label="Start"))
-    graph.add_node("llm", NodeConfig(
-        type="llm", label="LLM", model="m",
-        loop_mode="agent", max_loop_iterations=5,
-    ))
+    graph.add_node(
+        "llm",
+        NodeConfig(
+            type="llm",
+            label="LLM",
+            model="m",
+            loop_mode="agent",
+            max_loop_iterations=5,
+        ),
+    )
     graph.add_node("end", NodeConfig(type="end", label="End"))
     graph.add_edge("start", "llm")
     graph.add_edge("llm", "end")
 
     runtime = AgentRuntime(client, registry)
-    runtime.compactor = Compactor(CompactionConfig(
-        context_window=200, warning_buffer=100, error_buffer=50,
-        manual_buffer=10, keep_recent_rounds=1,
-        tool_result_head=20, tool_result_tail=20,
-    ))
+    runtime.compactor = Compactor(
+        CompactionConfig(
+            context_window=200,
+            warning_buffer=100,
+            error_buffer=50,
+            manual_buffer=10,
+            keep_recent_rounds=1,
+            tool_result_head=20,
+            tool_result_tail=20,
+        )
+    )
     events = []
     async for event in runtime.execute_graph(graph, "go"):
         events.append(event)
@@ -149,9 +181,13 @@ class _FakeMemoryEngine:
         self.summaries = []
 
     def store_summary(self, summary, scope, original_count):
-        self.summaries.append({
-            "summary": summary, "scope": scope, "original_count": original_count,
-        })
+        self.summaries.append(
+            {
+                "summary": summary,
+                "scope": scope,
+                "original_count": original_count,
+            }
+        )
         return "fake-id"
 
 
@@ -167,8 +203,11 @@ class TestCompactorPersistence:
     def test_hard_compact_persists_summary(self):
         me = _FakeMemoryEngine()
         cfg = CompactionConfig(
-            context_window=100, warning_buffer=10, error_buffer=5,
-            manual_buffer=20, keep_recent_rounds=1,
+            context_window=100,
+            warning_buffer=10,
+            error_buffer=5,
+            manual_buffer=20,
+            keep_recent_rounds=1,
         )
         c = Compactor(config=cfg, memory_engine=me)
         big = "word " * 120
@@ -192,6 +231,7 @@ class TestCompactorPersistence:
 class TestGatewayReactive413:
     async def test_reactive_retry_on_context_too_long(self):
         from agent_runtime.llm_gateway import LLMGateway, GatewayResponse, ModelConfig
+
         gw = LLMGateway(compactor=Compactor())
         gw.register_model(ModelConfig(name="m1", priority=1))
         calls = {"n": 0}
@@ -200,7 +240,9 @@ class TestGatewayReactive413:
             calls["n"] += 1
             if calls["n"] == 1:
                 raise Exception("This model's maximum context length is 8192 tokens")
-            return GatewayResponse(content="ok", model=config.name, finish_reason="stop")
+            return GatewayResponse(
+                content="ok", model=config.name, finish_reason="stop"
+            )
 
         gw._call_model_async = fake_call
         resp = await gw.chat([{"role": "user", "content": "hi"}], model="m1")
@@ -209,6 +251,7 @@ class TestGatewayReactive413:
 
     async def test_non_context_error_no_retry(self):
         from agent_runtime.llm_gateway import LLMGateway, ModelConfig
+
         gw = LLMGateway(compactor=Compactor())
         gw.register_model(ModelConfig(name="m1", priority=1))
         calls = {"n": 0}

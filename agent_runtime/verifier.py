@@ -114,14 +114,17 @@ class VerificationEngine:
         max_attempts: int | None = None,
     ) -> VerificationResult:
         attempts = max_attempts or self.max_attempts
-        logger.info("Starting verification: task=%s, max_attempts=%d", task[:60], attempts)
+        logger.info(
+            "Starting verification: task=%s, max_attempts=%d", task[:60], attempts
+        )
 
         result = None
         for attempt in range(1, attempts + 1):
             prompt = VERIFY_PROMPT.format(
                 task=task,
                 output=output,
-                criteria=criteria or "Output should correctly and completely address the task",
+                criteria=criteria
+                or "Output should correctly and completely address the task",
                 context=context,
             )
 
@@ -132,7 +135,10 @@ class VerificationEngine:
 
             logger.info(
                 "Verification attempt %d: passed=%s score=%.2f issues=%d",
-                attempt, result.passed, result.score, len(result.issues),
+                attempt,
+                result.passed,
+                result.score,
+                len(result.issues),
             )
 
             if result.passed:
@@ -170,16 +176,24 @@ class VerificationEngine:
             original_output=original_output,
             fix_description=fix_description,
             new_output=new_output,
-            criteria=criteria or "Output should correctly and completely address the task",
+            criteria=criteria
+            or "Output should correctly and completely address the task",
             context=context,
         )
 
         result = await self._call_llm(prompt, 1, 1)
         if result is None:
-            return VerificationResult(passed=False, score=0.0, issues=["LLM call failed"], suggestion="Retry verification")
+            return VerificationResult(
+                passed=False,
+                score=0.0,
+                issues=["LLM call failed"],
+                suggestion="Retry verification",
+            )
         return result
 
-    async def _call_llm(self, prompt: str, attempt: int, max_attempts: int) -> VerificationResult | None:
+    async def _call_llm(
+        self, prompt: str, attempt: int, max_attempts: int
+    ) -> VerificationResult | None:
         if not self.gateway:
             logger.error("No LLMGateway configured for verification")
             return VerificationResult(
@@ -207,7 +221,9 @@ class VerificationEngine:
             content = content.strip()
             if content.startswith("```"):
                 lines = content.split("\n")
-                content = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
+                content = "\n".join(
+                    lines[1:-1] if lines[-1].strip() == "```" else lines[1:]
+                )
 
             data = json.loads(content)
             return VerificationResult(
@@ -233,14 +249,19 @@ class VerificationEngine:
         voter_count: int = 3,
         threshold: float = 0.6,
     ) -> dict:
-        logger.info("Adversarial verify: claim=%s voters=%d threshold=%.1f", claim[:60], voter_count, threshold)
+        logger.info(
+            "Adversarial verify: claim=%s voters=%d threshold=%.1f",
+            claim[:60],
+            voter_count,
+            threshold,
+        )
         prompts = []
         for i in range(voter_count):
             prompt = (
                 f"You are skeptic #{i + 1}. Your job is to TRY TO REFUTE the following claim. "
                 f"Be thorough and look for flaws, unsupported assertions, logical errors.\n\n"
                 f"Claim: {claim}\nContext: {context}\n\n"
-                f"Respond with JSON: {{\"refuted\": true/false, \"reason\": \"why it is or is not refuted\"}}"
+                f'Respond with JSON: {{"refuted": true/false, "reason": "why it is or is not refuted"}}'
             )
             prompts.append(prompt)
 
@@ -255,21 +276,37 @@ class VerificationEngine:
                 votes.append({"voter": i, "verdict": "error", "reason": str(r)})
                 refuted_count += 1
             elif r is None:
-                votes.append({"voter": i, "verdict": "error", "reason": "LLM returned None"})
+                votes.append(
+                    {"voter": i, "verdict": "error", "reason": "LLM returned None"}
+                )
                 refuted_count += 1
             else:
                 is_refuted = not r.passed or r.score < 0.5
                 if is_refuted:
                     refuted_count += 1
-                    votes.append({"voter": i, "verdict": "refuted", "reason": r.suggestion or "Score too low"})
+                    votes.append(
+                        {
+                            "voter": i,
+                            "verdict": "refuted",
+                            "reason": r.suggestion or "Score too low",
+                        }
+                    )
                 else:
                     survived_count += 1
-                    votes.append({"voter": i, "verdict": "survived", "reason": r.issues or "No issues found"})
+                    votes.append(
+                        {
+                            "voter": i,
+                            "verdict": "survived",
+                            "reason": r.issues or "No issues found",
+                        }
+                    )
 
         passes = (survived_count / max(voter_count, 1)) >= threshold
         logger.info(
             "Adversarial verify result: survived=%d refuted=%d passes=%s",
-            survived_count, refuted_count, passes,
+            survived_count,
+            refuted_count,
+            passes,
         )
         return {
             "passes": passes,

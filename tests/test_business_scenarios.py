@@ -22,6 +22,7 @@ Scenarios:
 14. RAG retrieve (graceful without model)
 15. Ping
 """
+
 import tempfile
 from pathlib import Path
 
@@ -50,14 +51,21 @@ async def _run(daemon, method, params=None):
 class TestCreateConfigureExecute:
     @pytest.mark.asyncio
     async def test_full_agent_lifecycle(self, daemon):
-        create = await _run(daemon, "agent.create", {
-            "name": "CodeBot", "model": "qwen3.5-9b-4bit",
-            "system_prompt": "You are a code assistant.",
-            "temperature": 0.5, "max_tokens": 2048,
-            "tools": ["web_search", "calculator"],
-            "capabilities": ["code_generation"],
-            "safety_level": "L2", "tags": ["code", "python"],
-        })
+        create = await _run(
+            daemon,
+            "agent.create",
+            {
+                "name": "CodeBot",
+                "model": "qwen3.5-9b-4bit",
+                "system_prompt": "You are a code assistant.",
+                "temperature": 0.5,
+                "max_tokens": 2048,
+                "tools": ["web_search", "calculator"],
+                "capabilities": ["code_generation"],
+                "safety_level": "L2",
+                "tags": ["code", "python"],
+            },
+        )
         assert create["agent_id"]
         assert create["manifest"]["name"] == "CodeBot"
         agent_id = create["agent_id"]
@@ -66,10 +74,18 @@ class TestCreateConfigureExecute:
         assert get["agent"]["name"] == "CodeBot"
         assert get["agent"]["has_soul"] is True
 
-        configure = await _run(daemon, "agent.configure", {
-            "agent_id": agent_id,
-            "config": {"temperature": 0.9, "max_tokens": 8192, "safety_level": "L3"},
-        })
+        configure = await _run(
+            daemon,
+            "agent.configure",
+            {
+                "agent_id": agent_id,
+                "config": {
+                    "temperature": 0.9,
+                    "max_tokens": 8192,
+                    "safety_level": "L3",
+                },
+            },
+        )
         assert configure["configured"] is True
         assert configure["manifest"]["temperature"] == 0.9
 
@@ -80,9 +96,14 @@ class TestCreateConfigureExecute:
         found = [a for a in listing["agents"] if a["id"] == agent_id]
         assert len(found) == 1
 
-        execute = await _run(daemon, "agent.execute", {
-            "agent_id": agent_id, "input": "Write a hello world function",
-        })
+        execute = await _run(
+            daemon,
+            "agent.execute",
+            {
+                "agent_id": agent_id,
+                "input": "Write a hello world function",
+            },
+        )
         assert execute["agent_id"] == agent_id
         assert execute["status"] in ("completed", "error")
 
@@ -96,31 +117,48 @@ class TestCreateConfigureExecute:
 class TestSkillLifecycle:
     @pytest.mark.asyncio
     async def test_skill_add_list_delete(self, daemon):
-        create = await _run(daemon, "agent.create", {"name": "SkillBot", "model": "qwen3.5-9b-4bit"})
+        create = await _run(
+            daemon, "agent.create", {"name": "SkillBot", "model": "qwen3.5-9b-4bit"}
+        )
         agent_id = create["agent_id"]
 
         skills_empty = await _run(daemon, "agent.list_skills", {"agent_id": agent_id})
         assert skills_empty["skills"] == []
 
-        add = await _run(daemon, "agent.add_skill", {
-            "agent_id": agent_id, "skill_name": "code_review",
-            "skill_def": {"prompt": "Review this code", "tools": ["web_search"]},
-        })
+        add = await _run(
+            daemon,
+            "agent.add_skill",
+            {
+                "agent_id": agent_id,
+                "skill_name": "code_review",
+                "skill_def": {"prompt": "Review this code", "tools": ["web_search"]},
+            },
+        )
         assert add["added"] is True
 
-        add2 = await _run(daemon, "agent.add_skill", {
-            "agent_id": agent_id, "skill_name": "test_gen",
-            "skill_def": {"prompt": "Generate tests"},
-        })
+        add2 = await _run(
+            daemon,
+            "agent.add_skill",
+            {
+                "agent_id": agent_id,
+                "skill_name": "test_gen",
+                "skill_def": {"prompt": "Generate tests"},
+            },
+        )
         assert add2["added"] is True
 
         skills = await _run(daemon, "agent.list_skills", {"agent_id": agent_id})
         assert "code_review" in skills["skills"]
         assert "test_gen" in skills["skills"]
 
-        del_skill = await _run(daemon, "agent.delete_skill", {
-            "agent_id": agent_id, "skill_name": "test_gen",
-        })
+        del_skill = await _run(
+            daemon,
+            "agent.delete_skill",
+            {
+                "agent_id": agent_id,
+                "skill_name": "test_gen",
+            },
+        )
         assert del_skill["deleted"] is True
 
         skills_after = await _run(daemon, "agent.list_skills", {"agent_id": agent_id})
@@ -131,10 +169,15 @@ class TestSkillLifecycle:
 class TestSoulManagement:
     @pytest.mark.asyncio
     async def test_soul_get_update(self, daemon):
-        create = await _run(daemon, "agent.create", {
-            "name": "SoulBot", "model": "qwen3.5-9b-4bit",
-            "soul": "I am a helpful assistant.",
-        })
+        create = await _run(
+            daemon,
+            "agent.create",
+            {
+                "name": "SoulBot",
+                "model": "qwen3.5-9b-4bit",
+                "soul": "I am a helpful assistant.",
+            },
+        )
         agent_id = create["agent_id"]
 
         soul = await _run(daemon, "agent.get_soul", {"agent_id": agent_id})
@@ -143,9 +186,14 @@ class TestSoulManagement:
         get_check = await _run(daemon, "agent.get", {"agent_id": agent_id})
         assert get_check["agent"]["has_soul"] is True
 
-        update = await _run(daemon, "agent.update_soul", {
-            "agent_id": agent_id, "soul": "I am a creative coding companion.",
-        })
+        update = await _run(
+            daemon,
+            "agent.update_soul",
+            {
+                "agent_id": agent_id,
+                "soul": "I am a creative coding companion.",
+            },
+        )
         assert update["updated"] is True
 
         soul2 = await _run(daemon, "agent.get_soul", {"agent_id": agent_id})
@@ -155,12 +203,19 @@ class TestSoulManagement:
 class TestMarketplaceScenario:
     @pytest.mark.asyncio
     async def test_publish_search_install(self, daemon):
-        publish = await _run(daemon, "marketplace.publish", {
-            "name": "SuperCoder", "author": "fusion-team",
-            "description": "A powerful coding agent", "category": "code",
-            "tags": ["code", "python"], "version": "1.0.0",
-            "graph_data": {"nodes": {}, "edges": []},
-        })
+        publish = await _run(
+            daemon,
+            "marketplace.publish",
+            {
+                "name": "SuperCoder",
+                "author": "fusion-team",
+                "description": "A powerful coding agent",
+                "category": "code",
+                "tags": ["code", "python"],
+                "version": "1.0.0",
+                "graph_data": {"nodes": {}, "edges": []},
+            },
+        )
         entry_id = publish["entry_id"]
         assert entry_id
 
@@ -185,16 +240,27 @@ class TestMarketplaceScenario:
 class TestMemoryScenario:
     @pytest.mark.asyncio
     async def test_store_recall_delete(self, daemon):
-        store = await _run(daemon, "memory.store", {
-            "content": "User prefers dark mode", "scope": "user_preferences",
-            "tags": "ui", "importance": 8,
-        })
+        store = await _run(
+            daemon,
+            "memory.store",
+            {
+                "content": "User prefers dark mode",
+                "scope": "user_preferences",
+                "tags": "ui",
+                "importance": 8,
+            },
+        )
         entry_id = store["entry_id"]
         assert entry_id
 
-        recall = await _run(daemon, "memory.recall", {
-            "query": "dark mode", "scope": "user_preferences",
-        })
+        recall = await _run(
+            daemon,
+            "memory.recall",
+            {
+                "query": "dark mode",
+                "scope": "user_preferences",
+            },
+        )
         assert len(recall["entries"]) >= 1
 
         recent = await _run(daemon, "memory.list_recent", {"scope": "user_preferences"})
@@ -209,40 +275,61 @@ class TestMemoryScenario:
         delete = await _run(daemon, "memory.delete", {"entry_id": entry_id})
         assert delete["deleted"] is True
 
-        del_scope = await _run(daemon, "memory.delete_scope", {"scope": "user_preferences"})
+        del_scope = await _run(
+            daemon, "memory.delete_scope", {"scope": "user_preferences"}
+        )
         assert "deleted_count" in del_scope
 
 
 class TestSafetyScenario:
     @pytest.mark.asyncio
     async def test_check_evaluate_add_policy(self, daemon):
-        check = await _run(daemon, "safety.check", {
-            "content": "Delete all files", "context": "user_request",
-        })
+        check = await _run(
+            daemon,
+            "safety.check",
+            {
+                "content": "Delete all files",
+                "context": "user_request",
+            },
+        )
         assert "verdict" in check
 
-        evaluate = await _run(daemon, "safety.evaluate_action", {
-            "category": "file_delete", "content": "rm -rf /",
-        })
+        evaluate = await _run(
+            daemon,
+            "safety.evaluate_action",
+            {
+                "category": "file_delete",
+                "content": "rm -rf /",
+            },
+        )
         assert "verdict" in evaluate
 
         pending = await _run(daemon, "safety.get_pending_actions", {})
         assert "actions" in pending
 
-        add_policy = await _run(daemon, "safety.add_policy", {
-            "category": "network_access",
-            "description": "Control outbound network",
-            "default_level": "L2",
-        })
+        add_policy = await _run(
+            daemon,
+            "safety.add_policy",
+            {
+                "category": "network_access",
+                "description": "Control outbound network",
+                "default_level": "L2",
+            },
+        )
         assert add_policy["added"] is True
 
 
 class TestPlannerScenario:
     @pytest.mark.asyncio
     async def test_create_approve_cancel(self, daemon):
-        plan = await _run(daemon, "planner.create_plan", {
-            "task": "Refactor auth module", "context": "legacy patterns",
-        })
+        plan = await _run(
+            daemon,
+            "planner.create_plan",
+            {
+                "task": "Refactor auth module",
+                "context": "legacy patterns",
+            },
+        )
         assert "plan" in plan
         plan_id = plan["plan"]["id"]
 
@@ -262,30 +349,49 @@ class TestPlannerScenario:
 class TestDeployScenario:
     @pytest.mark.asyncio
     async def test_export_import_roundtrip(self, daemon):
-        graph = await _run(daemon, "graph.create", {
-            "name": "TestDeployGraph", "description": "Deploy test",
-            "nodes": [
-                {"id": "start-1", "type": "start", "label": "Start"},
-                {"id": "llm-1", "type": "llm", "label": "LLM", "model": "qwen3.5-9b-4bit"},
-            ],
-            "edges": [{"source": "start-1", "target": "llm-1"}],
-        })
+        graph = await _run(
+            daemon,
+            "graph.create",
+            {
+                "name": "TestDeployGraph",
+                "description": "Deploy test",
+                "nodes": [
+                    {"id": "start-1", "type": "start", "label": "Start"},
+                    {
+                        "id": "llm-1",
+                        "type": "llm",
+                        "label": "LLM",
+                        "model": "qwen3.5-9b-4bit",
+                    },
+                ],
+                "edges": [{"source": "start-1", "target": "llm-1"}],
+            },
+        )
         graph_id = graph["graph_id"]
 
         formats = await _run(daemon, "deploy.list_formats", {})
         assert len(formats["formats"]) >= 1
 
         with tempfile.TemporaryDirectory() as tmpdir:
-            export = await _run(daemon, "deploy.export", {
-                "graph_id": graph_id, "format": "json",
-                "filepath": str(Path(tmpdir) / "test_graph.json"),
-            })
+            export = await _run(
+                daemon,
+                "deploy.export",
+                {
+                    "graph_id": graph_id,
+                    "format": "json",
+                    "filepath": str(Path(tmpdir) / "test_graph.json"),
+                },
+            )
             assert export["status"] == "ok"
             assert Path(export["path"]).exists()
 
-            imported = await _run(daemon, "deploy.import", {
-                "filepath": str(Path(tmpdir) / "test_graph.json"),
-            })
+            imported = await _run(
+                daemon,
+                "deploy.import",
+                {
+                    "filepath": str(Path(tmpdir) / "test_graph.json"),
+                },
+            )
             assert imported["graph_id"]
             assert imported["name"] == "TestDeployGraph"
 
@@ -301,25 +407,37 @@ class TestTemplateScenario:
             get = await _run(daemon, "template.get", {"template_id": tmpl["id"]})
             assert get["template"]["id"] == tmpl["id"]
 
-            inst = await _run(daemon, "template.instantiate", {"template_id": tmpl["id"]})
+            inst = await _run(
+                daemon, "template.instantiate", {"template_id": tmpl["id"]}
+            )
             assert "graph_data" in inst or inst.get("status") == "error"
 
 
 class TestGraphCRUDScenario:
     @pytest.mark.asyncio
     async def test_create_get_list_delete(self, daemon):
-        create = await _run(daemon, "graph.create", {
-            "name": "IntegrationTestGraph", "description": "Full CRUD",
-            "nodes": [
-                {"id": "s1", "type": "start", "label": "Start"},
-                {"id": "l1", "type": "llm", "label": "Think", "model": "qwen3.5-9b-4bit"},
-                {"id": "e1", "type": "end", "label": "Done"},
-            ],
-            "edges": [
-                {"source": "s1", "target": "l1"},
-                {"source": "l1", "target": "e1"},
-            ],
-        })
+        create = await _run(
+            daemon,
+            "graph.create",
+            {
+                "name": "IntegrationTestGraph",
+                "description": "Full CRUD",
+                "nodes": [
+                    {"id": "s1", "type": "start", "label": "Start"},
+                    {
+                        "id": "l1",
+                        "type": "llm",
+                        "label": "Think",
+                        "model": "qwen3.5-9b-4bit",
+                    },
+                    {"id": "e1", "type": "end", "label": "Done"},
+                ],
+                "edges": [
+                    {"source": "s1", "target": "l1"},
+                    {"source": "l1", "target": "e1"},
+                ],
+            },
+        )
         graph_id = create["graph_id"]
         assert graph_id
 
@@ -339,14 +457,26 @@ class TestGraphCRUDScenario:
 class TestAgentListFiltering:
     @pytest.mark.asyncio
     async def test_filter_by_tags_and_capabilities(self, daemon):
-        await _run(daemon, "agent.create", {
-            "name": "PyBot", "model": "qwen3.5-9b-4bit",
-            "tags": ["python", "code"], "capabilities": ["code_generation"],
-        })
-        await _run(daemon, "agent.create", {
-            "name": "RustBot", "model": "qwen3.5-9b-4bit",
-            "tags": ["rust", "code"], "capabilities": ["code_review"],
-        })
+        await _run(
+            daemon,
+            "agent.create",
+            {
+                "name": "PyBot",
+                "model": "qwen3.5-9b-4bit",
+                "tags": ["python", "code"],
+                "capabilities": ["code_generation"],
+            },
+        )
+        await _run(
+            daemon,
+            "agent.create",
+            {
+                "name": "RustBot",
+                "model": "qwen3.5-9b-4bit",
+                "tags": ["rust", "code"],
+                "capabilities": ["code_review"],
+            },
+        )
 
         by_tag = await _run(daemon, "agent.list", {"tags": ["python"]})
         names = [a["name"] for a in by_tag["agents"]]
@@ -360,17 +490,28 @@ class TestAgentListFiltering:
 class TestAgentUpdate:
     @pytest.mark.asyncio
     async def test_update_multiple_fields(self, daemon):
-        create = await _run(daemon, "agent.create", {
-            "name": "UpdatableBot", "model": "qwen3.5-9b-4bit",
-            "system_prompt": "Initial prompt",
-        })
+        create = await _run(
+            daemon,
+            "agent.create",
+            {
+                "name": "UpdatableBot",
+                "model": "qwen3.5-9b-4bit",
+                "system_prompt": "Initial prompt",
+            },
+        )
         agent_id = create["agent_id"]
 
-        update = await _run(daemon, "agent.update", {
-            "agent_id": agent_id, "name": "UpdatedBot",
-            "system_prompt": "New prompt", "temperature": 0.3,
-            "tags": ["updated", "test"],
-        })
+        update = await _run(
+            daemon,
+            "agent.update",
+            {
+                "agent_id": agent_id,
+                "name": "UpdatedBot",
+                "system_prompt": "New prompt",
+                "temperature": 0.3,
+                "tags": ["updated", "test"],
+            },
+        )
         assert update["updated"] is True
         assert update["manifest"]["name"] == "UpdatedBot"
         assert update["manifest"]["temperature"] == 0.3

@@ -1,4 +1,5 @@
 """Structured output — enforce JSON Schema output from LLM nodes."""
+
 from __future__ import annotations
 
 import json
@@ -84,6 +85,7 @@ class JsonSchemaValidator:
 
         # Try to find {...} in the text
         import re
+
         obj_match = re.search(r"\{[^{}]*\}", text, re.DOTALL)
         if obj_match:
             try:

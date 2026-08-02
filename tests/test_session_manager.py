@@ -1,6 +1,10 @@
 import asyncio
 import pytest
-from agent_runtime.session_manager import SessionManager, BackgroundSession, SessionStatus
+from agent_runtime.session_manager import (
+    SessionManager,
+    BackgroundSession,
+    SessionStatus,
+)
 
 
 @pytest.fixture
@@ -17,12 +21,14 @@ class TestBackgroundSession:
         assert d["id"].startswith("bg_")
 
     def test_session_from_dict(self):
-        s = BackgroundSession.from_dict({
-            "id": "bg_abc",
-            "forked_from": "parent",
-            "status": "completed",
-            "input_text": "test",
-        })
+        s = BackgroundSession.from_dict(
+            {
+                "id": "bg_abc",
+                "forked_from": "parent",
+                "status": "completed",
+                "input_text": "test",
+            }
+        )
         assert s.id == "bg_abc"
         assert s.status == SessionStatus.COMPLETED
 

@@ -28,7 +28,12 @@ class CompactionConfig:
 
 
 class Compactor:
-    def __init__(self, config: CompactionConfig | None = None, llm_gateway=None, memory_engine=None):
+    def __init__(
+        self,
+        config: CompactionConfig | None = None,
+        llm_gateway=None,
+        memory_engine=None,
+    ):
         self.config = config or CompactionConfig()
         self.llm_gateway = llm_gateway
         self.memory_engine = memory_engine
@@ -37,7 +42,9 @@ class Compactor:
         if self.memory_engine is None or not summary:
             return
         try:
-            self.memory_engine.store_summary(summary, scope="compaction", original_count=original_count)
+            self.memory_engine.store_summary(
+                summary, scope="compaction", original_count=original_count
+            )
             logger.info("persisted compaction summary orig_count=%d", original_count)
         except Exception as exc:
             logger.warning("failed to persist compaction summary: %s", exc)
@@ -69,12 +76,19 @@ class Compactor:
         msgs = self._microcompact(list(messages))
         if self.estimate_tokens(msgs) >= self.config.warning_threshold():
             msgs = self._smart_truncate(msgs)
-        if level == "error" and self.estimate_tokens(msgs) >= self.config.error_threshold():
+        if (
+            level == "error"
+            and self.estimate_tokens(msgs) >= self.config.error_threshold()
+        ):
             msgs = self._hard_compact(msgs)
         after_tokens = self.estimate_tokens(msgs)
         logger.info(
             "compact level=%s before_msgs=%d after_msgs=%d before_tok=%d after_tok=%d",
-            level, len(messages), len(msgs), before_tokens, after_tokens,
+            level,
+            len(messages),
+            len(msgs),
+            before_tokens,
+            after_tokens,
         )
         return msgs
 
@@ -87,11 +101,15 @@ class Compactor:
             dropped = rest[:-2]
             summary = self._summarize(dropped)
             self._persist_summary(summary, len(dropped))
-            stripped = [{"role": "system", "content": summary}] + [self._truncate_tool(m) for m in keep_tail]
+            stripped = [{"role": "system", "content": summary}] + [
+                self._truncate_tool(m) for m in keep_tail
+            ]
         logger.info(
             "reactive_strip before_msgs=%d after_msgs=%d before_tok=%d after_tok=%d",
-            len(messages), len(system_msgs) + len(stripped),
-            self.estimate_tokens(messages), self.estimate_tokens(system_msgs + stripped),
+            len(messages),
+            len(system_msgs) + len(stripped),
+            self.estimate_tokens(messages),
+            self.estimate_tokens(system_msgs + stripped),
         )
         return system_msgs + stripped
 
@@ -127,8 +145,14 @@ class Compactor:
         dropped_msgs = [m for r in dropped for m in r]
         summary = self._summarize(dropped_msgs)
         self._persist_summary(summary, len(dropped_msgs))
-        logger.info("smart_truncate dropped_rounds=%d kept_rounds=%d", len(dropped), len(kept))
-        return system_msgs + [{"role": "system", "content": summary}] + [m for r in kept for m in r]
+        logger.info(
+            "smart_truncate dropped_rounds=%d kept_rounds=%d", len(dropped), len(kept)
+        )
+        return (
+            system_msgs
+            + [{"role": "system", "content": summary}]
+            + [m for r in kept for m in r]
+        )
 
     def _hard_compact(self, messages: list[dict]) -> list[dict]:
         system_msgs, rest = self._partition(messages)
@@ -140,8 +164,14 @@ class Compactor:
         dropped_msgs = [m for r in dropped for m in r]
         summary = self._summarize(dropped_msgs, hard=True)
         self._persist_summary(summary, len(dropped_msgs))
-        logger.info("hard_compact dropped_rounds=%d kept_rounds=%d", len(dropped), len(kept))
-        return system_msgs + [{"role": "system", "content": summary}] + [m for r in kept for m in r]
+        logger.info(
+            "hard_compact dropped_rounds=%d kept_rounds=%d", len(dropped), len(kept)
+        )
+        return (
+            system_msgs
+            + [{"role": "system", "content": summary}]
+            + [m for r in kept for m in r]
+        )
 
     def _summarize(self, messages: list[dict], hard: bool = False) -> str:
         user_intents = []

@@ -183,7 +183,13 @@ class AgentPackage:
     def sources_path(self) -> Path:
         return self.pkg_path / KNOWLEDGE_DIR / SOURCES_FILE
 
-    def init(self, manifest: AgentManifest | None = None, soul: str = "", memory: str = "", agents_md: str = "") -> None:
+    def init(
+        self,
+        manifest: AgentManifest | None = None,
+        soul: str = "",
+        memory: str = "",
+        agents_md: str = "",
+    ) -> None:
         """Initialize a new .fusion-agent package directory."""
         self.pkg_path.mkdir(parents=True, exist_ok=True)
         (self.pkg_path / KNOWLEDGE_DIR).mkdir(exist_ok=True)
@@ -271,11 +277,7 @@ class AgentPackage:
         """List skill names in the package."""
         if not self.skills_path.exists():
             return []
-        return [
-            f.stem
-            for f in self.skills_path.glob("*.json")
-            if f.is_file()
-        ]
+        return [f.stem for f in self.skills_path.glob("*.json") if f.is_file()]
 
     def load_skill(self, name: str) -> dict[str, Any]:
         """Load a skill definition by name."""
@@ -326,10 +328,14 @@ class AgentPackage:
 
     # -- workspace snapshot methods --
 
-    def snapshot_workspace(self, source_dir: str | Path, exclude: list[str] | None = None) -> dict:
+    def snapshot_workspace(
+        self, source_dir: str | Path, exclude: list[str] | None = None
+    ) -> dict:
         source_dir = Path(source_dir)
         if not source_dir.is_dir():
-            logger.error("snapshot_workspace: source dir does not exist: %s", source_dir)
+            logger.error(
+                "snapshot_workspace: source dir does not exist: %s", source_dir
+            )
             return {"files": [], "total_size": 0, "timestamp": ""}
 
         ws_dest = self.workspace_path
@@ -375,24 +381,35 @@ class AgentPackage:
             if f.is_file():
                 size = f.stat().st_size
                 total_size += size
-                files_info.append({
-                    "path": str(f.relative_to(ws_dest)),
-                    "size": size,
-                    "modified": datetime.fromtimestamp(f.stat().st_mtime, tz=timezone.utc).isoformat(),
-                })
+                files_info.append(
+                    {
+                        "path": str(f.relative_to(ws_dest)),
+                        "size": size,
+                        "modified": datetime.fromtimestamp(
+                            f.stat().st_mtime, tz=timezone.utc
+                        ).isoformat(),
+                    }
+                )
 
         result = {
             "files": files_info,
             "total_size": total_size,
             "timestamp": datetime.now(tz=timezone.utc).isoformat(),
         }
-        logger.info("snapshot_workspace: %d files, %d bytes from %s", len(files_info), total_size, source_dir)
+        logger.info(
+            "snapshot_workspace: %d files, %d bytes from %s",
+            len(files_info),
+            total_size,
+            source_dir,
+        )
         return result
 
     def restore_workspace(self, target_dir: str | Path) -> int:
         ws_src = self.workspace_path
         if not ws_src.is_dir():
-            logger.warning("restore_workspace: no workspace snapshot found at %s", ws_src)
+            logger.warning(
+                "restore_workspace: no workspace snapshot found at %s", ws_src
+            )
             return 0
 
         target_dir = Path(target_dir)
@@ -411,11 +428,15 @@ class AgentPackage:
         result = []
         for f in ws_dir.rglob("*"):
             if f.is_file():
-                result.append({
-                    "path": str(f.relative_to(ws_dir)),
-                    "size": f.stat().st_size,
-                    "modified": datetime.fromtimestamp(f.stat().st_mtime, tz=timezone.utc).isoformat(),
-                })
+                result.append(
+                    {
+                        "path": str(f.relative_to(ws_dir)),
+                        "size": f.stat().st_size,
+                        "modified": datetime.fromtimestamp(
+                            f.stat().st_mtime, tz=timezone.utc
+                        ).isoformat(),
+                    }
+                )
         return result
 
     # -- sources.json methods --
@@ -434,11 +455,14 @@ class AgentPackage:
         self.knowledge_path.mkdir(parents=True, exist_ok=True)
         with open(self.sources_path, "w", encoding="utf-8") as f:
             json.dump(sources, f, indent=4, ensure_ascii=False)
-        logger.info("save_sources: wrote %d sources to %s", len(sources), self.sources_path)
+        logger.info(
+            "save_sources: wrote %d sources to %s", len(sources), self.sources_path
+        )
 
     def add_source(self, source_type: str, config: dict) -> dict:
         sources = self.load_sources()
         import uuid
+
         entry = {
             "id": uuid.uuid4().hex[:12],
             "type": source_type,
@@ -453,9 +477,15 @@ class AgentPackage:
     def remove_source(self, source_type: str, source_id: str) -> bool:
         sources = self.load_sources()
         original_len = len(sources)
-        sources = [s for s in sources if not (s.get("type") == source_type and s.get("id") == source_id)]
+        sources = [
+            s
+            for s in sources
+            if not (s.get("type") == source_type and s.get("id") == source_id)
+        ]
         if len(sources) == original_len:
-            logger.warning("remove_source: no %s source with id=%s found", source_type, source_id)
+            logger.warning(
+                "remove_source: no %s source with id=%s found", source_type, source_id
+            )
             return False
         self.save_sources(sources)
         logger.info("remove_source: removed %s source id=%s", source_type, source_id)
@@ -512,6 +542,7 @@ class AgentPackage:
 
     def fork(self, new_name: str | None = None) -> AgentPackage:
         import uuid as _uuid
+
         agents_root = self.base_path.parent
         new_id = new_name or f"{self.agent_id}-copy-{_uuid.uuid4().hex[:6]}"
         new_path = agents_root / new_id

@@ -1,15 +1,43 @@
 """Sub-dispatcher: TeamDispatcher."""
+
 from __future__ import annotations
 import logging
-from typing import Any
+import signal
 from .base import SubDispatcher
+from typing import Callable
+import asyncio
+import os
 
 logger = logging.getLogger(__name__)
 
 
 class TeamDispatcher(SubDispatcher):
+    def get_handlers(self) -> dict[str, Callable]:
+        return {
+            "team.swarm_register": self._handle_team_swarm_register,
+            "team.swarm_agents": self._handle_team_swarm_agents,
+            "team.swarm_delegate": self._handle_team_swarm_delegate,
+            "team.swarm_handoff": self._handle_team_swarm_handoff,
+            "team.swarm_evaluate": self._handle_team_swarm_evaluate,
+            "team.swarm_escalate": self._handle_team_swarm_escalate,
+            "team.swarm_stats": self._handle_team_swarm_stats,
+            "team.plaza_create": self._handle_team_plaza_create,
+            "team.plaza_broadcast": self._handle_team_plaza_broadcast,
+            "team.plaza_messages": self._handle_team_plaza_messages,
+            "team.plaza_channels": self._handle_team_plaza_channels,
+            "team.plaza_break_in": self._handle_team_plaza_break_in,
+            "team.plaza_circuit": self._handle_team_plaza_circuit,
+            "team.fmp_register": self._handle_team_fmp_register,
+            "team.fmp_send": self._handle_team_fmp_send,
+            "team.fmp_stats": self._handle_team_fmp_stats,
+            "team.orchestrate": self._handle_team_orchestrate,
+            "team.set_limits": self._handle_team_set_limits,
+            "team.get_limits": self._handle_team_get_limits,
+        }
+
     async def _handle_team_swarm_register(self, params: dict) -> dict:
-        from .swarm_router import SwarmAgent
+        from ..swarm_router import SwarmAgent
+
         swarm = self._daemon._get_swarm()
         agent = SwarmAgent(
             id=params.get("id", ""),
@@ -36,7 +64,8 @@ class TeamDispatcher(SubDispatcher):
         return {"delegation": self._daemon._serialize(delegation)}
 
     async def _handle_team_swarm_handoff(self, params: dict) -> dict:
-        from .swarm_router import HandoffContext
+        from ..swarm_router import HandoffContext
+
         swarm = self._daemon._get_swarm()
         ctx = HandoffContext(
             conversation=params.get("conversation", []),
@@ -53,7 +82,9 @@ class TeamDispatcher(SubDispatcher):
 
     async def _handle_team_swarm_escalate(self, params: dict) -> dict:
         swarm = self._daemon._get_swarm()
-        delegation = swarm.escalate(params["delegation_id"], reason=params.get("reason", ""))
+        delegation = swarm.escalate(
+            params["delegation_id"], reason=params.get("reason", "")
+        )
         return {"delegation": self._daemon._serialize(delegation)}
 
     async def _handle_team_swarm_stats(self, params: dict) -> dict:
@@ -99,13 +130,16 @@ class TeamDispatcher(SubDispatcher):
         return {"tripped": plaza.check_circuit_breaker(params["channel"])}
 
     async def _handle_team_fmp_register(self, params: dict) -> dict:
-        from .fmp_router import AgentInfo
+        from ..fmp_router import AgentInfo
+
         fmp = self._daemon._get_fmp()
-        fmp.register_agent(AgentInfo(
-            id=params.get("id", ""),
-            name=params.get("name", ""),
-            capabilities=params.get("capabilities", []),
-        ))
+        fmp.register_agent(
+            AgentInfo(
+                id=params.get("id", ""),
+                name=params.get("name", ""),
+                capabilities=params.get("capabilities", []),
+            )
+        )
         return {"ok": True}
 
     async def _handle_team_fmp_send(self, params: dict) -> dict:
@@ -122,10 +156,15 @@ class TeamDispatcher(SubDispatcher):
 
     async def _handle_team_fmp_stats(self, params: dict) -> dict:
         fmp = self._daemon._get_fmp()
-        return {"stats": dict(fmp._stats), "agents": len(fmp._agents), "message_log": len(fmp._message_log)}
+        return {
+            "stats": dict(fmp._stats),
+            "agents": len(fmp._agents),
+            "message_log": len(fmp._message_log),
+        }
 
     async def _handle_team_orchestrate(self, params: dict) -> dict:
-        from .orchestrator import AgentConfig
+        from ..orchestrator import AgentConfig
+
         orch = self._daemon._get_orchestrator()
         pattern = params.get("pattern", "sequential")
         input_text = params.get("input", "")
@@ -142,14 +181,30 @@ class TeamDispatcher(SubDispatcher):
         elif pattern == "handoff":
             res = await orch.handoff(agents, input_text)
         elif pattern == "broadcast":
-            res = await orch.broadcast(agents, input_text, merge_strategy=params.get("merge_strategy", "concat"))
+            res = await orch.broadcast(
+                agents,
+                input_text,
+                merge_strategy=params.get("merge_strategy", "concat"),
+            )
         elif pattern == "master_worker":
-            res = await orch.master_worker(build(params["supervisor"]), agents, input_text)
+            res = await orch.master_worker(
+                build(params["supervisor"]), agents, input_text
+            )
         elif pattern == "supervisor":
-            res = await orch.supervisor(build(params["supervisor"]), agents, input_text, max_rounds=params.get("max_rounds", 5))
+            res = await orch.supervisor(
+                build(params["supervisor"]),
+                agents,
+                input_text,
+                max_rounds=params.get("max_rounds", 5),
+            )
         else:
             return {"error": f"unknown pattern: {pattern}"}
-        return {"results": res.results, "errors": res.errors, "summary": res.summary, "total_duration": res.total_duration}
+        return {
+            "results": res.results,
+            "errors": res.errors,
+            "summary": res.summary,
+            "total_duration": res.total_duration,
+        }
 
     async def start(self) -> None:
         if os.path.exists(self._daemon.socket_path):
@@ -169,29 +224,51 @@ class TeamDispatcher(SubDispatcher):
         self._cluster_task: asyncio.Task | None = None
         if self._daemon.cluster_port:
             try:
-                from .cluster_server import app as cluster_app
+                from ..cluster_server import app as cluster_app
                 import uvicorn
-                config = uvicorn.Config(cluster_app, host="127.0.0.1", port=self._daemon.cluster_port, log_level="warning")
+
+                config = uvicorn.Config(
+                    cluster_app,
+                    host="127.0.0.1",
+                    port=self._daemon.cluster_port,
+                    log_level="warning",
+                )
                 cluster_server = uvicorn.Server(config)
                 self._cluster_task = asyncio.create_task(cluster_server.serve())
-                logger.info("Cluster API server started on port %d", self._daemon.cluster_port)
+                logger.info(
+                    "Cluster API server started on port %d", self._daemon.cluster_port
+                )
             except Exception as e:
                 logger.warning("Cluster API server failed to start: %s", e)
 
         self._http_task: asyncio.Task | None = None
         if self._daemon.http_port:
             try:
-                from .api_server import app as fastapi_app
+                from ..api_server import app as fastapi_app
                 import uvicorn as uvicorn2
-                http_config = uvicorn2.Config(fastapi_app, host="127.0.0.1", port=self._daemon.http_port, log_level="warning")
+
+                http_config = uvicorn2.Config(
+                    fastapi_app,
+                    host="127.0.0.1",
+                    port=self._daemon.http_port,
+                    log_level="warning",
+                )
                 http_server = uvicorn2.Server(http_config)
                 self._http_task = asyncio.create_task(http_server.serve())
-                logger.info("FastAPI HTTP server started on port %d", self._daemon.http_port)
+                logger.info(
+                    "FastAPI HTTP server started on port %d", self._daemon.http_port
+                )
             except Exception as e:
                 logger.warning("FastAPI HTTP server failed to start: %s", e)
 
         self._daemon._running = True
-        logger.info("Daemon listening on %s + WS on %d + Cluster on %d + HTTP on %d", self._daemon.socket_path, self._daemon.ws_port, self._daemon.cluster_port, self._daemon.http_port)
+        logger.info(
+            "Daemon listening on %s + WS on %d + Cluster on %d + HTTP on %d",
+            self._daemon.socket_path,
+            self._daemon.ws_port,
+            self._daemon.cluster_port,
+            self._daemon.http_port,
+        )
 
     async def stop(self) -> None:
         self._daemon._running = False

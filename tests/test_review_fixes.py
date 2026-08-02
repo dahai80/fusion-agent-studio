@@ -4,6 +4,7 @@ Covers: rag_pipeline session reuse, chat_engine eviction,
 runtime retry context cap, llm_gateway stream timeout,
 triggers cron logic, persistence list_chat_sessions projection.
 """
+
 from __future__ import annotations
 
 import time
@@ -32,7 +33,10 @@ class TestVectorRetrievalStrategySessionReuse:
     @pytest.mark.asyncio
     async def test_get_session_creates_when_none(self):
         assert self.strategy._session is None
-        with patch.dict("sys.modules", {"aiohttp": MagicMock(ClientSession=MagicMock(return_value=AsyncMock()))}):
+        with patch.dict(
+            "sys.modules",
+            {"aiohttp": MagicMock(ClientSession=MagicMock(return_value=AsyncMock()))},
+        ):
             s = await self.strategy._get_session()
             assert s is not None
 
@@ -88,7 +92,9 @@ class TestChatEngineEviction:
         engine._sessions = {}
         engine._sessions_lock = MagicMock()
         engine.MAX_CACHED_SESSIONS = 128
-        engine._sessions["s1"] = ChatSession(id="s1", title="t", mode="simple", messages=[])
+        engine._sessions["s1"] = ChatSession(
+            id="s1", title="t", mode="simple", messages=[]
+        )
         engine._evict_sessions()
         assert len(engine._sessions) == 1
 

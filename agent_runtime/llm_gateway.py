@@ -6,6 +6,7 @@ Pure-offline mode works with only local models; cloud endpoints are optional.
 LiteLLM-style embedded proxy: transparent routing layer that normalizes
 OpenAI-compatible APIs across local (fusion-mlx) and cloud providers.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -94,7 +95,9 @@ class ModelStats:
 
 
 class _ModelCircuitBreaker:
-    def __init__(self, threshold: int = CIRCUIT_THRESHOLD, reset_time: float = CIRCUIT_RESET_TIME):
+    def __init__(
+        self, threshold: int = CIRCUIT_THRESHOLD, reset_time: float = CIRCUIT_RESET_TIME
+    ):
         self.threshold = threshold
         self.reset_time = reset_time
         self._failures: dict[str, int] = {}
@@ -129,13 +132,16 @@ class _ModelCircuitBreaker:
 @dataclass
 class GatewayResponse:
     """Normalized response from the gateway — mirrors FusionMLXClient.LLMResponse."""
+
     content: str = ""
     tool_calls: list[dict] = field(default_factory=list)
     finish_reason: str = "stop"
-    usage: dict[str, Any] = field(default_factory=lambda: {
-        "prompt_tokens": 0,
-        "completion_tokens": 0,
-    })
+    usage: dict[str, Any] = field(
+        default_factory=lambda: {
+            "prompt_tokens": 0,
+            "completion_tokens": 0,
+        }
+    )
     model: str = ""
     fallback_from: str = ""
 
@@ -190,8 +196,12 @@ class LLMGateway:
     def _is_context_too_long(self, exc: Exception) -> bool:
         msg = str(exc).lower()
         markers = (
-            "context_length", "context length", "maximum context",
-            "too long", "too many tokens", "prompt is too long",
+            "context_length",
+            "context length",
+            "maximum context",
+            "too long",
+            "too many tokens",
+            "prompt is too long",
         )
         return any(m in msg for m in markers)
 
@@ -212,12 +222,20 @@ class LLMGateway:
             self._models[config.name] = config
             if config.name not in self._stats:
                 self._stats[config.name] = ModelStats(model_name=config.name)
-        logger.info("Registered model: %s (provider=%s, priority=%d, caps=%s)",
-                     config.name, config.provider, config.priority, config.capabilities)
+        logger.info(
+            "Registered model: %s (provider=%s, priority=%d, caps=%s)",
+            config.name,
+            config.provider,
+            config.priority,
+            config.capabilities,
+        )
 
-    def register_default_local(self, name: str = "local-default",
-                               base_url: str = DEFAULT_LOCAL_BASE_URL,
-                               priority: int = 10) -> ModelConfig:
+    def register_default_local(
+        self,
+        name: str = "local-default",
+        base_url: str = DEFAULT_LOCAL_BASE_URL,
+        priority: int = 10,
+    ) -> ModelConfig:
         """Convenience: register the default local fusion-mlx model."""
         config = ModelConfig(
             name=name,
@@ -238,28 +256,44 @@ class LLMGateway:
                 return True
         return False
 
-    def route(self, capability: str = "", min_context: int = 0, exclude: set[str] | None = None) -> ModelConfig | None:
+    def route(
+        self,
+        capability: str = "",
+        min_context: int = 0,
+        exclude: set[str] | None = None,
+    ) -> ModelConfig | None:
         with self._lock:
             candidates = [
-                m for m in self._models.values()
+                m
+                for m in self._models.values()
                 if not self._cb.is_open(m.name)
                 and (not capability or capability in m.capabilities)
                 and m.context_length >= min_context
                 and (not exclude or m.name not in exclude)
             ]
         if not candidates:
-            logger.warning("No available model for capability='%s' min_context=%d", capability, min_context)
+            logger.warning(
+                "No available model for capability='%s' min_context=%d",
+                capability,
+                min_context,
+            )
             return None
         candidates.sort(key=lambda m: (-m.priority, m.name))
         selected = candidates[0]
-        logger.debug("Routed to model %s (priority=%d)", selected.name, selected.priority)
+        logger.debug(
+            "Routed to model %s (priority=%d)", selected.name, selected.priority
+        )
         return selected
 
-    def get_fallback_chain(self, capability: str = "", min_context: int = 0) -> list[ModelConfig]:
+    def get_fallback_chain(
+        self, capability: str = "", min_context: int = 0
+    ) -> list[ModelConfig]:
         chain = []
         exclude = set()
         while True:
-            model = self.route(capability=capability, min_context=min_context, exclude=exclude)
+            model = self.route(
+                capability=capability, min_context=min_context, exclude=exclude
+            )
             if not model:
                 break
             chain.append(model)
@@ -285,17 +319,29 @@ class LLMGateway:
         if not target_config:
             if self._default_client:
                 return await self._call_default_client(
-                    messages, model=model, tools=tools, temperature=temperature,
-                    max_tokens=max_tokens, **kwargs,
+                    messages,
+                    model=model,
+                    tools=tools,
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                    **kwargs,
                 )
-            return GatewayResponse(content="", model="", finish_reason="error",
-                                   usage={"error": "No available model"})
+            return GatewayResponse(
+                content="",
+                model="",
+                finish_reason="error",
+                usage={"error": "No available model"},
+            )
 
         start = time.time()
         try:
             result = await self._call_model_async(
-                target_config, messages, tools=tools,
-                temperature=temperature, max_tokens=max_tokens, **kwargs,
+                target_config,
+                messages,
+                tools=tools,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                **kwargs,
             )
             latency = time.time() - start
             self._record_success(target_config.name, latency)
@@ -309,17 +355,27 @@ class LLMGateway:
                 retry_messages = self._compactor.reactive_strip(messages)
                 logger.info(
                     "context-too-long on %s, reactive_strip msgs %d->%d, retrying same model",
-                    target_config.name, len(messages), len(retry_messages),
+                    target_config.name,
+                    len(messages),
+                    len(retry_messages),
                 )
                 try:
                     result = await self._call_model_async(
-                        target_config, retry_messages, tools=tools,
-                        temperature=temperature, max_tokens=max_tokens, **kwargs,
+                        target_config,
+                        retry_messages,
+                        tools=tools,
+                        temperature=temperature,
+                        max_tokens=max_tokens,
+                        **kwargs,
                     )
                     self._record_success(target_config.name, time.time() - start)
                     return result
                 except Exception as rx_exc:
-                    logger.warning("reactive retry on %s also failed: %s", target_config.name, rx_exc)
+                    logger.warning(
+                        "reactive retry on %s also failed: %s",
+                        target_config.name,
+                        rx_exc,
+                    )
 
             for fallback in self.get_fallback_chain(capability=capability):
                 if fallback.name == target_config.name:
@@ -327,8 +383,12 @@ class LLMGateway:
                 try:
                     fb_start = time.time()
                     result = await self._call_model_async(
-                        fallback, messages, tools=tools,
-                        temperature=temperature, max_tokens=max_tokens, **kwargs,
+                        fallback,
+                        messages,
+                        tools=tools,
+                        temperature=temperature,
+                        max_tokens=max_tokens,
+                        **kwargs,
                     )
                     fb_latency = time.time() - fb_start
                     self._record_success(fallback.name, fb_latency)
@@ -336,13 +396,19 @@ class LLMGateway:
                     return result
                 except Exception as fb_exc:
                     self._record_failure(fallback.name, time.time() - fb_start)
-                    logger.warning("Fallback model %s also failed: %s", fallback.name, fb_exc)
+                    logger.warning(
+                        "Fallback model %s also failed: %s", fallback.name, fb_exc
+                    )
 
             if self._default_client:
                 logger.info("All models failed, falling back to default client")
                 return await self._call_default_client(
-                    messages, model=model, tools=tools, temperature=temperature,
-                    max_tokens=max_tokens, **kwargs,
+                    messages,
+                    model=model,
+                    tools=tools,
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                    **kwargs,
                 )
 
             return GatewayResponse(
@@ -352,8 +418,14 @@ class LLMGateway:
                 usage={"error": str(exc)},
             )
 
-    def execute(self, messages: list[dict], model: str = "", capability: str = "",
-                tools: list[dict] | None = None, **kwargs) -> dict[str, Any]:
+    def execute(
+        self,
+        messages: list[dict],
+        model: str = "",
+        capability: str = "",
+        tools: list[dict] | None = None,
+        **kwargs,
+    ) -> dict[str, Any]:
         """Synchronous compatibility wrapper — returns dict (old API)."""
         if model and model in self._models:
             target = self._models[model]
@@ -383,7 +455,9 @@ class LLMGateway:
                     return result
                 except Exception as fb_exc:
                     self._record_failure(fallback.name, time.time() - fb_start)
-                    logger.warning("Fallback model %s also failed: %s", fallback.name, fb_exc)
+                    logger.warning(
+                        "Fallback model %s also failed: %s", fallback.name, fb_exc
+                    )
             return {"error": str(exc), "model": target.name}
 
     def embed(self, text: str, model: str = "") -> list[float]:
@@ -423,7 +497,9 @@ class LLMGateway:
 
         if self._default_client:
             try:
-                results = await self._default_client.embeddings(model=target_name, input=text)
+                results = await self._default_client.embeddings(
+                    model=target_name, input=text
+                )
                 if results and results[0]:
                     logger.info("Real embedding returned, dims=%d", len(results[0]))
                     return results[0]
@@ -436,6 +512,7 @@ class LLMGateway:
     @staticmethod
     def _stub_embedding(text: str) -> list[float]:
         import math
+
         h = hash(text) & 0xFFFFFFFF
         rng = h
         vec = []
@@ -452,8 +529,10 @@ class LLMGateway:
                 return await self._default_client.list_models()
             except Exception as exc:
                 logger.warning("Failed to list models from default client: %s", exc)
-        return [{"id": m.name, "provider": m.provider, "capabilities": m.capabilities}
-                for m in self._models.values()]
+        return [
+            {"id": m.name, "provider": m.provider, "capabilities": m.capabilities}
+            for m in self._models.values()
+        ]
 
     async def health(self) -> bool:
         """Health check — proxies to default client if set."""
@@ -489,14 +568,19 @@ class LLMGateway:
             resolved_model = target_config.name
             if target_config.provider != "local" or not client:
                 from server.fusion_mlx_client import FusionMLXClient
+
                 client = FusionMLXClient(
                     base_url=target_config.base_url,
                     api_key=target_config.api_key or None,
                 )
 
         if not client:
-            yield {"delta_content": "", "delta_tool_calls": [], "finish_reason": "error",
-                   "error": "No available client"}
+            yield {
+                "delta_content": "",
+                "delta_tool_calls": [],
+                "finish_reason": "error",
+                "error": "No available client",
+            }
             return
 
         temp = temperature if temperature is not None else 0.7
@@ -515,9 +599,15 @@ class LLMGateway:
             async for chunk in stream_iter:
                 elapsed = asyncio.get_event_loop().time() - start
                 if elapsed > timeout:
-                    logger.warning("chat_stream exceeded timeout %.0fs, aborting", timeout)
-                    yield {"delta_content": "", "delta_tool_calls": [], "finish_reason": "error",
-                           "error": f"Stream timeout after {timeout:.0f}s"}
+                    logger.warning(
+                        "chat_stream exceeded timeout %.0fs, aborting", timeout
+                    )
+                    yield {
+                        "delta_content": "",
+                        "delta_tool_calls": [],
+                        "finish_reason": "error",
+                        "error": f"Stream timeout after {timeout:.0f}s",
+                    }
                     return
                 yield {
                     "delta_content": chunk.delta_content,
@@ -526,10 +616,16 @@ class LLMGateway:
                 }
         except Exception as exc:
             logger.error("chat_stream failed: %s", exc)
-            yield {"delta_content": "", "delta_tool_calls": [], "finish_reason": "error",
-                   "error": str(exc)}
+            yield {
+                "delta_content": "",
+                "delta_tool_calls": [],
+                "finish_reason": "error",
+                "error": str(exc),
+            }
 
-    def _resolve_target(self, model: str = "", capability: str = "") -> ModelConfig | None:
+    def _resolve_target(
+        self, model: str = "", capability: str = ""
+    ) -> ModelConfig | None:
         """Resolve which model config to use for a request."""
         if model and model in self._models:
             config = self._models[model]
@@ -555,8 +651,12 @@ class LLMGateway:
                     model=config.name,
                     messages=messages,
                     tools=tools,
-                    temperature=temperature if temperature is not None else config.temperature,
-                    max_tokens=max_tokens if max_tokens is not None else config.max_tokens,
+                    temperature=temperature
+                    if temperature is not None
+                    else config.temperature,
+                    max_tokens=max_tokens
+                    if max_tokens is not None
+                    else config.max_tokens,
                 )
                 return GatewayResponse(
                     content=resp.content,
@@ -566,18 +666,25 @@ class LLMGateway:
                     model=config.name,
                 )
             except Exception as exc:
-                logger.warning("Default client call failed for %s: %s", config.name, exc)
+                logger.warning(
+                    "Default client call failed for %s: %s", config.name, exc
+                )
                 raise
 
         try:
             from server.fusion_mlx_client import FusionMLXClient
-            client = FusionMLXClient(base_url=config.base_url, api_key=config.api_key or None)
+
+            client = FusionMLXClient(
+                base_url=config.base_url, api_key=config.api_key or None
+            )
             response = await client.chat(
                 messages=messages,
                 model=config.name,
                 tools=tools,
                 max_tokens=max_tokens if max_tokens is not None else config.max_tokens,
-                temperature=temperature if temperature is not None else config.temperature,
+                temperature=temperature
+                if temperature is not None
+                else config.temperature,
             )
             return GatewayResponse(
                 content=response.content,
@@ -604,8 +711,12 @@ class LLMGateway:
     ) -> GatewayResponse:
         """Fall back to the default FusionMLXClient directly."""
         if not self._default_client:
-            return GatewayResponse(content="", model="", finish_reason="error",
-                                   usage={"error": "No default client"})
+            return GatewayResponse(
+                content="",
+                model="",
+                finish_reason="error",
+                usage={"error": "No default client"},
+            )
         try:
             resolved_model = self._default_model if model in ("", "default") else model
             resp = await self._default_client.chat(
@@ -631,12 +742,20 @@ class LLMGateway:
                 usage={"error": str(exc)},
             )
 
-    def _call_model(self, config: ModelConfig, messages: list[dict],
-                    tools: list[dict] | None = None, **kwargs) -> dict[str, Any]:
+    def _call_model(
+        self,
+        config: ModelConfig,
+        messages: list[dict],
+        tools: list[dict] | None = None,
+        **kwargs,
+    ) -> dict[str, Any]:
         logger.info("Calling model %s at %s", config.name, config.base_url)
         try:
             from server.fusion_mlx_client import FusionMLXClient
-            client = FusionMLXClient(base_url=config.base_url, api_key=config.api_key or None)
+
+            client = FusionMLXClient(
+                base_url=config.base_url, api_key=config.api_key or None
+            )
             response = client.chat(
                 messages=messages,
                 model=config.name,

@@ -8,6 +8,7 @@ Affected API: langgraph.create/get/list/delete/run/approve/cancel RPC methods.
 Data schemas: WorkflowDefinition, WorkflowNode, WorkflowEdge, RunInstance, NodeTrace, ApprovalRecord, ContextSandbox.
 User instruction: "后续功能也要马上启动落地实施" — implement remaining open issues #29-#37.
 """
+
 from __future__ import annotations
 
 import logging
@@ -98,8 +99,13 @@ class WorkflowDefinition:
 
 
 VALID_NODE_TYPES = {
-    "START_NODE", "CONNECTOR_NODE", "SKILL_NODE",
-    "CONDITION_NODE", "APPROVAL_GATE_NODE", "OUTPUT_NODE", "END_NODE",
+    "START_NODE",
+    "CONNECTOR_NODE",
+    "SKILL_NODE",
+    "CONDITION_NODE",
+    "APPROVAL_GATE_NODE",
+    "OUTPUT_NODE",
+    "END_NODE",
 }
 
 RUN_STATUSES = ("CREATED", "RUNNING", "PAUSED", "COMPLETED", "FAILED", "TERMINATED")
@@ -239,7 +245,9 @@ class LangGraphEngine:
         if not wf.wf_id:
             wf.wf_id = uuid.uuid4().hex[:12]
         self._workflows[wf.wf_id] = wf
-        logger.info("Created workflow %s: %s (%d nodes)", wf.wf_id, wf.name, len(wf.nodes))
+        logger.info(
+            "Created workflow %s: %s (%d nodes)", wf.wf_id, wf.name, len(wf.nodes)
+        )
         return {"status": "ok", "wf_id": wf.wf_id}
 
     def get_workflow(self, wf_id: str) -> dict[str, Any]:
@@ -249,7 +257,10 @@ class LangGraphEngine:
         return {"status": "ok", "workflow": wf.to_dict()}
 
     def list_workflows(self) -> list[dict[str, Any]]:
-        return [{"wf_id": wf.wf_id, "name": wf.name, "node_count": len(wf.nodes)} for wf in self._workflows.values()]
+        return [
+            {"wf_id": wf.wf_id, "name": wf.name, "node_count": len(wf.nodes)}
+            for wf in self._workflows.values()
+        ]
 
     def delete_workflow(self, wf_id: str) -> dict[str, Any]:
         if wf_id not in self._workflows:
@@ -258,7 +269,9 @@ class LangGraphEngine:
         logger.info("Deleted workflow %s", wf_id)
         return {"status": "ok"}
 
-    async def run_workflow(self, wf_id: str, trigger_type: str = "manual", input_data: dict | None = None) -> dict[str, Any]:
+    async def run_workflow(
+        self, wf_id: str, trigger_type: str = "manual", input_data: dict | None = None
+    ) -> dict[str, Any]:
         wf = self._workflows.get(wf_id)
         if not wf:
             return {"status": "error", "message": f"Workflow {wf_id} not found"}
@@ -289,7 +302,11 @@ class LangGraphEngine:
                 run.status = "FAILED"
                 run.updated_at = time.time()
                 logger.error("Node %s not found in workflow %s", current, wf_id)
-                return {"status": "error", "run_id": run.run_id, "message": f"Node {current} not found"}
+                return {
+                    "status": "error",
+                    "run_id": run.run_id,
+                    "message": f"Node {current} not found",
+                }
 
             trace = NodeTrace(node_id=current, enter_time=time.time(), status="running")
             run.node_trace.append(trace)
@@ -300,14 +317,27 @@ class LangGraphEngine:
                 run.status = "COMPLETED"
                 run.updated_at = time.time()
                 logger.info("Workflow %s run %s completed", wf_id, run.run_id)
-                return {"status": "ok", "run_id": run.run_id, "result": run.context.snapshot()}
+                return {
+                    "status": "ok",
+                    "run_id": run.run_id,
+                    "result": run.context.snapshot(),
+                }
 
             if node.node_type == "APPROVAL_GATE_NODE":
                 trace.status = "paused"
                 run.status = "PAUSED"
                 run.updated_at = time.time()
-                logger.info("Workflow %s run %s paused at approval gate %s", wf_id, run.run_id, current)
-                return {"status": "paused", "run_id": run.run_id, "gate_node_id": current}
+                logger.info(
+                    "Workflow %s run %s paused at approval gate %s",
+                    wf_id,
+                    run.run_id,
+                    current,
+                )
+                return {
+                    "status": "paused",
+                    "run_id": run.run_id,
+                    "gate_node_id": current,
+                }
 
             if node.node_type == "CONDITION_NODE":
                 cond_key = node.config.get("condition_key", "")
@@ -335,7 +365,13 @@ class LangGraphEngine:
         logger.info("Workflow %s run %s ended (no more edges)", wf_id, run.run_id)
         return {"status": "ok", "run_id": run.run_id, "result": run.context.snapshot()}
 
-    def approve_run(self, run_id: str, action: str = "approve", reviewer: str = "", comment: str = "") -> dict[str, Any]:
+    def approve_run(
+        self,
+        run_id: str,
+        action: str = "approve",
+        reviewer: str = "",
+        comment: str = "",
+    ) -> dict[str, Any]:
         run = self._runs.get(run_id)
         if not run:
             return {"status": "error", "message": f"Run {run_id} not found"}

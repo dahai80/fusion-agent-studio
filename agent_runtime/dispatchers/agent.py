@@ -1,15 +1,66 @@
 """Sub-dispatcher: AgentDispatcher."""
+
 from __future__ import annotations
+import asyncio
 import logging
-from typing import Any
+import os
+import time
+from pathlib import Path
 from .base import SubDispatcher
+from typing import Callable
+from ..daemon_server import MLX_PORT
+from ..graph import AgentGraph, NodeConfig
+
 
 logger = logging.getLogger(__name__)
 
 
 class AgentDispatcher(SubDispatcher):
+    def get_handlers(self) -> dict[str, Callable]:
+        return {
+            "agent.create": self._handle_agent_create,
+            "agent.get": self._handle_agent_get,
+            "agent.list": self._handle_agent_list,
+            "agent.update": self._handle_agent_update,
+            "agent.delete": self._handle_agent_delete,
+            "agent.configure": self._handle_agent_configure,
+            "agent.execute": self._handle_agent_execute,
+            "agent.list_skills": self._handle_agent_list_skills,
+            "agent.add_skill": self._handle_agent_add_skill,
+            "agent.delete_skill": self._handle_agent_delete_skill,
+            "skill.execute": self._handle_skill_execute,
+            "research.adaptive": self._handle_research_adaptive,
+            "agent.get_soul": self._handle_agent_get_soul,
+            "agent.update_soul": self._handle_agent_update_soul,
+            "agent.submit_code_task": self._handle_agent_submit_code_task,
+            "agent.task_status": self._handle_agent_task_status,
+            "agent.cancel_task": self._handle_agent_cancel_task,
+            "agent.tasks": self._handle_agent_tasks,
+            "agent.publish": self._handle_agent_publish,
+            "agent.archive": self._handle_agent_archive,
+            "agent.clone": self._handle_agent_clone,
+            "agent.get_api_endpoint": self._handle_agent_get_api_endpoint,
+            "agent.execute_stream": self._handle_agent_execute_stream,
+            "agent.preview": self._handle_agent_preview,
+            "agent.test_with_project": self._handle_agent_test_with_project,
+            "agent.published_list": self._handle_agent_published_list,
+            "agent.get_definition": self._handle_agent_get_definition,
+            "agent.status": self._handle_agent_status,
+            "agent.history": self._handle_agent_history,
+            "agent.cowork.list": self._handle_agent_cowork_list,
+            "agent.cowork.add": self._handle_agent_cowork_add,
+            "agent.cowork.remove": self._handle_agent_cowork_remove,
+            "agent.cowork.call": self._handle_agent_cowork_call,
+            "agent.cowork.status": self._handle_agent_cowork_status,
+            "agent.context_inject": self._handle_agent_context_inject,
+            "agent.diff_review": self._handle_agent_diff_review,
+            "permission.list": self._handle_permission_list,
+            "permission.update": self._handle_permission_update,
+        }
+
     async def _handle_agent_create(self, params: dict) -> dict:
         import uuid
+
         name = params.get("name", "")
         if not name:
             return {"status": "error", "message": "name parameter required"}
@@ -17,7 +68,8 @@ class AgentDispatcher(SubDispatcher):
         self._daemon._load_agents_index()
         agent_id = params.get("id", uuid.uuid4().hex[:12])
 
-        from .agent_package import AgentPackage, AgentManifest
+        from ..agent_package import AgentPackage, AgentManifest
+
         agent_dir = self._daemon._agent_dir(agent_id)
         manifest = AgentManifest(
             name=name,
@@ -46,7 +98,12 @@ class AgentDispatcher(SubDispatcher):
             rate_limit_qps=params.get("rate_limit_qps", 0),
         )
         pkg = AgentPackage(agent_dir)
-        pkg.init(manifest=manifest, soul=params.get("soul", ""), memory=params.get("memory", ""), agents_md=params.get("agents_md", ""))
+        pkg.init(
+            manifest=manifest,
+            soul=params.get("soul", ""),
+            memory=params.get("memory", ""),
+            agents_md=params.get("agents_md", ""),
+        )
 
         self._daemon._agents[agent_id] = manifest.to_dict()
         self._daemon._agents[agent_id]["id"] = agent_id
@@ -61,7 +118,8 @@ class AgentDispatcher(SubDispatcher):
         if not agent_id:
             return {"status": "error", "message": "agent_id parameter required"}
 
-        from .agent_package import AgentPackage
+        from ..agent_package import AgentPackage
+
         agent_dir = self._daemon._agent_dir(agent_id)
         pkg = AgentPackage(agent_dir)
         if not pkg.exists:
@@ -112,20 +170,38 @@ class AgentDispatcher(SubDispatcher):
         if not agent_id:
             return {"status": "error", "message": "agent_id parameter required"}
 
-        from .agent_package import AgentPackage
+        from ..agent_package import AgentPackage
+
         agent_dir = self._daemon._agent_dir(agent_id)
         pkg = AgentPackage(agent_dir)
         if not pkg.exists:
             return {"status": "error", "message": f"Agent not found: {agent_id}"}
 
         manifest = pkg.load_manifest()
-        for key in ("name", "model", "system_prompt", "temperature", "max_tokens",
-                     "safety_level", "description", "author", "version",
-                     "status", "version_int", "published_at",
-                     "knowledge_base_ids", "visibility", "rag_strategy",
-                     "web_search_enabled", "deep_research_enabled",
-                     "connector_ids", "style", "top_p", "context_window",
-                     "rate_limit_qps"):
+        for key in (
+            "name",
+            "model",
+            "system_prompt",
+            "temperature",
+            "max_tokens",
+            "safety_level",
+            "description",
+            "author",
+            "version",
+            "status",
+            "version_int",
+            "published_at",
+            "knowledge_base_ids",
+            "visibility",
+            "rag_strategy",
+            "web_search_enabled",
+            "deep_research_enabled",
+            "connector_ids",
+            "style",
+            "top_p",
+            "context_window",
+            "rate_limit_qps",
+        ):
             if key in params:
                 setattr(manifest, key, params[key])
         if "tools" in params:
@@ -150,7 +226,8 @@ class AgentDispatcher(SubDispatcher):
         if not agent_id:
             return {"status": "error", "message": "agent_id parameter required"}
 
-        from .agent_package import AgentPackage
+        from ..agent_package import AgentPackage
+
         agent_dir = self._daemon._agent_dir(agent_id)
         pkg = AgentPackage(agent_dir)
         if pkg.exists:
@@ -161,7 +238,11 @@ class AgentDispatcher(SubDispatcher):
         if removed is not None:
             self._daemon._persist_agents_index()
 
-        logger.info("agent.delete: id=%s existed=%s", agent_id, pkg.exists or removed is not None)
+        logger.info(
+            "agent.delete: id=%s existed=%s",
+            agent_id,
+            pkg.exists or removed is not None,
+        )
         return {"deleted": True}
 
     async def _handle_agent_configure(self, params: dict) -> dict:
@@ -169,7 +250,8 @@ class AgentDispatcher(SubDispatcher):
         if not agent_id:
             return {"status": "error", "message": "agent_id parameter required"}
 
-        from .agent_package import AgentPackage
+        from ..agent_package import AgentPackage
+
         agent_dir = self._daemon._agent_dir(agent_id)
         pkg = AgentPackage(agent_dir)
         if not pkg.exists:
@@ -211,7 +293,8 @@ class AgentDispatcher(SubDispatcher):
         if not agent_id:
             return {"status": "error", "message": "agent_id parameter required"}
 
-        from .agent_package import AgentPackage
+        from ..agent_package import AgentPackage
+
         agent_dir = self._daemon._agent_dir(agent_id)
         pkg = AgentPackage(agent_dir)
         if not pkg.exists:
@@ -223,7 +306,9 @@ class AgentDispatcher(SubDispatcher):
         effective_prompt = graph_config.get("system_prompt", manifest.system_prompt)
 
         if manifest.knowledge_base_ids:
-            kb_context = await self._daemon._inject_knowledge_context(manifest.knowledge_base_ids, input_text, manifest.rag_strategy)
+            kb_context = await self._daemon._inject_knowledge_context(
+                manifest.knowledge_base_ids, input_text, manifest.rag_strategy
+            )
             if kb_context:
                 effective_prompt = f"{effective_prompt}\n\n{kb_context}"
 
@@ -250,7 +335,7 @@ class AgentDispatcher(SubDispatcher):
         graph.add_edge(start_id, llm_id)
 
         for i, tool_name in enumerate(manifest.tools):
-            tool_id = f"tool-{i+1}"
+            tool_id = f"tool-{i + 1}"
             tool_node = NodeConfig(type="tool", label=tool_name)
             graph.add_node(tool_id, tool_node)
             if i == 0:
@@ -264,7 +349,11 @@ class AgentDispatcher(SubDispatcher):
         events = []
         try:
             async for event in rt.execute_graph(graph, input_text):
-                ev_dict = event.to_dict() if hasattr(event, "to_dict") else {"type": str(event)}
+                ev_dict = (
+                    event.to_dict()
+                    if hasattr(event, "to_dict")
+                    else {"type": str(event)}
+                )
                 events.append(ev_dict)
         except Exception as e:
             logger.warning("agent.execute runtime error: %s", e)
@@ -289,7 +378,8 @@ class AgentDispatcher(SubDispatcher):
         if not agent_id:
             return {"status": "error", "message": "agent_id parameter required"}
 
-        from .agent_package import AgentPackage
+        from ..agent_package import AgentPackage
+
         agent_dir = self._daemon._agent_dir(agent_id)
         pkg = AgentPackage(agent_dir)
         if not pkg.exists:
@@ -304,7 +394,8 @@ class AgentDispatcher(SubDispatcher):
         if not agent_id or not skill_name:
             return {"status": "error", "message": "agent_id and skill_name required"}
 
-        from .agent_package import AgentPackage
+        from ..agent_package import AgentPackage
+
         agent_dir = self._daemon._agent_dir(agent_id)
         pkg = AgentPackage(agent_dir)
         if not pkg.exists:
@@ -321,7 +412,8 @@ class AgentDispatcher(SubDispatcher):
         if not agent_id or not skill_name:
             return {"status": "error", "message": "agent_id and skill_name required"}
 
-        from .agent_package import AgentPackage
+        from ..agent_package import AgentPackage
+
         agent_dir = self._daemon._agent_dir(agent_id)
         pkg = AgentPackage(agent_dir)
         if not pkg.exists:
@@ -338,7 +430,8 @@ class AgentDispatcher(SubDispatcher):
         if not agent_id or not skill_name:
             return {"status": "error", "message": "agent_id and skill_name required"}
 
-        from .agent_package import AgentPackage
+        from ..agent_package import AgentPackage
+
         agent_dir = self._daemon._agent_dir(agent_id)
         pkg = AgentPackage(agent_dir)
         if not pkg.exists:
@@ -353,7 +446,9 @@ class AgentDispatcher(SubDispatcher):
         if skill_def is None:
             return {"status": "error", "message": f"Skill not found: {skill_name}"}
 
-        system_prompt = skill_def.get("system_prompt", skill_def.get("systemPrompt", ""))
+        system_prompt = skill_def.get(
+            "system_prompt", skill_def.get("systemPrompt", "")
+        )
         steps = skill_def.get("steps", [])
         results = []
         chat_engine = self._daemon._get_chat_engine()
@@ -364,10 +459,14 @@ class AgentDispatcher(SubDispatcher):
             for i, step in enumerate(steps):
                 step_prompt = step.get("prompt", "")
                 action = step.get("action", "generate")
-                step_input = step_prompt.replace("{input}", user_input) if step_prompt else user_input
+                step_input = (
+                    step_prompt.replace("{input}", user_input)
+                    if step_prompt
+                    else user_input
+                )
                 if step_results:
                     step_input += "\n\nPrevious step results:\n" + "\n".join(
-                        f"[Step {j+1}]: {r}" for j, r in enumerate(step_results)
+                        f"[Step {j + 1}]: {r}" for j, r in enumerate(step_results)
                     )
 
                 messages = []
@@ -377,27 +476,38 @@ class AgentDispatcher(SubDispatcher):
 
                 try:
                     response_text = ""
-                    async for ev in chat_engine.send(session_id, step_input, mode="skill"):
+                    async for ev in chat_engine.send(
+                        session_id, step_input, mode="skill"
+                    ):
                         if ev.type.value == "token":
                             response_text += ev.content
                     step_results.append(response_text[:4000])
-                    results.append({
-                        "step": i + 1,
-                        "name": step.get("name", f"Step {i+1}"),
-                        "action": action,
-                        "status": "completed",
-                        "output_length": len(response_text),
-                    })
-                    logger.info("skill.execute: step %d/%d completed, %d chars", i+1, len(steps), len(response_text))
+                    results.append(
+                        {
+                            "step": i + 1,
+                            "name": step.get("name", f"Step {i + 1}"),
+                            "action": action,
+                            "status": "completed",
+                            "output_length": len(response_text),
+                        }
+                    )
+                    logger.info(
+                        "skill.execute: step %d/%d completed, %d chars",
+                        i + 1,
+                        len(steps),
+                        len(response_text),
+                    )
                 except Exception as e:
                     step_results.append(f"Error: {e}")
-                    results.append({
-                        "step": i + 1,
-                        "name": step.get("name", f"Step {i+1}"),
-                        "action": action,
-                        "status": "error",
-                        "error": str(e),
-                    })
+                    results.append(
+                        {
+                            "step": i + 1,
+                            "name": step.get("name", f"Step {i + 1}"),
+                            "action": action,
+                            "status": "error",
+                            "error": str(e),
+                        }
+                    )
                     break
 
             final_result = step_results[-1] if step_results else ""
@@ -412,12 +522,33 @@ class AgentDispatcher(SubDispatcher):
                 async for ev in chat_engine.send(session_id, user_input, mode="skill"):
                     if ev.type.value == "token":
                         final_result += ev.content
-                results.append({"step": 1, "name": skill_name, "action": "generate", "status": "completed", "output_length": len(final_result)})
+                results.append(
+                    {
+                        "step": 1,
+                        "name": skill_name,
+                        "action": "generate",
+                        "status": "completed",
+                        "output_length": len(final_result),
+                    }
+                )
             except Exception as e:
                 final_result = f"Error: {e}"
-                results.append({"step": 1, "name": skill_name, "action": "generate", "status": "error", "error": str(e)})
+                results.append(
+                    {
+                        "step": 1,
+                        "name": skill_name,
+                        "action": "generate",
+                        "status": "error",
+                        "error": str(e),
+                    }
+                )
 
-        logger.info("skill.execute: agent=%s skill=%s steps=%d", agent_id, skill_name, len(results))
+        logger.info(
+            "skill.execute: agent=%s skill=%s steps=%d",
+            agent_id,
+            skill_name,
+            len(results),
+        )
         return {"steps": results, "result": final_result, "skill_name": skill_name}
 
     async def _handle_research_adaptive(self, params: dict) -> dict:
@@ -440,18 +571,34 @@ class AgentDispatcher(SubDispatcher):
         )
         try:
             decomp_text = ""
-            async for ev in chat_engine.send(session_id, decompose_prompt, mode="research"):
+            async for ev in chat_engine.send(
+                session_id, decompose_prompt, mode="research"
+            ):
                 if ev.type.value == "token":
                     decomp_text += ev.content
             steps_taken += 1
             import re
+
             sub_questions = re.findall(r"## Sub-question \d+:\s*(.+)", decomp_text)
             if not sub_questions:
-                sub_questions = [line.strip() for line in decomp_text.split("\n") if line.strip() and not line.startswith("#")][:4]
+                sub_questions = [
+                    line.strip()
+                    for line in decomp_text.split("\n")
+                    if line.strip() and not line.startswith("#")
+                ][:4]
             if not sub_questions:
                 sub_questions = [question]
-            findings.append({"step": "decompose", "sub_questions": sub_questions, "raw": decomp_text[:2000]})
-            logger.info("research.adaptive: decomposed into %d sub-questions", len(sub_questions))
+            findings.append(
+                {
+                    "step": "decompose",
+                    "sub_questions": sub_questions,
+                    "raw": decomp_text[:2000],
+                }
+            )
+            logger.info(
+                "research.adaptive: decomposed into %d sub-questions",
+                len(sub_questions),
+            )
         except Exception as e:
             findings.append({"step": "decompose", "error": str(e)})
             sub_questions = [question]
@@ -466,11 +613,15 @@ class AgentDispatcher(SubDispatcher):
             )
             try:
                 search_text = ""
-                async for ev in chat_engine.send(session_id, search_prompt, mode="research"):
+                async for ev in chat_engine.send(
+                    session_id, search_prompt, mode="research"
+                ):
                     if ev.type.value == "token":
                         search_text += ev.content
                 steps_taken += 1
-                findings.append({"step": "search", "sub_question": sq, "result": search_text[:4000]})
+                findings.append(
+                    {"step": "search", "sub_question": sq, "result": search_text[:4000]}
+                )
                 url_pattern = re.findall(r'https?://[^\s)\]<>"]+', search_text)
                 for url in url_pattern[:3]:
                     citations.append({"url": url, "context": sq})
@@ -482,14 +633,18 @@ class AgentDispatcher(SubDispatcher):
             f"Given the following research findings, determine if they sufficiently answer the original question. "
             f"Respond with ONLY 'SUFFICIENT' or 'INSUFFICIENT' followed by a brief reason.\n\n"
             f"Original question: {question}\n\n"
-            f"Findings so far:\n" + "\n".join(
+            f"Findings so far:\n"
+            + "\n".join(
                 f"- {f.get('sub_question', f.get('step', ''))}: {f.get('result', f.get('raw', ''))[:500]}"
-                for f in findings if 'error' not in f
+                for f in findings
+                if "error" not in f
             )
         )
         try:
             suff_text = ""
-            async for ev in chat_engine.send(session_id, sufficiency_prompt, mode="research"):
+            async for ev in chat_engine.send(
+                session_id, sufficiency_prompt, mode="research"
+            ):
                 if ev.type.value == "token":
                     suff_text += ev.content
             sufficient = "SUFFICIENT" in suff_text.upper()
@@ -506,7 +661,9 @@ class AgentDispatcher(SubDispatcher):
             )
             try:
                 extra_text = ""
-                async for ev in chat_engine.send(session_id, extra_prompt, mode="research"):
+                async for ev in chat_engine.send(
+                    session_id, extra_prompt, mode="research"
+                ):
                     if ev.type.value == "token":
                         extra_text += ev.content
                 steps_taken += 1
@@ -518,22 +675,31 @@ class AgentDispatcher(SubDispatcher):
             f"Synthesize all the research findings into a comprehensive, well-structured response. "
             f"Include specific facts and cite sources where possible.\n\n"
             f"Original question: {question}\n\n"
-            f"Research findings:\n" + "\n\n".join(
+            f"Research findings:\n"
+            + "\n\n".join(
                 f"[{f.get('step', 'step')}] {f.get('sub_question', '')}\n{f.get('result', f.get('raw', ''))[:2000]}"
-                for f in findings if 'error' not in f
+                for f in findings
+                if "error" not in f
             )
         )
         try:
             final_answer = ""
-            async for ev in chat_engine.send(session_id, synthesize_prompt, mode="research"):
+            async for ev in chat_engine.send(
+                session_id, synthesize_prompt, mode="research"
+            ):
                 if ev.type.value == "token":
                     final_answer += ev.content
             steps_taken += 1
         except Exception as e:
             final_answer = f"Synthesis error: {e}"
 
-        logger.info("research.adaptive: question=%s steps=%d sufficient=%s citations=%d",
-                     question[:50], steps_taken, sufficient, len(citations))
+        logger.info(
+            "research.adaptive: question=%s steps=%d sufficient=%s citations=%d",
+            question[:50],
+            steps_taken,
+            sufficient,
+            len(citations),
+        )
         return {
             "answer": final_answer,
             "citations": citations,
@@ -547,7 +713,8 @@ class AgentDispatcher(SubDispatcher):
         if not agent_id:
             return {"status": "error", "message": "agent_id parameter required"}
 
-        from .agent_package import AgentPackage
+        from ..agent_package import AgentPackage
+
         agent_dir = self._daemon._agent_dir(agent_id)
         pkg = AgentPackage(agent_dir)
         if not pkg.exists:
@@ -561,7 +728,8 @@ class AgentDispatcher(SubDispatcher):
         if not agent_id:
             return {"status": "error", "message": "agent_id parameter required"}
 
-        from .agent_package import AgentPackage
+        from ..agent_package import AgentPackage
+
         agent_dir = self._daemon._agent_dir(agent_id)
         pkg = AgentPackage(agent_dir)
         if not pkg.exists:
@@ -584,6 +752,7 @@ class AgentDispatcher(SubDispatcher):
             return {"status": "error", "message": "code parameter required"}
 
         import uuid
+
         task_id = params.get("task_id") or str(uuid.uuid4())
         task = {
             "task_id": task_id,
@@ -633,25 +802,40 @@ class AgentDispatcher(SubDispatcher):
         code = task["code"]
         language = task["language"]
         timeout = task.get("timeout", 60)
-        logger.info("_execute_code_task: task=%s lang=%s timeout=%s", task["task_id"], language, timeout)
+        logger.info(
+            "_execute_code_task: task=%s lang=%s timeout=%s",
+            task["task_id"],
+            language,
+            timeout,
+        )
         if language != "python":
             return {"output": f"Unsupported language: {language}", "exit_code": 1}
 
         try:
+            from ..code_sandbox import CodeSandbox
             sandbox = CodeSandbox(timeout=timeout, use_sandbox=True)
             result = await asyncio.to_thread(sandbox.execute, code, language)
             output = result.stdout
             if result.stderr:
                 output = (output + "\n" + result.stderr) if output else result.stderr
             if result.timed_out:
-                output = (output + "\nExecution timed out") if output else "Execution timed out"
+                output = (
+                    (output + "\nExecution timed out")
+                    if output
+                    else "Execution timed out"
+                )
             logger.info(
                 "_execute_code_task done: task=%s exit=%s success=%s exec_id=%s",
-                task["task_id"], result.exit_code, result.success, result.execution_id,
+                task["task_id"],
+                result.exit_code,
+                result.success,
+                result.execution_id,
             )
             return {"output": output, "exit_code": result.exit_code}
         except Exception as exc:
-            logger.error("_execute_code_task error: task=%s error=%s", task["task_id"], exc)
+            logger.error(
+                "_execute_code_task error: task=%s error=%s", task["task_id"], exc
+            )
             return {"output": str(exc), "exit_code": 1}
 
     async def _handle_agent_task_status(self, params: dict) -> dict:
@@ -692,21 +876,26 @@ class AgentDispatcher(SubDispatcher):
             tasks = [t for t in tasks if t["status"] == status_filter]
         items = []
         for t in tasks:
-            items.append({
-                "task_id": t["task_id"],
-                "agent_id": t["agent_id"],
-                "status": t["status"],
-                "language": t["language"],
-                "created_at": t["created_at"],
-                "error": t.get("error"),
-            })
+            items.append(
+                {
+                    "task_id": t["task_id"],
+                    "agent_id": t["agent_id"],
+                    "status": t["status"],
+                    "language": t["language"],
+                    "created_at": t["created_at"],
+                    "error": t.get("error"),
+                }
+            )
         return {"tasks": items}
 
-    async def _inject_knowledge_context(self, knowledge_base_ids: list[str], query: str, strategy: str = "hybrid") -> str:
+    async def _inject_knowledge_context(
+        self, knowledge_base_ids: list[str], query: str, strategy: str = "hybrid"
+    ) -> str:
         if not knowledge_base_ids or not query:
             return ""
         try:
-            from .knowledge_engine import KnowledgeEngine
+            from ..knowledge_engine import KnowledgeEngine
+
             ke = KnowledgeEngine()
             all_contexts = []
             for kb_id in knowledge_base_ids:
@@ -725,7 +914,8 @@ class AgentDispatcher(SubDispatcher):
         agent_id = params.get("agent_id", "")
         if not agent_id:
             return {"status": "error", "message": "agent_id parameter required"}
-        from .agent_package import AgentPackage
+        from ..agent_package import AgentPackage
+
         agent_dir = self._daemon._agent_dir(agent_id)
         pkg = AgentPackage(agent_dir)
         if not pkg.exists:
@@ -743,13 +933,20 @@ class AgentDispatcher(SubDispatcher):
             self._daemon._persist_agents_index()
         endpoint = f"http://localhost:{MLX_PORT}/v1/agents/{agent_id}/chat"
         logger.info("agent.publish: id=%s version=%d", agent_id, manifest.version_int)
-        return {"agent_id": agent_id, "status": "published", "version": manifest.version_int, "published_at": manifest.published_at, "api_endpoint": endpoint}
+        return {
+            "agent_id": agent_id,
+            "status": "published",
+            "version": manifest.version_int,
+            "published_at": manifest.published_at,
+            "api_endpoint": endpoint,
+        }
 
     async def _handle_agent_archive(self, params: dict) -> dict:
         agent_id = params.get("agent_id", "")
         if not agent_id:
             return {"status": "error", "message": "agent_id parameter required"}
-        from .agent_package import AgentPackage
+        from ..agent_package import AgentPackage
+
         agent_dir = self._daemon._agent_dir(agent_id)
         pkg = AgentPackage(agent_dir)
         if not pkg.exists:
@@ -766,10 +963,12 @@ class AgentDispatcher(SubDispatcher):
 
     async def _handle_agent_clone(self, params: dict) -> dict:
         import uuid
+
         agent_id = params.get("agent_id", "")
         if not agent_id:
             return {"status": "error", "message": "agent_id parameter required"}
-        from .agent_package import AgentPackage
+        from ..agent_package import AgentPackage
+
         src_dir = self._daemon._agent_dir(agent_id)
         src_pkg = AgentPackage(src_dir)
         if not src_pkg.exists:
@@ -783,7 +982,12 @@ class AgentDispatcher(SubDispatcher):
         manifest.published_at = None
         dest_dir = self._daemon._agent_dir(cloned_id)
         dest_pkg = AgentPackage(dest_dir)
-        dest_pkg.init(manifest=manifest, soul=src_pkg.load_soul(), memory=src_pkg.load_memory(), agents_md=src_pkg.load_agents())
+        dest_pkg.init(
+            manifest=manifest,
+            soul=src_pkg.load_soul(),
+            memory=src_pkg.load_memory(),
+            agents_md=src_pkg.load_agents(),
+        )
         self._daemon._load_agents_index()
         self._daemon._agents[cloned_id] = manifest.to_dict()
         self._daemon._agents[cloned_id]["id"] = cloned_id
@@ -796,7 +1000,8 @@ class AgentDispatcher(SubDispatcher):
         agent_id = params.get("agent_id", "")
         if not agent_id:
             return {"status": "error", "message": "agent_id parameter required"}
-        from .agent_package import AgentPackage
+        from ..agent_package import AgentPackage
+
         agent_dir = self._daemon._agent_dir(agent_id)
         pkg = AgentPackage(agent_dir)
         if not pkg.exists:
@@ -811,7 +1016,8 @@ class AgentDispatcher(SubDispatcher):
         input_text = params.get("input", "")
         if not agent_id:
             return {"status": "error", "message": "agent_id parameter required"}
-        from .agent_package import AgentPackage
+        from ..agent_package import AgentPackage
+
         agent_dir = self._daemon._agent_dir(agent_id)
         pkg = AgentPackage(agent_dir)
         if not pkg.exists:
@@ -823,7 +1029,9 @@ class AgentDispatcher(SubDispatcher):
         effective_prompt = graph_config.get("system_prompt", manifest.system_prompt)
 
         if manifest.knowledge_base_ids:
-            kb_context = await self._daemon._inject_knowledge_context(manifest.knowledge_base_ids, input_text, manifest.rag_strategy)
+            kb_context = await self._daemon._inject_knowledge_context(
+                manifest.knowledge_base_ids, input_text, manifest.rag_strategy
+            )
             if kb_context:
                 effective_prompt = f"{effective_prompt}\n\n{kb_context}"
 
@@ -850,7 +1058,7 @@ class AgentDispatcher(SubDispatcher):
         graph.add_edge(start_id, llm_id)
 
         for i, tool_name in enumerate(manifest.tools):
-            tool_id = f"tool-{i+1}"
+            tool_id = f"tool-{i + 1}"
             tool_node = NodeConfig(type="tool", label=tool_name)
             graph.add_node(tool_id, tool_node)
             if i == 0:
@@ -869,7 +1077,11 @@ class AgentDispatcher(SubDispatcher):
         total_output_tokens = 0
         try:
             async for event in rt.execute_graph(graph, input_text):
-                ev_dict = event.to_dict() if hasattr(event, "to_dict") else {"type": str(event)}
+                ev_dict = (
+                    event.to_dict()
+                    if hasattr(event, "to_dict")
+                    else {"type": str(event)}
+                )
                 events.append(ev_dict)
                 ev_type = ev_dict.get("type", "")
                 if ev_type == "TOOL_CALL":
@@ -893,7 +1105,12 @@ class AgentDispatcher(SubDispatcher):
                 "output_tokens": total_output_tokens,
             }
 
-        logger.info("agent.execute_stream: id=%s events=%d tools=%d", agent_id, len(events), len(tool_calls_log))
+        logger.info(
+            "agent.execute_stream: id=%s events=%d tools=%d",
+            agent_id,
+            len(events),
+            len(tool_calls_log),
+        )
         return {
             "execution_id": execution_id,
             "agent_id": agent_id,
@@ -903,7 +1120,11 @@ class AgentDispatcher(SubDispatcher):
             "knowledge_retrieved": knowledge_retrieved,
             "input_tokens": total_input_tokens,
             "output_tokens": total_output_tokens,
-            "duration_ms": int((events[-1].get("timestamp", 0) - events[0].get("timestamp", 0)) * 1000) if len(events) > 1 else 0,
+            "duration_ms": int(
+                (events[-1].get("timestamp", 0) - events[0].get("timestamp", 0)) * 1000
+            )
+            if len(events) > 1
+            else 0,
         }
 
     # ── Connector handlers ──
@@ -912,13 +1133,16 @@ class AgentDispatcher(SubDispatcher):
         agent_id = params.get("agent_id", "")
         if not agent_id:
             return {"status": "error", "message": "agent_id parameter required"}
-        from .agent_package import AgentPackage
+        from ..agent_package import AgentPackage
+
         agent_dir = self._daemon._agent_dir(agent_id)
         pkg = AgentPackage(agent_dir)
         if not pkg.exists:
             return {"status": "error", "message": f"Agent not found: {agent_id}"}
         manifest = pkg.load_manifest()
-        rag_enabled = bool(manifest.knowledge_base_ids) or manifest.rag_strategy != "none"
+        rag_enabled = (
+            bool(manifest.knowledge_base_ids) or manifest.rag_strategy != "none"
+        )
         permissions = self._daemon._get_agent_permissions(agent_id, manifest)
         preview = {
             "agentId": agent_id,
@@ -939,17 +1163,24 @@ class AgentDispatcher(SubDispatcher):
         message = params.get("message", "")
         if not agent_id or not message:
             return {"status": "error", "message": "agent_id and message are required"}
-        from .agent_package import AgentPackage
+        from ..agent_package import AgentPackage
+
         agent_dir = self._daemon._agent_dir(agent_id)
         pkg = AgentPackage(agent_dir)
         if not pkg.exists:
             return {"status": "error", "message": f"Agent not found: {agent_id}"}
         manifest = pkg.load_manifest()
-        override_kb = kb_id if kb_id else (manifest.knowledge_base_ids[0] if manifest.knowledge_base_ids else "")
+        override_kb = (
+            kb_id
+            if kb_id
+            else (manifest.knowledge_base_ids[0] if manifest.knowledge_base_ids else "")
+        )
         execute_params = {
             "agent_id": agent_id,
             "message": message,
-            "knowledge_base_ids": [override_kb] if override_kb else manifest.knowledge_base_ids,
+            "knowledge_base_ids": [override_kb]
+            if override_kb
+            else manifest.knowledge_base_ids,
             "project_context": {
                 "project_id": project_id,
                 "kb_id": override_kb,
@@ -958,12 +1189,18 @@ class AgentDispatcher(SubDispatcher):
         result = await self._handle_agent_execute(execute_params)
         result["project_id"] = project_id
         result["kb_id"] = override_kb
-        logger.info("agent.test_with_project: agent=%s project=%s kb=%s", agent_id, project_id, override_kb)
+        logger.info(
+            "agent.test_with_project: agent=%s project=%s kb=%s",
+            agent_id,
+            project_id,
+            override_kb,
+        )
         return result
 
     def _get_agent_permissions(self, agent_id: str, manifest=None) -> dict:
         if manifest is None:
-            from .agent_package import AgentPackage
+            from ..agent_package import AgentPackage
+
             pkg = AgentPackage(self._daemon._agent_dir(agent_id))
             if not pkg.exists:
                 return {}
@@ -973,6 +1210,7 @@ class AgentDispatcher(SubDispatcher):
         if os.path.exists(defn_path):
             try:
                 import json
+
                 with open(defn_path) as f:
                     defn_data = json.load(f)
                 perms = defn_data.get("permissions", {})
@@ -1013,14 +1251,20 @@ class AgentDispatcher(SubDispatcher):
         agent_id = params.get("agent_id", "")
         tracker = self._daemon._get_status_tracker()
         status = tracker.get_status(agent_id)
-        return {"agent_id": agent_id, "status": status.to_dict() if hasattr(status, "to_dict") else status}
+        return {
+            "agent_id": agent_id,
+            "status": status.to_dict() if hasattr(status, "to_dict") else status,
+        }
 
     async def _handle_agent_history(self, params: dict) -> dict:
         agent_id = params.get("agent_id", "")
         limit = params.get("limit", 20)
         tracker = self._daemon._get_status_tracker()
         history = tracker.get_history(agent_id, limit=limit)
-        return {"agent_id": agent_id, "history": [h.to_dict() if hasattr(h, "to_dict") else h for h in history]}
+        return {
+            "agent_id": agent_id,
+            "history": [h.to_dict() if hasattr(h, "to_dict") else h for h in history],
+        }
 
     # ── Agent Cowork handlers (#36, #37) ──
 
@@ -1054,8 +1298,15 @@ class AgentDispatcher(SubDispatcher):
         caller_id = params.get("caller_id", "")
         message = params.get("message", "")
         mgr = self._daemon._get_cowork_manager()
-        result = await mgr.call_agent(space_id, agent_id, caller_id=caller_id, message=message)
-        logger.info("agent.cowork.call: space=%s agent=%s caller=%s", space_id, agent_id, caller_id)
+        result = await mgr.call_agent(
+            space_id, agent_id, caller_id=caller_id, message=message
+        )
+        logger.info(
+            "agent.cowork.call: space=%s agent=%s caller=%s",
+            space_id,
+            agent_id,
+            caller_id,
+        )
         return result
 
     async def _handle_agent_cowork_status(self, params: dict) -> dict:
@@ -1079,7 +1330,8 @@ class AgentDispatcher(SubDispatcher):
         fmt = params.get("format", "markdown")
         if not agent_id:
             return {"status": "error", "message": "agent_id parameter required"}
-        from .agent_package import AgentPackage
+        from ..agent_package import AgentPackage
+
         agent_dir = self._daemon._agent_dir(agent_id)
         pkg = AgentPackage(agent_dir)
         if not pkg.exists:
@@ -1110,7 +1362,8 @@ class AgentDispatcher(SubDispatcher):
         agent_id = params.get("agent_id", "")
         if agent_id:
             perms = self._daemon._get_agent_permissions(agent_id)
-            from .agent_package import AgentPackage
+            from ..agent_package import AgentPackage
+
             agent_dir = self._daemon._agent_dir(agent_id)
             pkg = AgentPackage(agent_dir)
             manifest = pkg.load_manifest() if pkg.exists else None
@@ -1120,6 +1373,7 @@ class AgentDispatcher(SubDispatcher):
             if os.path.exists(definition_path):
                 try:
                     import json
+
                     with open(definition_path) as f:
                         defn = json.load(f)
                     denied = defn.get("denied_tools", [])
@@ -1127,6 +1381,7 @@ class AgentDispatcher(SubDispatcher):
                     pass
             return {"permissions": perms, "denied_tools": denied, "tools": tools_list}
         import os as _os
+
         agents_dir = str(Path.home() / ".fusion-agent-studio" / "agents")
         all_perms = []
         if _os.path.isdir(agents_dir):
@@ -1144,12 +1399,14 @@ class AgentDispatcher(SubDispatcher):
         level = params.get("level", "allow")
         if not agent_id:
             return {"status": "error", "message": "agent_id parameter required"}
-        from .agent_package import AgentPackage
+        from ..agent_package import AgentPackage
+
         agent_dir = self._daemon._agent_dir(agent_id)
         pkg = AgentPackage(agent_dir)
         if not pkg.exists:
             return {"status": "error", "message": f"Agent not found: {agent_id}"}
         import json
+
         definition_path = os.path.join(agent_dir, "definition.json")
         defn = {}
         if os.path.exists(definition_path):
@@ -1165,5 +1422,11 @@ class AgentDispatcher(SubDispatcher):
         defn["denied_tools"] = denied
         with open(definition_path, "w") as f:
             json.dump(defn, f, indent=2, ensure_ascii=False)
-        logger.info("permission.update: agent=%s tool=%s level=%s denied=%s", agent_id, tool, level, denied)
+        logger.info(
+            "permission.update: agent=%s tool=%s level=%s denied=%s",
+            agent_id,
+            tool,
+            level,
+            denied,
+        )
         return {"ok": True, "denied_tools": denied}

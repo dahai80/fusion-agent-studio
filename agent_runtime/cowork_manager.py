@@ -2,6 +2,7 @@
 
 Implements #36 (Agent IPC cowork methods) and #37 (Space context injection).
 """
+
 from __future__ import annotations
 
 import logging
@@ -60,12 +61,17 @@ class CoworkManager:
         logger.debug("Listed %d agents in space %s", len(bindings), space_id)
         return [b.to_dict() for b in bindings]
 
-    def add_agent(self, space_id: str, agent_id: str, call_permission: str = "all_member") -> dict[str, Any]:
+    def add_agent(
+        self, space_id: str, agent_id: str, call_permission: str = "all_member"
+    ) -> dict[str, Any]:
         if space_id not in self._bindings:
             self._bindings[space_id] = []
         for b in self._bindings[space_id]:
             if b.agent_id == agent_id:
-                return {"status": "error", "message": f"Agent {agent_id} already in space {space_id}"}
+                return {
+                    "status": "error",
+                    "message": f"Agent {agent_id} already in space {space_id}",
+                }
         binding = SpaceAgentBinding(
             agent_id=agent_id,
             space_id=space_id,
@@ -81,11 +87,16 @@ class CoworkManager:
         before = len(bindings)
         self._bindings[space_id] = [b for b in bindings if b.agent_id != agent_id]
         if len(self._bindings[space_id]) == before:
-            return {"status": "error", "message": f"Agent {agent_id} not in space {space_id}"}
+            return {
+                "status": "error",
+                "message": f"Agent {agent_id} not in space {space_id}",
+            }
         logger.info("Removed agent %s from space %s", agent_id, space_id)
         return {"status": "ok"}
 
-    def check_permission(self, space_id: str, agent_id: str, caller_role: str = "member") -> bool:
+    def check_permission(
+        self, space_id: str, agent_id: str, caller_role: str = "member"
+    ) -> bool:
         bindings = self._bindings.get(space_id, [])
         for b in bindings:
             if b.agent_id == agent_id:
@@ -96,7 +107,9 @@ class CoworkManager:
                 return False
         return False
 
-    async def call_agent(self, space_id: str, agent_id: str, messages: list[dict], stream: bool = False) -> dict[str, Any]:
+    async def call_agent(
+        self, space_id: str, agent_id: str, messages: list[dict], stream: bool = False
+    ) -> dict[str, Any]:
         bindings = self._bindings.get(space_id, [])
         binding = None
         for b in bindings:
@@ -104,19 +117,27 @@ class CoworkManager:
                 binding = b
                 break
         if not binding:
-            return {"status": "error", "message": f"Agent {agent_id} not in space {space_id}"}
+            return {
+                "status": "error",
+                "message": f"Agent {agent_id} not in space {space_id}",
+            }
 
         for msg in messages:
-            self._add_message(space_id, SpaceConversationMessage(
-                role=msg.get("role", "user"),
-                content=msg.get("content", ""),
-                sender=msg.get("sender", agent_id),
-                timestamp=time.time(),
-            ))
+            self._add_message(
+                space_id,
+                SpaceConversationMessage(
+                    role=msg.get("role", "user"),
+                    content=msg.get("content", ""),
+                    sender=msg.get("sender", agent_id),
+                    timestamp=time.time(),
+                ),
+            )
 
         binding.last_called_at = time.time()
         binding.call_count += 1
-        logger.info("Called agent %s in space %s (stream=%s)", agent_id, space_id, stream)
+        logger.info(
+            "Called agent %s in space %s (stream=%s)", agent_id, space_id, stream
+        )
         return {
             "status": "ok",
             "agent_id": agent_id,
@@ -130,7 +151,10 @@ class CoworkManager:
         for b in bindings:
             if b.agent_id == agent_id:
                 return {"status": "ok", "binding": b.to_dict()}
-        return {"status": "error", "message": f"Agent {agent_id} not in space {space_id}"}
+        return {
+            "status": "error",
+            "message": f"Agent {agent_id} not in space {space_id}",
+        }
 
     def _add_message(self, space_id: str, msg: SpaceConversationMessage):
         if space_id not in self._conversations:
@@ -139,7 +163,13 @@ class CoworkManager:
         if len(self._conversations[space_id]) > 10000:
             self._conversations[space_id] = self._conversations[space_id][-10000:]
 
-    def inject_context(self, space_id: str, mode: str = "full", recent_n: int = 50, enable_rag: bool = False) -> list[dict[str, Any]]:
+    def inject_context(
+        self,
+        space_id: str,
+        mode: str = "full",
+        recent_n: int = 50,
+        enable_rag: bool = False,
+    ) -> list[dict[str, Any]]:
         messages = self._conversations.get(space_id, [])
         if not messages:
             logger.debug("No conversation history for space %s", space_id)
@@ -152,9 +182,14 @@ class CoworkManager:
         elif mode == "rag":
             result = [m.to_dict() for m in messages[-recent_n:]]
             if enable_rag:
-                logger.debug("RAG context injection would query knowledge base for space %s", space_id)
+                logger.debug(
+                    "RAG context injection would query knowledge base for space %s",
+                    space_id,
+                )
         else:
             result = [m.to_dict() for m in messages[-50:]]
 
-        logger.info("Injected %d messages (mode=%s) for space %s", len(result), mode, space_id)
+        logger.info(
+            "Injected %d messages (mode=%s) for space %s", len(result), mode, space_id
+        )
         return result

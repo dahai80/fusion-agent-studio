@@ -1,6 +1,7 @@
 """Tests for PRD gap implementation — errors, API versioning, pagination,
 auth, rate limiting, agent version, knowledge base, audit logging,
 prompt injection detection, connector security, agent fork."""
+
 from __future__ import annotations
 
 import os
@@ -19,6 +20,7 @@ from agent_runtime.agent_package import AgentPackage, AgentManifest
 
 
 # ── Errors ──
+
 
 class TestErrors:
     def test_error_code_enum(self):
@@ -70,6 +72,7 @@ class TestErrors:
 
 # ── Prompt Injection Detection ──
 
+
 class TestPromptInjection:
     def test_no_injection(self):
         result = detect_prompt_injection("Hello, how are you?")
@@ -117,6 +120,7 @@ class TestPromptInjection:
 
 # ── Rate Limiter ──
 
+
 class TestRateLimiter:
     def test_basic_check(self):
         rl = RateLimiter()
@@ -136,10 +140,12 @@ class TestRateLimiter:
 
 # ── Agent Version ──
 
+
 class TestAgentVersion:
     def setup_method(self):
         self.tmpdir = tempfile.mkdtemp()
         from pathlib import Path
+
         self.store = AgentVersionStore(base_path=Path(self.tmpdir))
 
     def teardown_method(self):
@@ -179,10 +185,12 @@ class TestAgentVersion:
 
 # ── Knowledge Base ──
 
+
 class TestKnowledgeBase:
     def setup_method(self):
         self.tmpdir = tempfile.mkdtemp()
         from pathlib import Path
+
         self.mgr = KnowledgeBaseManager(base_path=Path(self.tmpdir))
 
     def teardown_method(self):
@@ -254,10 +262,12 @@ class TestKnowledgeBase:
 
 # ── Audit Logger ──
 
+
 class TestAuditLogger:
     def setup_method(self):
         self.tmpdir = tempfile.mkdtemp()
         from pathlib import Path
+
         self.logger = AuditLogger(db_path=Path(self.tmpdir) / "audit.db")
 
     def teardown_method(self):
@@ -274,34 +284,47 @@ class TestAuditLogger:
 
     def test_query_logs(self):
         self.logger.log_action(
-            actor_id="user_1", action="agent.create",
-            resource_type="agent", resource_id="agent_1", result="success",
+            actor_id="user_1",
+            action="agent.create",
+            resource_type="agent",
+            resource_id="agent_1",
+            result="success",
         )
         self.logger.log_action(
-            actor_id="user_2", action="agent.delete",
-            resource_type="agent", resource_id="agent_2", result="success",
+            actor_id="user_2",
+            action="agent.delete",
+            resource_type="agent",
+            resource_id="agent_2",
+            result="success",
         )
         result = self.logger.query_logs()
         assert result["total"] == 2
 
     def test_query_logs_filter_action(self):
         self.logger.log_action(
-            actor_id="user_1", action="agent.create",
-            resource_type="agent", resource_id="agent_1", result="success",
+            actor_id="user_1",
+            action="agent.create",
+            resource_type="agent",
+            resource_id="agent_1",
+            result="success",
         )
         result = self.logger.query_logs(action="agent.create")
         assert result["total"] == 1
 
     def test_export_logs(self):
         self.logger.log_action(
-            actor_id="user_1", action="agent.create",
-            resource_type="agent", resource_id="agent_1", result="success",
+            actor_id="user_1",
+            action="agent.create",
+            resource_type="agent",
+            resource_id="agent_1",
+            result="success",
         )
         export = self.logger.export_logs()
         assert len(export) >= 1
 
 
 # ── Agent Fork ──
+
 
 class TestAgentFork:
     def setup_method(self):
@@ -320,7 +343,9 @@ class TestAgentFork:
         new_pkg = pkg.fork()
         assert new_pkg.agent_id != "original_agent"
         new_manifest = new_pkg.load_manifest()
-        assert "copy" in new_manifest.name.lower() or new_manifest.name.startswith("Test Agent")
+        assert "copy" in new_manifest.name.lower() or new_manifest.name.startswith(
+            "Test Agent"
+        )
         assert new_manifest.status == "draft"
         assert new_manifest.version_int == 1
 
@@ -335,10 +360,12 @@ class TestAgentFork:
 
 # ── API Server v1 routes ──
 
+
 class TestV1Routes:
     def test_v1_health(self):
         from agent_runtime.api_server import app
         from fastapi.testclient import TestClient
+
         client = TestClient(app)
         resp = client.get("/v1/health")
         assert resp.status_code == 200
@@ -348,6 +375,7 @@ class TestV1Routes:
     def test_v1_dashboard(self):
         from agent_runtime.api_server import app
         from fastapi.testclient import TestClient
+
         client = TestClient(app)
         resp = client.get("/v1/dashboard")
         assert resp.status_code == 200
@@ -355,6 +383,7 @@ class TestV1Routes:
     def test_v1_graphs_list_empty(self):
         from agent_runtime.api_server import app
         from fastapi.testclient import TestClient
+
         client = TestClient(app)
         resp = client.get("/v1/graphs")
         assert resp.status_code == 200
@@ -367,6 +396,7 @@ class TestV1Routes:
     def test_v1_agents_list_empty(self):
         from agent_runtime.api_server import app
         from fastapi.testclient import TestClient
+
         client = TestClient(app)
         resp = client.get("/v1/agents")
         assert resp.status_code == 200
@@ -374,6 +404,7 @@ class TestV1Routes:
     def test_v1_kbs_list_empty(self):
         from agent_runtime.api_server import app
         from fastapi.testclient import TestClient
+
         client = TestClient(app)
         resp = client.get("/v1/knowledge-bases")
         assert resp.status_code == 200
@@ -381,6 +412,7 @@ class TestV1Routes:
     def test_v1_audit_logs_requires_auth(self):
         from agent_runtime.api_server import app
         from fastapi.testclient import TestClient
+
         client = TestClient(app)
         resp = client.get("/v1/audit-logs")
         assert resp.status_code == 401
@@ -388,12 +420,14 @@ class TestV1Routes:
     def test_v1_usage_summary(self):
         from agent_runtime.api_server import app
         from fastapi.testclient import TestClient
+
         client = TestClient(app)
         resp = client.get("/v1/usage/summary")
         assert resp.status_code == 200
 
     def test_pagination_format(self):
         from agent_runtime.api_server import _paginate
+
         data = list(range(50))
         result = _paginate(data, page=2, limit=10)
         assert result["data"] == list(range(10, 20))
@@ -404,11 +438,15 @@ class TestV1Routes:
 
 # ── Connector Security ──
 
+
 class TestConnectorSecurity:
     def test_to_dict_masks_secrets(self):
         from agent_runtime.connectors import ConnectorConfig
+
         cfg = ConnectorConfig(
-            id="c1", name="Test", type="api_key",
+            id="c1",
+            name="Test",
+            type="api_key",
             auth_config={"api_key": "secret123", "url": "https://example.com"},
         )
         d = cfg.to_dict()
@@ -417,8 +455,11 @@ class TestConnectorSecurity:
 
     def test_no_to_dict_full_public(self):
         from agent_runtime.connectors import ConnectorConfig
+
         cfg = ConnectorConfig(
-            id="c1", name="Test", type="api_key",
+            id="c1",
+            name="Test",
+            type="api_key",
             auth_config={"api_key": "secret123"},
         )
         assert not hasattr(cfg, "to_dict_full")

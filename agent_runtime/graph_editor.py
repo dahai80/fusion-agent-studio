@@ -3,6 +3,7 @@
 Provides graph validation (cycle detection, orphan nodes, type checking),
 auto-layout (topological sort + layered positioning), and enhanced CRUD.
 """
+
 from __future__ import annotations
 
 import logging
@@ -34,7 +35,11 @@ class ValidationIssue:
     message: str
 
     def to_dict(self) -> dict[str, Any]:
-        return {"severity": self.severity, "node_id": self.node_id, "message": self.message}
+        return {
+            "severity": self.severity,
+            "node_id": self.node_id,
+            "message": self.message,
+        }
 
 
 @dataclass
@@ -58,7 +63,13 @@ class NodePosition:
     height: float = 80.0
 
     def to_dict(self) -> dict[str, Any]:
-        return {"node_id": self.node_id, "x": self.x, "y": self.y, "width": self.width, "height": self.height}
+        return {
+            "node_id": self.node_id,
+            "x": self.x,
+            "y": self.y,
+            "width": self.width,
+            "height": self.height,
+        }
 
 
 def validate_graph(graph: AgentGraph) -> ValidationResult:
@@ -79,19 +90,30 @@ def validate_graph(graph: AgentGraph) -> ValidationResult:
 
     for edge in graph.edges:
         if edge.source_id not in node_ids:
-            issues.append(ValidationIssue("error", edge.source_id, f"Edge source '{edge.source_id}' not found"))
+            issues.append(
+                ValidationIssue(
+                    "error", edge.source_id, f"Edge source '{edge.source_id}' not found"
+                )
+            )
             continue
         if edge.target_id not in node_ids:
-            issues.append(ValidationIssue("error", edge.target_id, f"Edge target '{edge.target_id}' not found"))
+            issues.append(
+                ValidationIssue(
+                    "error", edge.target_id, f"Edge target '{edge.target_id}' not found"
+                )
+            )
             continue
 
         src_type = nodes[edge.source_id].type
         tgt_type = nodes[edge.target_id].type
         if tgt_type not in VALID_TRANSITIONS.get(src_type, set()):
-            issues.append(ValidationIssue(
-                "warning", edge.source_id,
-                f"Unusual transition: {src_type} -> {tgt_type}",
-            ))
+            issues.append(
+                ValidationIssue(
+                    "warning",
+                    edge.source_id,
+                    f"Unusual transition: {src_type} -> {tgt_type}",
+                )
+            )
 
     if _has_cycle(graph):
         issues.append(ValidationIssue("error", "", "Graph contains a cycle"))
@@ -107,10 +129,16 @@ def validate_graph(graph: AgentGraph) -> ValidationResult:
     for cn_id in cond_nodes:
         outgoing = [e for e in graph.edges if e.source_id == cn_id]
         if len(outgoing) < 2:
-            issues.append(ValidationIssue("warning", cn_id, "Condition node has fewer than 2 outgoing edges"))
+            issues.append(
+                ValidationIssue(
+                    "warning", cn_id, "Condition node has fewer than 2 outgoing edges"
+                )
+            )
 
     valid = not any(i.severity == "error" for i in issues)
-    logger.info("Graph validation: %s (%d issues)", "PASS" if valid else "FAIL", len(issues))
+    logger.info(
+        "Graph validation: %s (%d issues)", "PASS" if valid else "FAIL", len(issues)
+    )
     return ValidationResult(valid=valid, issues=issues)
 
 
@@ -159,7 +187,9 @@ def _reachable_nodes(graph: AgentGraph) -> set[str]:
     return visited
 
 
-def auto_layout(graph: AgentGraph, layer_gap: float = 150.0, node_gap: float = 250.0) -> list[NodePosition]:
+def auto_layout(
+    graph: AgentGraph, layer_gap: float = 150.0, node_gap: float = 250.0
+) -> list[NodePosition]:
     """Compute layered layout positions for graph nodes."""
     adj: dict[str, list[str]] = {nid: [] for nid in graph.nodes}
     in_degree: dict[str, int] = {nid: 0 for nid in graph.nodes}
@@ -192,11 +222,13 @@ def auto_layout(graph: AgentGraph, layer_gap: float = 150.0, node_gap: float = 2
         total_width = len(layer) * node_gap
         start_x = -total_width / 2 + node_gap / 2
         for node_idx, nid in enumerate(layer):
-            positions.append(NodePosition(
-                node_id=nid,
-                x=start_x + node_idx * node_gap,
-                y=layer_idx * layer_gap,
-            ))
+            positions.append(
+                NodePosition(
+                    node_id=nid,
+                    x=start_x + node_idx * node_gap,
+                    y=layer_idx * layer_gap,
+                )
+            )
 
     logger.info("Auto-layout: %d nodes in %d layers", len(positions), len(layers))
     return positions
@@ -245,7 +277,9 @@ class GraphEditor:
     def __init__(self):
         self._documents: dict[str, GraphDocument] = {}
 
-    def create(self, name: str, description: str = "", graph_data: dict | None = None) -> GraphDocument:
+    def create(
+        self, name: str, description: str = "", graph_data: dict | None = None
+    ) -> GraphDocument:
         doc_id = str(uuid.uuid4())[:8]
         doc = GraphDocument(
             id=doc_id,
@@ -284,9 +318,10 @@ class GraphEditor:
     def validate(self, doc_id: str) -> ValidationResult:
         doc = self._documents.get(doc_id)
         if not doc:
-            return ValidationResult(valid=False, issues=[
-                ValidationIssue("error", "", f"Document {doc_id} not found")
-            ])
+            return ValidationResult(
+                valid=False,
+                issues=[ValidationIssue("error", "", f"Document {doc_id} not found")],
+            )
         graph = AgentGraph.from_dict(doc.graph_data)
         return validate_graph(graph)
 
@@ -304,6 +339,7 @@ class GraphEditor:
         if not doc:
             return None
         import copy
+
         new_id = str(uuid.uuid4())[:8]
         new_doc = GraphDocument(
             id=new_id,

@@ -1,4 +1,5 @@
 """Coverage boost tests for json_schema, triggers, and debugger modules."""
+
 from __future__ import annotations
 
 import asyncio
@@ -85,7 +86,7 @@ class TestJsonSchemaExtractFromText:
 
     def test_extract_plain_json_array_not_dict(self):
         v = JsonSchemaValidator(schema=None)
-        text = '[1, 2, 3]'
+        text = "[1, 2, 3]"
         result = v.extract_from_text(text)
         assert result is None
 
@@ -97,7 +98,7 @@ class TestJsonSchemaExtractFromText:
 
     def test_extract_regex_json_array_not_dict(self):
         v = JsonSchemaValidator(schema=None)
-        text = 'Result: [1, 2, 3] done'
+        text = "Result: [1, 2, 3] done"
         result = v.extract_from_text(text)
         assert result is None
 
@@ -374,7 +375,10 @@ class TestCronManagerRunLoop:
         mgr._handlers[job.id] = handler
         mgr._running = True
 
-        with patch("agent_runtime.triggers.asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
+        with patch(
+            "agent_runtime.triggers.asyncio.sleep", new_callable=AsyncMock
+        ) as mock_sleep:
+
             async def stop_after_first(*args, **kwargs):
                 mgr._running = False
 
@@ -401,7 +405,10 @@ class TestCronManagerRunLoop:
         mgr._handlers[job.id] = bad_handler
         mgr._running = True
 
-        with patch("agent_runtime.triggers.asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
+        with patch(
+            "agent_runtime.triggers.asyncio.sleep", new_callable=AsyncMock
+        ) as mock_sleep:
+
             async def stop_after_first(*args, **kwargs):
                 mgr._running = False
 
@@ -429,7 +436,10 @@ class TestCronManagerRunLoop:
         mgr._handlers[job.id] = handler
         mgr._running = True
 
-        with patch("agent_runtime.triggers.asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
+        with patch(
+            "agent_runtime.triggers.asyncio.sleep", new_callable=AsyncMock
+        ) as mock_sleep:
+
             async def stop_after_first(*args, **kwargs):
                 mgr._running = False
 
@@ -451,7 +461,10 @@ class TestCronManagerRunLoop:
         mgr._jobs[job.id] = job
         mgr._running = True
 
-        with patch("agent_runtime.triggers.asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
+        with patch(
+            "agent_runtime.triggers.asyncio.sleep", new_callable=AsyncMock
+        ) as mock_sleep:
+
             async def stop_after_first(*args, **kwargs):
                 mgr._running = False
 
@@ -479,7 +492,10 @@ class TestCronManagerRunLoop:
         mgr._handlers[job.id] = handler
         mgr._running = True
 
-        with patch("agent_runtime.triggers.asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
+        with patch(
+            "agent_runtime.triggers.asyncio.sleep", new_callable=AsyncMock
+        ) as mock_sleep:
+
             async def stop_after_first(*args, **kwargs):
                 mgr._running = False
 
@@ -508,6 +524,7 @@ class TestCronComputeNextRun:
     def test_specific_minute_before_current(self):
         mgr = CronManager()
         from datetime import datetime
+
         now = datetime.now()
         target_min = (now.minute + 30) % 60
         result = mgr._compute_next_run(f"{target_min} * * * *")
@@ -516,6 +533,7 @@ class TestCronComputeNextRun:
     def test_specific_minute_after_current(self):
         mgr = CronManager()
         from datetime import datetime
+
         now = datetime.now()
         target_min = (now.minute + 5) % 60
         result = mgr._compute_next_run(f"{target_min} * * * *")
@@ -537,8 +555,10 @@ class TestCronManagerRegister:
     def test_register_with_handler(self):
         mgr = CronManager()
         job = CronJob(id="j10b", name="reghandler", expression="* * * * *")
+
         async def dummy_handler(j):
             pass
+
         mgr.register(job, dummy_handler)
         assert "j10b" in mgr._handlers
 
@@ -724,9 +744,11 @@ class TestStepDebuggerStop:
 
 # ── VariableManager edge cases ──
 
+
 class TestVariableManagerEdgeCases:
     def test_set_boolean_non_string(self):
         from agent_runtime.variable_manager import VariableManager
+
         vm = VariableManager()
         vm.set("flag", 1, coerce="boolean")
         assert vm.get("flag") is True
@@ -735,24 +757,28 @@ class TestVariableManagerEdgeCases:
 
     def test_set_json_string(self):
         from agent_runtime.variable_manager import VariableManager
+
         vm = VariableManager()
         vm.set("data", '{"x": 1}', coerce="json")
         assert vm.get("data") == {"x": 1}
 
     def test_get_nested_key_not_found(self):
         from agent_runtime.variable_manager import VariableManager
+
         vm = VariableManager()
         vm.set("obj", {"a": 1})
         assert vm.get("obj.b", "default") == "default"
 
     def test_get_nested_list_index_error(self):
         from agent_runtime.variable_manager import VariableManager
+
         vm = VariableManager()
         vm.set("arr", [10, 20])
         assert vm.get("arr.5", "fallback") == "fallback"
 
     def test_get_nested_non_dict_list(self):
         from agent_runtime.variable_manager import VariableManager
+
         vm = VariableManager()
         vm.set("val", 42)
         assert vm.get("val.foo", "nope") == "nope"

@@ -1,4 +1,5 @@
 """Tests for fusion_code_bridge, api_server, agent_templates."""
+
 from __future__ import annotations
 
 import asyncio
@@ -16,6 +17,7 @@ from agent_runtime.api_server import app
 
 
 # ── FusionCodeBridge ──────────────────────────────────────
+
 
 class TestFusionCodeBridge:
     def test_default_binary_path(self):
@@ -146,13 +148,22 @@ class TestCodeResult:
 
 # ── Agent Templates ───────────────────────────────────────
 
+
 class TestAgentTemplates:
     def test_all_8_templates_registered(self):
         assert len(TEMPLATES) == 8
 
     def test_template_ids(self):
-        expected = {"simple-chat", "code-reviewer", "research-assistant", "tool-agent",
-                    "pipeline", "code-generator", "data-analyst", "multi-agent-handoff"}
+        expected = {
+            "simple-chat",
+            "code-reviewer",
+            "research-assistant",
+            "tool-agent",
+            "pipeline",
+            "code-generator",
+            "data-analyst",
+            "multi-agent-handoff",
+        }
         assert set(TEMPLATES.keys()) == expected
 
     def test_list_templates_all(self):
@@ -209,23 +220,30 @@ class TestAgentTemplates:
         assert restored.name == tmpl.name
 
     def test_instantiate_code_generator(self):
-        graph = instantiate_template("code-generator", {"language": "rust", "style_guide": "Rust API Guidelines"})
+        graph = instantiate_template(
+            "code-generator", {"language": "rust", "style_guide": "Rust API Guidelines"}
+        )
         assert "nodes" in graph
         llm_nodes = [n for n in graph["nodes"] if n["type"] == "llm"]
         assert any("rust" in n["config"]["prompt"] for n in llm_nodes)
 
     def test_instantiate_pipeline(self):
-        graph = instantiate_template("pipeline", {"analysis_prompt": "Deep analyze", "transform_prompt": "Rewrite"})
+        graph = instantiate_template(
+            "pipeline",
+            {"analysis_prompt": "Deep analyze", "transform_prompt": "Rewrite"},
+        )
         llm_nodes = [n for n in graph["nodes"] if n["type"] == "llm"]
         assert len(llm_nodes) == 3
 
 
 # ── API Server ────────────────────────────────────────────
 
+
 class TestAPIServer:
     @pytest.fixture
     def client(self):
         from httpx import AsyncClient, ASGITransport
+
         transport = ASGITransport(app=app)
         return AsyncClient(transport=transport, base_url="http://test")
 
@@ -240,11 +258,14 @@ class TestAPIServer:
     @pytest.mark.asyncio
     async def test_create_graph(self, client):
         async with client as c:
-            resp = await c.post("/graphs", json={
-                "name": "test-graph",
-                "description": "A test",
-                "graph_data": {"nodes": [], "edges": []},
-            })
+            resp = await c.post(
+                "/graphs",
+                json={
+                    "name": "test-graph",
+                    "description": "A test",
+                    "graph_data": {"nodes": [], "edges": []},
+                },
+            )
             assert resp.status_code == 200
             data = resp.json()
             assert data["name"] == "test-graph"
@@ -253,11 +274,14 @@ class TestAPIServer:
     @pytest.mark.asyncio
     async def test_list_graphs(self, client):
         async with client as c:
-            await c.post("/graphs", json={
-                "name": "g1",
-                "description": "",
-                "graph_data": {"nodes": [], "edges": []},
-            })
+            await c.post(
+                "/graphs",
+                json={
+                    "name": "g1",
+                    "description": "",
+                    "graph_data": {"nodes": [], "edges": []},
+                },
+            )
             resp = await c.get("/graphs")
             assert resp.status_code == 200
             assert len(resp.json()) >= 1
@@ -271,11 +295,14 @@ class TestAPIServer:
     @pytest.mark.asyncio
     async def test_delete_graph(self, client):
         async with client as c:
-            create_resp = await c.post("/graphs", json={
-                "name": "to-delete",
-                "description": "",
-                "graph_data": {"nodes": [], "edges": []},
-            })
+            create_resp = await c.post(
+                "/graphs",
+                json={
+                    "name": "to-delete",
+                    "description": "",
+                    "graph_data": {"nodes": [], "edges": []},
+                },
+            )
             gid = create_resp.json()["graph_id"]
             resp = await c.delete(f"/graphs/{gid}")
             assert resp.status_code == 200
@@ -291,11 +318,14 @@ class TestAPIServer:
     @pytest.mark.asyncio
     async def test_get_graph_existing(self, client):
         async with client as c:
-            create_resp = await c.post("/graphs", json={
-                "name": "fetch-me",
-                "description": "test desc",
-                "graph_data": {"nodes": [], "edges": []},
-            })
+            create_resp = await c.post(
+                "/graphs",
+                json={
+                    "name": "fetch-me",
+                    "description": "test desc",
+                    "graph_data": {"nodes": [], "edges": []},
+                },
+            )
             gid = create_resp.json()["graph_id"]
             resp = await c.get(f"/graphs/{gid}")
             assert resp.status_code == 200
@@ -304,8 +334,11 @@ class TestAPIServer:
     @pytest.mark.asyncio
     async def test_execute_graph_not_found(self, client):
         async with client as c:
-            resp = await c.post("/graphs/nonexistent/execute", json={
-                "graph_id": "nonexistent",
-                "input_text": "test",
-            })
+            resp = await c.post(
+                "/graphs/nonexistent/execute",
+                json={
+                    "graph_id": "nonexistent",
+                    "input_text": "test",
+                },
+            )
             assert resp.status_code == 404

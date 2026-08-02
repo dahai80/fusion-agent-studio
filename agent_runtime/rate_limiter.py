@@ -54,28 +54,45 @@ class RateLimiter:
     def check_key(self, key_id: str, rate: float = 10, capacity: float = 20) -> bool:
         if key_id not in self._key_buckets:
             self._key_buckets[key_id] = TokenBucket(rate=rate, capacity=capacity)
-            logger.info("Created key bucket: key_id=%s rate=%.2f capacity=%.2f", key_id, rate, capacity)
+            logger.info(
+                "Created key bucket: key_id=%s rate=%.2f capacity=%.2f",
+                key_id,
+                rate,
+                capacity,
+            )
         bucket = self._key_buckets[key_id]
         return bucket.consume()
 
     def check_agent(self, agent_id: str, rate: float = 0, capacity: float = 0) -> bool:
         if rate <= 0 or capacity <= 0:
-            logger.debug("No rate limit for agent_id=%s (rate=%.2f capacity=%.2f)", agent_id, rate, capacity)
+            logger.debug(
+                "No rate limit for agent_id=%s (rate=%.2f capacity=%.2f)",
+                agent_id,
+                rate,
+                capacity,
+            )
             return True
         if agent_id not in self._agent_buckets:
             self._agent_buckets[agent_id] = TokenBucket(rate=rate, capacity=capacity)
-            logger.info("Created agent bucket: agent_id=%s rate=%.2f capacity=%.2f", agent_id, rate, capacity)
+            logger.info(
+                "Created agent bucket: agent_id=%s rate=%.2f capacity=%.2f",
+                agent_id,
+                rate,
+                capacity,
+            )
         bucket = self._agent_buckets[agent_id]
         return bucket.consume()
 
     def cleanup_expired(self):
         now = time.monotonic()
         expired_keys = [
-            k for k, b in self._key_buckets.items()
+            k
+            for k, b in self._key_buckets.items()
             if (now - b.last_used) > self._CLEANUP_THRESHOLD
         ]
         expired_agents = [
-            k for k, b in self._agent_buckets.items()
+            k
+            for k, b in self._agent_buckets.items()
             if (now - b.last_used) > self._CLEANUP_THRESHOLD
         ]
         for k in expired_keys:
@@ -114,7 +131,12 @@ class RateLimitMiddleware:
                 agent_id = path_parts[i + 1]
                 break
 
-        logger.debug("RateLimitMiddleware: api_key=%s agent_id=%s path=%s", api_key, agent_id, scope.get("path"))
+        logger.debug(
+            "RateLimitMiddleware: api_key=%s agent_id=%s path=%s",
+            api_key,
+            agent_id,
+            scope.get("path"),
+        )
 
         if api_key and not self.limiter.check_key(api_key):
             wait = 0.0

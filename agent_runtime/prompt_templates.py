@@ -1,4 +1,5 @@
 """Prompt template — reusable prompt templates with variable interpolation."""
+
 from __future__ import annotations
 
 import re
@@ -43,7 +44,9 @@ class PromptTemplate:
     def to_dict(self) -> dict:
         return {
             "name": self.name,
-            "template": self.template[:100] + "..." if len(self.template) > 100 else self.template,
+            "template": self.template[:100] + "..."
+            if len(self.template) > 100
+            else self.template,
             "description": self.description,
             "variables": self.variables,
             "category": self.category,
@@ -87,9 +90,21 @@ def register_default_prompt_templates(manager: PromptTemplateManager) -> None:
             ),
             description="Review code with specific focus areas",
             variables={
-                "code": {"type": "string", "description": "Source code to review", "required": True},
-                "language": {"type": "string", "description": "Programming language", "default": "python"},
-                "focus_areas": {"type": "string", "description": "Areas to focus on", "default": "correctness, performance, readability"},
+                "code": {
+                    "type": "string",
+                    "description": "Source code to review",
+                    "required": True,
+                },
+                "language": {
+                    "type": "string",
+                    "description": "Programming language",
+                    "default": "python",
+                },
+                "focus_areas": {
+                    "type": "string",
+                    "description": "Areas to focus on",
+                    "default": "correctness, performance, readability",
+                },
             },
             category="coding",
         ),
@@ -102,9 +117,21 @@ def register_default_prompt_templates(manager: PromptTemplateManager) -> None:
             ),
             description="Summarize text in a specified style",
             variables={
-                "text": {"type": "string", "description": "Text to summarize", "required": True},
-                "style": {"type": "string", "description": "Summary style", "default": "concise"},
-                "max_words": {"type": "number", "description": "Maximum words", "default": "200"},
+                "text": {
+                    "type": "string",
+                    "description": "Text to summarize",
+                    "required": True,
+                },
+                "style": {
+                    "type": "string",
+                    "description": "Summary style",
+                    "default": "concise",
+                },
+                "max_words": {
+                    "type": "number",
+                    "description": "Maximum words",
+                    "default": "200",
+                },
             },
             category="writing",
         ),
@@ -120,10 +147,26 @@ def register_default_prompt_templates(manager: PromptTemplateManager) -> None:
             ),
             description="Extract specific fields from text",
             variables={
-                "text": {"type": "string", "description": "Text to extract from", "required": True},
-                "field1": {"type": "string", "description": "First field to extract", "default": "name"},
-                "field2": {"type": "string", "description": "Second field to extract", "default": "date"},
-                "field3": {"type": "string", "description": "Third field to extract", "default": "value"},
+                "text": {
+                    "type": "string",
+                    "description": "Text to extract from",
+                    "required": True,
+                },
+                "field1": {
+                    "type": "string",
+                    "description": "First field to extract",
+                    "default": "name",
+                },
+                "field2": {
+                    "type": "string",
+                    "description": "Second field to extract",
+                    "default": "date",
+                },
+                "field3": {
+                    "type": "string",
+                    "description": "Third field to extract",
+                    "default": "value",
+                },
             },
             category="data",
         ),
@@ -136,9 +179,21 @@ def register_default_prompt_templates(manager: PromptTemplateManager) -> None:
             ),
             description="Translate text between languages",
             variables={
-                "text": {"type": "string", "description": "Text to translate", "required": True},
-                "source_lang": {"type": "string", "description": "Source language", "default": "English"},
-                "target_lang": {"type": "string", "description": "Target language", "default": "Chinese"},
+                "text": {
+                    "type": "string",
+                    "description": "Text to translate",
+                    "required": True,
+                },
+                "source_lang": {
+                    "type": "string",
+                    "description": "Source language",
+                    "default": "English",
+                },
+                "target_lang": {
+                    "type": "string",
+                    "description": "Target language",
+                    "default": "Chinese",
+                },
             },
             category="writing",
         ),
@@ -152,8 +207,16 @@ def register_default_prompt_templates(manager: PromptTemplateManager) -> None:
             ),
             description="Convert natural language to shell commands",
             variables={
-                "request": {"type": "string", "description": "Natural language request", "required": True},
-                "constraints": {"type": "string", "description": "Safety constraints", "default": "Safe, read-only operations only"},
+                "request": {
+                    "type": "string",
+                    "description": "Natural language request",
+                    "required": True,
+                },
+                "constraints": {
+                    "type": "string",
+                    "description": "Safety constraints",
+                    "default": "Safe, read-only operations only",
+                },
             },
             category="coding",
         ),

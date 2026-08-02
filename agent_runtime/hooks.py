@@ -77,7 +77,12 @@ class HookEngine:
 
     def register(self, hook: HookConfig) -> None:
         self._hooks.setdefault(hook.event, []).append(hook)
-        logger.info("hook registered event=%s matcher=%s type=%s", hook.event, hook.matcher, hook.type)
+        logger.info(
+            "hook registered event=%s matcher=%s type=%s",
+            hook.event,
+            hook.matcher,
+            hook.type,
+        )
 
     def load_from_config(self, path=None) -> None:
         path = Path(path or HOOKS_CONFIG_PATH)
@@ -124,7 +129,10 @@ class HookEngine:
                 aggregated.updated_input = res.updated_input
         logger.info(
             "hook fired event=%s matched=%d decision=%s continue=%s",
-            event, len(matched), aggregated.decision, aggregated.continue_loop,
+            event,
+            len(matched),
+            aggregated.decision,
+            aggregated.continue_loop,
         )
         return aggregated
 
@@ -145,7 +153,9 @@ class HookEngine:
         )
         stdin_data = json.dumps(payload).encode()
         try:
-            stdout, _ = await asyncio.wait_for(proc.communicate(stdin_data), timeout=hook.timeout)
+            stdout, _ = await asyncio.wait_for(
+                proc.communicate(stdin_data), timeout=hook.timeout
+            )
         except asyncio.TimeoutError:
             logger.warning("hook command timed out cmd=%s", hook.command)
             return HookResult()
@@ -171,5 +181,8 @@ class HookEngine:
             return HookResult(continue_loop=val, decision="approve" if val else "block")
         if isinstance(val, str):
             low = val.strip().lower()
-            return HookResult(decision="block" if low in ("block", "deny", "false") else "approve", reason=val)
+            return HookResult(
+                decision="block" if low in ("block", "deny", "false") else "approve",
+                reason=val,
+            )
         return HookResult()

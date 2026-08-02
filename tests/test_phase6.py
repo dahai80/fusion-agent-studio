@@ -36,7 +36,9 @@ class TestTokenBudget:
         assert not s["exceeded"]
 
     def test_to_dict_from_dict(self):
-        b = TokenBudget(max_tokens=500, spent_tokens=100, prompt_tokens=60, completion_tokens=40)
+        b = TokenBudget(
+            max_tokens=500, spent_tokens=100, prompt_tokens=60, completion_tokens=40
+        )
         d = b.to_dict()
         b2 = TokenBudget.from_dict(d)
         assert b2.max_tokens == 500
@@ -60,7 +62,9 @@ class TestTokenBudget:
 class TestChatBranchNavigation:
     def setup_method(self):
         self.engine = ChatEngine()
-        self.session = self.engine.create_session(mode=ChatMode.SIMPLE.value, title="Test")
+        self.session = self.engine.create_session(
+            mode=ChatMode.SIMPLE.value, title="Test"
+        )
 
     def test_switch_branch(self):
         msg1 = ChatMessage(role="user", content="hello")
@@ -149,24 +153,32 @@ class TestNodeConfigRetryOnError:
 class TestSafetyGatewayApproval:
     def test_l2_requires_approval(self):
         gw = SafetyGateway(level=SafetyLevel.L2)
-        verdict = gw.evaluate_action(category="file_write", content="write data", context="test")
+        verdict = gw.evaluate_action(
+            category="file_write", content="write data", context="test"
+        )
         assert verdict.requires_approval is True
         assert verdict.action == SafetyAction.PREVIEW
 
     def test_l3_requires_approval(self):
         gw = SafetyGateway(level=SafetyLevel.L3)
-        verdict = gw.evaluate_action(category="shell_exec", content="ls", context="test")
+        verdict = gw.evaluate_action(
+            category="shell_exec", content="ls", context="test"
+        )
         assert verdict.requires_approval is True
 
     def test_l1_auto_approve(self):
         gw = SafetyGateway(level=SafetyLevel.L1)
-        verdict = gw.evaluate_action(category="file_read", content="read data", context="test")
+        verdict = gw.evaluate_action(
+            category="file_read", content="read data", context="test"
+        )
         assert verdict.requires_approval is False
         assert verdict.action == SafetyAction.ALLOW
 
     def test_approve_pending_action(self):
         gw = SafetyGateway(level=SafetyLevel.L2)
-        verdict = gw.evaluate_action(category="file_write", content="write data", context="test")
+        verdict = gw.evaluate_action(
+            category="file_write", content="write data", context="test"
+        )
         action_id = verdict.metadata.get("action_id", "")
         if action_id:
             ok = gw.approve_action(action_id)
@@ -174,7 +186,9 @@ class TestSafetyGatewayApproval:
 
     def test_reject_pending_action(self):
         gw = SafetyGateway(level=SafetyLevel.L2)
-        verdict = gw.evaluate_action(category="file_write", content="write data", context="test")
+        verdict = gw.evaluate_action(
+            category="file_write", content="write data", context="test"
+        )
         action_id = verdict.metadata.get("action_id", "")
         if action_id:
             ok = gw.reject_action(action_id)

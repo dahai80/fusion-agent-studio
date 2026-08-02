@@ -1,4 +1,5 @@
 """Comprehensive tests for agent_runtime.runtime to achieve 90%+ coverage."""
+
 from __future__ import annotations
 
 import json
@@ -24,22 +25,30 @@ class MockMLXClient:
         self._raise = None
 
     def add_response(self, content="", tool_calls=None, usage=None):
-        self.responses.append(LLMResponse(
-            content=content,
-            tool_calls=tool_calls or [],
-            usage=usage or {"prompt_tokens": 0, "completion_tokens": 0},
-        ))
+        self.responses.append(
+            LLMResponse(
+                content=content,
+                tool_calls=tool_calls or [],
+                usage=usage or {"prompt_tokens": 0, "completion_tokens": 0},
+            )
+        )
 
     def set_raise(self, exc):
         self._raise = exc
 
-    async def chat(self, model, messages, tools=None, temperature=0.7, max_tokens=4096, **kwargs):
+    async def chat(
+        self, model, messages, tools=None, temperature=0.7, max_tokens=4096, **kwargs
+    ):
         self.call_count += 1
         if self._raise:
             raise self._raise
         if self.responses:
             return self.responses.pop(0)
-        return LLMResponse(content="", tool_calls=[], usage={"prompt_tokens": 0, "completion_tokens": 0})
+        return LLMResponse(
+            content="",
+            tool_calls=[],
+            usage={"prompt_tokens": 0, "completion_tokens": 0},
+        )
 
 
 class MockToolRegistry:
@@ -305,7 +314,9 @@ class TestConditionEngineEvaluate:
 
     def test_unknown_returns_false(self):
         eng = ConditionEngine()
-        assert eng.evaluate("unknown_expr", AgentContext(), VariableManager()) == "false"
+        assert (
+            eng.evaluate("unknown_expr", AgentContext(), VariableManager()) == "false"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -338,9 +349,11 @@ class TestExecuteGraphDebugger:
         tools = MockToolRegistry()
         debugger = StepDebugger()
         g = _build_graph(
-            {"start": NodeConfig(type="start", label="Start"),
-             "llm": NodeConfig(type="llm", label="LLM", model="m"),
-             "end": NodeConfig(type="end", label="End")},
+            {
+                "start": NodeConfig(type="start", label="Start"),
+                "llm": NodeConfig(type="llm", label="LLM", model="m"),
+                "end": NodeConfig(type="end", label="End"),
+            },
             [("start", "llm"), ("llm", "end")],
         )
         runtime = _make_runtime(mlx, tools, debugger=debugger)
@@ -356,17 +369,25 @@ class TestExecuteGraphDebugger:
 class TestExecuteGraphToolCallsContinuation:
     async def test_tool_calls_chain_incremented_in_llm_node(self):
         mlx = MockMLXClient()
-        mlx.add_response("thinking", tool_calls=[{
-            "id": "c1", "type": "function",
-            "function": {"name": "mytool", "arguments": "{}"},
-        }])
+        mlx.add_response(
+            "thinking",
+            tool_calls=[
+                {
+                    "id": "c1",
+                    "type": "function",
+                    "function": {"name": "mytool", "arguments": "{}"},
+                }
+            ],
+        )
         mlx.add_response("done")
         tools = MockToolRegistry()
         tools.add_tool("mytool", "result1")
         g = _build_graph(
-            {"start": NodeConfig(type="start", label="Start"),
-             "llm": NodeConfig(type="llm", label="LLM", model="m"),
-             "end": NodeConfig(type="end", label="End")},
+            {
+                "start": NodeConfig(type="start", label="Start"),
+                "llm": NodeConfig(type="llm", label="LLM", model="m"),
+                "end": NodeConfig(type="end", label="End"),
+            },
             [("start", "llm"), ("llm", "end")],
         )
         runtime = _make_runtime(mlx, tools)
@@ -386,10 +407,16 @@ class TestExecuteGraphLoopNode:
         mlx = MockMLXClient()
         tools = MockToolRegistry()
         g = _build_graph(
-            {"start": NodeConfig(type="start", label="Start"),
-             "loop": NodeConfig(type="loop", label="Loop", max_iterations=3,
-                                tool_params={"loop_var": "lc", "loop_start_node": "start"}),
-             "end": NodeConfig(type="end", label="End")},
+            {
+                "start": NodeConfig(type="start", label="Start"),
+                "loop": NodeConfig(
+                    type="loop",
+                    label="Loop",
+                    max_iterations=3,
+                    tool_params={"loop_var": "lc", "loop_start_node": "start"},
+                ),
+                "end": NodeConfig(type="end", label="End"),
+            },
             [("start", "loop"), ("loop", "end")],
         )
         runtime = _make_runtime(mlx, tools)
@@ -404,10 +431,16 @@ class TestExecuteGraphLoopNode:
         mlx = MockMLXClient()
         tools = MockToolRegistry()
         g = _build_graph(
-            {"start": NodeConfig(type="start", label="Start"),
-             "loop": NodeConfig(type="loop", label="Loop", max_iterations=1,
-                                tool_params={"loop_var": "lc"}),
-             "end": NodeConfig(type="end", label="End")},
+            {
+                "start": NodeConfig(type="start", label="Start"),
+                "loop": NodeConfig(
+                    type="loop",
+                    label="Loop",
+                    max_iterations=1,
+                    tool_params={"loop_var": "lc"},
+                ),
+                "end": NodeConfig(type="end", label="End"),
+            },
             [("start", "loop"), ("loop", "end")],
         )
         runtime = _make_runtime(mlx, tools)
@@ -422,10 +455,16 @@ class TestExecuteGraphLoopNode:
         mlx = MockMLXClient()
         tools = MockToolRegistry()
         g = _build_graph(
-            {"start": NodeConfig(type="start", label="Start"),
-             "loop": NodeConfig(type="loop", label="Loop", max_iterations=100,
-                                tool_params={"loop_var": "bad_var"}),
-             "end": NodeConfig(type="end", label="End")},
+            {
+                "start": NodeConfig(type="start", label="Start"),
+                "loop": NodeConfig(
+                    type="loop",
+                    label="Loop",
+                    max_iterations=100,
+                    tool_params={"loop_var": "bad_var"},
+                ),
+                "end": NodeConfig(type="end", label="End"),
+            },
             [("start", "loop"), ("loop", "end")],
         )
         runtime = _make_runtime(mlx, tools)
@@ -440,10 +479,16 @@ class TestExecuteGraphLoopNode:
         mlx = MockMLXClient()
         tools = MockToolRegistry()
         g = _build_graph(
-            {"start": NodeConfig(type="start", label="Start"),
-             "loop": NodeConfig(type="loop", label="Loop", max_iterations=100,
-                                tool_params={"loop_var": "lc", "loop_start_node": "nonexistent"}),
-             "end": NodeConfig(type="end", label="End")},
+            {
+                "start": NodeConfig(type="start", label="Start"),
+                "loop": NodeConfig(
+                    type="loop",
+                    label="Loop",
+                    max_iterations=100,
+                    tool_params={"loop_var": "lc", "loop_start_node": "nonexistent"},
+                ),
+                "end": NodeConfig(type="end", label="End"),
+            },
             [("start", "loop"), ("loop", "end")],
         )
         runtime = _make_runtime(mlx, tools)
@@ -461,15 +506,23 @@ class TestExecuteGraphLoopNode:
 class TestExecuteGraphMaxIterations:
     async def test_max_iterations_error(self):
         mlx = MockMLXClient()
-        mlx.add_response("go", tool_calls=[{
-            "id": "c1", "type": "function",
-            "function": {"name": "t", "arguments": "{}"},
-        }])
+        mlx.add_response(
+            "go",
+            tool_calls=[
+                {
+                    "id": "c1",
+                    "type": "function",
+                    "function": {"name": "t", "arguments": "{}"},
+                }
+            ],
+        )
         tools = MockToolRegistry()
         tools.add_tool("t", "r")
         g = _build_graph(
-            {"start": NodeConfig(type="start", label="Start"),
-             "llm": NodeConfig(type="llm", label="LLM", model="m")},
+            {
+                "start": NodeConfig(type="start", label="Start"),
+                "llm": NodeConfig(type="llm", label="LLM", model="m"),
+            },
             [("start", "llm"), ("llm", "llm")],
         )
         runtime = _make_runtime(mlx, tools, max_iterations=2)
@@ -491,10 +544,16 @@ class TestExecuteLlmNodeTemplateKeyError:
         tmpl = PromptTemplateManager()
         runtime = _make_runtime(mlx, tools, templates=tmpl)
         g = _build_graph(
-            {"start": NodeConfig(type="start", label="Start"),
-             "llm": NodeConfig(type="llm", label="LLM", model="m",
-                               system_prompt="{{ template:nonexistent }}"),
-             "end": NodeConfig(type="end", label="End")},
+            {
+                "start": NodeConfig(type="start", label="Start"),
+                "llm": NodeConfig(
+                    type="llm",
+                    label="LLM",
+                    model="m",
+                    system_prompt="{{ template:nonexistent }}",
+                ),
+                "end": NodeConfig(type="end", label="End"),
+            },
             [("start", "llm"), ("llm", "end")],
         )
         events = []
@@ -519,10 +578,16 @@ class TestExecuteLlmNodeJsonSchema:
             "required": ["name"],
         }
         g = _build_graph(
-            {"start": NodeConfig(type="start", label="Start"),
-             "llm": NodeConfig(type="llm", label="LLM", model="m",
-                               tool_params={"output_schema": schema}),
-             "end": NodeConfig(type="end", label="End")},
+            {
+                "start": NodeConfig(type="start", label="Start"),
+                "llm": NodeConfig(
+                    type="llm",
+                    label="LLM",
+                    model="m",
+                    tool_params={"output_schema": schema},
+                ),
+                "end": NodeConfig(type="end", label="End"),
+            },
             [("start", "llm"), ("llm", "end")],
         )
         events = []
@@ -541,11 +606,17 @@ class TestExecuteLlmNodeJsonSchema:
             "required": ["name"],
         }
         g = _build_graph(
-            {"start": NodeConfig(type="start", label="Start"),
-             "llm": NodeConfig(type="llm", label="LLM", model="m",
-                               system_prompt="You are helpful",
-                               tool_params={"output_schema": schema}),
-             "end": NodeConfig(type="end", label="End")},
+            {
+                "start": NodeConfig(type="start", label="Start"),
+                "llm": NodeConfig(
+                    type="llm",
+                    label="LLM",
+                    model="m",
+                    system_prompt="You are helpful",
+                    tool_params={"output_schema": schema},
+                ),
+                "end": NodeConfig(type="end", label="End"),
+            },
             [("start", "llm"), ("llm", "end")],
         )
         events = []
@@ -564,9 +635,11 @@ class TestExecuteLlmNodeException:
         tools = MockToolRegistry()
         runtime = _make_runtime(mlx, tools)
         g = _build_graph(
-            {"start": NodeConfig(type="start", label="Start"),
-             "llm": NodeConfig(type="llm", label="LLM", model="m"),
-             "end": NodeConfig(type="end", label="End")},
+            {
+                "start": NodeConfig(type="start", label="Start"),
+                "llm": NodeConfig(type="llm", label="LLM", model="m"),
+                "end": NodeConfig(type="end", label="End"),
+            },
             [("start", "llm"), ("llm", "end")],
         )
         events = []
@@ -586,9 +659,11 @@ class TestExecuteLlmNodeUsageTracking:
         tools = MockToolRegistry()
         runtime = _make_runtime(mlx, tools)
         g = _build_graph(
-            {"start": NodeConfig(type="start", label="Start"),
-             "llm": NodeConfig(type="llm", label="LLM", model="m"),
-             "end": NodeConfig(type="end", label="End")},
+            {
+                "start": NodeConfig(type="start", label="Start"),
+                "llm": NodeConfig(type="llm", label="LLM", model="m"),
+                "end": NodeConfig(type="end", label="End"),
+            },
             [("start", "llm"), ("llm", "end")],
         )
         ctx = AgentContext()
@@ -605,16 +680,24 @@ class TestExecuteLlmNodeUsageTracking:
 class TestExecuteLlmNodeToolCallChainLimit:
     async def test_tool_call_chain_exceeded(self):
         mlx = MockMLXClient()
-        mlx.add_response("go", tool_calls=[{
-            "id": "c1", "type": "function",
-            "function": {"name": "t", "arguments": "{}"},
-        }])
+        mlx.add_response(
+            "go",
+            tool_calls=[
+                {
+                    "id": "c1",
+                    "type": "function",
+                    "function": {"name": "t", "arguments": "{}"},
+                }
+            ],
+        )
         tools = MockToolRegistry()
         tools.add_tool("t", "r")
         g = _build_graph(
-            {"start": NodeConfig(type="start", label="Start"),
-             "llm": NodeConfig(type="llm", label="LLM", model="m"),
-             "end": NodeConfig(type="end", label="End")},
+            {
+                "start": NodeConfig(type="start", label="Start"),
+                "llm": NodeConfig(type="llm", label="LLM", model="m"),
+                "end": NodeConfig(type="end", label="End"),
+            },
             [("start", "llm"), ("llm", "end")],
         )
         runtime = _make_runtime(mlx, tools)
@@ -639,9 +722,11 @@ class TestExecuteLlmNodeInvalidToolCallFormat:
         mlx.add_response("go", tool_calls=[{"id": "c1", "type": "function"}])
         tools = MockToolRegistry()
         g = _build_graph(
-            {"start": NodeConfig(type="start", label="Start"),
-             "llm": NodeConfig(type="llm", label="LLM", model="m"),
-             "end": NodeConfig(type="end", label="End")},
+            {
+                "start": NodeConfig(type="start", label="Start"),
+                "llm": NodeConfig(type="llm", label="LLM", model="m"),
+                "end": NodeConfig(type="end", label="End"),
+            },
             [("start", "llm"), ("llm", "end")],
         )
         runtime = _make_runtime(mlx, tools)
@@ -658,27 +743,42 @@ class TestExecuteLlmNodeInvalidToolCallFormat:
 class TestExecuteLlmNodeSubGraphCall:
     async def test_sub_graph_tool_call_from_llm(self):
         sub_g = _build_graph(
-            {"start": NodeConfig(type="start", label="SubStart"),
-             "end": NodeConfig(type="end", label="SubEnd")},
+            {
+                "start": NodeConfig(type="start", label="SubStart"),
+                "end": NodeConfig(type="end", label="SubEnd"),
+            },
             [("start", "end")],
             name="sub",
         )
         sub_json = sub_g.to_json()
         mlx = MockMLXClient()
-        mlx.add_response("calling sub", tool_calls=[{
-            "id": "c1", "type": "function",
-            "function": {"name": "__sub_graph__", "arguments": json.dumps({
-                "graph_json": sub_json,
-                "input_mapping": {},
-                "output_mapping": {},
-            })},
-        }])
+        mlx.add_response(
+            "calling sub",
+            tool_calls=[
+                {
+                    "id": "c1",
+                    "type": "function",
+                    "function": {
+                        "name": "__sub_graph__",
+                        "arguments": json.dumps(
+                            {
+                                "graph_json": sub_json,
+                                "input_mapping": {},
+                                "output_mapping": {},
+                            }
+                        ),
+                    },
+                }
+            ],
+        )
         mlx.add_response("done")
         tools = MockToolRegistry()
         g = _build_graph(
-            {"start": NodeConfig(type="start", label="Start"),
-             "llm": NodeConfig(type="llm", label="LLM", model="m"),
-             "end": NodeConfig(type="end", label="End")},
+            {
+                "start": NodeConfig(type="start", label="Start"),
+                "llm": NodeConfig(type="llm", label="LLM", model="m"),
+                "end": NodeConfig(type="end", label="End"),
+            },
             [("start", "llm"), ("llm", "end")],
         )
         runtime = _make_runtime(mlx, tools)
@@ -695,8 +795,10 @@ class TestExecuteLlmNodeSubGraphCall:
 class TestExecuteToolNodeSubGraph:
     async def test_sub_graph_tool_node(self):
         sub_g = _build_graph(
-            {"start": NodeConfig(type="start", label="SubStart"),
-             "end": NodeConfig(type="end", label="SubEnd")},
+            {
+                "start": NodeConfig(type="start", label="SubStart"),
+                "end": NodeConfig(type="end", label="SubEnd"),
+            },
             [("start", "end")],
             name="mysub",
         )
@@ -704,10 +806,20 @@ class TestExecuteToolNodeSubGraph:
         mlx = MockMLXClient()
         tools = MockToolRegistry()
         g = _build_graph(
-            {"start": NodeConfig(type="start", label="Start"),
-             "sub": NodeConfig(type="tool", label="Sub", tool_name="__sub_graph__",
-                               tool_params={"graph_json": sub_json, "input_mapping": {}, "output_mapping": {}}),
-             "end": NodeConfig(type="end", label="End")},
+            {
+                "start": NodeConfig(type="start", label="Start"),
+                "sub": NodeConfig(
+                    type="tool",
+                    label="Sub",
+                    tool_name="__sub_graph__",
+                    tool_params={
+                        "graph_json": sub_json,
+                        "input_mapping": {},
+                        "output_mapping": {},
+                    },
+                ),
+                "end": NodeConfig(type="end", label="End"),
+            },
             [("start", "sub"), ("sub", "end")],
         )
         runtime = _make_runtime(mlx, tools)
@@ -727,10 +839,16 @@ class TestExecuteToolNodeNonStringParams:
         tools = MockToolRegistry()
         tools.add_tool("mytool", "ok")
         g = _build_graph(
-            {"start": NodeConfig(type="start", label="Start"),
-             "tool1": NodeConfig(type="tool", label="Tool", tool_name="mytool",
-                                 tool_params={"count": 42}),
-             "end": NodeConfig(type="end", label="End")},
+            {
+                "start": NodeConfig(type="start", label="Start"),
+                "tool1": NodeConfig(
+                    type="tool",
+                    label="Tool",
+                    tool_name="mytool",
+                    tool_params={"count": 42},
+                ),
+                "end": NodeConfig(type="end", label="End"),
+            },
             [("start", "tool1"), ("tool1", "end")],
         )
         runtime = _make_runtime(mlx, tools)
@@ -749,10 +867,13 @@ class TestExecuteToolNodeErrors:
         mlx = MockMLXClient()
         tools = MockToolRegistry()
         g = _build_graph(
-            {"start": NodeConfig(type="start", label="Start"),
-             "tool1": NodeConfig(type="tool", label="Tool", tool_name="missing_tool",
-                                 tool_params={}),
-             "end": NodeConfig(type="end", label="End")},
+            {
+                "start": NodeConfig(type="start", label="Start"),
+                "tool1": NodeConfig(
+                    type="tool", label="Tool", tool_name="missing_tool", tool_params={}
+                ),
+                "end": NodeConfig(type="end", label="End"),
+            },
             [("start", "tool1"), ("tool1", "end")],
         )
         runtime = _make_runtime(mlx, tools)
@@ -767,10 +888,13 @@ class TestExecuteToolNodeErrors:
         tools = MockToolRegistry()
         tools.add_failing_tool("boom")
         g = _build_graph(
-            {"start": NodeConfig(type="start", label="Start"),
-             "tool1": NodeConfig(type="tool", label="Tool", tool_name="boom",
-                                 tool_params={}),
-             "end": NodeConfig(type="end", label="End")},
+            {
+                "start": NodeConfig(type="start", label="Start"),
+                "tool1": NodeConfig(
+                    type="tool", label="Tool", tool_name="boom", tool_params={}
+                ),
+                "end": NodeConfig(type="end", label="End"),
+            },
             [("start", "tool1"), ("tool1", "end")],
         )
         runtime = _make_runtime(mlx, tools)
@@ -791,9 +915,13 @@ class TestExecuteConditionNodeException:
         bad_engine = MagicMock()
         bad_engine.evaluate.side_effect = RuntimeError("eval broken")
         g = _build_graph(
-            {"start": NodeConfig(type="start", label="Start"),
-             "cond": NodeConfig(type="condition", label="Cond", condition_expr="oops"),
-             "end": NodeConfig(type="end", label="End")},
+            {
+                "start": NodeConfig(type="start", label="Start"),
+                "cond": NodeConfig(
+                    type="condition", label="Cond", condition_expr="oops"
+                ),
+                "end": NodeConfig(type="end", label="End"),
+            },
             [("start", "cond"), ("cond", "end", "true")],
         )
         runtime = _make_runtime(mlx, tools, condition_engine=bad_engine)
@@ -815,10 +943,16 @@ class TestExecuteLoopNodeFull:
         vm = VariableManager()
         vm.set("lc", "abc")
         g = _build_graph(
-            {"start": NodeConfig(type="start", label="Start"),
-             "loop": NodeConfig(type="loop", label="Loop", max_iterations=10,
-                                tool_params={"loop_var": "lc"}),
-             "end": NodeConfig(type="end", label="End")},
+            {
+                "start": NodeConfig(type="start", label="Start"),
+                "loop": NodeConfig(
+                    type="loop",
+                    label="Loop",
+                    max_iterations=10,
+                    tool_params={"loop_var": "lc"},
+                ),
+                "end": NodeConfig(type="end", label="End"),
+            },
             [("start", "loop"), ("loop", "end")],
         )
         runtime = _make_runtime(MockMLXClient(), MockToolRegistry())
@@ -831,10 +965,16 @@ class TestExecuteLoopNodeFull:
         vm = VariableManager()
         vm.set("lc", 0)
         g = _build_graph(
-            {"start": NodeConfig(type="start", label="Start"),
-             "loop": NodeConfig(type="loop", label="Loop", max_iterations=5,
-                                tool_params={"loop_var": "lc"}),
-             "end": NodeConfig(type="end", label="End")},
+            {
+                "start": NodeConfig(type="start", label="Start"),
+                "loop": NodeConfig(
+                    type="loop",
+                    label="Loop",
+                    max_iterations=5,
+                    tool_params={"loop_var": "lc"},
+                ),
+                "end": NodeConfig(type="end", label="End"),
+            },
             [("start", "loop"), ("loop", "end")],
         )
         runtime = _make_runtime(MockMLXClient(), MockToolRegistry())
@@ -847,10 +987,16 @@ class TestExecuteLoopNodeFull:
         ctx = AgentContext()
         ctx.iteration_count = 10
         g = _build_graph(
-            {"start": NodeConfig(type="start", label="Start"),
-             "loop": NodeConfig(type="loop", label="Loop", max_iterations=2,
-                                tool_params={"loop_var": "lc"}),
-             "end": NodeConfig(type="end", label="End")},
+            {
+                "start": NodeConfig(type="start", label="Start"),
+                "loop": NodeConfig(
+                    type="loop",
+                    label="Loop",
+                    max_iterations=2,
+                    tool_params={"loop_var": "lc"},
+                ),
+                "end": NodeConfig(type="end", label="End"),
+            },
             [("start", "loop"), ("loop", "end")],
         )
         runtime = _make_runtime(MockMLXClient(), MockToolRegistry())
@@ -868,12 +1014,19 @@ class TestExecuteErrorHandlerNode:
         tools = MockToolRegistry()
         tools.add_tool("failing_tool", "retry result")
         g = _build_graph(
-            {"start": NodeConfig(type="start", label="Start"),
-             "tool1": NodeConfig(type="tool", label="Tool", tool_name="failing_tool",
-                                 tool_params={}),
-             "errh": NodeConfig(type="error_handler", label="ErrHandler",
-                                max_retries=2, retry_delay=0.01),
-             "end": NodeConfig(type="end", label="End")},
+            {
+                "start": NodeConfig(type="start", label="Start"),
+                "tool1": NodeConfig(
+                    type="tool", label="Tool", tool_name="failing_tool", tool_params={}
+                ),
+                "errh": NodeConfig(
+                    type="error_handler",
+                    label="ErrHandler",
+                    max_retries=2,
+                    retry_delay=0.01,
+                ),
+                "end": NodeConfig(type="end", label="End"),
+            },
             [("start", "tool1"), ("tool1", "errh"), ("errh", "end")],
         )
         runtime = _make_runtime(mlx, tools)
@@ -891,11 +1044,17 @@ class TestExecuteErrorHandlerNode:
         mlx.add_response("retry answer")
         tools = MockToolRegistry()
         g = _build_graph(
-            {"start": NodeConfig(type="start", label="Start"),
-             "llm1": NodeConfig(type="llm", label="LLM", model="m"),
-             "errh": NodeConfig(type="error_handler", label="ErrHandler",
-                                max_retries=1, retry_delay=0.01),
-             "end": NodeConfig(type="end", label="End")},
+            {
+                "start": NodeConfig(type="start", label="Start"),
+                "llm1": NodeConfig(type="llm", label="LLM", model="m"),
+                "errh": NodeConfig(
+                    type="error_handler",
+                    label="ErrHandler",
+                    max_retries=1,
+                    retry_delay=0.01,
+                ),
+                "end": NodeConfig(type="end", label="End"),
+            },
             [("start", "llm1"), ("llm1", "errh"), ("errh", "end")],
         )
         runtime = _make_runtime(mlx, tools)
@@ -913,12 +1072,19 @@ class TestExecuteErrorHandlerNode:
         tools = MockToolRegistry()
         tools.add_tool("t1", "ok")
         g = _build_graph(
-            {"start": NodeConfig(type="start", label="Start"),
-             "tool1": NodeConfig(type="tool", label="Tool", tool_name="t1",
-                                 tool_params={}),
-             "errh": NodeConfig(type="error_handler", label="ErrHandler",
-                                max_retries=1, retry_delay=0.01),
-             "end": NodeConfig(type="end", label="End")},
+            {
+                "start": NodeConfig(type="start", label="Start"),
+                "tool1": NodeConfig(
+                    type="tool", label="Tool", tool_name="t1", tool_params={}
+                ),
+                "errh": NodeConfig(
+                    type="error_handler",
+                    label="ErrHandler",
+                    max_retries=1,
+                    retry_delay=0.01,
+                ),
+                "end": NodeConfig(type="end", label="End"),
+            },
             [("start", "tool1"), ("tool1", "errh"), ("errh", "end")],
         )
         runtime = _make_runtime(mlx, tools)
@@ -936,12 +1102,19 @@ class TestExecuteErrorHandlerNode:
         tools = MockToolRegistry()
         tools.add_tool("t1", "ok")
         g = _build_graph(
-            {"start": NodeConfig(type="start", label="Start"),
-             "tool1": NodeConfig(type="tool", label="Tool", tool_name="t1",
-                                 tool_params={}),
-             "errh": NodeConfig(type="error_handler", label="ErrHandler",
-                                max_retries=3, retry_delay=0.01),
-             "end": NodeConfig(type="end", label="End")},
+            {
+                "start": NodeConfig(type="start", label="Start"),
+                "tool1": NodeConfig(
+                    type="tool", label="Tool", tool_name="t1", tool_params={}
+                ),
+                "errh": NodeConfig(
+                    type="error_handler",
+                    label="ErrHandler",
+                    max_retries=3,
+                    retry_delay=0.01,
+                ),
+                "end": NodeConfig(type="end", label="End"),
+            },
             [("start", "tool1"), ("tool1", "errh"), ("errh", "end")],
         )
         runtime = _make_runtime(mlx, tools)
@@ -964,8 +1137,9 @@ class TestExecuteSubGraph:
         tools = MockToolRegistry()
         runtime = _make_runtime(mlx, tools)
         ctx = AgentContext()
-        node = NodeConfig(type="tool", label="sub", tool_name="__sub_graph__",
-                          tool_params={})
+        node = NodeConfig(
+            type="tool", label="sub", tool_name="__sub_graph__", tool_params={}
+        )
         events = []
         async for ev in runtime._execute_sub_graph(ctx, {}, node):
             events.append(ev)
@@ -977,18 +1151,23 @@ class TestExecuteSubGraph:
         tools = MockToolRegistry()
         runtime = _make_runtime(mlx, tools)
         ctx = AgentContext()
-        node = NodeConfig(type="tool", label="sub", tool_name="__sub_graph__",
-                          tool_params={})
+        node = NodeConfig(
+            type="tool", label="sub", tool_name="__sub_graph__", tool_params={}
+        )
         events = []
-        async for ev in runtime._execute_sub_graph(ctx, {"graph_json": "not valid json"}, node):
+        async for ev in runtime._execute_sub_graph(
+            ctx, {"graph_json": "not valid json"}, node
+        ):
             events.append(ev)
         errors = [e for e in events if e.type == AgentEventType.ERROR]
         assert any("parse error" in e.content for e in errors)
 
     async def test_sub_graph_with_input_mapping(self):
         sub_g = _build_graph(
-            {"start": NodeConfig(type="start", label="SubStart"),
-             "end": NodeConfig(type="end", label="SubEnd")},
+            {
+                "start": NodeConfig(type="start", label="SubStart"),
+                "end": NodeConfig(type="end", label="SubEnd"),
+            },
             [("start", "end")],
             name="subtest",
         )
@@ -998,21 +1177,28 @@ class TestExecuteSubGraph:
         runtime = _make_runtime(mlx, tools)
         runtime.variables.set("parent_val", "hello")
         ctx = AgentContext()
-        node = NodeConfig(type="tool", label="sub", tool_name="__sub_graph__",
-                          tool_params={})
+        node = NodeConfig(
+            type="tool", label="sub", tool_name="__sub_graph__", tool_params={}
+        )
         events = []
-        async for ev in runtime._execute_sub_graph(ctx, {
-            "graph_json": sub_json,
-            "input_mapping": {"parent_val": "input"},
-            "output_mapping": {},
-        }, node):
+        async for ev in runtime._execute_sub_graph(
+            ctx,
+            {
+                "graph_json": sub_json,
+                "input_mapping": {"parent_val": "input"},
+                "output_mapping": {},
+            },
+            node,
+        ):
             events.append(ev)
         assert any("[sub:" in e.content for e in events)
 
     async def test_sub_graph_with_output_mapping(self):
         sub_g = _build_graph(
-            {"start": NodeConfig(type="start", label="SubStart"),
-             "end": NodeConfig(type="end", label="SubEnd")},
+            {
+                "start": NodeConfig(type="start", label="SubStart"),
+                "end": NodeConfig(type="end", label="SubEnd"),
+            },
             [("start", "end")],
             name="subout",
         )
@@ -1021,21 +1207,28 @@ class TestExecuteSubGraph:
         tools = MockToolRegistry()
         runtime = _make_runtime(mlx, tools)
         ctx = AgentContext()
-        node = NodeConfig(type="tool", label="sub", tool_name="__sub_graph__",
-                          tool_params={})
+        node = NodeConfig(
+            type="tool", label="sub", tool_name="__sub_graph__", tool_params={}
+        )
         events = []
-        async for ev in runtime._execute_sub_graph(ctx, {
-            "graph_json": sub_json,
-            "input_mapping": {},
-            "output_mapping": {"sub_result": "parent_result"},
-        }, node):
+        async for ev in runtime._execute_sub_graph(
+            ctx,
+            {
+                "graph_json": sub_json,
+                "input_mapping": {},
+                "output_mapping": {"sub_result": "parent_result"},
+            },
+            node,
+        ):
             events.append(ev)
         assert any("[sub:" in e.content for e in events)
 
     async def test_sub_graph_with_non_input_mapping(self):
         sub_g = _build_graph(
-            {"start": NodeConfig(type="start", label="SubStart"),
-             "end": NodeConfig(type="end", label="SubEnd")},
+            {
+                "start": NodeConfig(type="start", label="SubStart"),
+                "end": NodeConfig(type="end", label="SubEnd"),
+            },
             [("start", "end")],
             name="subvar",
         )
@@ -1045,22 +1238,29 @@ class TestExecuteSubGraph:
         runtime = _make_runtime(mlx, tools)
         runtime.variables.set("src_var", "value123")
         ctx = AgentContext()
-        node = NodeConfig(type="tool", label="sub", tool_name="__sub_graph__",
-                          tool_params={})
+        node = NodeConfig(
+            type="tool", label="sub", tool_name="__sub_graph__", tool_params={}
+        )
         events = []
-        async for ev in runtime._execute_sub_graph(ctx, {
-            "graph_json": sub_json,
-            "input_mapping": {"src_var": "dest_var"},
-            "output_mapping": {},
-        }, node):
+        async for ev in runtime._execute_sub_graph(
+            ctx,
+            {
+                "graph_json": sub_json,
+                "input_mapping": {"src_var": "dest_var"},
+                "output_mapping": {},
+            },
+            node,
+        ):
             events.append(ev)
         assert any("[sub:" in e.content for e in events)
 
     async def test_sub_graph_full_execution_with_llm(self):
         sub_g = _build_graph(
-            {"start": NodeConfig(type="start", label="SubStart"),
-             "llm": NodeConfig(type="llm", label="SubLLM", model="m"),
-             "end": NodeConfig(type="end", label="SubEnd")},
+            {
+                "start": NodeConfig(type="start", label="SubStart"),
+                "llm": NodeConfig(type="llm", label="SubLLM", model="m"),
+                "end": NodeConfig(type="end", label="SubEnd"),
+            },
             [("start", "llm"), ("llm", "end")],
             name="subllm",
         )
@@ -1069,10 +1269,20 @@ class TestExecuteSubGraph:
         mlx.add_response("sub answer")
         tools = MockToolRegistry()
         g = _build_graph(
-            {"start": NodeConfig(type="start", label="Start"),
-             "sub": NodeConfig(type="tool", label="Sub", tool_name="__sub_graph__",
-                               tool_params={"graph_json": sub_json, "input_mapping": {}, "output_mapping": {}}),
-             "end": NodeConfig(type="end", label="End")},
+            {
+                "start": NodeConfig(type="start", label="Start"),
+                "sub": NodeConfig(
+                    type="tool",
+                    label="Sub",
+                    tool_name="__sub_graph__",
+                    tool_params={
+                        "graph_json": sub_json,
+                        "input_mapping": {},
+                        "output_mapping": {},
+                    },
+                ),
+                "end": NodeConfig(type="end", label="End"),
+            },
             [("start", "sub"), ("sub", "end")],
         )
         runtime = _make_runtime(mlx, tools)
@@ -1089,11 +1299,16 @@ class TestExecuteSubGraph:
 class TestExtractTemplateName:
     def test_valid_template(self):
         runtime = _make_runtime()
-        assert runtime._extract_template_name("{{ template:code-review }}") == "code-review"
+        assert (
+            runtime._extract_template_name("{{ template:code-review }}")
+            == "code-review"
+        )
 
     def test_valid_template_with_extra_spaces(self):
         runtime = _make_runtime()
-        assert runtime._extract_template_name("  {{  template:my-tmpl  }}  ") == "my-tmpl"
+        assert (
+            runtime._extract_template_name("  {{  template:my-tmpl  }}  ") == "my-tmpl"
+        )
 
     def test_not_a_template(self):
         runtime = _make_runtime()
@@ -1112,8 +1327,10 @@ class TestExecuteGraphEndNode:
         mlx = MockMLXClient()
         tools = MockToolRegistry()
         g = _build_graph(
-            {"start": NodeConfig(type="start", label="Start"),
-             "end": NodeConfig(type="end", label="End")},
+            {
+                "start": NodeConfig(type="start", label="Start"),
+                "end": NodeConfig(type="end", label="End"),
+            },
             [("start", "end")],
         )
         runtime = _make_runtime(mlx, tools)
@@ -1132,9 +1349,11 @@ class TestExecuteGraphNoLlmModel:
         mlx = MockMLXClient()
         tools = MockToolRegistry()
         g = _build_graph(
-            {"start": NodeConfig(type="start", label="Start"),
-             "llm": NodeConfig(type="llm", label="LLM", model=""),
-             "end": NodeConfig(type="end", label="End")},
+            {
+                "start": NodeConfig(type="start", label="Start"),
+                "llm": NodeConfig(type="llm", label="LLM", model=""),
+                "end": NodeConfig(type="end", label="End"),
+            },
             [("start", "llm"), ("llm", "end")],
         )
         runtime = _make_runtime(mlx, tools)
@@ -1153,8 +1372,10 @@ class TestExecuteGraphVariableInterpolation:
         mlx = MockMLXClient()
         tools = MockToolRegistry()
         g = _build_graph(
-            {"start": NodeConfig(type="start", label="Start"),
-             "end": NodeConfig(type="end", label="End")},
+            {
+                "start": NodeConfig(type="start", label="Start"),
+                "end": NodeConfig(type="end", label="End"),
+            },
             [("start", "end")],
         )
         runtime = _make_runtime(mlx, tools)
@@ -1175,18 +1396,26 @@ class TestExecuteLlmNodeTemplateRendering:
         mlx.add_response("review done")
         tools = MockToolRegistry()
         tmpl = PromptTemplateManager()
-        tmpl.register(PromptTemplate(
-            name="code-review",
-            template="Review this: {{ code }}",
-            variables={"code": {"type": "string", "default": ""}},
-        ))
+        tmpl.register(
+            PromptTemplate(
+                name="code-review",
+                template="Review this: {{ code }}",
+                variables={"code": {"type": "string", "default": ""}},
+            )
+        )
         runtime = _make_runtime(mlx, tools, templates=tmpl)
         runtime.variables.set("code", "print('hi')")
         g = _build_graph(
-            {"start": NodeConfig(type="start", label="Start"),
-             "llm": NodeConfig(type="llm", label="LLM", model="m",
-                               system_prompt="{{ template:code-review }}"),
-             "end": NodeConfig(type="end", label="End")},
+            {
+                "start": NodeConfig(type="start", label="Start"),
+                "llm": NodeConfig(
+                    type="llm",
+                    label="LLM",
+                    model="m",
+                    system_prompt="{{ template:code-review }}",
+                ),
+                "end": NodeConfig(type="end", label="End"),
+            },
             [("start", "llm"), ("llm", "end")],
         )
         events = []
@@ -1240,6 +1469,7 @@ class TestConditionEngineEdgeCases:
 # Cover remaining missing lines for 95%+ coverage
 # ---------------------------------------------------------------------------
 
+
 # Lines 219: system_prompt interpolation in execute_graph
 class TestExecuteGraphSystemPromptInterpolation:
     async def test_start_node_system_prompt_with_variable(self):
@@ -1247,10 +1477,13 @@ class TestExecuteGraphSystemPromptInterpolation:
         mlx.add_response("ok")
         tools = MockToolRegistry()
         g = _build_graph(
-            {"start": NodeConfig(type="start", label="Start",
-                                 system_prompt="You are {{ role }}."),
-             "llm": NodeConfig(type="llm", label="LLM", model="m"),
-             "end": NodeConfig(type="end", label="End")},
+            {
+                "start": NodeConfig(
+                    type="start", label="Start", system_prompt="You are {{ role }}."
+                ),
+                "llm": NodeConfig(type="llm", label="LLM", model="m"),
+                "end": NodeConfig(type="end", label="End"),
+            },
             [("start", "llm"), ("llm", "end")],
         )
         runtime = _make_runtime(mlx, tools)
@@ -1259,7 +1492,9 @@ class TestExecuteGraphSystemPromptInterpolation:
         async for ev in runtime.execute_graph(g, "hi"):
             events.append(ev)
         assert mlx.call_count == 1
-        _call_messages = mlx.call_args_messages if hasattr(mlx, "call_args_messages") else []
+        _call_messages = (
+            mlx.call_args_messages if hasattr(mlx, "call_args_messages") else []
+        )
 
 
 # Lines 236-238: node not found in execute_graph
@@ -1287,11 +1522,19 @@ class TestExecuteGraphErrorHandlerNode:
         tools = MockToolRegistry()
         tools.add_tool("t1", "ok")
         g = _build_graph(
-            {"start": NodeConfig(type="start", label="Start"),
-             "tool1": NodeConfig(type="tool", label="Tool", tool_name="t1", tool_params={}),
-             "errh": NodeConfig(type="error_handler", label="ErrHandler",
-                                max_retries=1, retry_delay=0.01),
-             "end": NodeConfig(type="end", label="End")},
+            {
+                "start": NodeConfig(type="start", label="Start"),
+                "tool1": NodeConfig(
+                    type="tool", label="Tool", tool_name="t1", tool_params={}
+                ),
+                "errh": NodeConfig(
+                    type="error_handler",
+                    label="ErrHandler",
+                    max_retries=1,
+                    retry_delay=0.01,
+                ),
+                "end": NodeConfig(type="end", label="End"),
+            },
             [("start", "tool1"), ("tool1", "errh"), ("errh", "end")],
         )
         runtime = _make_runtime(mlx, tools)
@@ -1334,11 +1577,17 @@ class TestExecuteLlmNodeSchemaNoSystemMessage:
             "required": ["name"],
         }
         g = _build_graph(
-            {"start": NodeConfig(type="start", label="Start"),
-             "llm": NodeConfig(type="llm", label="LLM", model="m",
-                               system_prompt="",
-                               tool_params={"output_schema": schema}),
-             "end": NodeConfig(type="end", label="End")},
+            {
+                "start": NodeConfig(type="start", label="Start"),
+                "llm": NodeConfig(
+                    type="llm",
+                    label="LLM",
+                    model="m",
+                    system_prompt="",
+                    tool_params={"output_schema": schema},
+                ),
+                "end": NodeConfig(type="end", label="End"),
+            },
             [("start", "llm"), ("llm", "end")],
         )
         events = []
@@ -1360,11 +1609,17 @@ class TestExecuteLlmNodeSchemaValidationError:
             "required": ["name"],
         }
         g = _build_graph(
-            {"start": NodeConfig(type="start", label="Start"),
-             "llm": NodeConfig(type="llm", label="LLM", model="m",
-                               system_prompt="You are helpful",
-                               tool_params={"output_schema": schema}),
-             "end": NodeConfig(type="end", label="End")},
+            {
+                "start": NodeConfig(type="start", label="Start"),
+                "llm": NodeConfig(
+                    type="llm",
+                    label="LLM",
+                    model="m",
+                    system_prompt="You are helpful",
+                    tool_params={"output_schema": schema},
+                ),
+                "end": NodeConfig(type="end", label="End"),
+            },
             [("start", "llm"), ("llm", "end")],
         )
         events = []
@@ -1381,9 +1636,11 @@ class TestExecuteLlmNodeUsageTrackingEdgeCases:
         tools = MockToolRegistry()
         runtime = _make_runtime(mlx, tools)
         g = _build_graph(
-            {"start": NodeConfig(type="start", label="Start"),
-             "llm": NodeConfig(type="llm", label="LLM", model="m"),
-             "end": NodeConfig(type="end", label="End")},
+            {
+                "start": NodeConfig(type="start", label="Start"),
+                "llm": NodeConfig(type="llm", label="LLM", model="m"),
+                "end": NodeConfig(type="end", label="End"),
+            },
             [("start", "llm"), ("llm", "end")],
         )
         events = []
@@ -1396,15 +1653,23 @@ class TestExecuteLlmNodeUsageTrackingEdgeCases:
 class TestExecuteLlmNodeInvalidToolCallKeyError:
     async def test_tool_call_missing_function_name(self):
         mlx = MockMLXClient()
-        mlx.add_response("go", tool_calls=[{
-            "id": "c1", "type": "function",
-            "function": {"arguments": "{}"},
-        }])
+        mlx.add_response(
+            "go",
+            tool_calls=[
+                {
+                    "id": "c1",
+                    "type": "function",
+                    "function": {"arguments": "{}"},
+                }
+            ],
+        )
         tools = MockToolRegistry()
         g = _build_graph(
-            {"start": NodeConfig(type="start", label="Start"),
-             "llm": NodeConfig(type="llm", label="LLM", model="m"),
-             "end": NodeConfig(type="end", label="End")},
+            {
+                "start": NodeConfig(type="start", label="Start"),
+                "llm": NodeConfig(type="llm", label="LLM", model="m"),
+                "end": NodeConfig(type="end", label="End"),
+            },
             [("start", "llm"), ("llm", "end")],
         )
         runtime = _make_runtime(mlx, tools)
@@ -1419,16 +1684,24 @@ class TestExecuteLlmNodeInvalidToolCallKeyError:
 class TestExecuteLlmNodeToolExecutionErrors:
     async def test_tool_not_found_keyerror_in_llm(self):
         mlx = MockMLXClient()
-        mlx.add_response("go", tool_calls=[{
-            "id": "c1", "type": "function",
-            "function": {"name": "missing", "arguments": "{}"},
-        }])
+        mlx.add_response(
+            "go",
+            tool_calls=[
+                {
+                    "id": "c1",
+                    "type": "function",
+                    "function": {"name": "missing", "arguments": "{}"},
+                }
+            ],
+        )
         mlx.add_response("done")
         tools = MockToolRegistry()
         g = _build_graph(
-            {"start": NodeConfig(type="start", label="Start"),
-             "llm": NodeConfig(type="llm", label="LLM", model="m"),
-             "end": NodeConfig(type="end", label="End")},
+            {
+                "start": NodeConfig(type="start", label="Start"),
+                "llm": NodeConfig(type="llm", label="LLM", model="m"),
+                "end": NodeConfig(type="end", label="End"),
+            },
             [("start", "llm"), ("llm", "end")],
         )
         runtime = _make_runtime(mlx, tools)
@@ -1440,17 +1713,25 @@ class TestExecuteLlmNodeToolExecutionErrors:
 
     async def test_tool_exception_in_llm(self):
         mlx = MockMLXClient()
-        mlx.add_response("go", tool_calls=[{
-            "id": "c1", "type": "function",
-            "function": {"name": "boom", "arguments": "{}"},
-        }])
+        mlx.add_response(
+            "go",
+            tool_calls=[
+                {
+                    "id": "c1",
+                    "type": "function",
+                    "function": {"name": "boom", "arguments": "{}"},
+                }
+            ],
+        )
         mlx.add_response("done")
         tools = MockToolRegistry()
         tools.add_failing_tool("boom")
         g = _build_graph(
-            {"start": NodeConfig(type="start", label="Start"),
-             "llm": NodeConfig(type="llm", label="LLM", model="m"),
-             "end": NodeConfig(type="end", label="End")},
+            {
+                "start": NodeConfig(type="start", label="Start"),
+                "llm": NodeConfig(type="llm", label="LLM", model="m"),
+                "end": NodeConfig(type="end", label="End"),
+            },
             [("start", "llm"), ("llm", "end")],
         )
         runtime = _make_runtime(mlx, tools)
@@ -1468,10 +1749,16 @@ class TestExecuteToolNodeStringInterpolation:
         tools = MockToolRegistry()
         tools.add_tool("t1", "ok")
         g = _build_graph(
-            {"start": NodeConfig(type="start", label="Start"),
-             "tool1": NodeConfig(type="tool", label="Tool", tool_name="t1",
-                                 tool_params={"query": "{{ keyword }}", "limit": 10}),
-             "end": NodeConfig(type="end", label="End")},
+            {
+                "start": NodeConfig(type="start", label="Start"),
+                "tool1": NodeConfig(
+                    type="tool",
+                    label="Tool",
+                    tool_name="t1",
+                    tool_params={"query": "{{ keyword }}", "limit": 10},
+                ),
+                "end": NodeConfig(type="end", label="End"),
+            },
             [("start", "tool1"), ("tool1", "end")],
         )
         runtime = _make_runtime(mlx, tools)
@@ -1490,12 +1777,19 @@ class TestExecuteErrorHandlerNodeReverseIteration:
         tools = MockToolRegistry()
         tools.add_tool("t1", "retry ok")
         g = _build_graph(
-            {"start": NodeConfig(type="start", label="Start"),
-             "tool1": NodeConfig(type="tool", label="Tool", tool_name="t1",
-                                 tool_params={}),
-             "errh": NodeConfig(type="error_handler", label="ErrHandler",
-                                max_retries=2, retry_delay=0.01),
-             "end": NodeConfig(type="end", label="End")},
+            {
+                "start": NodeConfig(type="start", label="Start"),
+                "tool1": NodeConfig(
+                    type="tool", label="Tool", tool_name="t1", tool_params={}
+                ),
+                "errh": NodeConfig(
+                    type="error_handler",
+                    label="ErrHandler",
+                    max_retries=2,
+                    retry_delay=0.01,
+                ),
+                "end": NodeConfig(type="end", label="End"),
+            },
             [("start", "tool1"), ("tool1", "errh"), ("errh", "end")],
         )
         runtime = _make_runtime(mlx, tools)
@@ -1514,12 +1808,19 @@ class TestExecuteErrorHandlerNodeReverseIteration:
         tools = MockToolRegistry()
         tools.add_tool("t1", "retry ok")
         g = _build_graph(
-            {"start": NodeConfig(type="start", label="Start"),
-             "tool1": NodeConfig(type="tool", label="Tool", tool_name="t1",
-                                 tool_params={}),
-             "errh": NodeConfig(type="error_handler", label="ErrHandler",
-                                max_retries=1, retry_delay=0.01),
-             "end": NodeConfig(type="end", label="End")},
+            {
+                "start": NodeConfig(type="start", label="Start"),
+                "tool1": NodeConfig(
+                    type="tool", label="Tool", tool_name="t1", tool_params={}
+                ),
+                "errh": NodeConfig(
+                    type="error_handler",
+                    label="ErrHandler",
+                    max_retries=1,
+                    retry_delay=0.01,
+                ),
+                "end": NodeConfig(type="end", label="End"),
+            },
             [("start", "tool1"), ("tool1", "errh"), ("errh", "end")],
         )
         runtime = _make_runtime(mlx, tools)
@@ -1542,12 +1843,19 @@ class TestExecuteErrorHandlerNodeRetry:
         tools = MockToolRegistry()
         tools.add_tool("t1", "ok")
         g = _build_graph(
-            {"start": NodeConfig(type="start", label="Start"),
-             "tool1": NodeConfig(type="tool", label="Tool", tool_name="t1",
-                                 tool_params={}),
-             "errh": NodeConfig(type="error_handler", label="ErrHandler",
-                                max_retries=3, retry_delay=0.01),
-             "end": NodeConfig(type="end", label="End")},
+            {
+                "start": NodeConfig(type="start", label="Start"),
+                "tool1": NodeConfig(
+                    type="tool", label="Tool", tool_name="t1", tool_params={}
+                ),
+                "errh": NodeConfig(
+                    type="error_handler",
+                    label="ErrHandler",
+                    max_retries=3,
+                    retry_delay=0.01,
+                ),
+                "end": NodeConfig(type="end", label="End"),
+            },
             [("start", "tool1"), ("tool1", "errh"), ("errh", "end")],
         )
         runtime = _make_runtime(mlx, tools)
@@ -1565,11 +1873,17 @@ class TestExecuteErrorHandlerNodeRetry:
         mlx.add_response("retry answer")
         tools = MockToolRegistry()
         g = _build_graph(
-            {"start": NodeConfig(type="start", label="Start"),
-             "llm1": NodeConfig(type="llm", label="LLM", model="m"),
-             "errh": NodeConfig(type="error_handler", label="ErrHandler",
-                                max_retries=2, retry_delay=0.01),
-             "end": NodeConfig(type="end", label="End")},
+            {
+                "start": NodeConfig(type="start", label="Start"),
+                "llm1": NodeConfig(type="llm", label="LLM", model="m"),
+                "errh": NodeConfig(
+                    type="error_handler",
+                    label="ErrHandler",
+                    max_retries=2,
+                    retry_delay=0.01,
+                ),
+                "end": NodeConfig(type="end", label="End"),
+            },
             [("start", "llm1"), ("llm1", "errh"), ("errh", "end")],
         )
         runtime = _make_runtime(mlx, tools)
@@ -1593,17 +1907,17 @@ class TestExecuteLlmNodeExceptionDirect:
         tools = MockToolRegistry()
         runtime = _make_runtime(mlx, tools)
         g = _build_graph(
-            {"start": NodeConfig(type="start", label="Start"),
-             "llm": NodeConfig(type="llm", label="LLM", model="m"),
-             "end": NodeConfig(type="end", label="End")},
+            {
+                "start": NodeConfig(type="start", label="Start"),
+                "llm": NodeConfig(type="llm", label="LLM", model="m"),
+                "end": NodeConfig(type="end", label="End"),
+            },
             [("start", "llm"), ("llm", "end")],
         )
         ctx = AgentContext()
         node = g.get_node("llm")
         events = []
-        async for ev in runtime._execute_llm_node(
-            ctx, node, g, "m", [], ""
-        ):
+        async for ev in runtime._execute_llm_node(ctx, node, g, "m", [], ""):
             events.append(ev)
         errors = [e for e in events if e.type == AgentEventType.ERROR]
         assert len(errors) >= 1

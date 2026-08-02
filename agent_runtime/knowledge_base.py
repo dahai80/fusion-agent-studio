@@ -10,17 +10,23 @@ logger = logging.getLogger(__name__)
 
 try:
     from agent_runtime.data_ingestion import DocumentReader, ETLPipeline
+
     _HAS_DATA_INGESTION = True
 except ImportError:
     _HAS_DATA_INGESTION = False
-    logger.warning("agent_runtime.data_ingestion not available; file ingestion will be skipped")
+    logger.warning(
+        "agent_runtime.data_ingestion not available; file ingestion will be skipped"
+    )
 
 try:
     from agent_runtime.knowledge_engine import KnowledgeEngine
+
     _HAS_KNOWLEDGE_ENGINE = True
 except ImportError:
     _HAS_KNOWLEDGE_ENGINE = False
-    logger.warning("agent_runtime.knowledge_engine not available; knowledge ingestion will be skipped")
+    logger.warning(
+        "agent_runtime.knowledge_engine not available; knowledge ingestion will be skipped"
+    )
 
 
 @dataclass
@@ -123,6 +129,7 @@ class KnowledgeBaseManager:
     def _get_rag_client(self):
         if self._rag_client is None:
             from server.fusion_rag_client import FusionRAGClient
+
             self._rag_client = FusionRAGClient()
             logger.info("FusionRAGClient created for KB manager")
         return self._rag_client
@@ -184,7 +191,13 @@ class KnowledgeBaseManager:
         except OSError as e:
             logger.error("Failed to save files index for kb %s: %s", kb_id, e)
 
-    def create_kb(self, name: str, description: str = "", tags: list = None, scope: str = "default") -> KnowledgeBase:
+    def create_kb(
+        self,
+        name: str,
+        description: str = "",
+        tags: list = None,
+        scope: str = "default",
+    ) -> KnowledgeBase:
         now = time()
         kb = KnowledgeBase(
             id=str(uuid.uuid4()),
@@ -223,7 +236,11 @@ class KnowledgeBaseManager:
                 entry["updated_at"] = time()
                 entries[i] = entry
                 self._save_index(entries)
-                logger.info("Updated knowledge base %s with keys %s", kb_id, list(updates.keys()))
+                logger.info(
+                    "Updated knowledge base %s with keys %s",
+                    kb_id,
+                    list(updates.keys()),
+                )
                 return KnowledgeBase.from_dict(entry)
         logger.warning("Knowledge base %s not found for update", kb_id)
         return None
@@ -244,13 +261,16 @@ class KnowledgeBaseManager:
         logger.info("Deleted knowledge base %s", kb_id)
         return True
 
-    def list_kbs(self, page: int = 1, limit: int = 20, keyword: str = "", scope: str = "") -> dict:
+    def list_kbs(
+        self, page: int = 1, limit: int = 20, keyword: str = "", scope: str = ""
+    ) -> dict:
         entries = self._load_index()
         filtered = entries
         if keyword:
             keyword_lower = keyword.lower()
             filtered = [
-                e for e in filtered
+                e
+                for e in filtered
                 if keyword_lower in e.get("name", "").lower()
                 or keyword_lower in e.get("description", "").lower()
                 or keyword_lower in " ".join(e.get("tags", [])).lower()
@@ -261,7 +281,9 @@ class KnowledgeBaseManager:
         start = (page - 1) * limit
         end = start + limit
         page_entries = filtered[start:end]
-        logger.info("Listed knowledge bases: total=%d, page=%d, limit=%d", total, page, limit)
+        logger.info(
+            "Listed knowledge bases: total=%d, page=%d, limit=%d", total, page, limit
+        )
         return {
             "data": [KnowledgeBase.from_dict(e) for e in page_entries],
             "total": total,
@@ -269,7 +291,9 @@ class KnowledgeBaseManager:
             "limit": limit,
         }
 
-    def add_file(self, kb_id: str, file_path: str, content_type: str = "") -> KBFileInfo:
+    def add_file(
+        self, kb_id: str, file_path: str, content_type: str = ""
+    ) -> KBFileInfo:
         kb = self.get_kb(kb_id)
         if kb is None:
             raise ValueError(f"Knowledge base {kb_id} not found")
@@ -313,17 +337,22 @@ class KnowledgeBaseManager:
         files_entries.append(file_info.to_dict())
         self._save_files_index(kb_id, files_entries)
 
-        self.update_kb(kb_id, {
-            "file_count": kb.file_count + 1,
-            "total_size": kb.total_size + file_size,
-        })
+        self.update_kb(
+            kb_id,
+            {
+                "file_count": kb.file_count + 1,
+                "total_size": kb.total_size + file_size,
+            },
+        )
 
         logger.info("Added file %s (%s) to kb %s", filename, file_id, kb_id)
         return file_info
 
     def _ingest_file(self, kb_id: str, file_path: str, file_info: KBFileInfo):
         if not _HAS_DATA_INGESTION or not _HAS_KNOWLEDGE_ENGINE:
-            logger.warning("Skipping ingestion for %s: required modules not available", file_path)
+            logger.warning(
+                "Skipping ingestion for %s: required modules not available", file_path
+            )
             return
 
         try:
@@ -342,7 +371,12 @@ class KnowledgeBaseManager:
             engine = KnowledgeEngine()
             entry_ids = engine.ingest(chunks, scope=kb_id)
             file_info.entry_count = len(entry_ids)
-            logger.info("Ingested %d entries from %s into kb %s", len(entry_ids), file_path, kb_id)
+            logger.info(
+                "Ingested %d entries from %s into kb %s",
+                len(entry_ids),
+                file_path,
+                kb_id,
+            )
         except Exception as e:
             logger.error("Failed to ingest file %s into kb %s: %s", file_path, kb_id, e)
 
@@ -376,10 +410,13 @@ class KnowledgeBaseManager:
 
         kb = self.get_kb(kb_id)
         if kb:
-            self.update_kb(kb_id, {
-                "file_count": max(0, kb.file_count - 1),
-                "total_size": max(0, kb.total_size - target.get("size", 0)),
-            })
+            self.update_kb(
+                kb_id,
+                {
+                    "file_count": max(0, kb.file_count - 1),
+                    "total_size": max(0, kb.total_size - target.get("size", 0)),
+                },
+            )
 
         logger.info("Deleted file %s from kb %s", file_id, kb_id)
         return True
@@ -413,7 +450,12 @@ class KnowledgeBaseManager:
                 updated_entries.append(e)
         self._save_files_index(kb_id, updated_entries)
 
-        logger.info("Reparsed file %s in kb %s, entry_count=%d", file_id, kb_id, file_info.entry_count)
+        logger.info(
+            "Reparsed file %s in kb %s, entry_count=%d",
+            file_id,
+            kb_id,
+            file_info.entry_count,
+        )
         return file_info
 
     def bind_agent(self, kb_id: str, agent_id: str) -> bool:
@@ -445,15 +487,24 @@ class KnowledgeBaseManager:
     async def search(self, kb_id: str, query: str, **kwargs) -> dict:
         rag_available = await self.is_rag_available()
         if not rag_available:
-            logger.warning("fusion-rag not available for search, returning empty results")
-            return {"results": [], "kb_id": kb_id, "query": query, "rag_available": False}
+            logger.warning(
+                "fusion-rag not available for search, returning empty results"
+            )
+            return {
+                "results": [],
+                "kb_id": kb_id,
+                "query": query,
+                "rag_available": False,
+            }
 
         try:
             client = self._get_rag_client()
             results = await client.search(kb_id=kb_id, query=query, **kwargs)
             logger.info(
                 "fusion-rag search on kb %s: query=%s, results=%d",
-                kb_id, query[:50], len(results),
+                kb_id,
+                query[:50],
+                len(results),
             )
             return {
                 "results": [r.__dict__ for r in results],
@@ -464,13 +515,24 @@ class KnowledgeBaseManager:
             }
         except Exception as e:
             logger.error("fusion-rag search failed for kb %s: %s", kb_id, e)
-            return {"results": [], "kb_id": kb_id, "query": query, "rag_available": False, "error": str(e)}
+            return {
+                "results": [],
+                "kb_id": kb_id,
+                "query": query,
+                "rag_available": False,
+                "error": str(e),
+            }
 
     async def ask(self, kb_id: str, question: str, **kwargs) -> dict:
         rag_available = await self.is_rag_available()
         if not rag_available:
             logger.warning("fusion-rag not available for ask, returning empty answer")
-            return {"answer": "", "kb_id": kb_id, "question": question, "rag_available": False}
+            return {
+                "answer": "",
+                "kb_id": kb_id,
+                "question": question,
+                "rag_available": False,
+            }
 
         try:
             client = self._get_rag_client()
@@ -486,7 +548,13 @@ class KnowledgeBaseManager:
             }
         except Exception as e:
             logger.error("fusion-rag ask failed for kb %s: %s", kb_id, e)
-            return {"answer": "", "kb_id": kb_id, "question": question, "rag_available": False, "error": str(e)}
+            return {
+                "answer": "",
+                "kb_id": kb_id,
+                "question": question,
+                "rag_available": False,
+                "error": str(e),
+            }
 
     async def scan_directory(self, kb_id: str, path: str, **kwargs) -> dict:
         rag_available = await self.is_rag_available()
@@ -501,4 +569,9 @@ class KnowledgeBaseManager:
             return {**result, "kb_id": kb_id, "rag_available": True}
         except Exception as e:
             logger.error("fusion-rag scan_directory failed for kb %s: %s", kb_id, e)
-            return {"kb_id": kb_id, "path": path, "rag_available": False, "error": str(e)}
+            return {
+                "kb_id": kb_id,
+                "path": path,
+                "rag_available": False,
+                "error": str(e),
+            }

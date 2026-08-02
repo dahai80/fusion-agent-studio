@@ -1,5 +1,6 @@
 """Plaza broadcast mechanism — multi-agent shared log stream with @Mention,
 supervisor designate, 3-round circuit breaker, and human break-in."""
+
 from __future__ import annotations
 
 import logging
@@ -102,7 +103,9 @@ class Plaza:
         self._max_rounds = max_rounds
         self._channels: dict[str, PlazaChannel] = {}
         self._messages: dict[str, list[PlazaMessage]] = {}
-        self._subscriptions: dict[str, tuple[str, str, Callable[[PlazaMessage], None]]] = {}
+        self._subscriptions: dict[
+            str, tuple[str, str, Callable[[PlazaMessage], None]]
+        ] = {}
         self._lock = threading.Lock()
         logger.info("Plaza initialized with max_rounds=%d", max_rounds)
 
@@ -133,9 +136,7 @@ class Plaza:
             del self._channels[name]
             self._messages.pop(name, None)
             subs_to_remove = [
-                sid
-                for sid, (ch, _, _) in self._subscriptions.items()
-                if ch == name
+                sid for sid, (ch, _, _) in self._subscriptions.items() if ch == name
             ]
             for sid in subs_to_remove:
                 del self._subscriptions[sid]
@@ -167,7 +168,9 @@ class Plaza:
 
             if effective_mentions:
                 effective_mentions = [
-                    m for m in effective_mentions if m in ch.participants or m == "human"
+                    m
+                    for m in effective_mentions
+                    if m in ch.participants or m == "human"
                 ]
 
             ch.current_round += 1

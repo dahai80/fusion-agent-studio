@@ -6,6 +6,7 @@ Tier 3: 0.5B model gate — lightweight LLM judges significance
 
 Prevents unnecessary LLM calls when files change but meaning doesn't.
 """
+
 from __future__ import annotations
 
 import ast
@@ -96,13 +97,15 @@ class DebounceLayer:
     def flush_pending(self) -> list[AwareResult]:
         results = []
         for path, event in list(self._pending.items()):
-            results.append(AwareResult(
-                path=path,
-                tier=1,
-                significant=True,
-                reason="Flushed from debounce queue",
-                event=event,
-            ))
+            results.append(
+                AwareResult(
+                    path=path,
+                    tier=1,
+                    significant=True,
+                    reason="Flushed from debounce queue",
+                    event=event,
+                )
+            )
         self._pending.clear()
         self._last_event.clear()
         return results
@@ -168,7 +171,9 @@ class ModelGateLayer:
         self.model_name = model_name
         self._call_count = 0
 
-    def process(self, event: FileEvent, old_content: str = "", new_content: str = "") -> AwareResult:
+    def process(
+        self, event: FileEvent, old_content: str = "", new_content: str = ""
+    ) -> AwareResult:
         self._call_count += 1
         path = event.path
 
@@ -178,7 +183,9 @@ class ModelGateLayer:
                 path=path,
                 tier=3,
                 significant=result,
-                reason="Heuristic gate (no model)" if not result else "Heuristic gate: significant",
+                reason="Heuristic gate (no model)"
+                if not result
+                else "Heuristic gate: significant",
                 event=event,
             )
 
@@ -195,7 +202,9 @@ class ModelGateLayer:
         ratio = len(diff_lines) / max(len(old_lines), len(new_lines), 1)
         return ratio > 0.05
 
-    def _model_gate(self, path: str, old_content: str, new_content: str, event: FileEvent) -> AwareResult:
+    def _model_gate(
+        self, path: str, old_content: str, new_content: str, event: FileEvent
+    ) -> AwareResult:
         try:
             prompt = (
                 "Determine if this code change is significant enough to warrant "
@@ -243,7 +252,12 @@ class AwareEngine:
         self.tier2 = ASTDiffLayer()
         self.tier3 = ModelGateLayer(model_client, model_name)
         self._content_cache: dict[str, str] = {}
-        self._stats = {"tier1_passed": 0, "tier2_blocked": 0, "tier3_called": 0, "significant": 0}
+        self._stats = {
+            "tier1_passed": 0,
+            "tier2_blocked": 0,
+            "tier3_called": 0,
+            "significant": 0,
+        }
 
     def process_event(self, event: FileEvent, content: str = "") -> AwareResult:
         old_content = self._content_cache.get(event.path, "")
@@ -252,7 +266,13 @@ class AwareEngine:
 
         result = self.tier1.process(event)
         if result is None:
-            return AwareResult(path=event.path, tier=0, significant=False, reason="Debounced", event=event)
+            return AwareResult(
+                path=event.path,
+                tier=0,
+                significant=False,
+                reason="Debounced",
+                event=event,
+            )
 
         self._stats["tier1_passed"] += 1
 
@@ -268,7 +288,9 @@ class AwareEngine:
             self._stats["significant"] += 1
         return result
 
-    def process_file_change(self, path: str, event_type: str = "modified", content: str = "") -> AwareResult:
+    def process_file_change(
+        self, path: str, event_type: str = "modified", content: str = ""
+    ) -> AwareResult:
         try:
             if not content:
                 content = Path(path).read_text(encoding="utf-8", errors="replace")
@@ -283,7 +305,12 @@ class AwareEngine:
         return dict(self._stats)
 
     def reset_stats(self) -> None:
-        self._stats = {"tier1_passed": 0, "tier2_blocked": 0, "tier3_called": 0, "significant": 0}
+        self._stats = {
+            "tier1_passed": 0,
+            "tier2_blocked": 0,
+            "tier3_called": 0,
+            "significant": 0,
+        }
 
     def flush(self) -> list[AwareResult]:
         return self.tier1.flush_pending()

@@ -1,4 +1,5 @@
 """Tests for agent context."""
+
 from __future__ import annotations
 
 import time
@@ -21,17 +22,25 @@ class TestAgentEvent:
         assert before <= event.timestamp <= after
 
     def test_to_dict(self):
-        event = AgentEvent(type=AgentEventType.TOOL_CALL, name="read_file", args={"path": "/tmp"})
+        event = AgentEvent(
+            type=AgentEventType.TOOL_CALL, name="read_file", args={"path": "/tmp"}
+        )
         d = event.to_dict()
         assert d["type"] == "tool_call"
         assert d["name"] == "read_file"
         assert d["args"]["path"] == "/tmp"
 
     def test_from_dict(self):
-        event = AgentEvent.from_dict({
-            "type": "result", "content": "done", "name": "", "args": {},
-            "timestamp": 100.0, "metadata": {},
-        })
+        event = AgentEvent.from_dict(
+            {
+                "type": "result",
+                "content": "done",
+                "name": "",
+                "args": {},
+                "timestamp": 100.0,
+                "metadata": {},
+            }
+        )
         assert event.type == AgentEventType.RESULT
         assert event.content == "done"
 
@@ -117,8 +126,16 @@ class TestAgentContext:
     def test_token_usage_with_messages(self):
         ctx = AgentContext()
         ctx.messages = [
-            {"role": "user", "content": "hi", "usage": {"prompt_tokens": 10, "completion_tokens": 0}},
-            {"role": "assistant", "content": "hello", "usage": {"prompt_tokens": 0, "completion_tokens": 20}},
+            {
+                "role": "user",
+                "content": "hi",
+                "usage": {"prompt_tokens": 10, "completion_tokens": 0},
+            },
+            {
+                "role": "assistant",
+                "content": "hello",
+                "usage": {"prompt_tokens": 0, "completion_tokens": 20},
+            },
         ]
         usage = ctx.token_usage()
         assert usage["prompt_tokens"] == 10
@@ -143,8 +160,16 @@ class TestAgentContext:
         data = {
             "session_id": "s1",
             "messages": [{"role": "user", "content": "hi"}],
-            "events": [{"type": "start", "content": "Begin", "name": "", "args": {},
-                        "timestamp": 0.0, "metadata": {}}],
+            "events": [
+                {
+                    "type": "start",
+                    "content": "Begin",
+                    "name": "",
+                    "args": {},
+                    "timestamp": 0.0,
+                    "metadata": {},
+                }
+            ],
             "metadata": {},
             "current_node_id": "n1",
             "iteration_count": 2,

@@ -1,13 +1,57 @@
 """Sub-dispatcher: InfraDispatcher."""
+
 from __future__ import annotations
 import logging
-from typing import Any
 from .base import SubDispatcher
+from typing import Callable
+from ..daemon_server import MLX_PORT
+import time
+
 
 logger = logging.getLogger(__name__)
 
 
 class InfraDispatcher(SubDispatcher):
+    def get_handlers(self) -> dict[str, Callable]:
+        return {
+            "telemetry.configure": self._handle_telemetry_configure,
+            "telemetry.get_trace": self._handle_telemetry_get_trace,
+            "telemetry.export": self._handle_telemetry_export,
+            "telemetry.list_spans": self._handle_telemetry_list_spans,
+            "telemetry.metrics": self._handle_telemetry_metrics,
+            "connector.list": self._handle_connector_list,
+            "connector.create": self._handle_connector_create,
+            "connector.get": self._handle_connector_get,
+            "connector.update": self._handle_connector_update,
+            "connector.delete": self._handle_connector_delete,
+            "connector.connect": self._handle_connector_connect,
+            "connector.disconnect": self._handle_connector_disconnect,
+            "connector.test": self._handle_connector_test,
+            "apikey.create": self._handle_apikey_create,
+            "apikey.list": self._handle_apikey_list,
+            "apikey.revoke": self._handle_apikey_revoke,
+            "apikey.rotate": self._handle_apikey_rotate,
+            "apikey.update": self._handle_apikey_update,
+            "cron.register": self._handle_cron_register,
+            "cron.unregister": self._handle_cron_unregister,
+            "cron.list": self._handle_cron_list,
+            "cron.list_executions": self._handle_cron_list_executions,
+            "hooks.list": self._handle_hooks_list,
+            "hooks.register": self._handle_hooks_register,
+            "hooks.test": self._handle_hooks_test,
+            "sdk.list_types": self._handle_sdk_list_types,
+            "sdk.verify": self._handle_sdk_verify,
+            "sdk.scaffold": self._handle_sdk_scaffold,
+            "alert.list": self._handle_alert_list,
+            "alert.acknowledge": self._handle_alert_acknowledge,
+            "dashboard.overview": self._handle_dashboard_overview,
+            "analytics.agent_usage": self._handle_analytics_agent_usage,
+            "model.status": self._handle_model_status,
+            "audit.list": self._handle_audit_list,
+            "system.offline_status": self._handle_system_offline_status,
+            "system.set_offline": self._handle_system_set_offline,
+        }
+
     async def _handle_telemetry_configure(self, params: dict) -> dict:
         engine = self._daemon._get_telemetry_engine()
         engine.configure(params)
@@ -50,14 +94,19 @@ class InfraDispatcher(SubDispatcher):
         name = params.get("name", "")
         if not name:
             return {"status": "error", "message": "name parameter required"}
-        return mgr.create(name, params.get("type", "api_key"), params.get("auth_config", {}))
+        return mgr.create(
+            name, params.get("type", "api_key"), params.get("auth_config", {})
+        )
 
     async def _handle_connector_get(self, params: dict) -> dict:
         mgr = self._daemon._get_connector_manager()
         connector_id = params.get("connector_id", "")
         result = mgr.get(connector_id)
         if result is None:
-            return {"status": "error", "message": f"Connector not found: {connector_id}"}
+            return {
+                "status": "error",
+                "message": f"Connector not found: {connector_id}",
+            }
         return {"connector": result}
 
     async def _handle_connector_update(self, params: dict) -> dict:
@@ -122,7 +171,8 @@ class InfraDispatcher(SubDispatcher):
     # ── Analytics handler ──
 
     async def _handle_cron_register(self, params: dict) -> dict:
-        from .triggers import CronJob
+        from ..triggers import CronJob
+
         cm = self._daemon._get_cron_manager()
         job_id = params.get("id", f"cron_{int(time.time())}")
         job = CronJob(
@@ -164,7 +214,8 @@ class InfraDispatcher(SubDispatcher):
         return {"hooks": engine.list_hooks()}
 
     async def _handle_hooks_register(self, params: dict) -> dict:
-        from .hooks import HookConfig
+        from ..hooks import HookConfig
+
         engine = self._daemon._get_hooks()
         hook = HookConfig.from_dict(params)
         engine.register(hook)
@@ -175,22 +226,27 @@ class InfraDispatcher(SubDispatcher):
         engine = self._daemon._get_hooks()
         event = params.get("event", "")
         payload = params.get("payload", {})
-        result = await engine.fire(event, payload, tool_name=params.get("tool_name", ""))
+        result = await engine.fire(
+            event, payload, tool_name=params.get("tool_name", "")
+        )
         return {"result": self._daemon._serialize(result)}
 
     async def _handle_sdk_list_types(self, params: dict) -> dict:
-        from .sdk import list_available_types
+        from ..sdk import list_available_types
+
         types = list_available_types()
         return {"types": types}
 
     async def _handle_sdk_verify(self, params: dict) -> dict:
-        from .sdk import verify_agent
+        from ..sdk import verify_agent
+
         agent_def = params.get("agent", {})
         result = verify_agent(agent_def)
         return result
 
     async def _handle_sdk_scaffold(self, params: dict) -> dict:
-        from .sdk import scaffold_agent
+        from ..sdk import scaffold_agent
+
         result = scaffold_agent(
             name=params.get("name", "my_agent"),
             template=params.get("template", "basic"),
@@ -205,9 +261,25 @@ class InfraDispatcher(SubDispatcher):
             budget_data = budget_handler if isinstance(budget_handler, dict) else {}
             warn_pct = budget_data.get("warn_percent", 0)
             if warn_pct > 80:
-                alerts.append({"id": "budget-warning", "level": "warning", "message": f"Token budget usage at {warn_pct}%", "type": "budget", "acknowledged": False})
+                alerts.append(
+                    {
+                        "id": "budget-warning",
+                        "level": "warning",
+                        "message": f"Token budget usage at {warn_pct}%",
+                        "type": "budget",
+                        "acknowledged": False,
+                    }
+                )
             if warn_pct > 95:
-                alerts.append({"id": "budget-critical", "level": "critical", "message": f"Token budget nearly exhausted ({warn_pct}%)", "type": "budget", "acknowledged": False})
+                alerts.append(
+                    {
+                        "id": "budget-critical",
+                        "level": "critical",
+                        "message": f"Token budget nearly exhausted ({warn_pct}%)",
+                        "type": "budget",
+                        "acknowledged": False,
+                    }
+                )
         except Exception:
             pass
         try:
@@ -215,7 +287,15 @@ class InfraDispatcher(SubDispatcher):
             _now = time.time()
             for s in sessions[-20:]:
                 if isinstance(s, dict) and s.get("status") == "error":
-                    alerts.append({"id": f"session-error-{s.get('session_id', '')}", "level": "error", "message": f"Session error: {s.get('error', 'unknown')}", "type": "session", "acknowledged": False})
+                    alerts.append(
+                        {
+                            "id": f"session-error-{s.get('session_id', '')}",
+                            "level": "error",
+                            "message": f"Session error: {s.get('error', 'unknown')}",
+                            "type": "session",
+                            "acknowledged": False,
+                        }
+                    )
         except Exception:
             pass
         return {"alerts": alerts}
@@ -230,8 +310,14 @@ class InfraDispatcher(SubDispatcher):
     async def _handle_dashboard_overview(self, params: dict) -> dict:
         self._daemon._load_agents_index()
         total_agents = len(self._daemon._agents)
-        published_agents = sum(1 for m in self._daemon._agents.values() if m.get("status") == "published")
-        active_agents = sum(1 for m in self._daemon._agents.values() if m.get("status") in ("draft", "published"))
+        published_agents = sum(
+            1 for m in self._daemon._agents.values() if m.get("status") == "published"
+        )
+        active_agents = sum(
+            1
+            for m in self._daemon._agents.values()
+            if m.get("status") in ("draft", "published")
+        )
 
         today_requests = 0
         total_tokens = 0
@@ -250,7 +336,8 @@ class InfraDispatcher(SubDispatcher):
             logger.warning("dashboard.overview session query failed: %s", exc)
 
         try:
-            from .metrics_engine import MetricsEngine
+            from ..metrics_engine import MetricsEngine
+
             me = MetricsEngine()
             summary = me.get_summary()
             total_tokens = summary.total_tokens_in + summary.total_tokens_out
@@ -263,16 +350,38 @@ class InfraDispatcher(SubDispatcher):
             budget_data = budget_handler if isinstance(budget_handler, dict) else {}
             warn_pct = budget_data.get("warn_percent", 0)
             if warn_pct > 80:
-                alerts.append({"level": "warning", "message": f"Token budget usage at {warn_pct}%", "type": "budget"})
+                alerts.append(
+                    {
+                        "level": "warning",
+                        "message": f"Token budget usage at {warn_pct}%",
+                        "type": "budget",
+                    }
+                )
         except Exception:
             pass
 
         recent_agents = []
-        sorted_agents = sorted(self._daemon._agents.items(), key=lambda x: x[1].get("created_at", 0), reverse=True)[:5]
+        sorted_agents = sorted(
+            self._daemon._agents.items(),
+            key=lambda x: x[1].get("created_at", 0),
+            reverse=True,
+        )[:5]
         for aid, meta in sorted_agents:
-            recent_agents.append({"id": aid, "name": meta.get("name", ""), "status": meta.get("status", "draft")})
+            recent_agents.append(
+                {
+                    "id": aid,
+                    "name": meta.get("name", ""),
+                    "status": meta.get("status", "draft"),
+                }
+            )
 
-        logger.info("dashboard.overview: agents=%d requests=%d tokens=%d errors=%d", total_agents, today_requests, total_tokens, error_count)
+        logger.info(
+            "dashboard.overview: agents=%d requests=%d tokens=%d errors=%d",
+            total_agents,
+            today_requests,
+            total_tokens,
+            error_count,
+        )
         return {
             "total_agents": total_agents,
             "published_agents": published_agents,
@@ -290,12 +399,15 @@ class InfraDispatcher(SubDispatcher):
         agent_id = params.get("agent_id")
         time_range = params.get("time_range", "day")
         now = time.time()
-        range_seconds = {"day": 86400, "week": 604800, "month": 2592000}.get(time_range, 86400)
+        range_seconds = {"day": 86400, "week": 604800, "month": 2592000}.get(
+            time_range, 86400
+        )
         cutoff = now - range_seconds
 
         agents_usage = []
         try:
-            from .metrics_engine import MetricsEngine
+            from ..metrics_engine import MetricsEngine
+
             me = MetricsEngine()
             sessions = me.query_sessions()
             agent_buckets: dict[str, dict] = {}
@@ -303,11 +415,24 @@ class InfraDispatcher(SubDispatcher):
                 ts = s.timestamp if hasattr(s, "timestamp") else s.get("timestamp", 0)
                 if ts < cutoff:
                     continue
-                gid = s.graph_id if hasattr(s, "graph_id") else s.get("graph_id", "unknown")
+                gid = (
+                    s.graph_id
+                    if hasattr(s, "graph_id")
+                    else s.get("graph_id", "unknown")
+                )
                 aid = gid if agent_id is None else agent_id
                 if agent_id and gid != agent_id:
                     continue
-                bucket = agent_buckets.setdefault(aid, {"agent_id": aid, "requests": 0, "input_tokens": 0, "output_tokens": 0, "errors": 0})
+                bucket = agent_buckets.setdefault(
+                    aid,
+                    {
+                        "agent_id": aid,
+                        "requests": 0,
+                        "input_tokens": 0,
+                        "output_tokens": 0,
+                        "errors": 0,
+                    },
+                )
                 bucket["requests"] += 1
                 if hasattr(s, "error") and s.error:
                     bucket["errors"] += 1
@@ -317,13 +442,18 @@ class InfraDispatcher(SubDispatcher):
         except Exception as exc:
             logger.warning("analytics.agent_usage failed: %s", exc)
 
-        logger.info("analytics.agent_usage: range=%s agents=%d", time_range, len(agents_usage))
+        logger.info(
+            "analytics.agent_usage: range=%s agents=%d", time_range, len(agents_usage)
+        )
         return {"agents": agents_usage, "time_range": time_range}
 
     # ── Style handlers ──
 
     async def _handle_model_status(self, params: dict) -> dict:
-        running = self._daemon._mlx_process is not None and self._daemon._mlx_process.poll() is None
+        running = (
+            self._daemon._mlx_process is not None
+            and self._daemon._mlx_process.poll() is None
+        )
         connected = False
         models = []
         loaded = []
@@ -360,7 +490,12 @@ class InfraDispatcher(SubDispatcher):
 
     async def _handle_system_offline_status(self, params: dict) -> dict:
         import os
-        env_offline = os.environ.get("FUSION_CODE_OFFLINE", "").lower() in ("1", "true", "yes")
+
+        env_offline = os.environ.get("FUSION_CODE_OFFLINE", "").lower() in (
+            "1",
+            "true",
+            "yes",
+        )
         offline = self._daemon._offline_mode or env_offline
         reason = None
         if env_offline:

@@ -11,6 +11,7 @@ Data schemas: AgentStore for graph persistence, AgentRuntime for execution,
 
 User instruction: "坚各个产品的边界和原则，fusion-studio的GUI基本定稿了，现在把功能做起来，开始吧"
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -28,7 +29,7 @@ from typing import Any
 from .graph import AgentGraph, NodeConfig
 from .llm_gateway import LLMGateway
 from .persistence import AgentStore
-from .rag_pipeline import RAGConfig, RAGPipeline
+from .rag_pipeline import RAGPipeline
 from .runtime import AgentRuntime
 from .chat_engine import ChatEngine
 from .code_sandbox import CodeSandbox
@@ -42,7 +43,13 @@ MLX_BASE_URL = f"http://127.0.0.1:{MLX_PORT}/v1"
 
 
 class DaemonServer:
-    def __init__(self, socket_path: str = SOCKET_PATH, ws_port: int = WS_PORT, cluster_port: int = 11454, http_port: int = 11453):
+    def __init__(
+        self,
+        socket_path: str = SOCKET_PATH,
+        ws_port: int = WS_PORT,
+        cluster_port: int = 11454,
+        http_port: int = 11453,
+    ):
         self.socket_path = socket_path
         self.ws_port = ws_port
         self.cluster_port = cluster_port
@@ -83,24 +90,42 @@ class DaemonServer:
         self._version_store = None
         self._offline_mode = False
 
-
         self._sub_dispatchers = self._init_sub_dispatchers()
+
+    def __getattr__(self, name: str):
+        if name.startswith("_handle_"):
+            for sd in self.__dict__.get("_sub_dispatchers", []):
+                handlers = sd.get_handlers()
+                for rpc, handler in handlers.items():
+                    if handler.__name__ == name:
+                        return handler
+        raise AttributeError(
+            f"'{type(self).__name__}' object has no attribute '{name}'"
+        )
+
     def _get_runtime(self) -> AgentRuntime:
         if self._runtime is None:
             from tools import create_default_registry
+
             registry = create_default_registry()
-            self._runtime = AgentRuntime(llm_gateway=self._gateway, tool_registry=registry)
+            self._runtime = AgentRuntime(
+                llm_gateway=self._gateway, tool_registry=registry
+            )
             logger.info("AgentRuntime created with %d tools", len(registry._tools))
         return self._runtime
 
     def _get_chat_engine(self) -> ChatEngine:
         if self._chat_engine is None:
-            self._chat_engine = ChatEngine(runtime=self._get_runtime(), store=self.store)
+            self._chat_engine = ChatEngine(
+                runtime=self._get_runtime(), store=self.store
+            )
             logger.info("ChatEngine created")
         return self._chat_engine
+
     def _get_fmp(self):
         if self._fmp is None:
             from .fmp_router import FMProtocol
+
             self._fmp = FMProtocol("daemon")
             logger.info("FMProtocol created")
         return self._fmp
@@ -108,6 +133,7 @@ class DaemonServer:
     def _get_swarm(self):
         if self._swarm is None:
             from .swarm_router import SwarmRouter
+
             self._swarm = SwarmRouter(fmp=self._get_fmp())
             logger.info("SwarmRouter created (shared fmp)")
         return self._swarm
@@ -115,6 +141,7 @@ class DaemonServer:
     def _get_plaza(self):
         if self._plaza is None:
             from .plaza import Plaza
+
             self._plaza = Plaza()
             logger.info("Plaza created")
         return self._plaza
@@ -123,6 +150,7 @@ class DaemonServer:
         if self._orchestrator is None:
             from .orchestrator import MultiAgentOrchestrator
             from tools import create_default_registry
+
             registry = create_default_registry()
             self._orchestrator = MultiAgentOrchestrator(
                 tool_registry=registry,
@@ -138,6 +166,7 @@ class DaemonServer:
         rt = self._get_runtime()
         if rt.compactor is None:
             from .compactor import Compactor
+
             rt.compactor = Compactor(memory_engine=rt.memory_engine)
         return rt.compactor
 
@@ -145,6 +174,7 @@ class DaemonServer:
         rt = self._get_runtime()
         if rt.hooks is None:
             from .hooks import HookEngine
+
             rt.hooks = HookEngine()
             logger.info("HookEngine created")
         return rt.hooks
@@ -152,6 +182,7 @@ class DaemonServer:
     def _get_connector_manager(self):
         if self._connector_mgr is None:
             from .connectors import ConnectorManager
+
             base = Path.home() / ".fusion-agent-studio" / "connectors"
             self._connector_mgr = ConnectorManager(base)
             logger.info("ConnectorManager created at %s", base)
@@ -160,6 +191,7 @@ class DaemonServer:
     def _get_apikey_manager(self):
         if self._apikey_mgr is None:
             from .apikey_manager import ApiKeyManager
+
             base = Path.home() / ".fusion-agent-studio" / "apikeys"
             self._apikey_mgr = ApiKeyManager(base)
             logger.info("ApiKeyManager created at %s", base)
@@ -168,6 +200,7 @@ class DaemonServer:
     def _get_style_manager(self):
         if self._style_mgr is None:
             from .style_manager import StyleManager
+
             base = Path.home() / ".fusion-agent-studio" / "styles"
             self._style_mgr = StyleManager(base)
             logger.info("StyleManager created at %s", base)
@@ -176,9 +209,12 @@ class DaemonServer:
     def _get_workflow_engine(self):
         if self._workflow_engine is None:
             from .workflow_engine import WorkflowEngine
+
             self._workflow_engine = WorkflowEngine(
                 llm_gateway=self._gateway,
-                tool_registry=self._get_runtime()._tool_registry if self._runtime else None,
+                tool_registry=self._get_runtime()._tool_registry
+                if self._runtime
+                else None,
                 orchestrator=self._get_orchestrator(),
             )
             logger.info("WorkflowEngine created")
@@ -187,6 +223,7 @@ class DaemonServer:
     def _get_session_manager(self):
         if self._session_manager is None:
             from .session_manager import SessionManager
+
             self._session_manager = SessionManager(
                 runtime=self._get_runtime(),
                 gateway=self._gateway,
@@ -198,6 +235,7 @@ class DaemonServer:
     def _get_telemetry_engine(self):
         if self._telemetry_engine is None:
             from .telemetry import TelemetryEngine
+
             self._telemetry_engine = TelemetryEngine()
             logger.info("TelemetryEngine created")
         return self._telemetry_engine
@@ -205,6 +243,7 @@ class DaemonServer:
     def _get_status_tracker(self):
         if self._status_tracker is None:
             from .agent_api import AgentStatusTracker
+
             self._status_tracker = AgentStatusTracker()
             logger.info("AgentStatusTracker created")
         return self._status_tracker
@@ -212,6 +251,7 @@ class DaemonServer:
     def _get_cowork_manager(self):
         if self._cowork_manager is None:
             from .cowork_manager import CoworkManager
+
             self._cowork_manager = CoworkManager()
             logger.info("CoworkManager created")
         return self._cowork_manager
@@ -219,6 +259,7 @@ class DaemonServer:
     def _get_langgraph_engine(self):
         if self._langgraph_engine is None:
             from .langgraph_engine import LangGraphEngine
+
             self._langgraph_engine = LangGraphEngine()
             logger.info("LangGraphEngine created")
         return self._langgraph_engine
@@ -226,6 +267,7 @@ class DaemonServer:
     def _get_artifact_manager(self):
         if self._artifact_manager is None:
             from .artifact_tools import ArtifactManager
+
             self._artifact_manager = ArtifactManager()
             logger.info("ArtifactManager created")
         return self._artifact_manager
@@ -233,6 +275,7 @@ class DaemonServer:
     def _get_kb_manager(self):
         if self._kb_manager is None:
             from .knowledge_base import KnowledgeBaseManager
+
             self._kb_manager = KnowledgeBaseManager()
             logger.info("KnowledgeBaseManager created")
         return self._kb_manager
@@ -240,6 +283,7 @@ class DaemonServer:
     def _get_audit_logger(self):
         if self._audit_logger is None:
             from .audit_logger import AuditLogger
+
             self._audit_logger = AuditLogger()
             logger.info("AuditLogger created")
         return self._audit_logger
@@ -247,6 +291,7 @@ class DaemonServer:
     def _get_version_store(self):
         if self._version_store is None:
             from .agent_version import AgentVersionStore
+
             self._version_store = AgentVersionStore()
             logger.info("AgentVersionStore created")
         return self._version_store
@@ -258,43 +303,10 @@ class DaemonServer:
             return obj.to_dict()
         try:
             import dataclasses
+
             return dataclasses.asdict(obj)
         except Exception:
             return str(obj)
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
     async def start(self) -> None:
         if os.path.exists(self.socket_path):
@@ -316,7 +328,13 @@ class DaemonServer:
             try:
                 from .cluster_server import app as cluster_app
                 import uvicorn
-                config = uvicorn.Config(cluster_app, host="127.0.0.1", port=self.cluster_port, log_level="warning")
+
+                config = uvicorn.Config(
+                    cluster_app,
+                    host="127.0.0.1",
+                    port=self.cluster_port,
+                    log_level="warning",
+                )
                 cluster_server = uvicorn.Server(config)
                 self._cluster_task = asyncio.create_task(cluster_server.serve())
                 logger.info("Cluster API server started on port %d", self.cluster_port)
@@ -328,7 +346,13 @@ class DaemonServer:
             try:
                 from .api_server import app as fastapi_app
                 import uvicorn as uvicorn2
-                http_config = uvicorn2.Config(fastapi_app, host="127.0.0.1", port=self.http_port, log_level="warning")
+
+                http_config = uvicorn2.Config(
+                    fastapi_app,
+                    host="127.0.0.1",
+                    port=self.http_port,
+                    log_level="warning",
+                )
                 http_server = uvicorn2.Server(http_config)
                 self._http_task = asyncio.create_task(http_server.serve())
                 logger.info("FastAPI HTTP server started on port %d", self.http_port)
@@ -336,7 +360,13 @@ class DaemonServer:
                 logger.warning("FastAPI HTTP server failed to start: %s", e)
 
         self._running = True
-        logger.info("Daemon listening on %s + WS on %d + Cluster on %d + HTTP on %d", self.socket_path, self.ws_port, self.cluster_port, self.http_port)
+        logger.info(
+            "Daemon listening on %s + WS on %d + Cluster on %d + HTTP on %d",
+            self.socket_path,
+            self.ws_port,
+            self.cluster_port,
+            self.http_port,
+        )
 
     async def stop(self) -> None:
         self._running = False
@@ -424,10 +454,14 @@ class DaemonServer:
         params = message.get("params", {})
 
         if "jsonrpc" not in message or message["jsonrpc"] != "2.0":
-            return self._error_response(msg_id, -32600, "Invalid Request: missing jsonrpc 2.0")
+            return self._error_response(
+                msg_id, -32600, "Invalid Request: missing jsonrpc 2.0"
+            )
 
         if not method:
-            return self._error_response(msg_id, -32601, "Method not found: empty method")
+            return self._error_response(
+                msg_id, -32601, "Method not found: empty method"
+            )
 
         handler = self._get_handler(method)
         if handler is None:
@@ -489,20 +523,21 @@ class DaemonServer:
                 return handlers[method]
         return None
 
-
-
-
-
-
-
-
     def _init_sub_dispatchers(self):
         from .dispatchers import (
-            MarketplaceDispatcher, DeployDispatcher, KnowledgeDispatcher,
-            AgentDispatcher, ChatDispatcher, TeamDispatcher,
-            InfraDispatcher, WorkflowDispatcher, SafetyDispatcher,
-            PlannerDispatcher, MemoryDispatcher,
+            MarketplaceDispatcher,
+            DeployDispatcher,
+            KnowledgeDispatcher,
+            AgentDispatcher,
+            ChatDispatcher,
+            TeamDispatcher,
+            InfraDispatcher,
+            WorkflowDispatcher,
+            SafetyDispatcher,
+            PlannerDispatcher,
+            MemoryDispatcher,
         )
+
         return [
             MarketplaceDispatcher(self),
             DeployDispatcher(self),
@@ -526,7 +561,11 @@ class DaemonServer:
         after_tok = compactor.estimate_tokens(compacted)
         logger.info(
             "context.compact level=%s before_msgs=%d after_msgs=%d before_tok=%d after_tok=%d",
-            level, len(messages), len(compacted), before_tok, after_tok,
+            level,
+            len(messages),
+            len(compacted),
+            before_tok,
+            after_tok,
         )
         return {
             "messages": compacted,
@@ -553,7 +592,11 @@ class DaemonServer:
 
     @staticmethod
     def _error_response(msg_id: Any, code: int, message: str) -> dict:
-        return {"jsonrpc": "2.0", "id": msg_id, "error": {"code": code, "message": message}}
+        return {
+            "jsonrpc": "2.0",
+            "id": msg_id,
+            "error": {"code": code, "message": message},
+        }
 
     # ── Handlers ──
 
@@ -570,8 +613,12 @@ class DaemonServer:
         if await self._check_mlx_health():
             self._attach_mlx_client()
             logger.info("Reusing already-running fusion-mlx on port %d", MLX_PORT)
-            return {"status": "already_running", "port": MLX_PORT,
-                    "model": model, "external": True}
+            return {
+                "status": "already_running",
+                "port": MLX_PORT,
+                "model": model,
+                "external": True,
+            }
 
         cmd = [sys.executable, "-m", "fusion_mlx", "serve", "--port", str(MLX_PORT)]
         if model:
@@ -593,7 +640,10 @@ class DaemonServer:
             self._attach_mlx_client()
             return {"status": "started", "port": MLX_PORT, "model": model}
         else:
-            return {"status": "error", "message": "fusion-mlx failed to start within 30s"}
+            return {
+                "status": "error",
+                "message": "fusion-mlx failed to start within 30s",
+            }
 
     async def _handle_mlx_stop(self, params: dict) -> dict:
         if not self._mlx_process or self._mlx_process.poll() is not None:
@@ -655,7 +705,10 @@ class DaemonServer:
 
         healthy = await self._check_mlx_health()
         if not healthy:
-            return {"status": "error", "message": "fusion-mlx not running or unreachable"}
+            return {
+                "status": "error",
+                "message": "fusion-mlx not running or unreachable",
+            }
 
         try:
             resp = await self._gateway.chat(
@@ -728,7 +781,11 @@ class DaemonServer:
                 source_id = e.get("source_id", e.get("source", ""))
                 target_id = e.get("target_id", e.get("target", ""))
                 if source_id and target_id:
-                    graph.add_edge(source_id, target_id, label=e.get("label", e.get("condition", "")))
+                    graph.add_edge(
+                        source_id,
+                        target_id,
+                        label=e.get("label", e.get("condition", "")),
+                    )
 
         self.store.save_graph(graph)
         logger.info("Created graph %s: %s", graph.id, graph.name)
@@ -779,7 +836,9 @@ class DaemonServer:
         events = []
 
         async for event in rt.execute_graph(graph, input_text):
-            ev_dict = event.to_dict() if hasattr(event, "to_dict") else {"type": str(event)}
+            ev_dict = (
+                event.to_dict() if hasattr(event, "to_dict") else {"type": str(event)}
+            )
             events.append(ev_dict)
 
         logger.info("Graph %s executed: %d events", graph_id, len(events))
@@ -823,7 +882,11 @@ class DaemonServer:
                 source_id = e.get("source_id", e.get("source", ""))
                 target_id = e.get("target_id", e.get("target", ""))
                 if source_id and target_id:
-                    graph.add_edge(source_id, target_id, label=e.get("label", e.get("condition", "")))
+                    graph.add_edge(
+                        source_id,
+                        target_id,
+                        label=e.get("label", e.get("condition", "")),
+                    )
 
         self.store.save_graph(graph)
         logger.info("Updated graph %s: %s", graph.id, graph.name)
@@ -837,9 +900,16 @@ class DaemonServer:
 
     def _get_tool_registry(self):
         from tools import create_default_registry
-        if not hasattr(self, "_cached_tool_registry") or self._cached_tool_registry is None:
+
+        if (
+            not hasattr(self, "_cached_tool_registry")
+            or self._cached_tool_registry is None
+        ):
             self._cached_tool_registry = create_default_registry()
-            logger.info("Cached default tool registry with %d tools", len(self._cached_tool_registry.tools))
+            logger.info(
+                "Cached default tool registry with %d tools",
+                len(self._cached_tool_registry.tools),
+            )
         return self._cached_tool_registry
 
     async def _handle_tool_list(self, params: dict) -> dict:
@@ -847,13 +917,15 @@ class DaemonServer:
         tools = []
         for name, tool in registry.tools.items():
             schema = tool.get_schema()
-            tools.append({
-                "name": name,
-                "description": schema.get("description", ""),
-                "parameters": schema.get("parameters", {}),
-                "category": getattr(tool, "category", "built-in"),
-                "enabled": True,
-            })
+            tools.append(
+                {
+                    "name": name,
+                    "description": schema.get("description", ""),
+                    "parameters": schema.get("parameters", {}),
+                    "category": getattr(tool, "category", "built-in"),
+                    "enabled": True,
+                }
+            )
         logger.info("Listed %d tools", len(tools))
         return {"tools": tools}
 
@@ -885,6 +957,7 @@ class DaemonServer:
 
         try:
             import resource
+
             usage = resource.getrusage(resource.RUSAGE_SELF)
             metrics["memory_mb"] = round(usage.ru_maxrss / 1024 / 1024, 1)
         except Exception:
@@ -893,23 +966,31 @@ class DaemonServer:
         try:
             result = subprocess.run(
                 ["sysctl", "-n", "hw.memsize"],
-                capture_output=True, text=True, timeout=2.0,
+                capture_output=True,
+                text=True,
+                timeout=2.0,
             )
             if result.returncode == 0:
-                metrics["total_memory_gb"] = round(int(result.stdout.strip()) / 1024 / 1024 / 1024, 1)
+                metrics["total_memory_gb"] = round(
+                    int(result.stdout.strip()) / 1024 / 1024 / 1024, 1
+                )
         except Exception:
             pass
 
         try:
             result = subprocess.run(
                 ["vm_stat"],
-                capture_output=True, text=True, timeout=2.0,
+                capture_output=True,
+                text=True,
+                timeout=2.0,
             )
             if result.returncode == 0:
                 for line in result.stdout.splitlines():
                     if "Pages free" in line:
                         free_pages = int(line.split(":")[1].strip().rstrip("."))
-                        metrics["free_memory_gb"] = round(free_pages * 16384 / 1024 / 1024 / 1024, 2)
+                        metrics["free_memory_gb"] = round(
+                            free_pages * 16384 / 1024 / 1024 / 1024, 2
+                        )
         except Exception:
             pass
 
@@ -918,16 +999,6 @@ class DaemonServer:
         )
 
         return metrics
-
-
-
-
-
-
-
-
-
-
 
     async def _handle_env_health_check(self, params: dict) -> dict:
         checks: dict[str, Any] = {}
@@ -948,6 +1019,7 @@ class DaemonServer:
 
         try:
             import importlib.util
+
             checks["httpx"] = {"ok": importlib.util.find_spec("httpx") is not None}
         except Exception:
             checks["httpx"] = {"ok": False, "message": "httpx not installed"}
@@ -978,13 +1050,18 @@ class DaemonServer:
     def _get_planner(self):
         if self._planner is None:
             from .planner import PlannerEngine
+
             self._planner = PlannerEngine(gateway=self._gateway)
-            logger.info("PlannerEngine created (gateway=%s)", "enabled" if self._gateway._default_client else "stub")
+            logger.info(
+                "PlannerEngine created (gateway=%s)",
+                "enabled" if self._gateway._default_client else "stub",
+            )
         return self._planner
 
     def _get_memory(self):
         if self._memory is None:
             from .memory_engine import MemoryEngine
+
             self._memory = MemoryEngine(gateway=self._gateway)
             logger.info("MemoryEngine created at %s", self._memory.db_path)
         return self._memory
@@ -992,6 +1069,7 @@ class DaemonServer:
     def _get_safety(self):
         if self._safety is None:
             from .safety import SafetyGateway
+
             self._safety = SafetyGateway()
             logger.info("SafetyGuard created (L1)")
         return self._safety
@@ -1000,69 +1078,51 @@ class DaemonServer:
         if self._rag is None:
             try:
                 from .knowledge_engine import KnowledgeEngine
+
                 ke = KnowledgeEngine()
             except Exception:
                 ke = None
-                logger.warning("KnowledgeEngine unavailable, RAG will run without retrieval")
+                logger.warning(
+                    "KnowledgeEngine unavailable, RAG will run without retrieval"
+                )
             self._rag = RAGPipeline(knowledge_engine=ke, gateway=self._gateway)
-            logger.info("RAGPipeline created (knowledge=%s, gateway=%s)", "enabled" if ke else "none", "enabled" if self._gateway._default_client else "stub")
+            logger.info(
+                "RAGPipeline created (knowledge=%s, gateway=%s)",
+                "enabled" if ke else "none",
+                "enabled" if self._gateway._default_client else "stub",
+            )
         return self._rag
 
     # ── Planner handlers ──
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
     def _get_vector_strategy(self, base_url: str = "http://localhost:8900"):
         from .rag_pipeline import VectorRetrievalStrategy
+
         if not hasattr(self, "_vector_strategy") or self._vector_strategy is None:
             self._vector_strategy = VectorRetrievalStrategy(base_url=base_url)
             logger.info("Created cached VectorRetrievalStrategy for %s", base_url)
         elif self._vector_strategy.base_url != base_url.rstrip("/"):
-            logger.warning("VectorRetrievalStrategy base_url mismatch: cached=%s requested=%s, re-creating",
-                           self._vector_strategy.base_url, base_url)
+            logger.warning(
+                "VectorRetrievalStrategy base_url mismatch: cached=%s requested=%s, re-creating",
+                self._vector_strategy.base_url,
+                base_url,
+            )
             self._vector_strategy = VectorRetrievalStrategy(base_url=base_url)
         return self._vector_strategy
 
-
-
     def _get_cron_manager(self):
         from .triggers import CronManager
+
         if not hasattr(self, "_cron_manager") or self._cron_manager is None:
             import os
+
             db_path = os.path.expanduser("~/.fusion-agent-studio/cron.db")
             self._cron_manager = CronManager(db_path=db_path)
         return self._cron_manager
 
-
-
-
-
-
-
-
-
     async def _handle_tool_dynamic_register(self, params: dict) -> dict:
         from tools import ToolRegistry
+
         if not hasattr(self, "_dynamic_registry"):
             self._dynamic_registry = ToolRegistry()
         name = params.get("name", "")
@@ -1080,16 +1140,22 @@ class DaemonServer:
         param_dict = {}
         if isinstance(tool_params, dict):
             for pk, pv in tool_params.items():
-                param_dict[pk] = pv if isinstance(pv, dict) else {"type": "string", "description": str(pv)}
+                param_dict[pk] = (
+                    pv
+                    if isinstance(pv, dict)
+                    else {"type": "string", "description": str(pv)}
+                )
 
         safe_name = f"Dynamic_{self._SAFE_TOOL_NAME_RE.match(name).group()}"
         dyn_cls = new_class(safe_name, (BaseTool,), {})
         dyn_cls.name = name
         dyn_cls.description = description or f"Dynamic tool: {name}"
         dyn_cls.parameters = param_dict
+
         async def _exec(self_inner, **kw):
             import asyncio
             import shlex
+
             cmd = kw.get("command", kw.get("url", kw.get("query", "")))
             if cmd:
                 try:
@@ -1099,8 +1165,10 @@ class DaemonServer:
                 if not split_args:
                     return "Error: empty command"
                 proc = await asyncio.create_subprocess_exec(
-                    split_args[0], *split_args[1:],
-                    stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+                    split_args[0],
+                    *split_args[1:],
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
                 )
                 out, err = await asyncio.wait_for(proc.communicate(), timeout=30)
                 result = out.decode("utf-8", errors="replace").strip()
@@ -1108,6 +1176,7 @@ class DaemonServer:
                     result += f"\n[STDERR] {err.decode('utf-8', errors='replace')}"
                 return result or "Done"
             return "No command"
+
         dyn_cls.execute = _exec
         new_tool = dyn_cls()
 
@@ -1122,55 +1191,17 @@ class DaemonServer:
         if hasattr(self, "_dynamic_registry") and self._dynamic_registry.has(name):
             self._dynamic_registry.unregister(name)
             return {"status": "ok", "unregistered": name}
-        return {"status": "error", "message": f"Tool '{name}' not found in dynamic registry"}
+        return {
+            "status": "error",
+            "message": f"Tool '{name}' not found in dynamic registry",
+        }
 
     # ── Memory handlers ──
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
     def _get_marketplace(self):
         if self._marketplace is None:
             from .agent_marketplace import AgentMarketplace
+
             self._marketplace = AgentMarketplace()
             logger.info("AgentMarketplace created at %s", self._marketplace.store_dir)
         return self._marketplace
@@ -1194,38 +1225,17 @@ class DaemonServer:
 
     # ── Agent handlers ──
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
     async def _execute_code_task(self, task: dict):
         _agent_id = task["agent_id"]
         code = task["code"]
         language = task["language"]
         timeout = task.get("timeout", 60)
-        logger.info("_execute_code_task: task=%s lang=%s timeout=%s", task["task_id"], language, timeout)
+        logger.info(
+            "_execute_code_task: task=%s lang=%s timeout=%s",
+            task["task_id"],
+            language,
+            timeout,
+        )
         if language != "python":
             return {"output": f"Unsupported language: {language}", "exit_code": 1}
 
@@ -1236,27 +1246,33 @@ class DaemonServer:
             if result.stderr:
                 output = (output + "\n" + result.stderr) if output else result.stderr
             if result.timed_out:
-                output = (output + "\nExecution timed out") if output else "Execution timed out"
+                output = (
+                    (output + "\nExecution timed out")
+                    if output
+                    else "Execution timed out"
+                )
             logger.info(
                 "_execute_code_task done: task=%s exit=%s success=%s exec_id=%s",
-                task["task_id"], result.exit_code, result.success, result.execution_id,
+                task["task_id"],
+                result.exit_code,
+                result.success,
+                result.execution_id,
             )
             return {"output": output, "exit_code": result.exit_code}
         except Exception as exc:
-            logger.error("_execute_code_task error: task=%s error=%s", task["task_id"], exc)
+            logger.error(
+                "_execute_code_task error: task=%s error=%s", task["task_id"], exc
+            )
             return {"output": str(exc), "exit_code": 1}
 
-
-
-
-
-
-
-    async def _inject_knowledge_context(self, knowledge_base_ids: list[str], query: str, strategy: str = "hybrid") -> str:
+    async def _inject_knowledge_context(
+        self, knowledge_base_ids: list[str], query: str, strategy: str = "hybrid"
+    ) -> str:
         if not knowledge_base_ids or not query:
             return ""
         try:
             from .knowledge_engine import KnowledgeEngine
+
             ke = KnowledgeEngine()
             all_contexts = []
             for kb_id in knowledge_base_ids:
@@ -1271,94 +1287,9 @@ class DaemonServer:
             logger.warning("Knowledge injection failed: %s", exc)
         return ""
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
     async def _handle_budget_set(self, params: dict) -> dict:
         from .token_budget import TokenBudget
+
         max_tokens = params.get("max_tokens", 0)
         budget = TokenBudget(max_tokens=max_tokens)
         self._token_budget = budget
@@ -1369,10 +1300,6 @@ class DaemonServer:
         if not hasattr(self, "_token_budget") or not self._token_budget:
             return {"max_tokens": 0, "spent_tokens": 0, "exceeded": False}
         return self._token_budget.status()
-
-
-
-
 
     async def _handle_ws_client(
         self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter
@@ -1406,17 +1333,27 @@ class DaemonServer:
             mode = msg.get("mode", "")
             engine = self._get_chat_engine()
             async for ev in engine.send(session_id, message, mode=mode):
-                payload = json.dumps({
-                    "type": "chat_event",
-                    "session_id": session_id,
-                    "event": ev.to_dict(),
-                }) + "\n"
+                payload = (
+                    json.dumps(
+                        {
+                            "type": "chat_event",
+                            "session_id": session_id,
+                            "event": ev.to_dict(),
+                        }
+                    )
+                    + "\n"
+                )
                 writer.write(payload.encode())
                 await writer.drain()
-            done_payload = json.dumps({
-                "type": "chat_done",
-                "session_id": session_id,
-            }) + "\n"
+            done_payload = (
+                json.dumps(
+                    {
+                        "type": "chat_done",
+                        "session_id": session_id,
+                    }
+                )
+                + "\n"
+            )
             writer.write(done_payload.encode())
             await writer.drain()
         elif action == "subscribe":
@@ -1448,6 +1385,7 @@ class DaemonServer:
     async def _check_mlx_health(self) -> bool:
         try:
             import httpx
+
             # 携带 fusion-mlx 配置的 api_key，否则开启鉴权时 /models 返回 401
             # 被误判为不健康 (bug6 一直显示检测中)
             key = self._read_mlx_api_key()
@@ -1461,6 +1399,7 @@ class DaemonServer:
     async def _list_mlx_models(self) -> list[dict[str, Any]]:
         try:
             import httpx
+
             key = self._read_mlx_api_key()
             headers = {"Authorization": f"Bearer {key}"} if key else {}
             async with httpx.AsyncClient(timeout=5.0) as client:
@@ -1481,6 +1420,7 @@ class DaemonServer:
 
     def _attach_mlx_client(self) -> None:
         from server.fusion_mlx_client import FusionMLXClient
+
         api_key = self._read_mlx_api_key()
         client = FusionMLXClient(base_url=MLX_BASE_URL, api_key=api_key)
         self._gateway.set_default_client(client)
@@ -1489,7 +1429,8 @@ class DaemonServer:
             self._gateway._default_model = loaded
         logger.info(
             "MLX client attached to gateway (api_key=%s, default_model=%s)",
-            "set" if api_key else "none", self._gateway._default_model,
+            "set" if api_key else "none",
+            self._gateway._default_model,
         )
 
     def _read_mlx_api_key(self) -> str:
@@ -1501,7 +1442,9 @@ class DaemonServer:
             return env_key
         candidates = [
             os.path.expanduser("~/.fusion-mlx/settings.json"),
-            os.path.expanduser("~/Library/Application Support/fusion-mlx/settings.json"),
+            os.path.expanduser(
+                "~/Library/Application Support/fusion-mlx/settings.json"
+            ),
         ]
         for path in candidates:
             try:
@@ -1522,6 +1465,7 @@ class DaemonServer:
         # 需过滤出对话模型并优先 Qwen3 9B 级 (对齐 bug1 默认 Qwen3.6-9B-4bit)。
         try:
             import urllib.request
+
             headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
             req = urllib.request.Request(f"{MLX_BASE_URL}/models", headers=headers)
             with urllib.request.urlopen(req, timeout=5.0) as resp:
@@ -1529,15 +1473,26 @@ class DaemonServer:
             models = data.get("data", []) if isinstance(data, dict) else []
             ids = [m.get("id", "") for m in models if m.get("id")]
             excluded = (
-                "flux", "vae", "transformer", "text_encoder", "siglip",
-                "oldt5", "wan", "skyreels", "ltx", "tts",
+                "flux",
+                "vae",
+                "transformer",
+                "text_encoder",
+                "siglip",
+                "oldt5",
+                "wan",
+                "skyreels",
+                "ltx",
+                "tts",
             )
             chat_ids = [i for i in ids if not any(x in i.lower() for x in excluded)]
             if not chat_ids:
                 return ids[0] if ids else ""
             preferred = (
-                "Qwen3.6-9B-4bit", "Qwen3.5-9B-4bit", "Qwen3.6-27B-mxfp8",
-                "Qwen3.6-27B-mixed_3_4", "Qwen3.6-27B-bf16",
+                "Qwen3.6-9B-4bit",
+                "Qwen3.5-9B-4bit",
+                "Qwen3.6-27B-mxfp8",
+                "Qwen3.6-27B-mixed_3_4",
+                "Qwen3.6-27B-bf16",
             )
             for want in preferred:
                 for cid in chat_ids:
@@ -1557,29 +1512,6 @@ class DaemonServer:
     def _detach_mlx_client(self) -> None:
         self._gateway._default_client = None
         logger.info("MLX client detached from gateway")
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
     async def _handle_session_fork(self, params: dict) -> dict:
         mgr = self._get_session_manager()
@@ -1615,36 +1547,6 @@ class DaemonServer:
         logger.info("session.background_kill: session=%s ok=%s", session_id, ok)
         return {"session_id": session_id, "killed": ok}
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
     async def _handle_tool_set_timeout(self, params: dict) -> dict:
         tool_name = params.get("tool_name", "")
         timeout_ms = params.get("timeout_ms", 30000)
@@ -1659,7 +1561,11 @@ class DaemonServer:
         code_tasks = getattr(self, "_code_tasks", {})
         task_info = code_tasks.get(task_id)
         if task_info:
-            return {"task_id": task_id, "status": task_info.get("status", "unknown"), "result": task_info.get("result")}
+            return {
+                "task_id": task_id,
+                "status": task_info.get("status", "unknown"),
+                "result": task_info.get("result"),
+            }
         return {"task_id": task_id, "status": "not_found"}
 
     async def _handle_mlx_switch_model_mid_turn(self, params: dict) -> dict:
@@ -1675,7 +1581,11 @@ class DaemonServer:
 
     async def _handle_session_set_accessibility(self, params: dict) -> dict:
         if not hasattr(self, "_accessibility"):
-            self._accessibility = {"screen_reader": False, "high_contrast": False, "reduced_motion": False}
+            self._accessibility = {
+                "screen_reader": False,
+                "high_contrast": False,
+                "reduced_motion": False,
+            }
         if "screen_reader" in params:
             self._accessibility["screen_reader"] = params["screen_reader"]
         if "high_contrast" in params:
@@ -1687,7 +1597,11 @@ class DaemonServer:
 
     async def _handle_session_get_accessibility(self, params: dict) -> dict:
         if not hasattr(self, "_accessibility"):
-            self._accessibility = {"screen_reader": False, "high_contrast": False, "reduced_motion": False}
+            self._accessibility = {
+                "screen_reader": False,
+                "high_contrast": False,
+                "reduced_motion": False,
+            }
         return dict(self._accessibility)
 
     async def _handle_tool_get_schema(self, params: dict) -> dict:
@@ -1698,38 +1612,17 @@ class DaemonServer:
         tool = registry.get_tool(tool_name)
         if not tool:
             return {"error": f"Tool not found: {tool_name}"}
-        schema = tool.get_schema() if hasattr(tool, "get_schema") else {"name": tool_name}
+        schema = (
+            tool.get_schema() if hasattr(tool, "get_schema") else {"name": tool_name}
+        )
         return {"tool_name": tool_name, "schema": schema}
 
     # ── Agent API handlers (#29, #31) ──
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
     def _get_agent_permissions(self, agent_id: str, manifest=None) -> dict:
         if manifest is None:
             from .agent_package import AgentPackage
+
             pkg = AgentPackage(self._agent_dir(agent_id))
             if not pkg.exists:
                 return {}
@@ -1739,6 +1632,7 @@ class DaemonServer:
         if os.path.exists(defn_path):
             try:
                 import json
+
                 with open(defn_path) as f:
                     defn_data = json.load(f)
                 perms = defn_data.get("permissions", {})
@@ -1755,66 +1649,6 @@ class DaemonServer:
         }
 
     # ── LangGraph handlers (#35) ──
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 def run_daemon(socket_path: str = SOCKET_PATH):

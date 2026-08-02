@@ -3,6 +3,7 @@
 Launches fusion-code as a subprocess, sends tasks, parses results.
 Never imports fusion-code internals — only communicates via CLI.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -62,7 +63,12 @@ class FusionCodeBridge:
         timeout = task.timeout or self.default_timeout
 
         cmd = self._build_command(task)
-        logger.info("Executing fusion-code: %s (cwd=%s, timeout=%.0fs)", " ".join(cmd[:5]), working_dir, timeout)
+        logger.info(
+            "Executing fusion-code: %s (cwd=%s, timeout=%.0fs)",
+            " ".join(cmd[:5]),
+            working_dir,
+            timeout,
+        )
 
         start = time.time()
         try:
@@ -80,7 +86,12 @@ class FusionCodeBridge:
             output = stdout.decode("utf-8", errors="replace") if stdout else ""
             error_output = stderr.decode("utf-8", errors="replace") if stderr else ""
 
-            logger.info("fusion-code exited %d in %.1fs (stdout=%d bytes)", proc.returncode, duration, len(output))
+            logger.info(
+                "fusion-code exited %d in %.1fs (stdout=%d bytes)",
+                proc.returncode,
+                duration,
+                len(output),
+            )
 
             return CodeResult(
                 output=output,
@@ -170,4 +181,3 @@ class FusionCodeBridge:
             cmd.extend(["--model", task.model])
         cmd.extend(task.extra_args)
         return cmd
-

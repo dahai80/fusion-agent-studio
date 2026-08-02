@@ -51,7 +51,7 @@ class TestSafetyGatewayL1:
 
     def test_l1_redacts_secrets(self):
         gw = SafetyGateway(level=SafetyLevel.L1)
-        v = gw.check('password=secret123 token=abc')
+        v = gw.check("password=secret123 token=abc")
         assert v.action == SafetyAction.REDACT
         assert "[REDACTED]" in v.redacted_content
 
@@ -237,7 +237,9 @@ class TestSafetyPolicy:
         assert p.description == "Shell execution"
 
     def test_roundtrip(self):
-        p = SafetyPolicy(category=CAT_CODE_EDIT, default_level=SafetyLevel.L2, requires_diff=True)
+        p = SafetyPolicy(
+            category=CAT_CODE_EDIT, default_level=SafetyLevel.L2, requires_diff=True
+        )
         p2 = SafetyPolicy.from_dict(p.to_dict())
         assert p2.category == p.category
         assert p2.default_level == p.default_level
@@ -326,7 +328,12 @@ class TestSafetyVerdictRoundtrip:
 class TestSafetyGatewayEvaluateAction:
     def test_l1_category_auto_approves(self):
         gw = SafetyGateway(level=SafetyLevel.L1)
-        for cat in [CAT_CODE_ANALYSIS, CAT_DOC_RETRIEVAL, CAT_KNOWLEDGE_SEARCH, CAT_FILE_READ]:
+        for cat in [
+            CAT_CODE_ANALYSIS,
+            CAT_DOC_RETRIEVAL,
+            CAT_KNOWLEDGE_SEARCH,
+            CAT_FILE_READ,
+        ]:
             v = gw.evaluate_action(cat, "some content")
             assert v.action == SafetyAction.ALLOW, f"Expected ALLOW for {cat}"
             assert v.requires_approval is False, f"Expected no approval for {cat}"
@@ -507,14 +514,22 @@ class TestSafetyGatewayPolicies:
 
     def test_add_policy_replaces_existing(self):
         gw = SafetyGateway()
-        custom = SafetyPolicy(category=CAT_CODE_ANALYSIS, default_level=SafetyLevel.L3, description="Override")
+        custom = SafetyPolicy(
+            category=CAT_CODE_ANALYSIS,
+            default_level=SafetyLevel.L3,
+            description="Override",
+        )
         gw.add_policy(custom)
         p = gw.get_policy(CAT_CODE_ANALYSIS)
         assert p.default_level == SafetyLevel.L3
         assert p.description == "Override"
 
     def test_custom_policies_override_defaults(self):
-        custom = SafetyPolicy(category=CAT_SHELL_EXEC, default_level=SafetyLevel.L1, description="Unlocked")
+        custom = SafetyPolicy(
+            category=CAT_SHELL_EXEC,
+            default_level=SafetyLevel.L1,
+            description="Unlocked",
+        )
         gw = SafetyGateway(level=SafetyLevel.L1, policies=[custom])
         v = gw.evaluate_action(CAT_SHELL_EXEC, "rm -rf /tmp")
         assert v.action == SafetyAction.ALLOW

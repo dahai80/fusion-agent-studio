@@ -1,13 +1,28 @@
 """Sub-dispatcher: PlannerDispatcher."""
+
 from __future__ import annotations
 import logging
-from typing import Any
 from .base import SubDispatcher
+from typing import Callable
 
 logger = logging.getLogger(__name__)
 
 
 class PlannerDispatcher(SubDispatcher):
+    def get_handlers(self) -> dict[str, Callable]:
+        return {
+            "planner.create_plan": self._handle_planner_create_plan,
+            "planner.get_plan": self._handle_planner_get_plan,
+            "planner.approve_plan": self._handle_planner_approve_plan,
+            "planner.reject_plan": self._handle_planner_reject_plan,
+            "planner.execute_step": self._handle_planner_execute_step,
+            "planner.execute_plan": self._handle_planner_execute_plan,
+            "planner.list_plans": self._handle_planner_list_plans,
+            "planner.cancel_plan": self._handle_planner_cancel_plan,
+            "verify.verify": self._handle_verify_verify,
+            "verify.adversarial_verify": self._handle_verify_adversarial_verify,
+        }
+
     async def _handle_planner_create_plan(self, params: dict) -> dict:
         task = params.get("task", "")
         if not task:
@@ -18,7 +33,12 @@ class PlannerDispatcher(SubDispatcher):
             context=params.get("context", ""),
             files=params.get("files"),
         )
-        logger.info("planner.create_plan: plan_id=%s steps=%d risk=%s", plan.id, len(plan.steps), plan.overall_risk)
+        logger.info(
+            "planner.create_plan: plan_id=%s steps=%d risk=%s",
+            plan.id,
+            len(plan.steps),
+            plan.overall_risk,
+        )
         return {"plan": plan.to_dict()}
 
     async def _handle_planner_get_plan(self, params: dict) -> dict:
@@ -76,7 +96,8 @@ class PlannerDispatcher(SubDispatcher):
     # ── Verify handlers ──
 
     async def _handle_verify_verify(self, params: dict) -> dict:
-        from .verifier import VerificationEngine
+        from ..verifier import VerificationEngine
+
         task = params.get("task", "")
         output = params.get("output", "")
         criteria = params.get("criteria", "")
@@ -84,13 +105,20 @@ class PlannerDispatcher(SubDispatcher):
         max_attempts = params.get("max_attempts", 3)
         gateway = self._daemon._gateway
         engine = VerificationEngine(gateway=gateway, max_attempts=max_attempts)
-        result = await engine.verify(task=task, output=output, criteria=criteria, context=context, max_attempts=max_attempts)
+        result = await engine.verify(
+            task=task,
+            output=output,
+            criteria=criteria,
+            context=context,
+            max_attempts=max_attempts,
+        )
         return result.to_dict()
 
     # ── RAG handlers ──
 
     async def _handle_verify_adversarial_verify(self, params: dict) -> dict:
-        from .verifier import VerificationEngine
+        from ..verifier import VerificationEngine
+
         gateway = self._daemon._gateway
         engine = VerificationEngine(gateway=gateway)
         claim = params.get("claim", "")

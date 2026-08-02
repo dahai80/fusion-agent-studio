@@ -181,7 +181,11 @@ class TestMemoryEngineAutoSummarize:
         db_path = Path(tmp_dir) / "auto_summarize.db"
         eng = MemoryEngine(db_path=str(db_path), max_entries=10, summary_batch=5)
         for i in range(15):
-            eng.store(f"Memory entry {i} with some content to make it longer", scope="auto-test", importance=3)
+            eng.store(
+                f"Memory entry {i} with some content to make it longer",
+                scope="auto-test",
+                importance=3,
+            )
         count = eng.count("auto-test")
         assert count < 15
         eng.close()
@@ -189,7 +193,9 @@ class TestMemoryEngineAutoSummarize:
 
 class TestMemoryTier:
     def test_to_dict(self):
-        tier = MemoryTier(name="test", max_entries=50, max_age_hours=12.0, importance_threshold=5)
+        tier = MemoryTier(
+            name="test", max_entries=50, max_age_hours=12.0, importance_threshold=5
+        )
         d = tier.to_dict()
         assert d["name"] == "test"
         assert d["max_entries"] == 50
@@ -197,7 +203,12 @@ class TestMemoryTier:
         assert d["importance_threshold"] == 5
 
     def test_from_dict(self):
-        data = {"name": "custom", "max_entries": 99, "max_age_hours": 48.0, "importance_threshold": 3}
+        data = {
+            "name": "custom",
+            "max_entries": 99,
+            "max_age_hours": 48.0,
+            "importance_threshold": 3,
+        }
         tier = MemoryTier.from_dict(data)
         assert tier.name == "custom"
         assert tier.max_entries == 99
@@ -274,9 +285,24 @@ class TestCompressScope:
     def test_compress_scope_no_old_entries(self, tmp_dir):
         db_path = Path(tmp_dir) / "compress.db"
         tiers = {
-            "short_term": MemoryTier(name="short_term", max_entries=50, max_age_hours=0.001, importance_threshold=7),
-            "long_term": MemoryTier(name="long_term", max_entries=200, max_age_hours=168.0, importance_threshold=4),
-            "archive": MemoryTier(name="archive", max_entries=1000, max_age_hours=0.0, importance_threshold=0),
+            "short_term": MemoryTier(
+                name="short_term",
+                max_entries=50,
+                max_age_hours=0.001,
+                importance_threshold=7,
+            ),
+            "long_term": MemoryTier(
+                name="long_term",
+                max_entries=200,
+                max_age_hours=168.0,
+                importance_threshold=4,
+            ),
+            "archive": MemoryTier(
+                name="archive",
+                max_entries=1000,
+                max_age_hours=0.0,
+                importance_threshold=0,
+            ),
         }
         eng = MemoryEngine(db_path=str(db_path), tiers=tiers)
         for i in range(10):
@@ -288,9 +314,24 @@ class TestCompressScope:
     def test_compress_scope_with_old_entries(self, tmp_dir):
         db_path = Path(tmp_dir) / "compress_old.db"
         tiers = {
-            "short_term": MemoryTier(name="short_term", max_entries=50, max_age_hours=0.00001, importance_threshold=7),
-            "long_term": MemoryTier(name="long_term", max_entries=200, max_age_hours=168.0, importance_threshold=4),
-            "archive": MemoryTier(name="archive", max_entries=1000, max_age_hours=0.0, importance_threshold=0),
+            "short_term": MemoryTier(
+                name="short_term",
+                max_entries=50,
+                max_age_hours=0.00001,
+                importance_threshold=7,
+            ),
+            "long_term": MemoryTier(
+                name="long_term",
+                max_entries=200,
+                max_age_hours=168.0,
+                importance_threshold=4,
+            ),
+            "archive": MemoryTier(
+                name="archive",
+                max_entries=1000,
+                max_age_hours=0.0,
+                importance_threshold=0,
+            ),
         }
         eng = MemoryEngine(db_path=str(db_path), tiers=tiers)
         c = eng.conn.cursor()
@@ -300,7 +341,16 @@ class TestCompressScope:
             c.execute(
                 "INSERT INTO memories (id, content, scope, tags, importance, created_at, metadata, tier) "
                 "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                (entry_id, f"Old memory {i}", "test", "", 8, old_time + i, "{}", "short_term"),
+                (
+                    entry_id,
+                    f"Old memory {i}",
+                    "test",
+                    "",
+                    8,
+                    old_time + i,
+                    "{}",
+                    "short_term",
+                ),
             )
         eng.conn.commit()
 

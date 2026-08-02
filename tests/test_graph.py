@@ -1,4 +1,5 @@
 """Tests for agent graph data model."""
+
 from __future__ import annotations
 
 import json
@@ -17,8 +18,11 @@ class TestNodeConfig:
 
     def test_create_llm_node(self):
         node = NodeConfig(
-            type="llm", label="LLM", model="qwen3.5-9b",
-            system_prompt="You are helpful", temperature=0.5,
+            type="llm",
+            label="LLM",
+            model="qwen3.5-9b",
+            system_prompt="You are helpful",
+            temperature=0.5,
         )
         assert node.model == "qwen3.5-9b"
         assert node.temperature == 0.5
@@ -43,7 +47,9 @@ class TestNodeConfig:
 
     def test_tool_node_params(self):
         node = NodeConfig(
-            type="tool", label="ReadFile", tool_name="file_read",
+            type="tool",
+            label="ReadFile",
+            tool_name="file_read",
             tool_params={"path": "/tmp/test.txt"},
         )
         assert node.tool_name == "file_read"
@@ -51,7 +57,9 @@ class TestNodeConfig:
 
     def test_condition_node(self):
         node = NodeConfig(
-            type="condition", label="Check", condition_expr="has_tool_calls",
+            type="condition",
+            label="Check",
+            condition_expr="has_tool_calls",
         )
         assert node.condition_expr == "has_tool_calls"
 

@@ -1,13 +1,25 @@
 """Sub-dispatcher: MarketplaceDispatcher."""
+
 from __future__ import annotations
 import logging
-from typing import Any
 from .base import SubDispatcher
+from typing import Callable
 
 logger = logging.getLogger(__name__)
 
 
 class MarketplaceDispatcher(SubDispatcher):
+    def get_handlers(self) -> dict[str, Callable]:
+        return {
+            "marketplace.search": self._handle_marketplace_search,
+            "marketplace.get": self._handle_marketplace_get,
+            "marketplace.publish": self._handle_marketplace_publish,
+            "marketplace.unpublish": self._handle_marketplace_unpublish,
+            "marketplace.list_categories": self._handle_marketplace_list_categories,
+            "marketplace.install": self._handle_marketplace_install,
+            "marketplace.uninstall": self._handle_marketplace_uninstall,
+        }
+
     async def _handle_marketplace_search(self, params: dict) -> dict:
         mp = self._daemon._get_marketplace()
         results = mp.search(
@@ -30,7 +42,8 @@ class MarketplaceDispatcher(SubDispatcher):
         return {"entry": entry.to_dict()}
 
     async def _handle_marketplace_publish(self, params: dict) -> dict:
-        from .agent_marketplace import MarketEntry
+        from ..agent_marketplace import MarketEntry
+
         mp = self._daemon._get_marketplace()
         entry = MarketEntry(
             name=params.get("name", ""),

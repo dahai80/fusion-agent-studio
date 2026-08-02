@@ -7,7 +7,18 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Literal
 
-NodeType = Literal["start", "llm", "tool", "condition", "loop", "end", "error_handler", "rag", "planner", "verify"]
+NodeType = Literal[
+    "start",
+    "llm",
+    "tool",
+    "condition",
+    "loop",
+    "end",
+    "error_handler",
+    "rag",
+    "planner",
+    "verify",
+]
 
 
 @dataclass
@@ -82,7 +93,11 @@ class Edge:
     label: str = ""
 
     def to_dict(self) -> dict:
-        return {"source_id": self.source_id, "target_id": self.target_id, "label": self.label}
+        return {
+            "source_id": self.source_id,
+            "target_id": self.target_id,
+            "label": self.label,
+        }
 
     @classmethod
     def from_dict(cls, data: dict) -> Edge:
@@ -232,7 +247,8 @@ class AgentGraph:
                 label="LLM Think",
                 model="qwen3.5-9b",
                 system_prompt="You are a helpful assistant.",
-                x=300, y=200,
+                x=300,
+                y=200,
             ),
         )
         graph.add_node("end", NodeConfig(type="end", label="End", x=500, y=200))

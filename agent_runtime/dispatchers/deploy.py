@@ -1,15 +1,29 @@
 """Sub-dispatcher: DeployDispatcher."""
+
 from __future__ import annotations
 import logging
-from typing import Any
 from .base import SubDispatcher
+from typing import Callable
+from pathlib import Path
+import json
 
 logger = logging.getLogger(__name__)
 
 
 class DeployDispatcher(SubDispatcher):
+    def get_handlers(self) -> dict[str, Callable]:
+        return {
+            "deploy.export": self._handle_deploy_export,
+            "deploy.import": self._handle_deploy_import,
+            "deploy.list_formats": self._handle_deploy_list_formats,
+            "template.list": self._handle_template_list,
+            "template.get": self._handle_template_get,
+            "template.instantiate": self._handle_template_instantiate,
+        }
+
     async def _handle_deploy_export(self, params: dict) -> dict:
-        from .deployer import GraphDeployer
+        from ..deployer import GraphDeployer
+
         graph_id = params.get("graph_id", "")
         fmt = params.get("format", "json")
         filepath = params.get("filepath", "")
@@ -19,28 +33,41 @@ class DeployDispatcher(SubDispatcher):
             return {"status": "error", "message": f"Graph not found: {graph_id}"}
         if not filepath:
             import tempfile
-            ext = {"json": ".json", "python": ".py", "yaml": ".yaml", "fastapi": ".py"}.get(fmt, ".json")
+
+            ext = {
+                "json": ".json",
+                "python": ".py",
+                "yaml": ".yaml",
+                "fastapi": ".py",
+            }.get(fmt, ".json")
             filepath = str(Path(tempfile.gettempdir()) / f"{graph.name}{ext}")
 
         try:
             if fmt == "json":
                 path = GraphDeployer.export_as_json(graph, filepath)
             elif fmt == "python":
-                path = GraphDeployer.export_as_python(graph, filepath, with_server=params.get("with_server", True))
+                path = GraphDeployer.export_as_python(
+                    graph, filepath, with_server=params.get("with_server", True)
+                )
             elif fmt == "yaml":
                 path = GraphDeployer.export_as_yaml(graph, filepath)
             elif fmt == "fastapi":
-                path = GraphDeployer.export_as_fastapi(graph, filepath, port=params.get("port", 11453))
+                path = GraphDeployer.export_as_fastapi(
+                    graph, filepath, port=params.get("port", 11453)
+                )
             else:
                 return {"status": "error", "message": f"Unknown format: {fmt}"}
-            logger.info("deploy.export: graph=%s format=%s path=%s", graph_id, fmt, path)
+            logger.info(
+                "deploy.export: graph=%s format=%s path=%s", graph_id, fmt, path
+            )
             return {"status": "ok", "path": str(path), "format": fmt}
         except Exception as e:
             logger.exception("deploy.export failed")
             return {"status": "error", "message": str(e)}
 
     async def _handle_deploy_import(self, params: dict) -> dict:
-        from .deployer import GraphDeployer
+        from ..deployer import GraphDeployer
+
         filepath = params.get("filepath", "")
         if not filepath:
             return {"status": "error", "message": "filepath parameter required"}
@@ -61,7 +88,8 @@ class DeployDispatcher(SubDispatcher):
             return {"status": "error", "message": str(e)}
 
     async def _handle_deploy_list_formats(self, params: dict) -> dict:
-        from .deployer import GraphDeployer
+        from ..deployer import GraphDeployer
+
         formats = GraphDeployer.list_formats()
         return {"formats": formats}
 
@@ -69,9 +97,12 @@ class DeployDispatcher(SubDispatcher):
 
     def _get_marketplace(self):
         if self._daemon._marketplace is None:
-            from .agent_marketplace import AgentMarketplace
+            from ..agent_marketplace import AgentMarketplace
+
             self._daemon._marketplace = AgentMarketplace()
-            logger.info("AgentMarketplace created at %s", self._daemon._marketplace.store_dir)
+            logger.info(
+                "AgentMarketplace created at %s", self._daemon._marketplace.store_dir
+            )
         return self._daemon._marketplace
 
     def _agent_dir(self, agent_id: str) -> Path:
@@ -94,13 +125,15 @@ class DeployDispatcher(SubDispatcher):
     # ── Agent handlers ──
 
     async def _handle_template_list(self, params: dict) -> dict:
-        from .agent_templates import list_templates
+        from ..agent_templates import list_templates
+
         category = params.get("category", "")
         templates = list_templates(category=category)
         return {"templates": [t.to_dict() for t in templates]}
 
     async def _handle_template_get(self, params: dict) -> dict:
-        from .agent_templates import get_template
+        from ..agent_templates import get_template
+
         template_id = params.get("template_id", "")
         tmpl = get_template(template_id)
         if tmpl is None:
@@ -108,11 +141,14 @@ class DeployDispatcher(SubDispatcher):
         return {"template": tmpl.to_dict()}
 
     async def _handle_template_instantiate(self, params: dict) -> dict:
-        from .agent_templates import instantiate_template
+        from ..agent_templates import instantiate_template
+
         template_id = params.get("template_id", "")
         if not template_id:
             return {"status": "error", "message": "template_id parameter required"}
-        graph_data = instantiate_template(template_id, variables=params.get("variables"))
+        graph_data = instantiate_template(
+            template_id, variables=params.get("variables")
+        )
         if not graph_data:
             return {"status": "error", "message": f"Template not found: {template_id}"}
         return {"graph_data": graph_data}

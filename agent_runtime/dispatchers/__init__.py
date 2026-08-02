@@ -1,4 +1,5 @@
 """Sub-dispatcher modules for DaemonServer RPC decomposition."""
+
 from .base import SubDispatcher
 from .marketplace import MarketplaceDispatcher
 from .deploy import DeployDispatcher
@@ -12,4 +13,17 @@ from .safety import SafetyDispatcher
 from .planner import PlannerDispatcher
 from .memory import MemoryDispatcher
 
-__all__ = ["SubDispatcher", "MarketplaceDispatcher", "DeployDispatcher", "KnowledgeDispatcher", "AgentDispatcher", "ChatDispatcher", "TeamDispatcher", "InfraDispatcher", "WorkflowDispatcher", "SafetyDispatcher", "PlannerDispatcher", "MemoryDispatcher"]
+__all__ = [
+    "SubDispatcher",
+    "MarketplaceDispatcher",
+    "DeployDispatcher",
+    "KnowledgeDispatcher",
+    "AgentDispatcher",
+    "ChatDispatcher",
+    "TeamDispatcher",
+    "InfraDispatcher",
+    "WorkflowDispatcher",
+    "SafetyDispatcher",
+    "PlannerDispatcher",
+    "MemoryDispatcher",
+]

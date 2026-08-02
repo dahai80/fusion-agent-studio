@@ -38,6 +38,15 @@ def daemon():
     ds._hooks_engine = None
     ds._rate_limiter = None
     ds._store = None
+    ds._connector_mgr = None
+    ds._safety = None
+    ds._rag = None
+    ds._memory = None
+    ds._planner = None
+    ds._active_executions = {}
+    ds._code_tasks = {}
+    ds._running = False
+    ds._sub_dispatchers = ds._init_sub_dispatchers()
     return ds
 
 
@@ -56,8 +65,14 @@ class TestModelStatus:
         mock_proc.poll.return_value = None
         mock_proc.pid = 12345
         daemon._mlx_process = mock_proc
-        with patch.object(daemon, "_check_mlx_health", new_callable=AsyncMock, return_value=False), \
-             patch.object(daemon, "_list_mlx_models", new_callable=AsyncMock, return_value=[]):
+        with (
+            patch.object(
+                daemon, "_check_mlx_health", new_callable=AsyncMock, return_value=False
+            ),
+            patch.object(
+                daemon, "_list_mlx_models", new_callable=AsyncMock, return_value=[]
+            ),
+        ):
             result = await daemon._handle_model_status({})
         assert result["connected"] is False
         assert result["models"] == []
@@ -69,8 +84,17 @@ class TestModelStatus:
         mock_proc.pid = 12345
         daemon._mlx_process = mock_proc
         fake_models = [{"name": "test-model", "loaded": True}]
-        with patch.object(daemon, "_check_mlx_health", new_callable=AsyncMock, return_value=True), \
-             patch.object(daemon, "_list_mlx_models", new_callable=AsyncMock, return_value=fake_models):
+        with (
+            patch.object(
+                daemon, "_check_mlx_health", new_callable=AsyncMock, return_value=True
+            ),
+            patch.object(
+                daemon,
+                "_list_mlx_models",
+                new_callable=AsyncMock,
+                return_value=fake_models,
+            ),
+        ):
             result = await daemon._handle_model_status({})
         assert result["connected"] is True
         assert len(result["models"]) == 1
@@ -153,7 +177,9 @@ class TestKbQuery:
         mock_file.to_dict.return_value = {"file_id": "f1", "name": "test.py"}
         mock_mgr.list_files.return_value = [mock_file]
         daemon._kb_manager = mock_mgr
-        result = await daemon._handle_kb_query({"query": "test", "kb_id": "kb-1", "limit": 5})
+        result = await daemon._handle_kb_query(
+            {"query": "test", "kb_id": "kb-1", "limit": 5}
+        )
         assert len(result["results"]) == 1
         assert result["results"][0]["relevance"] == 1.0
 
@@ -223,7 +249,9 @@ class TestAgentDiffReview:
     @pytest.mark.asyncio
     async def test_diff_review_agent_not_found(self, daemon):
         with patch.object(daemon, "_agent_dir", return_value=Path("/nonexistent")):
-            result = await daemon._handle_agent_diff_review({"agent_id": "no-such-agent"})
+            result = await daemon._handle_agent_diff_review(
+                {"agent_id": "no-such-agent"}
+            )
         assert result["status"] == "error"
 
     @pytest.mark.asyncio
@@ -235,11 +263,18 @@ class TestAgentDiffReview:
             (pkg_dir / "manifest.json").write_text(json.dumps({"name": "test-agent"}))
             mock_vs = MagicMock()
             v1 = MagicMock()
-            v1.to_dict.return_value = {"version_id": "v1", "label": "init", "created_at": "2025-01-01", "snapshot_data": {"tools": ["read"]}}
+            v1.to_dict.return_value = {
+                "version_id": "v1",
+                "label": "init",
+                "created_at": "2025-01-01",
+                "snapshot_data": {"tools": ["read"]},
+            }
             mock_vs.list_versions.return_value = [v1]
             daemon._version_store = mock_vs
             with patch.object(daemon, "_agent_dir", return_value=agent_dir):
-                result = await daemon._handle_agent_diff_review({"agent_id": "test-agent"})
+                result = await daemon._handle_agent_diff_review(
+                    {"agent_id": "test-agent"}
+                )
         assert len(result["entries"]) == 1
         assert "# Diff Review" in result["markdown"]
 
@@ -251,10 +286,22 @@ class TestPermissionList:
             agent_dir = Path(tmpdir)
             pkg_dir = agent_dir / ".fusion-agent"
             pkg_dir.mkdir()
-            (pkg_dir / "manifest.json").write_text(json.dumps({"tools": ["file_read"], "knowledge_base_ids": [], "web_search_enabled": False}))
-            (agent_dir / "definition.json").write_text(json.dumps({"denied_tools": ["bash"], "permissions": {}}))
+            (pkg_dir / "manifest.json").write_text(
+                json.dumps(
+                    {
+                        "tools": ["file_read"],
+                        "knowledge_base_ids": [],
+                        "web_search_enabled": False,
+                    }
+                )
+            )
+            (agent_dir / "definition.json").write_text(
+                json.dumps({"denied_tools": ["bash"], "permissions": {}})
+            )
             with patch.object(daemon, "_agent_dir", return_value=agent_dir):
-                result = await daemon._handle_permission_list({"agent_id": "test-agent"})
+                result = await daemon._handle_permission_list(
+                    {"agent_id": "test-agent"}
+                )
         assert "permissions" in result
         assert "denied_tools" in result
         assert "bash" in result["denied_tools"]
@@ -280,7 +327,9 @@ class TestPermissionUpdate:
             (pkg_dir / "manifest.json").write_text(json.dumps({"name": "test"}))
             (agent_dir / "definition.json").write_text(json.dumps({"denied_tools": []}))
             with patch.object(daemon, "_agent_dir", return_value=agent_dir):
-                result = await daemon._handle_permission_update({"agent_id": "test", "tool": "bash", "level": "deny"})
+                result = await daemon._handle_permission_update(
+                    {"agent_id": "test", "tool": "bash", "level": "deny"}
+                )
         assert result["ok"] is True
         assert "bash" in result["denied_tools"]
 
@@ -291,9 +340,13 @@ class TestPermissionUpdate:
             pkg_dir = agent_dir / ".fusion-agent"
             pkg_dir.mkdir()
             (pkg_dir / "manifest.json").write_text(json.dumps({"name": "test"}))
-            (agent_dir / "definition.json").write_text(json.dumps({"denied_tools": ["bash"]}))
+            (agent_dir / "definition.json").write_text(
+                json.dumps({"denied_tools": ["bash"]})
+            )
             with patch.object(daemon, "_agent_dir", return_value=agent_dir):
-                result = await daemon._handle_permission_update({"agent_id": "test", "tool": "bash", "level": "allow"})
+                result = await daemon._handle_permission_update(
+                    {"agent_id": "test", "tool": "bash", "level": "allow"}
+                )
         assert result["ok"] is True
         assert "bash" not in result["denied_tools"]
 
@@ -303,10 +356,20 @@ class TestDispatchTable:
         ds = DaemonServer.__new__(DaemonServer)
         ds.__init__()
         required = [
-            "model.status", "kb.build", "kb.status", "kb.query",
-            "audit.list", "system.offline_status", "system.set_offline",
-            "agent.diff_review", "permission.list", "permission.update",
-            "kb.search", "kb.ask", "kb.scan", "kb.health",
+            "model.status",
+            "kb.build",
+            "kb.status",
+            "kb.query",
+            "audit.list",
+            "system.offline_status",
+            "system.set_offline",
+            "agent.diff_review",
+            "permission.list",
+            "permission.update",
+            "kb.search",
+            "kb.ask",
+            "kb.scan",
+            "kb.health",
         ]
         for method in required:
             handler = ds._get_handler(method)
@@ -323,9 +386,14 @@ class TestKbSearch:
     @pytest.mark.asyncio
     async def test_kb_search_rag_unavailable(self, daemon):
         mock_mgr = MagicMock()
-        mock_mgr.search = AsyncMock(return_value={
-            "results": [], "kb_id": "kb1", "query": "test", "rag_available": False,
-        })
+        mock_mgr.search = AsyncMock(
+            return_value={
+                "results": [],
+                "kb_id": "kb1",
+                "query": "test",
+                "rag_available": False,
+            }
+        )
         with patch.object(daemon, "_get_kb_manager", return_value=mock_mgr):
             result = await daemon._handle_kb_search({"kb_id": "kb1", "query": "test"})
         assert result["rag_available"] is False
@@ -333,17 +401,30 @@ class TestKbSearch:
     @pytest.mark.asyncio
     async def test_kb_search_with_results(self, daemon):
         mock_mgr = MagicMock()
-        mock_mgr.search = AsyncMock(return_value={
-            "results": [{"content": "hello", "score": 0.9}],
-            "kb_id": "kb1", "query": "test", "rag_available": True, "count": 1,
-        })
+        mock_mgr.search = AsyncMock(
+            return_value={
+                "results": [{"content": "hello", "score": 0.9}],
+                "kb_id": "kb1",
+                "query": "test",
+                "rag_available": True,
+                "count": 1,
+            }
+        )
         with patch.object(daemon, "_get_kb_manager", return_value=mock_mgr):
-            result = await daemon._handle_kb_search({
-                "kb_id": "kb1", "query": "test", "hybrid": True, "rerank": True,
-            })
+            result = await daemon._handle_kb_search(
+                {
+                    "kb_id": "kb1",
+                    "query": "test",
+                    "hybrid": True,
+                    "rerank": True,
+                }
+            )
         assert result["count"] == 1
         mock_mgr.search.assert_called_once_with(
-            kb_id="kb1", query="test", hybrid=True, rerank=True,
+            kb_id="kb1",
+            query="test",
+            hybrid=True,
+            rerank=True,
         )
 
 
@@ -356,9 +437,14 @@ class TestKbAsk:
     @pytest.mark.asyncio
     async def test_kb_ask_rag_unavailable(self, daemon):
         mock_mgr = MagicMock()
-        mock_mgr.ask = AsyncMock(return_value={
-            "answer": "", "kb_id": "kb1", "question": "q", "rag_available": False,
-        })
+        mock_mgr.ask = AsyncMock(
+            return_value={
+                "answer": "",
+                "kb_id": "kb1",
+                "question": "q",
+                "rag_available": False,
+            }
+        )
         with patch.object(daemon, "_get_kb_manager", return_value=mock_mgr):
             result = await daemon._handle_kb_ask({"kb_id": "kb1", "question": "q"})
         assert result["rag_available"] is False
@@ -366,10 +452,16 @@ class TestKbAsk:
     @pytest.mark.asyncio
     async def test_kb_ask_with_answer(self, daemon):
         mock_mgr = MagicMock()
-        mock_mgr.ask = AsyncMock(return_value={
-            "answer": "42", "sources": [], "confidence": 0.9,
-            "kb_id": "kb1", "question": "q", "rag_available": True,
-        })
+        mock_mgr.ask = AsyncMock(
+            return_value={
+                "answer": "42",
+                "sources": [],
+                "confidence": 0.9,
+                "kb_id": "kb1",
+                "question": "q",
+                "rag_available": True,
+            }
+        )
         with patch.object(daemon, "_get_kb_manager", return_value=mock_mgr):
             result = await daemon._handle_kb_ask({"kb_id": "kb1", "question": "q"})
         assert result["answer"] == "42"
@@ -384,9 +476,13 @@ class TestKbScan:
     @pytest.mark.asyncio
     async def test_kb_scan_rag_unavailable(self, daemon):
         mock_mgr = MagicMock()
-        mock_mgr.scan_directory = AsyncMock(return_value={
-            "kb_id": "kb1", "path": "/data", "rag_available": False,
-        })
+        mock_mgr.scan_directory = AsyncMock(
+            return_value={
+                "kb_id": "kb1",
+                "path": "/data",
+                "rag_available": False,
+            }
+        )
         with patch.object(daemon, "_get_kb_manager", return_value=mock_mgr):
             result = await daemon._handle_kb_scan({"kb_id": "kb1", "path": "/data"})
         assert result["rag_available"] is False
@@ -394,13 +490,22 @@ class TestKbScan:
     @pytest.mark.asyncio
     async def test_kb_scan_with_results(self, daemon):
         mock_mgr = MagicMock()
-        mock_mgr.scan_directory = AsyncMock(return_value={
-            "kb_id": "kb1", "path": "/data", "rag_available": True, "scanned": 10,
-        })
+        mock_mgr.scan_directory = AsyncMock(
+            return_value={
+                "kb_id": "kb1",
+                "path": "/data",
+                "rag_available": True,
+                "scanned": 10,
+            }
+        )
         with patch.object(daemon, "_get_kb_manager", return_value=mock_mgr):
-            result = await daemon._handle_kb_scan({
-                "kb_id": "kb1", "path": "/data", "recursive": True,
-            })
+            result = await daemon._handle_kb_scan(
+                {
+                    "kb_id": "kb1",
+                    "path": "/data",
+                    "recursive": True,
+                }
+            )
         assert result["scanned"] == 10
 
 
@@ -409,7 +514,9 @@ class TestKbHealth:
     async def test_kb_health_rag_available(self, daemon):
         mock_mgr = MagicMock()
         mock_mgr.is_rag_available = AsyncMock(return_value=True)
-        mock_mgr.rag_status = AsyncMock(return_value={"available": True, "version": "0.1.0"})
+        mock_mgr.rag_status = AsyncMock(
+            return_value={"available": True, "version": "0.1.0"}
+        )
         with patch.object(daemon, "_get_kb_manager", return_value=mock_mgr):
             result = await daemon._handle_kb_health({})
         assert result["rag_available"] is True
@@ -418,7 +525,9 @@ class TestKbHealth:
     async def test_kb_health_rag_unavailable(self, daemon):
         mock_mgr = MagicMock()
         mock_mgr.is_rag_available = AsyncMock(return_value=False)
-        mock_mgr.rag_status = AsyncMock(return_value={"available": False, "error": "connection refused"})
+        mock_mgr.rag_status = AsyncMock(
+            return_value={"available": False, "error": "connection refused"}
+        )
         with patch.object(daemon, "_get_kb_manager", return_value=mock_mgr):
             result = await daemon._handle_kb_health({})
         assert result["rag_available"] is False

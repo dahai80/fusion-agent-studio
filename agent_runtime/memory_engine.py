@@ -124,7 +124,6 @@ class MemoryEntry:
 
 
 class MemoryEngine:
-
     def __init__(
         self,
         db_path: str | Path | None = None,
@@ -208,7 +207,9 @@ class MemoryEngine:
             c.execute("SELECT tier FROM memories LIMIT 1")
         except sqlite3.OperationalError:
             logger.info("Migrating memories table: adding tier column")
-            c.execute("ALTER TABLE memories ADD COLUMN tier TEXT NOT NULL DEFAULT 'short_term'")
+            c.execute(
+                "ALTER TABLE memories ADD COLUMN tier TEXT NOT NULL DEFAULT 'short_term'"
+            )
             c.execute("""
                 UPDATE memories SET tier = 'long_term'
                 WHERE is_summary = 1 OR importance < 7
@@ -249,11 +250,26 @@ class MemoryEngine:
         c.execute(
             "INSERT INTO memories (id, content, scope, tags, importance, created_at, metadata, tier, is_summary) "
             "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (entry.id, entry.content, entry.scope, entry.tags, entry.importance,
-             entry.created_at, json.dumps(entry.metadata, ensure_ascii=False), entry.tier, summary_flag),
+            (
+                entry.id,
+                entry.content,
+                entry.scope,
+                entry.tags,
+                entry.importance,
+                entry.created_at,
+                json.dumps(entry.metadata, ensure_ascii=False),
+                entry.tier,
+                summary_flag,
+            ),
         )
         self.conn.commit()
-        logger.debug("Stored memory %s in scope '%s' tier '%s' summary=%s", entry.id, scope, tier, is_summary)
+        logger.debug(
+            "Stored memory %s in scope '%s' tier '%s' summary=%s",
+            entry.id,
+            scope,
+            tier,
+            is_summary,
+        )
 
         self._maybe_summarize()
         return entry.id
@@ -388,7 +404,9 @@ class MemoryEngine:
             logger.warning("Unknown tier '%s', skipping compress_scope", tier)
             return 0
 
-        max_age_seconds = tier_config.max_age_hours * 3600 if tier_config.max_age_hours > 0 else 0
+        max_age_seconds = (
+            tier_config.max_age_hours * 3600 if tier_config.max_age_hours > 0 else 0
+        )
         if max_age_seconds <= 0:
             logger.debug("Tier '%s' has no age limit, nothing to compress", tier)
             return 0
@@ -407,7 +425,9 @@ class MemoryEngine:
         if len(rows) < 3:
             logger.debug(
                 "Only %d candidates in scope '%s' tier '%s', too few to compress",
-                len(rows), scope, tier,
+                len(rows),
+                scope,
+                tier,
             )
             return 0
 
@@ -448,7 +468,10 @@ class MemoryEngine:
             total_compressed += len(ids_to_delete)
             logger.info(
                 "Compressed %d memories in scope '%s' from tier '%s' to '%s'",
-                len(ids_to_delete), scope, tier, target_tier,
+                len(ids_to_delete),
+                scope,
+                tier,
+                target_tier,
             )
 
         self.conn.commit()
@@ -479,9 +502,7 @@ class MemoryEngine:
 
     def get_tier_stats(self) -> dict[str, Any]:
         c = self.conn.cursor()
-        c.execute(
-            "SELECT tier, COUNT(*) as cnt FROM memories GROUP BY tier"
-        )
+        c.execute("SELECT tier, COUNT(*) as cnt FROM memories GROUP BY tier")
         tier_counts = {row["tier"]: row["cnt"] for row in c.fetchall()}
 
         c.execute("SELECT COUNT(*) FROM memories WHERE is_summary = 1")
@@ -555,7 +576,9 @@ class MemoryEngine:
                 self.conn.commit()
                 logger.info(
                     "Demoted %d memories from tier '%s' to '%s'",
-                    demoted, tier_name, target_tier,
+                    demoted,
+                    tier_name,
+                    target_tier,
                 )
 
     def _maybe_summarize(self) -> None:
@@ -599,7 +622,12 @@ class MemoryEngine:
                         "WHERE scope = ? AND tier = ? AND is_summary = 0 "
                         "AND importance < ? "
                         "ORDER BY created_at ASC LIMIT ?",
-                        (scope, tier_name, tier_config.importance_threshold, self.summary_batch),
+                        (
+                            scope,
+                            tier_name,
+                            tier_config.importance_threshold,
+                            self.summary_batch,
+                        ),
                     )
                     rows = c.fetchall()
                     if len(rows) < 3:
@@ -632,7 +660,9 @@ class MemoryEngine:
                     self.conn.commit()
                     logger.info(
                         "Auto-summarized %d memories in scope '%s' from tier '%s'",
-                        len(ids_to_delete), scope, tier_name,
+                        len(ids_to_delete),
+                        scope,
+                        tier_name,
                     )
 
             remaining = self.count()
@@ -687,7 +717,8 @@ class MemoryEngine:
             self.conn.commit()
             logger.warning(
                 "Emergency compressed %d low-importance memories in scope '%s'",
-                len(ids_to_delete), scope,
+                len(ids_to_delete),
+                scope,
             )
 
     def _generate_summary(self, contents: list[str], scope: str) -> str:
@@ -731,13 +762,16 @@ class MemoryEngine:
             if summary:
                 logger.info(
                     "LLM summarized %d memories in scope '%s' (%d chars)",
-                    len(contents), scope, len(summary),
+                    len(contents),
+                    scope,
+                    len(summary),
                 )
                 return summary
         except Exception as exc:
             logger.warning(
                 "LLM summarization failed for scope '%s': %s, falling back to stub",
-                scope, exc,
+                scope,
+                exc,
             )
 
         combined = "\n---\n".join(contents)
@@ -792,7 +826,11 @@ class MemoryEngine:
             (min_importance, low_count),
         )
         self.conn.commit()
-        logger.info("auto_forget: removed %d low-importance memories (was %d total)", c.rowcount, total)
+        logger.info(
+            "auto_forget: removed %d low-importance memories (was %d total)",
+            c.rowcount,
+            total,
+        )
         return c.rowcount
 
     def close(self) -> None:
