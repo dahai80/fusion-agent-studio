@@ -40,7 +40,7 @@ def socket_path():
 
 @pytest.fixture
 async def daemon(socket_path):
-    d = DaemonServer(socket_path=socket_path, ws_port=0)
+    d = DaemonServer(socket_path=socket_path, ws_port=0, cluster_port=0, http_port=0)
     await d.start()
     yield d
     await d.stop()

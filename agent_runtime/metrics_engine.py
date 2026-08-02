@@ -100,7 +100,7 @@ class MetricsEngine:
         self._init_db()
 
     def _init_db(self):
-        self._conn = sqlite3.connect(str(self.db_path))
+        self._conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
         self._conn.execute("""
             CREATE TABLE IF NOT EXISTS inference_metrics (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
