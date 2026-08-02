@@ -42,7 +42,7 @@ MLX_BASE_URL = f"http://127.0.0.1:{MLX_PORT}/v1"
 
 
 class DaemonServer:
-    def __init__(self, socket_path: str = SOCKET_PATH, ws_port: int = WS_PORT, cluster_port: int = 9753, http_port: int = 8000):
+    def __init__(self, socket_path: str = SOCKET_PATH, ws_port: int = WS_PORT, cluster_port: int = 11454, http_port: int = 11453):
         self.socket_path = socket_path
         self.ws_port = ws_port
         self.cluster_port = cluster_port

@@ -1,6 +1,6 @@
 """Cluster HTTP server — REST API for multi-node cluster management.
 
-Listens on port 9753 (default). Provides endpoints consumed by
+Listens on port 11454 (default). Provides endpoints consumed by
 fusion-studio MultiNodeEngine.swift for cluster status, node management,
 task distribution, KV cache, routing, and observability.
 """
@@ -20,7 +20,7 @@ from pydantic import BaseModel
 
 logger = logging.getLogger(__name__)
 
-CLUSTER_PORT = 9753
+CLUSTER_PORT = 11454
 
 
 class ClusterState:
@@ -55,7 +55,7 @@ class ClusterState:
             "node_id": node_id,
             "hostname": platform.node(),
             "ip_address": "127.0.0.1",
-            "port": 9753,
+            "port": 11454,
             "status": "online",
             "total_memory_gb": mem_gb,
             "available_memory_gb": mem_gb * 0.7,
@@ -205,7 +205,7 @@ async def node_metrics(node_id: str):
 @app.post("/api/join")
 async def join_node(body: dict):
     ip = body.get("ip_address", "127.0.0.1")
-    port = body.get("port", 9753)
+    port = body.get("port", 11454)
     node_id = f"node-{uuid.uuid4().hex[:8]}"
     state.nodes[node_id] = {
         "node_id": node_id,
