@@ -536,6 +536,7 @@ class DaemonServer:
             SafetyDispatcher,
             PlannerDispatcher,
             MemoryDispatcher,
+            PluginDispatcher,
         )
 
         return [
@@ -550,6 +551,7 @@ class DaemonServer:
             SafetyDispatcher(self),
             PlannerDispatcher(self),
             MemoryDispatcher(self),
+            PluginDispatcher(self),
         ]
 
     async def _handle_context_compact(self, params: dict) -> dict:

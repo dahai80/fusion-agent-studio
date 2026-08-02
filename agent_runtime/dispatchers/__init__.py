@@ -12,6 +12,7 @@ from .workflow import WorkflowDispatcher
 from .safety import SafetyDispatcher
 from .planner import PlannerDispatcher
 from .memory import MemoryDispatcher
+from .plugin import PluginDispatcher
 
 __all__ = [
     "SubDispatcher",
@@ -26,4 +27,5 @@ __all__ = [
     "SafetyDispatcher",
     "PlannerDispatcher",
     "MemoryDispatcher",
+    "PluginDispatcher",
 ]

@@ -9,7 +9,7 @@ Run, build, and orchestrate AI agents entirely on your Mac — no cloud, no API 
 [![Version](https://img.shields.io/badge/v0.4.0-blue.svg)]()
 [![Python](https://img.shields.io/badge/Python-3.11+-3776AB.svg)](https://www.python.org/)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/Tests-1591-success.svg)](tests/)
+[![Tests](https://img.shields.io/badge/Tests-1600-success.svg)](tests/)
 
 **[中文文档](README_CN.md)** · [Quick Start](#quick-start) · [Architecture](#architecture) · [Documentation](docs/) · [Examples](examples/)
 
