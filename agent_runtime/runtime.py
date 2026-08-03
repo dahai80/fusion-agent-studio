@@ -672,6 +672,27 @@ class AgentRuntime:
                     ctx.agent_id,
                 )
 
+            if artifact_mode != "none":
+                try:
+                    from .artifact_tools import ARTIFACT_SYSTEM_PROMPT
+                    artifact_count = artifact_result.get("artifact_count", 0)
+                    rendered = self.templates.render(
+                        "artifact-long-text",
+                        artifact_guidelines=ARTIFACT_SYSTEM_PROMPT,
+                        artifact_count=artifact_count,
+                        artifact_list=artifact_ctx,
+                    )
+                    if messages and messages[0].get("role") == "system":
+                        messages[0]["content"] += "\n\n" + rendered
+                    else:
+                        messages.insert(0, {"role": "system", "content": rendered})
+                    logger.info(
+                        "AS-8 artifact-aware prompt injected: artifacts=%d mode=%s",
+                        artifact_count, artifact_mode,
+                    )
+                except (KeyError, ValueError) as e:
+                    logger.warning("artifact-long-text template render failed: %s", e)
+
             if self.compactor and artifact_result.get("utilization", 0.0) > 0.7:
                 compact_level = self.compactor.should_compact(ctx.messages)
                 if compact_level != "none":

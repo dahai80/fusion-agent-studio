@@ -13,6 +13,7 @@ from .safety import SafetyDispatcher
 from .planner import PlannerDispatcher
 from .memory import MemoryDispatcher
 from .plugin import PluginDispatcher
+from .artifact import ArtifactDispatcher
 
 __all__ = [
     "SubDispatcher",
@@ -28,4 +29,5 @@ __all__ = [
     "PlannerDispatcher",
     "MemoryDispatcher",
     "PluginDispatcher",
+    "ArtifactDispatcher",
 ]

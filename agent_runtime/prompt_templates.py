@@ -1,4 +1,8 @@
-"""Prompt template — reusable prompt templates with variable interpolation."""
+"""Prompt template — reusable prompt templates with variable interpolation.
+
+Importers: runtime.py (PromptTemplateManager), tests/test_prompt_templates.py
+API: register_default_prompt_templates(), PromptTemplateManager.register/render/list
+"""
 
 from __future__ import annotations
 
@@ -219,6 +223,34 @@ def register_default_prompt_templates(manager: PromptTemplateManager) -> None:
                 },
             },
             category="coding",
+        ),
+        PromptTemplate(
+            name="artifact-long-text",
+            template=(
+                "{{ artifact_guidelines }}\n\n"
+                "Current session has {{ artifact_count }} active artifact(s):\n"
+                "{{ artifact_list }}\n\n"
+                "Follow the artifact guidelines above when producing or editing long content."
+            ),
+            description="Inject artifact-aware long-text guidelines when artifacts are active",
+            variables={
+                "artifact_guidelines": {
+                    "type": "string",
+                    "description": "Full artifact system prompt text",
+                    "required": True,
+                },
+                "artifact_count": {
+                    "type": "integer",
+                    "description": "Number of active artifacts",
+                    "default": "0",
+                },
+                "artifact_list": {
+                    "type": "string",
+                    "description": "Summary list of active artifacts",
+                    "default": "",
+                },
+            },
+            category="artifact",
         ),
     ]
     for t in templates:

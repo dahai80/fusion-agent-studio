@@ -9,7 +9,7 @@
 [![Version](https://img.shields.io/badge/v0.4.0-blue.svg)]()
 [![Python](https://img.shields.io/badge/Python-3.11+-3776AB.svg)](https://www.python.org/)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/Tests-1644-success.svg)](tests/)
+[![Tests](https://img.shields.io/badge/Tests-1701-success.svg)](tests/)
 
 **[English](README.md)** · [快速开始](#快速开始) · [架构](#架构) · [文档](docs/) · [示例](examples/)
 

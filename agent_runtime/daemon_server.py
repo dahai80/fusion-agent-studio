@@ -266,10 +266,10 @@ class DaemonServer:
 
     def _get_artifact_manager(self):
         if self._artifact_manager is None:
-            from .artifact_tools import ArtifactManager
+            from .artifact_bridge import ArtifactBridge
 
-            self._artifact_manager = ArtifactManager()
-            logger.info("ArtifactManager created")
+            self._artifact_manager = ArtifactBridge()
+            logger.info("ArtifactBridge created (local + remote RPC)")
         return self._artifact_manager
 
     def _get_kb_manager(self):
@@ -537,6 +537,7 @@ class DaemonServer:
             PlannerDispatcher,
             MemoryDispatcher,
             PluginDispatcher,
+            ArtifactDispatcher,
         )
 
         return [
@@ -552,6 +553,7 @@ class DaemonServer:
             PlannerDispatcher(self),
             MemoryDispatcher(self),
             PluginDispatcher(self),
+            ArtifactDispatcher(self),
         ]
 
     async def _handle_context_compact(self, params: dict) -> dict:
