@@ -4,16 +4,16 @@ from __future__ import annotations
 
 import pytest
 
+from tools import create_default_registry
 from tools.computer_use_tools import (
-    ScreenCaptureTool,
-    MouseTool,
-    KeyboardTool,
-    ClipboardTool,
+    _KEY_MAP,
     _PLATFORM_OK,
     _QUARTZ_OK,
-    _KEY_MAP,
+    ClipboardTool,
+    KeyboardTool,
+    MouseTool,
+    ScreenCaptureTool,
 )
-from tools import create_default_registry
 
 
 @pytest.mark.skipif(not _QUARTZ_OK, reason="Quartz not available")
@@ -121,7 +121,7 @@ class TestRegistryIntegration:
         assert registry.has("mouse")
         assert registry.has("keyboard")
         assert registry.has("clipboard")
-        assert registry.count == 28
+        assert registry.count == 31
 
     def test_tool_schemas_valid(self):
         registry = create_default_registry()

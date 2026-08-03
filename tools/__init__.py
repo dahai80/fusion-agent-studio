@@ -1,44 +1,73 @@
 """Built-in tools for agent execution."""
 
-from .base import BaseTool, ToolResult
-from .registry import ToolRegistry
-from .file_tools import FileReadTool, FileWriteTool, FileListTool
-from .terminal_tools import TerminalTool
-from .git_tools import GitTool
-from .text_tools import TextProcessTool, TextSearchTool
-from .http_tools import HttpRequestTool
-from .code_tools import CodeExecuteTool
-from .data_tools import JsonParseTool, CsvParseTool, Base64Tool
-from .utility_tools import DateTimeTool, UuidTool, HashTool, PathOpsTool, ZipTool
-from .db_tools import SqliteQueryTool, AnnotationNode
-from .computer_use_tools import ScreenCaptureTool, MouseTool, KeyboardTool, ClipboardTool
 from .artifact_fc_tools import (
-    ArtifactGetSourceTool,
-    ArtifactCreateTool,
-    ArtifactUpdateTool,
+    ArtifactContextBudgetTool,
     ArtifactCreateSnapshotTool,
+    ArtifactCreateTool,
+    ArtifactGetSourceTool,
     ArtifactListAllTool,
+    ArtifactLoadTool,
+    ArtifactPatchTool,
+    ArtifactUpdateTool,
 )
+from .base import BaseTool, ToolResult
+from .code_tools import CodeExecuteTool
+from .computer_use_tools import (
+    ClipboardTool,
+    KeyboardTool,
+    MouseTool,
+    ScreenCaptureTool,
+)
+from .data_tools import Base64Tool, CsvParseTool, JsonParseTool
+from .db_tools import AnnotationNode, SqliteQueryTool
+from .file_tools import FileListTool, FileReadTool, FileWriteTool
+from .git_tools import GitTool
+from .http_tools import HttpRequestTool
+from .registry import ToolRegistry
+from .terminal_tools import TerminalTool
+from .text_tools import TextProcessTool, TextSearchTool
+from .utility_tools import DateTimeTool, HashTool, PathOpsTool, UuidTool, ZipTool
 
 __all__ = [
-    "BaseTool", "ToolResult",
-    "ToolRegistry",
-    "FileReadTool", "FileWriteTool", "FileListTool",
-    "TerminalTool",
+    "AnnotationNode",
+    "ArtifactContextBudgetTool",
+    "ArtifactCreateSnapshotTool",
+    "ArtifactCreateTool",
+    "ArtifactGetSourceTool",
+    "ArtifactListAllTool",
+    "ArtifactLoadTool",
+    "ArtifactPatchTool",
+    "ArtifactUpdateTool",
+    "Base64Tool",
+    "BaseTool",
+    "ClipboardTool",
+    "CodeExecuteTool",
+    "CsvParseTool",
+    "DateTimeTool",
+    "FileListTool",
+    "FileReadTool",
+    "FileWriteTool",
     "GitTool",
-    "TextProcessTool", "TextSearchTool",
-    "HttpRequestTool", "CodeExecuteTool",
-    "JsonParseTool", "CsvParseTool", "Base64Tool",
-    "DateTimeTool", "UuidTool", "HashTool", "PathOpsTool", "ZipTool",
-    "SqliteQueryTool", "AnnotationNode",
-    "ScreenCaptureTool", "MouseTool", "KeyboardTool", "ClipboardTool",
-    "ArtifactGetSourceTool", "ArtifactCreateTool", "ArtifactUpdateTool",
-    "ArtifactCreateSnapshotTool", "ArtifactListAllTool",
+    "HashTool",
+    "HttpRequestTool",
+    "JsonParseTool",
+    "KeyboardTool",
+    "MouseTool",
+    "PathOpsTool",
+    "ScreenCaptureTool",
+    "SqliteQueryTool",
+    "TerminalTool",
+    "TextProcessTool",
+    "TextSearchTool",
+    "ToolRegistry",
+    "ToolResult",
+    "UuidTool",
+    "ZipTool",
 ]
 
 
 def create_default_registry() -> ToolRegistry:
-    """Create a ToolRegistry with all built-in tools registered (19 tools)."""
+    """Create a ToolRegistry with all built-in tools registered (31 tools)."""
     registry = ToolRegistry()
     registry.register(FileReadTool())
     registry.register(FileWriteTool())
@@ -68,4 +97,7 @@ def create_default_registry() -> ToolRegistry:
     registry.register(ArtifactUpdateTool())
     registry.register(ArtifactCreateSnapshotTool())
     registry.register(ArtifactListAllTool())
+    registry.register(ArtifactPatchTool())
+    registry.register(ArtifactLoadTool())
+    registry.register(ArtifactContextBudgetTool())
     return registry

@@ -363,16 +363,29 @@ class AgentRuntime:
                     ):
                         if not getattr(ctx, "_pruning_done", False):
                             ctx._pruning_done = True
+                            artifact_tokens = 0
+                            if self.artifact_manager:
+                                try:
+                                    budget_info = self.artifact_manager.get_context_budget(
+                                        agent_id=getattr(ctx, "agent_id", "")
+                                    )
+                                    artifact_tokens = budget_info.get("total_tokens", 0)
+                                except (ValueError, TypeError, RuntimeError, OSError):
+                                    pass
                             logger.info(
-                                "Proactive context pruning at %d/%d tokens (70%% threshold)",
+                                "Proactive context pruning at %d/%d tokens (70%% threshold), artifact_tokens=%d",
                                 token_budget.spent_tokens,
                                 token_budget.max_tokens,
+                                artifact_tokens,
                             )
                             await self.compactor.compact(ctx.messages)
                             yield AgentEvent(
                                 type=AgentEventType.THINK,
                                 content="Context proactively pruned at 70% budget",
-                                metadata={"pruning_threshold": 0.7},
+                                metadata={
+                                    "pruning_threshold": 0.7,
+                                    "artifact_tokens": artifact_tokens,
+                                },
                             )
                     if token_budget.is_exceeded():
                         mode = "stream" if stream else "batch"

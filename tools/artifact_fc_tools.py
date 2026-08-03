@@ -1,12 +1,13 @@
-"""Artifact FC tools — 5 BaseTool subclasses wrapping ArtifactManager.
+"""Artifact FC tools — 8 BaseTool subclasses wrapping ArtifactManager.
 
 Importers: tools/__init__.py (create_default_registry),
            agent_runtime/runtime.py (tool execution),
            agent_runtime/dispatchers/agent.py (RPC dispatch).
 Affected API: artifact_get_source, artifact_create, artifact_update,
-             artifact_create_snapshot, artifact_list_all tool schemas.
+             artifact_create_snapshot, artifact_list_all,
+             artifact_patch, artifact_load, artifact_context_budget.
 Data schemas: ArtifactRecord, ArtifactManager (from artifact_tools).
-User instruction: issue #60 — implement artifact tools + context injection.
+User instruction: issue #61 — patch_artifact / load_artifact / context_budget.
 """
 
 from __future__ import annotations
@@ -197,3 +198,124 @@ class ArtifactListAllTool(BaseTool):
         artifacts = self._manager.list_artifacts(agent_id=agent_id)
         logger.info("artifact_list_all: returned %d artifacts", len(artifacts))
         return json.dumps({"artifacts": artifacts, "total": len(artifacts)}, ensure_ascii=False)
+
+
+class ArtifactPatchTool(BaseTool):
+    name = "artifact_patch"
+    description = "Incrementally patch an artifact's content. Supports 4 operations: replace, append, prepend, section_replace."
+    parameters = {
+        "artifact_id": {
+            "type": "string",
+            "description": "The artifact ID to patch.",
+        },
+        "operation": {
+            "type": "string",
+            "description": "Patch operation: replace, append, prepend, section_replace.",
+        },
+        "content": {
+            "type": "string",
+            "description": "Content to apply in the patch.",
+        },
+        "section": {
+            "type": "string",
+            "description": "Section name for section_replace operation (optional).",
+        },
+        "agent_id": {
+            "type": "string",
+            "description": "Agent ID performing the patch (for policy check).",
+        },
+    }
+
+    def __init__(self, artifact_manager: Any | None = None):
+        self._manager = artifact_manager
+
+    async def execute(self, **kwargs) -> str:
+        artifact_id = kwargs.get("artifact_id", "")
+        operation = kwargs.get("operation", "")
+        content = kwargs.get("content", "")
+        section = kwargs.get("section", "")
+        agent_id = kwargs.get("agent_id", "")
+        if not artifact_id:
+            return "Error: artifact_id is required"
+        if not operation:
+            return "Error: operation is required"
+        if not self._manager:
+            return "Error: ArtifactManager not available"
+        import json
+        result = self._manager.patch_artifact(
+            artifact_id=artifact_id,
+            operation=operation,
+            content=content,
+            section=section,
+            agent_id=agent_id,
+        )
+        logger.info("artifact_patch: %s op=%s status=%s", artifact_id, operation, result.get("status"))
+        return json.dumps(result, ensure_ascii=False)
+
+
+class ArtifactLoadTool(BaseTool):
+    name = "artifact_load"
+    description = "Load artifact content with optional preview_only or section-based loading for efficient context usage."
+    parameters = {
+        "artifact_id": {
+            "type": "string",
+            "description": "The artifact ID to load.",
+        },
+        "preview_only": {
+            "type": "boolean",
+            "description": "If true, return only first 500 chars. Default: false.",
+        },
+        "section": {
+            "type": "string",
+            "description": "Load only a specific section by name (optional).",
+        },
+        "max_tokens": {
+            "type": "integer",
+            "description": "Max tokens to return (0 = unlimited). Default: 0.",
+        },
+    }
+
+    def __init__(self, artifact_manager: Any | None = None):
+        self._manager = artifact_manager
+
+    async def execute(self, **kwargs) -> str:
+        artifact_id = kwargs.get("artifact_id", "")
+        preview_only = kwargs.get("preview_only", False)
+        section = kwargs.get("section", "")
+        max_tokens = kwargs.get("max_tokens", 0)
+        if not artifact_id:
+            return "Error: artifact_id is required"
+        if not self._manager:
+            return "Error: ArtifactManager not available"
+        import json
+        result = self._manager.load_artifact(
+            artifact_id=artifact_id,
+            preview_only=preview_only,
+            section=section,
+            max_tokens=max_tokens,
+        )
+        logger.info("artifact_load: %s preview=%s section=%s", artifact_id, preview_only, section or "all")
+        return json.dumps(result, ensure_ascii=False)
+
+
+class ArtifactContextBudgetTool(BaseTool):
+    name = "artifact_context_budget"
+    description = "Get context budget info: total token usage across artifacts, breakdown by type."
+    parameters = {
+        "agent_id": {
+            "type": "string",
+            "description": "Filter by owner agent ID (optional, empty for all).",
+        },
+    }
+
+    def __init__(self, artifact_manager: Any | None = None):
+        self._manager = artifact_manager
+
+    async def execute(self, **kwargs) -> str:
+        agent_id = kwargs.get("agent_id", "")
+        if not self._manager:
+            return "Error: ArtifactManager not available"
+        import json
+        result = self._manager.get_context_budget(agent_id=agent_id)
+        logger.info("artifact_context_budget: agent=%s tokens=%d", agent_id, result.get("total_tokens", 0))
+        return json.dumps(result, ensure_ascii=False)

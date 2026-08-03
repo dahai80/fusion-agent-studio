@@ -9,7 +9,7 @@
 [![Version](https://img.shields.io/badge/v0.4.0-blue.svg)]()
 [![Python](https://img.shields.io/badge/Python-3.11+-3776AB.svg)](https://www.python.org/)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/Tests-1617-success.svg)](tests/)
+[![Tests](https://img.shields.io/badge/Tests-1644-success.svg)](tests/)
 
 **[English](README.md)** · [快速开始](#快速开始) · [架构](#架构) · [文档](docs/) · [示例](examples/)
 
@@ -96,7 +96,7 @@ python my_agent.py
 │  ┌─────────────────────┐   ┌─────────────────┐               │
 │  │  智能体运行时        │   │  工具系统         │               │
 │  │  ┌───────────────┐  │   │  ┌───────────┐  │               │
-│  │  │ 状态机        │  │   │  │ 28 个工具 │  │               │
+│  │  │ 状态机        │  │   │  │ 31 个工具 │  │               │
 │  │  │ 图执行器      │  │   │  │ 注册表    │  │               │
 │  │  │ 编排器        │  │   │  │ 插件      │  │               │
 │  │  │ 调试器        │  │   │  └───────────┘  │               │
@@ -130,7 +130,7 @@ python my_agent.py
 | `agent_runtime/dispatchers/` | 11 个子分发器 — 从 DaemonServer 提取：agent、chat、deploy、infra、knowledge、marketplace、memory、planner、safety、team、workflow | 13 |
 | `agent_runtime/sdk/` | 智能体 SDK：Agent、Tool、AgentClient，通过 JSON-RPC 编程访问 | 3 |
 | `agent_runtime/plugins/` | 内置工作流插件：code_review、feature_dev、security_scan、pr_review、agent_builder | 5 |
-| `tools/` | 内置工具系统：28 个工具 + 插件系统 | 11 |
+| `tools/` | 内置工具系统：31 个工具 + 插件系统 | 11 |
 | `server/` | fusion-mlx HTTP 客户端 + 进程管理器 | 2 |
 
 ---

@@ -89,7 +89,7 @@ class ArtifactManager:
                 logger.info(
                     "Loaded %d artifacts from %s", len(self._artifacts), index_path
                 )
-            except Exception as e:
+            except (ValueError, TypeError, OSError, RuntimeError) as e:
                 logger.error("Failed to load artifacts index: %s", e)
 
     def _persist(self):
@@ -98,7 +98,7 @@ class ArtifactManager:
             data = {"artifacts": [a.to_dict() for a in self._artifacts.values()]}
             with open(index_path, "w") as f:
                 json.dump(data, f, indent=2)
-        except Exception as e:
+        except (ValueError, TypeError, OSError, RuntimeError) as e:
             logger.error("Failed to persist artifacts index: %s", e)
 
     def set_policy(self, agent_id: str, policy: ArtifactPolicyConfig):
@@ -233,7 +233,7 @@ class ArtifactManager:
                 json.dump(rec.to_dict(), f, indent=2)
             logger.info("Exported artifact %s to %s", artifact_id, export_path)
             return {"status": "ok", "path": export_path}
-        except Exception as e:
+        except (ValueError, TypeError, OSError, RuntimeError) as e:
             logger.error("Failed to export artifact %s: %s", artifact_id, e)
             return {"status": "error", "message": str(e)}
 
@@ -251,3 +251,123 @@ class ArtifactManager:
                 f"- {a.name} ({a.artifact_type}, v{a.version}): {a.content[:200]}"
             )
         return "\n".join(lines)
+
+    def patch_artifact(
+        self,
+        artifact_id: str,
+        operation: str,
+        content: str = "",
+        section: str = "",
+        agent_id: str = "",
+    ) -> dict[str, Any]:
+        rec = self._artifacts.get(artifact_id)
+        if not rec:
+            return {"status": "error", "message": f"Artifact {artifact_id} not found"}
+
+        valid_ops = {"replace", "append", "prepend", "section_replace"}
+        if operation not in valid_ops:
+            return {
+                "status": "error",
+                "message": f"Invalid patch operation '{operation}', must be one of {valid_ops}",
+            }
+
+        policy = self._policies.get(agent_id)
+        if policy and "update" not in policy.update_triggers:
+            return {
+                "status": "error",
+                "message": f"Agent {agent_id} not allowed to patch artifacts",
+            }
+
+        if operation == "replace":
+            rec.content = content
+        elif operation == "append":
+            rec.content += content
+        elif operation == "prepend":
+            rec.content = content + rec.content
+        elif operation == "section_replace":
+            if not section:
+                return {
+                    "status": "error",
+                    "message": "section is required for section_replace operation",
+                }
+            marker_start = f"<!-- section:{section} -->"
+            marker_end = f"<!-- end:{section} -->"
+            if marker_start in rec.content and marker_end in rec.content:
+                before = rec.content[: rec.content.index(marker_start)]
+                after = rec.content[rec.content.index(marker_end) + len(marker_end) :]
+                rec.content = f"{before}{marker_start}\n{content}\n{marker_end}{after}"
+            else:
+                rec.content += f"\n{marker_start}\n{content}\n{marker_end}"
+
+        rec.updated_at = time.time()
+        rec.version += 1
+        self._persist()
+        logger.info("Patched artifact %s op=%s v%d", artifact_id, operation, rec.version)
+        return {"status": "ok", "record": rec.to_dict()}
+
+    def load_artifact(
+        self,
+        artifact_id: str,
+        preview_only: bool = False,
+        section: str = "",
+        max_tokens: int = 0,
+    ) -> dict[str, Any]:
+        rec = self._artifacts.get(artifact_id)
+        if not rec:
+            return {"status": "error", "message": f"Artifact {artifact_id} not found"}
+
+        content = rec.content
+
+        if section:
+            marker_start = f"<!-- section:{section} -->"
+            marker_end = f"<!-- end:{section} -->"
+            if marker_start in content and marker_end in content:
+                start_idx = content.index(marker_start) + len(marker_start)
+                end_idx = content.index(marker_end)
+                content = content[start_idx:end_idx].strip()
+            else:
+                content = ""
+
+        if preview_only:
+            content = content[:500]
+
+        if max_tokens > 0:
+            max_chars = max_tokens * 4
+            content = content[:max_chars]
+
+        token_count = len(content) // 4
+        logger.info(
+            "Loaded artifact %s preview=%s section=%s tokens~=%d",
+            artifact_id, preview_only, section or "all", token_count,
+        )
+        return {
+            "status": "ok",
+            "artifact_id": artifact_id,
+            "name": rec.name,
+            "version": rec.version,
+            "content": content,
+            "token_count": token_count,
+        }
+
+    def get_context_budget(self, agent_id: str = "") -> dict[str, Any]:
+        agent_artifacts = [
+            a for a in self._artifacts.values() if a.owner_agent_id == agent_id
+        ] if agent_id else list(self._artifacts.values())
+
+        total_tokens = sum(len(a.content) // 4 for a in agent_artifacts)
+        artifact_count = len(agent_artifacts)
+        by_type: dict[str, int] = {}
+        for a in agent_artifacts:
+            by_type[a.artifact_type] = by_type.get(a.artifact_type, 0) + len(a.content) // 4
+
+        logger.info(
+            "Context budget: agent=%s artifacts=%d tokens~=%d",
+            agent_id, artifact_count, total_tokens,
+        )
+        return {
+            "status": "ok",
+            "agent_id": agent_id,
+            "artifact_count": artifact_count,
+            "total_tokens": total_tokens,
+            "by_type": by_type,
+        }
