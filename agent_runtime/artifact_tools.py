@@ -1,10 +1,15 @@
-"""Artifact FC tools and policy — Issues #32, #33, #34.
+"""Artifact tools and policy — Issues #32, #33, #34, #62.
 
 Importers: daemon_server.py (RPC dispatch via _get_artifact_manager),
            api_server.py (REST /agents/{id}/artifacts).
-Affected API: artifact.create/update/search/export/list/delete/context RPC methods.
+Affected API: artifact.create/update/search/export/list/delete/context/load/patch RPC methods.
 Data schemas: ArtifactRecord, ArtifactManager, ArtifactPolicyConfig (from agent_definition).
-User instruction: "后续功能也要马上启动落地实施" — implement remaining open issues.
+AS-1: artifact_get_source with preview_only + section
+AS-2: auto-trigger on output > 30 lines / 1500 chars
+AS-3: artifact_update with patch operations (replace_section, append, prepend, delete_section)
+AS-5: pagination for list_all
+AS-6: budget-aware context injection
+AS-7: proactive context compaction
 """
 
 from __future__ import annotations
@@ -35,6 +40,33 @@ class ArtifactRecord:
     created_at: float = 0.0
     updated_at: float = 0.0
     version: int = 1
+    summary: str = ""
+    tags: list[str] = field(default_factory=list)
+
+    def sections(self) -> list[str]:
+        sections = []
+        idx = 0
+        while True:
+            start_marker = "<!-- section:"
+            idx = self.content.find(start_marker, idx)
+            if idx == -1:
+                break
+            name_start = idx + len(start_marker)
+            name_end = self.content.find(" -->", name_start)
+            if name_end == -1:
+                break
+            sections.append(self.content[name_start:name_end])
+            idx = name_end
+        return sections
+
+    def auto_summary(self) -> str:
+        if self.summary:
+            return self.summary
+        content = self.content.strip()
+        if not content:
+            return ""
+        first_line = content.split("\n")[0][:120]
+        return first_line
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -47,6 +79,8 @@ class ArtifactRecord:
             "created_at": self.created_at,
             "updated_at": self.updated_at,
             "version": self.version,
+            "summary": self.auto_summary(),
+            "tags": self.tags,
         }
 
     @classmethod
@@ -61,6 +95,8 @@ class ArtifactRecord:
             created_at=data.get("created_at", 0.0),
             updated_at=data.get("updated_at", 0.0),
             version=data.get("version", 1),
+            summary=data.get("summary", ""),
+            tags=data.get("tags", []),
         )
 
 
@@ -115,6 +151,7 @@ class ArtifactManager:
         artifact_type: str = "document",
         content: str = "",
         metadata: dict | None = None,
+        auto_trigger: bool = False,
     ) -> dict[str, Any]:
         policy = self._policies.get(agent_id)
         if policy and "create" not in policy.creation_triggers:
@@ -128,6 +165,23 @@ class ArtifactManager:
                 "status": "error",
                 "message": f"Invalid artifact_type '{artifact_type}'",
             }
+
+        if auto_trigger:
+            threshold_lines = 30
+            threshold_chars = 1500
+            if policy:
+                threshold_lines = getattr(policy, "auto_create_threshold_lines", 30)
+                threshold_chars = getattr(policy, "auto_create_threshold_chars", 1500)
+            line_count = content.count("\n") + 1
+            if line_count < threshold_lines and len(content) < threshold_chars:
+                return {
+                    "status": "skipped",
+                    "message": f"Content below auto-trigger threshold ({line_count} lines / {len(content)} chars)",
+                }
+            logger.info(
+                "Auto-trigger activated: %d lines / %d chars (thresholds: %d / %d)",
+                line_count, len(content), threshold_lines, threshold_chars,
+            )
 
         record = ArtifactRecord(
             artifact_id=uuid.uuid4().hex[:12],
@@ -156,6 +210,8 @@ class ArtifactManager:
         agent_id: str,
         content: str | None = None,
         metadata: dict | None = None,
+        operation: str = "",
+        anchor: str = "",
     ) -> dict[str, Any]:
         rec = self._artifacts.get(artifact_id)
         if not rec:
@@ -168,14 +224,63 @@ class ArtifactManager:
                 "message": f"Agent {agent_id} not allowed to update artifacts",
             }
 
-        if content is not None:
-            rec.content = content
-        if metadata is not None:
-            rec.metadata.update(metadata)
+        if operation:
+            valid_ops = {"replace_section", "append", "prepend", "delete_section"}
+            if operation not in valid_ops:
+                return {
+                    "status": "error",
+                    "message": f"Invalid patch operation '{operation}', must be one of {valid_ops}",
+                }
+            if content is None and operation != "delete_section":
+                return {
+                    "status": "error",
+                    "message": f"content is required for operation '{operation}'",
+                }
+            if operation == "replace_section":
+                if not anchor:
+                    return {
+                        "status": "error",
+                        "message": "anchor is required for replace_section operation",
+                    }
+                marker_start = f"<!-- section:{anchor} -->"
+                marker_end = f"<!-- end:{anchor} -->"
+                if marker_start in rec.content and marker_end in rec.content:
+                    before = rec.content[: rec.content.index(marker_start)]
+                    after = rec.content[rec.content.index(marker_end) + len(marker_end) :]
+                    rec.content = f"{before}{marker_start}\n{content}\n{marker_end}{after}"
+                else:
+                    rec.content += f"\n{marker_start}\n{content}\n{marker_end}"
+            elif operation == "append":
+                rec.content += content
+            elif operation == "prepend":
+                rec.content = content + rec.content
+            elif operation == "delete_section":
+                if not anchor:
+                    return {
+                        "status": "error",
+                        "message": "anchor is required for delete_section operation",
+                    }
+                marker_start = f"<!-- section:{anchor} -->"
+                marker_end = f"<!-- end:{anchor} -->"
+                if marker_start in rec.content and marker_end in rec.content:
+                    before = rec.content[: rec.content.index(marker_start)]
+                    after = rec.content[rec.content.index(marker_end) + len(marker_end) :]
+                    rec.content = f"{before}{after}"
+                else:
+                    return {
+                        "status": "error",
+                        "message": f"Section '{anchor}' not found in artifact",
+                    }
+        else:
+            if content is not None:
+                rec.content = content
+            if metadata is not None:
+                rec.metadata.update(metadata)
+
         rec.updated_at = time.time()
         rec.version += 1
         self._persist()
-        logger.info("Updated artifact %s (v%d)", artifact_id, rec.version)
+        logger.info("Updated artifact %s op=%s (v%d)", artifact_id, operation or "full", rec.version)
         return {"status": "ok", "record": rec.to_dict()}
 
     def search_artifacts(
@@ -211,6 +316,38 @@ class ArtifactManager:
                 if a.owner_agent_id == agent_id
             ]
         return [a.to_dict() for a in self._artifacts.values()]
+
+    def list_artifacts_paginated(
+        self,
+        agent_id: str = "",
+        page: int = 1,
+        limit: int = 20,
+        artifact_type: str = "",
+    ) -> dict[str, Any]:
+        artifacts = list(self._artifacts.values())
+        if agent_id:
+            artifacts = [a for a in artifacts if a.owner_agent_id == agent_id]
+        if artifact_type:
+            artifacts = [a for a in artifacts if a.artifact_type == artifact_type]
+
+        total = len(artifacts)
+        artifacts.sort(key=lambda a: a.updated_at, reverse=True)
+        start = (page - 1) * limit
+        end = start + limit
+        page_items = artifacts[start:end]
+
+        logger.info(
+            "list_artifacts_paginated: agent=%s page=%d limit=%d total=%d returned=%d",
+            agent_id, page, limit, total, len(page_items),
+        )
+        return {
+            "status": "ok",
+            "artifacts": [a.to_dict() for a in page_items],
+            "total": total,
+            "page": page,
+            "limit": limit,
+            "total_pages": (total + limit - 1) // limit if limit > 0 else 0,
+        }
 
     def delete_artifact(self, artifact_id: str, agent_id: str = "") -> dict[str, Any]:
         rec = self._artifacts.get(artifact_id)
@@ -251,6 +388,63 @@ class ArtifactManager:
                 f"- {a.name} ({a.artifact_type}, v{a.version}): {a.content[:200]}"
             )
         return "\n".join(lines)
+
+    def get_active_artifacts_context_budget_aware(
+        self,
+        agent_id: str,
+        context_window: int = 32768,
+        limit: int = 5,
+    ) -> dict[str, Any]:
+        agent_artifacts = [
+            a for a in self._artifacts.values() if a.owner_agent_id == agent_id
+        ]
+        agent_artifacts.sort(key=lambda a: a.updated_at, reverse=True)
+        recent = agent_artifacts[:limit]
+
+        if not recent:
+            return {"context_text": "", "mode": "none", "artifact_count": 0}
+
+        artifact_tokens = sum(len(a.content) // 4 for a in recent)
+        utilization = artifact_tokens / context_window if context_window > 0 else 0.0
+
+        if utilization < 0.7:
+            mode = "full"
+            lines = ["[Active Artifacts (full)]"]
+            for a in recent:
+                lines.append(f"## {a.name} (id={a.artifact_id}, type={a.artifact_type}, v{a.version})")
+                lines.append(a.content)
+                lines.append("")
+            context_text = "\n".join(lines)
+        elif utilization < 0.9:
+            mode = "preview"
+            lines = ["[Active Artifacts (preview — budget at {:.0%})]".format(utilization)]
+            for a in recent:
+                sections = a.sections()
+                lines.append(
+                    f"- {a.name} (id={a.artifact_id}, type={a.artifact_type}, v{a.version}, "
+                    f"sections={sections}, summary={a.auto_summary()})"
+                )
+            context_text = "\n".join(lines)
+        else:
+            mode = "blocked"
+            lines = ["[Artifact Context BLOCKED — budget at {:.0%}, use artifact_load to fetch specific content]".format(utilization)]
+            for a in recent:
+                lines.append(
+                    f"- {a.name} (id={a.artifact_id}, type={a.artifact_type}) [BLOCKED]"
+                )
+            context_text = "\n".join(lines)
+
+        logger.info(
+            "budget_aware_context: agent=%s mode=%s utilization=%.2f artifact_tokens=%d context_window=%d",
+            agent_id, mode, utilization, artifact_tokens, context_window,
+        )
+        return {
+            "context_text": context_text,
+            "mode": mode,
+            "utilization": utilization,
+            "artifact_count": len(recent),
+            "artifact_tokens": artifact_tokens,
+        }
 
     def patch_artifact(
         self,

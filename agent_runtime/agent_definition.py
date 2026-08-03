@@ -169,7 +169,8 @@ class ArtifactPolicyConfig:
     can_create: bool = True
     can_update: bool = True
     trigger_strategy: str = "auto"
-    auto_create_threshold_lines: int = 20
+    auto_create_threshold_lines: int = 30
+    auto_create_threshold_chars: int = 1500
     ownership_type: str = "project"
     default_folder: str = ""
     default_tags: list[str] = field(default_factory=list)
@@ -180,8 +181,13 @@ class ArtifactPolicyConfig:
             "artifact_create",
             "artifact_create_snapshot",
             "artifact_list_all",
+            "artifact_patch",
+            "artifact_load",
+            "artifact_context_budget",
         ]
     )
+    creation_triggers: list[str] = field(default_factory=lambda: ["create"])
+    update_triggers: list[str] = field(default_factory=lambda: ["update"])
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -189,10 +195,13 @@ class ArtifactPolicyConfig:
             "can_update": self.can_update,
             "trigger_strategy": self.trigger_strategy,
             "auto_create_threshold_lines": self.auto_create_threshold_lines,
+            "auto_create_threshold_chars": self.auto_create_threshold_chars,
             "ownership_type": self.ownership_type,
             "default_folder": self.default_folder,
             "default_tags": self.default_tags,
             "allowed_tools": self.allowed_tools,
+            "creation_triggers": self.creation_triggers,
+            "update_triggers": self.update_triggers,
         }
 
     @classmethod
@@ -201,7 +210,8 @@ class ArtifactPolicyConfig:
             can_create=data.get("can_create", True),
             can_update=data.get("can_update", True),
             trigger_strategy=data.get("trigger_strategy", "auto"),
-            auto_create_threshold_lines=data.get("auto_create_threshold_lines", 20),
+            auto_create_threshold_lines=data.get("auto_create_threshold_lines", 30),
+            auto_create_threshold_chars=data.get("auto_create_threshold_chars", 1500),
             ownership_type=data.get("ownership_type", "project"),
             default_folder=data.get("default_folder", ""),
             default_tags=data.get("default_tags", []),
@@ -213,8 +223,13 @@ class ArtifactPolicyConfig:
                     "artifact_create",
                     "artifact_create_snapshot",
                     "artifact_list_all",
+                    "artifact_patch",
+                    "artifact_load",
+                    "artifact_context_budget",
                 ],
             ),
+            creation_triggers=data.get("creation_triggers", ["create"]),
+            update_triggers=data.get("update_triggers", ["update"]),
         )
 
 
