@@ -9,7 +9,7 @@ Run, build, and orchestrate AI agents entirely on your Mac — no cloud, no API 
 [![Version](https://img.shields.io/badge/v0.4.0-blue.svg)]()
 [![Python](https://img.shields.io/badge/Python-3.11+-3776AB.svg)](https://www.python.org/)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/Tests-1600-success.svg)](tests/)
+[![Tests](https://img.shields.io/badge/Tests-1617-success.svg)](tests/)
 
 **[中文文档](README_CN.md)** · [Quick Start](#quick-start) · [Architecture](#architecture) · [Documentation](docs/) · [Examples](examples/)
 
@@ -96,7 +96,7 @@ python my_agent.py
 │  ┌─────────────────────┐   ┌─────────────────┐               │
 │  │  Agent Runtime      │   │  Tool System     │               │
 │  │  ┌───────────────┐  │   │  ┌───────────┐  │               │
-│  │  │ State Machine │  │   │  │ 19 tools  │  │               │
+│  │  │ State Machine │  │   │  │ 28 tools  │  │               │
 │  │  │ Graph Executor│  │   │  │ Registry  │  │               │
 │  │  │ Orchestrator  │  │   │  │ Plugin    │  │               │
 │  │  │ Debugger      │  │   │  └───────────┘  │               │
@@ -130,7 +130,7 @@ python my_agent.py
 | `agent_runtime/dispatchers/` | 11 Sub-Dispatchers extracted from DaemonServer — agent, chat, deploy, infra, knowledge, marketplace, memory, planner, safety, team, workflow | 13 files |
 | `agent_runtime/sdk/` | Agent SDK: Agent, Tool, AgentClient for programmatic access over JSON-RPC | 3 files |
 | `agent_runtime/plugins/` | Built-in workflow plugins: code_review, feature_dev, security_scan, pr_review, agent_builder | 5 manifests |
-| `tools/` | Built-in tool system: 19 tools + plugin system | 11 files |
+| `tools/` | Built-in tool system: 28 tools + plugin system | 11 files |
 | `server/` | fusion-mlx HTTP client + process manager | 2 files |
 
 ---
@@ -225,6 +225,7 @@ python my_agent.py
 
 ### Plugin System
 - ✅ Dynamic loading of user-defined Python tools
+- ✅ **Artifact FC tools** — 5 artifact tools (get_source, create, update, create_snapshot, list_all) with context injection and proactive pruning
 - ✅ Plugin directory at `~/.fusion-agent-studio/plugins/`
 - ✅ Template generator for new plugins
 

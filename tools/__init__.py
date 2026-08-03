@@ -12,6 +12,13 @@ from .data_tools import JsonParseTool, CsvParseTool, Base64Tool
 from .utility_tools import DateTimeTool, UuidTool, HashTool, PathOpsTool, ZipTool
 from .db_tools import SqliteQueryTool, AnnotationNode
 from .computer_use_tools import ScreenCaptureTool, MouseTool, KeyboardTool, ClipboardTool
+from .artifact_fc_tools import (
+    ArtifactGetSourceTool,
+    ArtifactCreateTool,
+    ArtifactUpdateTool,
+    ArtifactCreateSnapshotTool,
+    ArtifactListAllTool,
+)
 
 __all__ = [
     "BaseTool", "ToolResult",
@@ -25,6 +32,8 @@ __all__ = [
     "DateTimeTool", "UuidTool", "HashTool", "PathOpsTool", "ZipTool",
     "SqliteQueryTool", "AnnotationNode",
     "ScreenCaptureTool", "MouseTool", "KeyboardTool", "ClipboardTool",
+    "ArtifactGetSourceTool", "ArtifactCreateTool", "ArtifactUpdateTool",
+    "ArtifactCreateSnapshotTool", "ArtifactListAllTool",
 ]
 
 
@@ -54,4 +63,9 @@ def create_default_registry() -> ToolRegistry:
     registry.register(MouseTool())
     registry.register(KeyboardTool())
     registry.register(ClipboardTool())
+    registry.register(ArtifactGetSourceTool())
+    registry.register(ArtifactCreateTool())
+    registry.register(ArtifactUpdateTool())
+    registry.register(ArtifactCreateSnapshotTool())
+    registry.register(ArtifactListAllTool())
     return registry

@@ -75,6 +75,7 @@ class AgentEvent:
 class AgentContext:
     """Conversation context and state for an agent execution session."""
 
+    agent_id: str = ""
     session_id: str = ""
     messages: list[dict] = field(default_factory=list)
     events: list[AgentEvent] = field(default_factory=list)
@@ -135,6 +136,7 @@ class AgentContext:
 
     def to_dict(self) -> dict:
         return {
+            "agent_id": self.agent_id,
             "session_id": self.session_id,
             "messages": self.messages,
             "events": [e.to_dict() for e in self.events],
@@ -151,6 +153,7 @@ class AgentContext:
     def from_dict(cls, data: dict) -> AgentContext:
         events = [AgentEvent.from_dict(e) for e in data.get("events", [])]
         return cls(
+            agent_id=data.get("agent_id", ""),
             session_id=data.get("session_id", ""),
             messages=data.get("messages", []),
             events=events,

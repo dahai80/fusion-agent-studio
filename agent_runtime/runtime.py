@@ -200,6 +200,7 @@ class AgentRuntime:
         store: "AgentStore | None" = None,
         auto_checkpoint: bool = False,
         memory_engine: "MemoryEngine | None" = None,
+        artifact_manager: Any = None,
     ):
         self.mlx = mlx_client
         self.tools = tool_registry
@@ -213,6 +214,7 @@ class AgentRuntime:
         self.store = store
         self.auto_checkpoint = auto_checkpoint
         self.memory_engine = memory_engine
+        self.artifact_manager = artifact_manager
         self.compactor = None
         self.hooks = None
         self._tool_call_chain_count = 0
@@ -352,6 +354,26 @@ class AgentRuntime:
                     token_budget.record_usage(
                         usage.get("prompt_tokens", 0), usage.get("completion_tokens", 0)
                     )
+                    # Proactive context pruning at 70% budget
+                    if (
+                        token_budget.max_tokens > 0
+                        and token_budget.spent_tokens
+                        >= int(token_budget.max_tokens * 0.7)
+                        and self.compactor
+                    ):
+                        if not getattr(ctx, "_pruning_done", False):
+                            ctx._pruning_done = True
+                            logger.info(
+                                "Proactive context pruning at %d/%d tokens (70%% threshold)",
+                                token_budget.spent_tokens,
+                                token_budget.max_tokens,
+                            )
+                            await self.compactor.compact(ctx.messages)
+                            yield AgentEvent(
+                                type=AgentEventType.THINK,
+                                content="Context proactively pruned at 70% budget",
+                                metadata={"pruning_threshold": 0.7},
+                            )
                     if token_budget.is_exceeded():
                         mode = "stream" if stream else "batch"
                         logger.warning(
@@ -607,6 +629,16 @@ class AgentRuntime:
                     pass
             node_prompt = self.variables.interpolate(node_prompt)
             messages.append({"role": "system", "content": node_prompt})
+
+        if self.artifact_manager and hasattr(ctx, "agent_id"):
+            artifact_ctx = self.artifact_manager.get_active_artifacts_context(
+                ctx.agent_id
+            )
+            if artifact_ctx:
+                if messages and messages[0].get("role") == "system":
+                    messages[0]["content"] += "\n\n" + artifact_ctx
+                else:
+                    messages.insert(0, {"role": "system", "content": artifact_ctx})
 
         messages.extend(ctx.messages)
 
