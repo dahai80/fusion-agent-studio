@@ -83,6 +83,7 @@ class AgentContext:
     current_node_id: str = ""
     iteration_count: int = 0
     max_iterations: int = 25
+    artifact_turn_count: int = 0
     started_at: float = 0.0
     finished_at: float = 0.0
     error: str = ""
@@ -144,6 +145,7 @@ class AgentContext:
             "current_node_id": self.current_node_id,
             "iteration_count": self.iteration_count,
             "max_iterations": self.max_iterations,
+            "artifact_turn_count": self.artifact_turn_count,
             "started_at": self.started_at,
             "finished_at": self.finished_at,
             "error": self.error,
@@ -161,6 +163,7 @@ class AgentContext:
             current_node_id=data.get("current_node_id", ""),
             iteration_count=data.get("iteration_count", 0),
             max_iterations=data.get("max_iterations", 25),
+            artifact_turn_count=data.get("artifact_turn_count", 0),
             started_at=data.get("started_at", 0.0),
             finished_at=data.get("finished_at", 0.0),
             error=data.get("error", ""),

@@ -75,6 +75,7 @@ class ArtifactRecord:
     version: int = 1
     summary: str = ""
     tags: list[str] = field(default_factory=list)
+    generation_phase: str = "skeleton"
 
     def sections(self) -> list[str]:
         sections = []
@@ -114,6 +115,7 @@ class ArtifactRecord:
             "version": self.version,
             "summary": self.auto_summary(),
             "tags": self.tags,
+            "generation_phase": self.generation_phase,
         }
 
     @classmethod
@@ -130,10 +132,12 @@ class ArtifactRecord:
             version=data.get("version", 1),
             summary=data.get("summary", ""),
             tags=data.get("tags", []),
+            generation_phase=data.get("generation_phase", "skeleton"),
         )
 
 
 VALID_ARTIFACT_TYPES = {"document", "code", "data", "image", "config", "report"}
+VALID_GENERATION_PHASES = {"skeleton", "filling", "completed"}
 
 
 class ArtifactManager:
@@ -589,11 +593,48 @@ class ArtifactManager:
 
         rec.updated_at = time.time()
         rec.version += 1
+
+        # WF-3: progressive generation phase enforcement
+        if rec.generation_phase == "skeleton" and operation in ("append", "section_replace", "replace_section"):
+            rec.generation_phase = "filling"
+            logger.info("WF-3 auto-advanced artifact %s to filling phase", artifact_id)
+        elif rec.generation_phase == "filling" and operation == "replace" and len(content) > 2000:
+            rec.generation_phase = "completed"
+            logger.info("WF-3 auto-advanced artifact %s to completed phase", artifact_id)
+
         self._persist()
         logger.info(
-            "Patched artifact %s op=%s v%d", artifact_id, operation, rec.version
+            "Patched artifact %s op=%s v%d phase=%s", artifact_id, operation, rec.version, rec.generation_phase
         )
         return {"status": "ok", "record": rec.to_dict()}
+
+    def advance_generation_phase(
+        self, artifact_id: str, target_phase: str
+    ) -> dict[str, Any]:
+        rec = self._artifacts.get(artifact_id)
+        if not rec:
+            return {"status": "error", "message": f"Artifact {artifact_id} not found"}
+        if target_phase not in VALID_GENERATION_PHASES:
+            return {
+                "status": "error",
+                "message": f"Invalid phase '{target_phase}', must be {VALID_GENERATION_PHASES}",
+            }
+        phase_order = ["skeleton", "filling", "completed"]
+        current_idx = phase_order.index(rec.generation_phase) if rec.generation_phase in phase_order else 0
+        target_idx = phase_order.index(target_phase)
+        if target_idx < current_idx:
+            return {
+                "status": "error",
+                "message": f"Cannot regress from {rec.generation_phase} to {target_phase}",
+            }
+        rec.generation_phase = target_phase
+        rec.updated_at = time.time()
+        self._persist()
+        logger.info(
+            "Advanced artifact %s phase: %s -> %s",
+            artifact_id, rec.generation_phase, target_phase,
+        )
+        return {"status": "ok", "generation_phase": target_phase}
 
     def load_artifact(
         self,

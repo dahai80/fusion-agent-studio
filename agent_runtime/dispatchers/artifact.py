@@ -25,6 +25,7 @@ class ArtifactDispatcher(SubDispatcher):
             "artifact.context_budget": self._handle_context_budget,
             "artifact.auto_compact": self._handle_auto_compact,
             "artifact.ping_remote": self._handle_ping_remote,
+            "artifact.advance_phase": self._handle_advance_phase,
         }
 
     def _get_bridge(self):
@@ -133,4 +134,16 @@ class ArtifactDispatcher(SubDispatcher):
             return {"remote_available": available, "url": bridge.remote_url}
         except (ValueError, TypeError, RuntimeError, OSError) as e:
             logger.error("artifact.ping_remote failed: %s", e)
+            return self._err(str(e))
+
+    async def _handle_advance_phase(self, params: dict) -> dict:
+        bridge = self._get_bridge()
+        try:
+            result = bridge.advance_generation_phase(
+                artifact_id=params.get("artifact_id", ""),
+                target_phase=params.get("target_phase", "filling"),
+            )
+            return result
+        except (ValueError, TypeError, RuntimeError, OSError) as e:
+            logger.error("artifact.advance_phase failed: %s", e)
             return self._err(str(e))

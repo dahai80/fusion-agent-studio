@@ -545,6 +545,29 @@ class AgentRuntime:
         ctx.finished_at = time.time()
         await self._auto_store_memory(ctx, graph)
 
+    @staticmethod
+    def _detect_unclosed_artifacts(content: str) -> list[str]:
+        opens = re.findall(r'<artifact[^>]*\bid=["\']([^"\']+)["\']', content)
+        closes = re.findall(r'</artifact>', content)
+        if len(opens) > len(closes):
+            return opens[len(closes):]
+        tag_opens = len(re.findall(r'<artifact-ref[^>]*>', content))
+        tag_closes = len(re.findall(r'</artifact-ref>', content))
+        if tag_opens > tag_closes:
+            return re.findall(r'<artifact-ref[^>]*\bid=["\']([^"\']+)["\']', content)[tag_closes:]
+        return []
+
+    @staticmethod
+    def _extract_breakpoint(content: str) -> str:
+        paragraphs = [p.strip() for p in content.split("\n\n") if p.strip()]
+        if paragraphs:
+            last = paragraphs[-1]
+            return last[:300]
+        lines = content.strip().split("\n")
+        if lines:
+            return lines[-1][:300]
+        return content[-300:]
+
     async def _save_checkpoint(self, ctx: AgentContext, graph: AgentGraph) -> None:
         """Auto-save checkpoint if store is configured."""
         if not self.store:
@@ -646,6 +669,23 @@ class AgentRuntime:
             messages.append({"role": "system", "content": node_prompt})
 
         if self.artifact_manager and hasattr(ctx, "agent_id"):
+            # WF-1: anti-forgetting turn counter
+            ctx.artifact_turn_count += 1
+            if ctx.artifact_turn_count % 5 == 0 and ctx.artifact_turn_count > 0:
+                summary = self.artifact_manager.get_active_artifacts_context(
+                    ctx.agent_id, limit=10
+                )
+                if summary:
+                    ctx.add_message(
+                        "system",
+                        f"[Anti-Forgetting Artifact Summary — turn {ctx.artifact_turn_count}]\n{summary}",
+                    )
+                    logger.info(
+                        "WF-1 anti-forgetting summary injected: turn=%d agent=%s",
+                        ctx.artifact_turn_count,
+                        ctx.agent_id,
+                    )
+
             context_window = 32768
             if node.model:
                 pass
@@ -916,6 +956,22 @@ class AgentRuntime:
                 )
 
         ctx.add_message("assistant", content, tool_calls=tool_calls or None)
+
+        # WF-2: truncation detection — unclosed artifact tags
+        if content and self.artifact_manager:
+            unclosed = self._detect_unclosed_artifacts(content)
+            if unclosed:
+                bp = self._extract_breakpoint(content)
+                for aid in unclosed:
+                    ctx.add_message(
+                        "system",
+                        f"[Truncation Recovery] artifact(id:{aid}) output interrupted. "
+                        f"Breakpoint: {bp}. Continue from breakpoint — do NOT regenerate from scratch.",
+                    )
+                logger.warning(
+                    "WF-2 truncation detected: unclosed_artifacts=%s breakpoint='%s'",
+                    unclosed, bp[:80],
+                )
 
         if usage.get("prompt_tokens") or usage.get("completion_tokens"):
             if ctx.messages:

@@ -1,6 +1,5 @@
 """Tests for artifact_bridge (AS-1~7 remote RPC) and artifact dispatcher."""
 
-import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -184,7 +183,8 @@ class TestArtifactDispatcher:
         assert "artifact.context_budget" in handlers
         assert "artifact.auto_compact" in handlers
         assert "artifact.ping_remote" in handlers
-        assert len(handlers) == 8
+        assert "artifact.advance_phase" in handlers
+        assert len(handlers) == 9
 
     @pytest.mark.asyncio
     async def test_handle_create(self):

@@ -291,3 +291,8 @@ class ArtifactBridge:
         return self.local.get_active_artifacts_context_budget_aware(
             agent_id, context_window, limit
         )
+
+    def advance_generation_phase(
+        self, artifact_id: str, target_phase: str
+    ) -> dict[str, Any]:
+        return self.local.advance_generation_phase(artifact_id, target_phase)
