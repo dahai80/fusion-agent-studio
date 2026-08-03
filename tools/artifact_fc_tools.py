@@ -7,11 +7,13 @@ Affected API: artifact_get_source, artifact_create, artifact_update,
              artifact_create_snapshot, artifact_list_all,
              artifact_patch, artifact_load, artifact_context_budget.
 Data schemas: ArtifactRecord, ArtifactManager (from artifact_tools).
-User instruction: issue #61 — patch_artifact / load_artifact / context_budget.
+Issue #62 — AS-1~8: load with preview/section, auto-trigger, patch ops,
+             pagination, budget-aware context, compaction, system prompt.
 """
 
 from __future__ import annotations
 
+import json
 import logging
 from typing import Any
 
@@ -22,11 +24,19 @@ logger = logging.getLogger(__name__)
 
 class ArtifactGetSourceTool(BaseTool):
     name = "artifact_get_source"
-    description = "Load an artifact's content by ID. Returns the full content, version, and metadata."
+    description = "Load an artifact's content by ID. Supports preview_only and section-based loading for efficient context usage. Returns content, sections list, summary, and token count."
     parameters = {
         "artifact_id": {
             "type": "string",
             "description": "The artifact ID to load.",
+        },
+        "preview_only": {
+            "type": "boolean",
+            "description": "If true, return only first 500 chars. Default: false.",
+        },
+        "section": {
+            "type": "string",
+            "description": "Load only a specific section by name (optional).",
         },
     }
 
@@ -35,22 +45,32 @@ class ArtifactGetSourceTool(BaseTool):
 
     async def execute(self, **kwargs) -> str:
         artifact_id = kwargs.get("artifact_id", "")
+        preview_only = kwargs.get("preview_only", False)
+        section = kwargs.get("section", "")
         if not artifact_id:
             return "Error: artifact_id is required"
         if not self._manager:
             return "Error: ArtifactManager not available"
-        result = self._manager.get_artifact(artifact_id)
+        result = self._manager.load_artifact(
+            artifact_id=artifact_id,
+            preview_only=preview_only,
+            section=section,
+        )
         if result.get("status") == "error":
             return result.get("message", "Artifact not found")
-        import json
-        record = result["record"]
-        logger.info("artifact_get_source: loaded %s v%d", artifact_id, record.get("version", 1))
-        return json.dumps(record, ensure_ascii=False)
+        logger.info(
+            "artifact_get_source: loaded %s preview=%s section=%s tokens=%d",
+            artifact_id,
+            preview_only,
+            section or "all",
+            result.get("token_count", 0),
+        )
+        return json.dumps(result, ensure_ascii=False)
 
 
 class ArtifactCreateTool(BaseTool):
     name = "artifact_create"
-    description = "Create a new artifact with name, type, and content. Returns the artifact ID and record."
+    description = "Create a new artifact with name, type, and content. Supports auto-trigger: when auto_trigger=true, only creates if content exceeds 30 lines / 1500 chars."
     parameters = {
         "agent_id": {
             "type": "string",
@@ -68,6 +88,10 @@ class ArtifactCreateTool(BaseTool):
             "type": "string",
             "description": "Artifact content text.",
         },
+        "auto_trigger": {
+            "type": "boolean",
+            "description": "If true, only create when content exceeds threshold (30 lines / 1500 chars). Default: false.",
+        },
     }
 
     def __init__(self, artifact_manager: Any | None = None):
@@ -78,24 +102,30 @@ class ArtifactCreateTool(BaseTool):
         name = kwargs.get("name", "")
         content = kwargs.get("content", "")
         artifact_type = kwargs.get("artifact_type", "document")
+        auto_trigger = kwargs.get("auto_trigger", False)
         if not name:
             return "Error: name is required"
         if not self._manager:
             return "Error: ArtifactManager not available"
-        import json
         result = self._manager.create_artifact(
             agent_id=agent_id,
             name=name,
             artifact_type=artifact_type,
             content=content,
+            auto_trigger=auto_trigger,
         )
-        logger.info("artifact_create: %s status=%s", name, result.get("status"))
+        logger.info(
+            "artifact_create: %s status=%s auto_trigger=%s",
+            name,
+            result.get("status"),
+            auto_trigger,
+        )
         return json.dumps(result, ensure_ascii=False)
 
 
 class ArtifactUpdateTool(BaseTool):
     name = "artifact_update"
-    description = "Update an existing artifact's content or metadata. Increments version."
+    description = "Update an existing artifact. Supports full content replacement, metadata merge, or incremental patch operations (replace_section, append, prepend, delete_section). Increments version."
     parameters = {
         "artifact_id": {
             "type": "string",
@@ -107,11 +137,19 @@ class ArtifactUpdateTool(BaseTool):
         },
         "content": {
             "type": "string",
-            "description": "New content text (optional, omit to keep existing).",
+            "description": "Content text. For full update: new content. For patch ops: content to apply.",
         },
         "metadata": {
             "type": "object",
-            "description": "Metadata fields to merge (optional).",
+            "description": "Metadata fields to merge (optional, only for full update).",
+        },
+        "operation": {
+            "type": "string",
+            "description": "Patch operation: replace_section, append, prepend, delete_section. Empty for full content update.",
+        },
+        "anchor": {
+            "type": "string",
+            "description": "Section anchor name for replace_section or delete_section operations.",
         },
     }
 
@@ -123,18 +161,26 @@ class ArtifactUpdateTool(BaseTool):
         agent_id = kwargs.get("agent_id", "")
         content = kwargs.get("content")
         metadata = kwargs.get("metadata")
+        operation = kwargs.get("operation", "")
+        anchor = kwargs.get("anchor", "")
         if not artifact_id:
             return "Error: artifact_id is required"
         if not self._manager:
             return "Error: ArtifactManager not available"
-        import json
         result = self._manager.update_artifact(
             artifact_id=artifact_id,
             agent_id=agent_id,
             content=content,
             metadata=metadata,
+            operation=operation,
+            anchor=anchor,
         )
-        logger.info("artifact_update: %s status=%s", artifact_id, result.get("status"))
+        logger.info(
+            "artifact_update: %s op=%s status=%s",
+            artifact_id,
+            operation or "full",
+            result.get("status"),
+        )
         return json.dumps(result, ensure_ascii=False)
 
 
@@ -157,7 +203,6 @@ class ArtifactCreateSnapshotTool(BaseTool):
             return "Error: artifact_id is required"
         if not self._manager:
             return "Error: ArtifactManager not available"
-        import json
         load_result = self._manager.get_artifact(artifact_id)
         if load_result.get("status") == "error":
             return load_result.get("message", "Artifact not found")
@@ -165,7 +210,9 @@ class ArtifactCreateSnapshotTool(BaseTool):
         export_result = self._manager.export_artifact(artifact_id)
         logger.info(
             "artifact_create_snapshot: %s v%d export=%s",
-            artifact_id, record.get("version", 1), export_result.get("status"),
+            artifact_id,
+            record.get("version", 1),
+            export_result.get("status"),
         )
         snapshot_info = {
             "artifact_id": artifact_id,
@@ -179,11 +226,23 @@ class ArtifactCreateSnapshotTool(BaseTool):
 
 class ArtifactListAllTool(BaseTool):
     name = "artifact_list_all"
-    description = "List all artifacts, optionally filtered by owner agent ID."
+    description = "List all artifacts with pagination support. Filter by owner agent ID and artifact type."
     parameters = {
         "agent_id": {
             "type": "string",
             "description": "Filter by owner agent ID (optional, empty for all).",
+        },
+        "page": {
+            "type": "integer",
+            "description": "Page number (1-based). Default: 1.",
+        },
+        "limit": {
+            "type": "integer",
+            "description": "Items per page. Default: 20.",
+        },
+        "artifact_type": {
+            "type": "string",
+            "description": "Filter by artifact type (optional).",
         },
     }
 
@@ -192,17 +251,29 @@ class ArtifactListAllTool(BaseTool):
 
     async def execute(self, **kwargs) -> str:
         agent_id = kwargs.get("agent_id", "")
+        page = kwargs.get("page", 1)
+        limit = kwargs.get("limit", 20)
+        artifact_type = kwargs.get("artifact_type", "")
         if not self._manager:
             return "Error: ArtifactManager not available"
-        import json
-        artifacts = self._manager.list_artifacts(agent_id=agent_id)
-        logger.info("artifact_list_all: returned %d artifacts", len(artifacts))
-        return json.dumps({"artifacts": artifacts, "total": len(artifacts)}, ensure_ascii=False)
+        result = self._manager.list_artifacts_paginated(
+            agent_id=agent_id,
+            page=page,
+            limit=limit,
+            artifact_type=artifact_type,
+        )
+        logger.info(
+            "artifact_list_all: page=%d limit=%d total=%d",
+            result.get("page", 1),
+            result.get("limit", 20),
+            result.get("total", 0),
+        )
+        return json.dumps(result, ensure_ascii=False)
 
 
 class ArtifactPatchTool(BaseTool):
     name = "artifact_patch"
-    description = "Incrementally patch an artifact's content. Supports 4 operations: replace, append, prepend, section_replace."
+    description = "Incrementally patch an artifact's content. Supports 6 operations: replace, append, prepend, section_replace, replace_section, delete_section."
     parameters = {
         "artifact_id": {
             "type": "string",
@@ -210,15 +281,15 @@ class ArtifactPatchTool(BaseTool):
         },
         "operation": {
             "type": "string",
-            "description": "Patch operation: replace, append, prepend, section_replace.",
+            "description": "Patch operation: replace, append, prepend, section_replace, replace_section, delete_section.",
         },
         "content": {
             "type": "string",
-            "description": "Content to apply in the patch.",
+            "description": "Content to apply in the patch (not needed for delete_section).",
         },
         "section": {
             "type": "string",
-            "description": "Section name for section_replace operation (optional).",
+            "description": "Section name for section_replace/replace_section/delete_section operations (optional).",
         },
         "agent_id": {
             "type": "string",
@@ -241,7 +312,6 @@ class ArtifactPatchTool(BaseTool):
             return "Error: operation is required"
         if not self._manager:
             return "Error: ArtifactManager not available"
-        import json
         result = self._manager.patch_artifact(
             artifact_id=artifact_id,
             operation=operation,
@@ -249,13 +319,18 @@ class ArtifactPatchTool(BaseTool):
             section=section,
             agent_id=agent_id,
         )
-        logger.info("artifact_patch: %s op=%s status=%s", artifact_id, operation, result.get("status"))
+        logger.info(
+            "artifact_patch: %s op=%s status=%s",
+            artifact_id,
+            operation,
+            result.get("status"),
+        )
         return json.dumps(result, ensure_ascii=False)
 
 
 class ArtifactLoadTool(BaseTool):
     name = "artifact_load"
-    description = "Load artifact content with optional preview_only or section-based loading for efficient context usage."
+    description = "Load artifact content with optional preview_only or section-based loading for efficient context usage. Returns content, sections list, summary, and token count."
     parameters = {
         "artifact_id": {
             "type": "string",
@@ -287,14 +362,18 @@ class ArtifactLoadTool(BaseTool):
             return "Error: artifact_id is required"
         if not self._manager:
             return "Error: ArtifactManager not available"
-        import json
         result = self._manager.load_artifact(
             artifact_id=artifact_id,
             preview_only=preview_only,
             section=section,
             max_tokens=max_tokens,
         )
-        logger.info("artifact_load: %s preview=%s section=%s", artifact_id, preview_only, section or "all")
+        logger.info(
+            "artifact_load: %s preview=%s section=%s",
+            artifact_id,
+            preview_only,
+            section or "all",
+        )
         return json.dumps(result, ensure_ascii=False)
 
 
@@ -315,7 +394,10 @@ class ArtifactContextBudgetTool(BaseTool):
         agent_id = kwargs.get("agent_id", "")
         if not self._manager:
             return "Error: ArtifactManager not available"
-        import json
         result = self._manager.get_context_budget(agent_id=agent_id)
-        logger.info("artifact_context_budget: agent=%s tokens=%d", agent_id, result.get("total_tokens", 0))
+        logger.info(
+            "artifact_context_budget: agent=%s tokens=%d",
+            agent_id,
+            result.get("total_tokens", 0),
+        )
         return json.dumps(result, ensure_ascii=False)

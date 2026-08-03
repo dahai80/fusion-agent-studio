@@ -180,7 +180,10 @@ class ArtifactManager:
                 }
             logger.info(
                 "Auto-trigger activated: %d lines / %d chars (thresholds: %d / %d)",
-                line_count, len(content), threshold_lines, threshold_chars,
+                line_count,
+                len(content),
+                threshold_lines,
+                threshold_chars,
             )
 
         record = ArtifactRecord(
@@ -246,8 +249,12 @@ class ArtifactManager:
                 marker_end = f"<!-- end:{anchor} -->"
                 if marker_start in rec.content and marker_end in rec.content:
                     before = rec.content[: rec.content.index(marker_start)]
-                    after = rec.content[rec.content.index(marker_end) + len(marker_end) :]
-                    rec.content = f"{before}{marker_start}\n{content}\n{marker_end}{after}"
+                    after = rec.content[
+                        rec.content.index(marker_end) + len(marker_end) :
+                    ]
+                    rec.content = (
+                        f"{before}{marker_start}\n{content}\n{marker_end}{after}"
+                    )
                 else:
                     rec.content += f"\n{marker_start}\n{content}\n{marker_end}"
             elif operation == "append":
@@ -264,7 +271,9 @@ class ArtifactManager:
                 marker_end = f"<!-- end:{anchor} -->"
                 if marker_start in rec.content and marker_end in rec.content:
                     before = rec.content[: rec.content.index(marker_start)]
-                    after = rec.content[rec.content.index(marker_end) + len(marker_end) :]
+                    after = rec.content[
+                        rec.content.index(marker_end) + len(marker_end) :
+                    ]
                     rec.content = f"{before}{after}"
                 else:
                     return {
@@ -280,7 +289,12 @@ class ArtifactManager:
         rec.updated_at = time.time()
         rec.version += 1
         self._persist()
-        logger.info("Updated artifact %s op=%s (v%d)", artifact_id, operation or "full", rec.version)
+        logger.info(
+            "Updated artifact %s op=%s (v%d)",
+            artifact_id,
+            operation or "full",
+            rec.version,
+        )
         return {"status": "ok", "record": rec.to_dict()}
 
     def search_artifacts(
@@ -338,7 +352,11 @@ class ArtifactManager:
 
         logger.info(
             "list_artifacts_paginated: agent=%s page=%d limit=%d total=%d returned=%d",
-            agent_id, page, limit, total, len(page_items),
+            agent_id,
+            page,
+            limit,
+            total,
+            len(page_items),
         )
         return {
             "status": "ok",
@@ -411,13 +429,17 @@ class ArtifactManager:
             mode = "full"
             lines = ["[Active Artifacts (full)]"]
             for a in recent:
-                lines.append(f"## {a.name} (id={a.artifact_id}, type={a.artifact_type}, v{a.version})")
+                lines.append(
+                    f"## {a.name} (id={a.artifact_id}, type={a.artifact_type}, v{a.version})"
+                )
                 lines.append(a.content)
                 lines.append("")
             context_text = "\n".join(lines)
         elif utilization < 0.9:
             mode = "preview"
-            lines = ["[Active Artifacts (preview — budget at {:.0%})]".format(utilization)]
+            lines = [
+                "[Active Artifacts (preview — budget at {:.0%})]".format(utilization)
+            ]
             for a in recent:
                 sections = a.sections()
                 lines.append(
@@ -427,7 +449,11 @@ class ArtifactManager:
             context_text = "\n".join(lines)
         else:
             mode = "blocked"
-            lines = ["[Artifact Context BLOCKED — budget at {:.0%}, use artifact_load to fetch specific content]".format(utilization)]
+            lines = [
+                "[Artifact Context BLOCKED — budget at {:.0%}, use artifact_load to fetch specific content]".format(
+                    utilization
+                )
+            ]
             for a in recent:
                 lines.append(
                     f"- {a.name} (id={a.artifact_id}, type={a.artifact_type}) [BLOCKED]"
@@ -436,7 +462,11 @@ class ArtifactManager:
 
         logger.info(
             "budget_aware_context: agent=%s mode=%s utilization=%.2f artifact_tokens=%d context_window=%d",
-            agent_id, mode, utilization, artifact_tokens, context_window,
+            agent_id,
+            mode,
+            utilization,
+            artifact_tokens,
+            context_window,
         )
         return {
             "context_text": context_text,
@@ -458,7 +488,14 @@ class ArtifactManager:
         if not rec:
             return {"status": "error", "message": f"Artifact {artifact_id} not found"}
 
-        valid_ops = {"replace", "append", "prepend", "section_replace"}
+        valid_ops = {
+            "replace",
+            "append",
+            "prepend",
+            "section_replace",
+            "replace_section",
+            "delete_section",
+        }
         if operation not in valid_ops:
             return {
                 "status": "error",
@@ -472,31 +509,57 @@ class ArtifactManager:
                 "message": f"Agent {agent_id} not allowed to patch artifacts",
             }
 
-        if operation == "replace":
-            rec.content = content
+        effective_section = section
+
+        if operation in ("replace", "section_replace", "replace_section"):
+            if operation in ("section_replace", "replace_section"):
+                if not effective_section:
+                    return {
+                        "status": "error",
+                        "message": "section/anchor is required for replace_section operation",
+                    }
+                marker_start = f"<!-- section:{effective_section} -->"
+                marker_end = f"<!-- end:{effective_section} -->"
+                if marker_start in rec.content and marker_end in rec.content:
+                    before = rec.content[: rec.content.index(marker_start)]
+                    after = rec.content[
+                        rec.content.index(marker_end) + len(marker_end) :
+                    ]
+                    rec.content = (
+                        f"{before}{marker_start}\n{content}\n{marker_end}{after}"
+                    )
+                else:
+                    rec.content += f"\n{marker_start}\n{content}\n{marker_end}"
+            else:
+                rec.content = content
         elif operation == "append":
             rec.content += content
         elif operation == "prepend":
             rec.content = content + rec.content
-        elif operation == "section_replace":
-            if not section:
+        elif operation == "delete_section":
+            if not effective_section:
                 return {
                     "status": "error",
-                    "message": "section is required for section_replace operation",
+                    "message": "section/anchor is required for delete_section operation",
                 }
-            marker_start = f"<!-- section:{section} -->"
-            marker_end = f"<!-- end:{section} -->"
+            marker_start = f"<!-- section:{effective_section} -->"
+            marker_end = f"<!-- end:{effective_section} -->"
             if marker_start in rec.content and marker_end in rec.content:
                 before = rec.content[: rec.content.index(marker_start)]
                 after = rec.content[rec.content.index(marker_end) + len(marker_end) :]
-                rec.content = f"{before}{marker_start}\n{content}\n{marker_end}{after}"
+                rec.content = f"{before}{after}"
             else:
-                rec.content += f"\n{marker_start}\n{content}\n{marker_end}"
+                return {
+                    "status": "error",
+                    "message": f"Section '{effective_section}' not found in artifact",
+                }
 
         rec.updated_at = time.time()
         rec.version += 1
         self._persist()
-        logger.info("Patched artifact %s op=%s v%d", artifact_id, operation, rec.version)
+        logger.info(
+            "Patched artifact %s op=%s v%d", artifact_id, operation, rec.version
+        )
         return {"status": "ok", "record": rec.to_dict()}
 
     def load_artifact(
@@ -530,9 +593,15 @@ class ArtifactManager:
             content = content[:max_chars]
 
         token_count = len(content) // 4
+        sections = rec.sections()
+        summary = rec.auto_summary()
         logger.info(
-            "Loaded artifact %s preview=%s section=%s tokens~=%d",
-            artifact_id, preview_only, section or "all", token_count,
+            "Loaded artifact %s preview=%s section=%s tokens~=%d sections=%s",
+            artifact_id,
+            preview_only,
+            section or "all",
+            token_count,
+            sections,
         )
         return {
             "status": "ok",
@@ -541,22 +610,30 @@ class ArtifactManager:
             "version": rec.version,
             "content": content,
             "token_count": token_count,
+            "sections": sections,
+            "summary": summary,
         }
 
     def get_context_budget(self, agent_id: str = "") -> dict[str, Any]:
-        agent_artifacts = [
-            a for a in self._artifacts.values() if a.owner_agent_id == agent_id
-        ] if agent_id else list(self._artifacts.values())
+        agent_artifacts = (
+            [a for a in self._artifacts.values() if a.owner_agent_id == agent_id]
+            if agent_id
+            else list(self._artifacts.values())
+        )
 
         total_tokens = sum(len(a.content) // 4 for a in agent_artifacts)
         artifact_count = len(agent_artifacts)
         by_type: dict[str, int] = {}
         for a in agent_artifacts:
-            by_type[a.artifact_type] = by_type.get(a.artifact_type, 0) + len(a.content) // 4
+            by_type[a.artifact_type] = (
+                by_type.get(a.artifact_type, 0) + len(a.content) // 4
+            )
 
         logger.info(
             "Context budget: agent=%s artifacts=%d tokens~=%d",
-            agent_id, artifact_count, total_tokens,
+            agent_id,
+            artifact_count,
+            total_tokens,
         )
         return {
             "status": "ok",

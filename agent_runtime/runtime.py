@@ -366,8 +366,10 @@ class AgentRuntime:
                             artifact_tokens = 0
                             if self.artifact_manager:
                                 try:
-                                    budget_info = self.artifact_manager.get_context_budget(
-                                        agent_id=getattr(ctx, "agent_id", "")
+                                    budget_info = (
+                                        self.artifact_manager.get_context_budget(
+                                            agent_id=getattr(ctx, "agent_id", "")
+                                        )
                                     )
                                     artifact_tokens = budget_info.get("total_tokens", 0)
                                 except (ValueError, TypeError, RuntimeError, OSError):
@@ -644,14 +646,71 @@ class AgentRuntime:
             messages.append({"role": "system", "content": node_prompt})
 
         if self.artifact_manager and hasattr(ctx, "agent_id"):
-            artifact_ctx = self.artifact_manager.get_active_artifacts_context(
-                ctx.agent_id
+            context_window = 32768
+            if node.model:
+                pass
+            context_window = getattr(self, "_context_window_override", 32768)
+            artifact_result = (
+                self.artifact_manager.get_active_artifacts_context_budget_aware(
+                    ctx.agent_id,
+                    context_window=context_window,
+                )
             )
+            artifact_ctx = artifact_result.get("context_text", "")
             if artifact_ctx:
                 if messages and messages[0].get("role") == "system":
                     messages[0]["content"] += "\n\n" + artifact_ctx
                 else:
                     messages.insert(0, {"role": "system", "content": artifact_ctx})
+
+            artifact_mode = artifact_result.get("mode", "none")
+            if artifact_mode not in ("none", "full"):
+                logger.info(
+                    "artifact context injection mode=%s utilization=%.2f agent=%s",
+                    artifact_mode,
+                    artifact_result.get("utilization", 0.0),
+                    ctx.agent_id,
+                )
+
+            if self.compactor and artifact_result.get("utilization", 0.0) > 0.7:
+                compact_level = self.compactor.should_compact(ctx.messages)
+                if compact_level != "none":
+                    before_count = len(ctx.messages)
+                    ctx.messages = self.compactor.compact(ctx.messages, compact_level)
+                    logger.info(
+                        "proactive artifact-aware compaction: mode=%s level=%s before_msgs=%d after_msgs=%d",
+                        artifact_mode,
+                        compact_level,
+                        before_count,
+                        len(ctx.messages),
+                    )
+                    yield AgentEvent(
+                        type=AgentEventType.THINK,
+                        content=f"Proactive compaction triggered (artifact budget at {artifact_result.get('utilization', 0.0):.0%})",
+                        metadata={
+                            "artifact_mode": artifact_mode,
+                            "compact_level": compact_level,
+                            "artifact_utilization": artifact_result.get(
+                                "utilization", 0.0
+                            ),
+                        },
+                    )
+
+        if self.artifact_manager:
+            artifact_system_suffix = (
+                "\n\n[Artifact Guidelines]\n"
+                "- Use artifact-ref IDs to reference existing artifacts rather than duplicating content.\n"
+                "- Prefer incremental modification (artifact_update with operation=replace_section/append/prepend) over full content replacement.\n"
+                "- For staged generation: create artifact with sections, then fill sections incrementally.\n"
+                "- Use artifact_load with preview_only=true to inspect artifacts without consuming full context.\n"
+                "- Use artifact_context_budget to monitor context usage before large operations.\n"
+            )
+            if messages and messages[0].get("role") == "system":
+                messages[0]["content"] += artifact_system_suffix
+            else:
+                messages.insert(
+                    0, {"role": "system", "content": artifact_system_suffix.strip()}
+                )
 
         messages.extend(ctx.messages)
 
