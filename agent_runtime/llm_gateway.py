@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import threading
 import time
 from dataclasses import dataclass, field
@@ -18,7 +19,9 @@ from typing import Any, AsyncIterator
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_LOCAL_BASE_URL = "http://localhost:11434/v1"
+DEFAULT_LOCAL_BASE_URL = os.environ.get(
+    "FUSION_GATEWAY_URL", f"http://localhost:{os.environ.get('FUSION_MLX_PORT', '11432')}/v1"
+)
 CIRCUIT_THRESHOLD = 3
 CIRCUIT_RESET_TIME = 30.0
 
@@ -272,6 +275,18 @@ class LLMGateway:
                 and (not exclude or m.name not in exclude)
             ]
         if not candidates:
+            if self._default_model:
+                logger.info(
+                    "No registered models, falling back to default_model=%s",
+                    self._default_model,
+                )
+                return ModelConfig(
+                    name=self._default_model,
+                    base_url=str(self._default_client.base_url) if self._default_client else "",
+                    priority=0,
+                    capabilities=set(),
+                    context_length=8192,
+                )
             logger.warning(
                 "No available model for capability='%s' min_context=%d",
                 capability,

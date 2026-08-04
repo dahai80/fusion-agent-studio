@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from dataclasses import dataclass, field
 from typing import Any, AsyncIterator
 
@@ -67,7 +68,10 @@ class FusionMLXClient:
 
     def __init__(
         self,
-        base_url: str = "http://localhost:11434/v1",
+        base_url: str = os.environ.get(
+            "FUSION_GATEWAY_URL",
+            f"http://localhost:{os.environ.get('FUSION_MLX_PORT', '11432')}/v1",
+        ),
         api_key: str = "local",
         timeout: float = 120.0,
     ):

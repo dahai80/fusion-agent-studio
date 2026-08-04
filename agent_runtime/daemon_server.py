@@ -38,8 +38,12 @@ logger = logging.getLogger(__name__)
 
 SOCKET_PATH = "/tmp/fusion-studio.sock"
 WS_PORT = 11435
-MLX_PORT = 11434
-MLX_BASE_URL = f"http://127.0.0.1:{MLX_PORT}/v1"
+_MLX_PORT_DEFAULT = int(os.environ.get("FUSION_MLX_PORT", "11432"))
+MLX_PORT = _MLX_PORT_DEFAULT
+MLX_BASE_URL = os.environ.get(
+    "FUSION_GATEWAY_URL",
+    f"http://127.0.0.1:{MLX_PORT}/v1",
+)
 
 
 class DaemonServer:
@@ -919,7 +923,7 @@ class DaemonServer:
     async def _handle_tool_list(self, params: dict) -> dict:
         registry = self._get_tool_registry()
         tools = []
-        for name, tool in registry.tools.items():
+        for name, tool in registry._tools.items():
             schema = tool.get_schema()
             tools.append(
                 {
@@ -1013,9 +1017,12 @@ class DaemonServer:
         }
 
         mlx_running = self._mlx_process is not None and self._mlx_process.poll() is None
+        mlx_reachable = await self._check_mlx_health()
         checks["mlx_server"] = {
-            "ok": mlx_running,
+            "ok": mlx_running or mlx_reachable,
             "port": MLX_PORT,
+            "process_managed": mlx_running,
+            "api_reachable": mlx_reachable,
         }
 
         mlx_reachable = await self._check_mlx_health()
@@ -1031,7 +1038,7 @@ class DaemonServer:
         socket_ok = os.path.exists(self.socket_path)
         checks["daemon_socket"] = {"ok": socket_ok, "path": self.socket_path}
 
-        model_dir = Path.home() / ".cache" / "huggingface"
+        model_dir = Path.home() / ".fusion-mlx" / "models"
         checks["model_cache"] = {
             "ok": model_dir.exists(),
             "path": str(model_dir),
@@ -1431,6 +1438,7 @@ class DaemonServer:
         loaded = self._discover_mlx_model_id(api_key)
         if loaded:
             self._gateway._default_model = loaded
+            self._gateway.register_default_local(name=loaded, base_url=MLX_BASE_URL)
         logger.info(
             "MLX client attached to gateway (api_key=%s, default_model=%s)",
             "set" if api_key else "none",

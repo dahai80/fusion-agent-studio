@@ -9,10 +9,10 @@ from server.process_manager import FusionMLXProcessManager
 class TestFusionMLXProcessManager:
     def test_init_defaults(self):
         mgr = FusionMLXProcessManager()
-        assert mgr.port == 11434
+        assert mgr.port == 11432
         assert mgr.model == ""
         assert mgr.host == "127.0.0.1"
-        assert mgr.base_url == "http://127.0.0.1:11434/v1"
+        assert mgr.base_url == "http://127.0.0.1:11432/v1"
 
     def test_init_custom(self):
         mgr = FusionMLXProcessManager(

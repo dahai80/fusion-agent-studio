@@ -27,7 +27,7 @@ class PluginDispatcher(SubDispatcher):
 
         from ..plugin_bridge import list_mcp_tools
 
-        registry = self._daemon._get_runtime()._tool_registry
+        registry = self._daemon._get_runtime().tool_registry
         if registry is None:
             registry = create_default_registry()
 
@@ -43,7 +43,7 @@ class PluginDispatcher(SubDispatcher):
 
         from ..plugin_bridge import gateway_info
 
-        registry = self._daemon._get_runtime()._tool_registry
+        registry = self._daemon._get_runtime().tool_registry
         if registry is None:
             registry = create_default_registry()
 
@@ -65,7 +65,7 @@ class PluginDispatcher(SubDispatcher):
         if not tool_name:
             return self._err("tool_name is required")
 
-        registry = self._daemon._get_runtime()._tool_registry
+        registry = self._daemon._get_runtime().tool_registry
         if registry is None:
             registry = create_default_registry()
 
