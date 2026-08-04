@@ -1775,6 +1775,7 @@ class AgentRuntime:
         model: str,
         tools_schema: list[dict],
         system_prompt: str,
+        stream: bool = False,
     ) -> AsyncIterator[AgentEvent]:
         """Execute a RAG node — retrieve context then generate via LLM."""
         try:
