@@ -31,7 +31,7 @@ class ModelConfig:
     name: str = ""
     provider: str = "local"
     base_url: str = DEFAULT_LOCAL_BASE_URL
-    api_key: str = ""
+    api_key: str = os.environ.get("FUSION_MLX_API_KEY", "")
     priority: int = 0
     context_length: int = 4096
     capabilities: list[str] = field(default_factory=lambda: ["chat"])
@@ -283,6 +283,7 @@ class LLMGateway:
                 return ModelConfig(
                     name=self._default_model,
                     base_url=str(self._default_client.base_url) if self._default_client else "",
+                    api_key=self._default_client.api_key if self._default_client else "",
                     priority=0,
                     capabilities=set(),
                     context_length=8192,

@@ -72,9 +72,11 @@ class FusionMLXClient:
             "FUSION_GATEWAY_URL",
             f"http://localhost:{os.environ.get('FUSION_MLX_PORT', '11432')}/v1",
         ),
-        api_key: str = "local",
+        api_key: str = os.environ.get("FUSION_MLX_API_KEY", "local"),
         timeout: float = 120.0,
     ):
+        if not base_url.rstrip("/").endswith("/v1"):
+            base_url = base_url.rstrip("/") + "/v1"
         self.base_url = base_url.rstrip("/")
         self.api_key = api_key
         self.timeout = timeout

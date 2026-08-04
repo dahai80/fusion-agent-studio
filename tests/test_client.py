@@ -27,8 +27,14 @@ class TestLLMResponse:
 
 
 class TestFusionMLXClient:
-    def test_init_defaults(self):
-        client = FusionMLXClient()
+    def test_init_defaults(self, monkeypatch):
+        monkeypatch.delenv("FUSION_GATEWAY_URL", raising=False)
+        monkeypatch.delenv("FUSION_MLX_PORT", raising=False)
+        monkeypatch.delenv("FUSION_MLX_API_KEY", raising=False)
+        import importlib
+        import server.fusion_mlx_client as mod
+        importlib.reload(mod)
+        client = mod.FusionMLXClient()
         assert client.base_url == "http://localhost:11432/v1"
         assert client.api_key == "local"
         assert client.timeout == 120.0
@@ -43,7 +49,11 @@ class TestFusionMLXClient:
         assert client.api_key == "test-key"
         assert client.timeout == 30.0
 
-    def test_base_url_strips_trailing_slash(self):
+    def test_base_url_auto_append_v1(self):
+        client = FusionMLXClient(base_url="http://localhost:11434")
+        assert client.base_url == "http://localhost:11434/v1"
+
+    def test_base_url_already_has_v1(self):
         client = FusionMLXClient(base_url="http://localhost:11434/v1/")
         assert client.base_url == "http://localhost:11434/v1"
 
