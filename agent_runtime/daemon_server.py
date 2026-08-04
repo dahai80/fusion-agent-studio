@@ -364,6 +364,7 @@ class DaemonServer:
                 logger.warning("FastAPI HTTP server failed to start: %s", e)
 
         self._running = True
+        self._start_time = time.time()
         logger.info(
             "Daemon listening on %s + WS on %d + Cluster on %d + HTTP on %d",
             self.socket_path,
@@ -371,6 +372,10 @@ class DaemonServer:
             self.cluster_port,
             self.http_port,
         )
+
+        if await self._check_mlx_health():
+            self._attach_mlx_client()
+            logger.info("Auto-attached to running fusion-mlx on port %d", MLX_PORT)
 
     async def stop(self) -> None:
         self._running = False
@@ -502,6 +507,11 @@ class DaemonServer:
             "mlx.stop": self._handle_mlx_stop,
             "mlx.switch_model_mid_turn": self._handle_mlx_switch_model_mid_turn,
             "ping": self._handle_ping,
+            "daemon.ping": self._handle_daemon_ping,
+            "daemon.status": self._handle_daemon_status,
+            "daemon.shutdown": self._handle_daemon_shutdown,
+            "rpc.discover": self._handle_rpc_discover,
+            "tool.call": self._handle_tool_call,
             "session.attach": self._handle_session_attach,
             "session.background_kill": self._handle_session_background_kill,
             "session.background_list": self._handle_session_background_list,
@@ -610,6 +620,94 @@ class DaemonServer:
 
     async def _handle_ping(self, params: dict) -> dict:
         return {"pong": True, "timestamp": time.time()}
+
+    async def _handle_daemon_ping(self, params: dict) -> dict:
+        return {"pong": True, "timestamp": time.time(), "daemon": True}
+
+    async def _handle_daemon_status(self, params: dict) -> dict:
+        return {
+            "running": self._running,
+            "socket_path": self.socket_path,
+            "ws_port": self.ws_port,
+            "cluster_port": self.cluster_port,
+            "http_port": self.http_port,
+            "mlx_attached": self._gateway._default_client is not None,
+            "default_model": self._gateway._default_model or "",
+            "active_sessions": len(self._active_executions),
+            "uptime": time.time() - self._start_time if hasattr(self, "_start_time") and self._start_time else 0,
+        }
+
+    async def _handle_daemon_shutdown(self, params: dict) -> dict:
+        logger.info("daemon.shutdown requested via RPC")
+        self._running = False
+        return {"status": "shutting_down"}
+
+    async def _handle_rpc_discover(self, params: dict) -> dict:
+        methods = {}
+        core = {
+            "budget.set": self._handle_budget_set,
+            "budget.status": self._handle_budget_status,
+            "context.compact": self._handle_context_compact,
+            "context.usage": self._handle_context_usage,
+            "env.health_check": self._handle_env_health_check,
+            "env.repair": self._handle_env_repair,
+            "env.repair_all": self._handle_env_repair_all,
+            "graph.create": self._handle_graph_create,
+            "graph.delete": self._handle_graph_delete,
+            "graph.execute": self._handle_graph_execute,
+            "graph.get": self._handle_graph_get,
+            "graph.list": self._handle_graph_list,
+            "graph.update": self._handle_graph_update,
+            "mlx.health": self._handle_mlx_health,
+            "mlx.infer": self._handle_mlx_infer,
+            "mlx.restart": self._handle_mlx_restart,
+            "mlx.set_model": self._handle_mlx_set_model,
+            "mlx.start": self._handle_mlx_start,
+            "mlx.status": self._handle_mlx_status,
+            "mlx.stop": self._handle_mlx_stop,
+            "mlx.switch_model_mid_turn": self._handle_mlx_switch_model_mid_turn,
+            "ping": self._handle_ping,
+            "daemon.ping": self._handle_daemon_ping,
+            "daemon.status": self._handle_daemon_status,
+            "daemon.shutdown": self._handle_daemon_shutdown,
+            "rpc.discover": self._handle_rpc_discover,
+            "session.attach": self._handle_session_attach,
+            "session.background_kill": self._handle_session_background_kill,
+            "session.background_list": self._handle_session_background_list,
+            "session.detach": self._handle_session_detach,
+            "session.fork": self._handle_session_fork,
+            "session.get_accessibility": self._handle_session_get_accessibility,
+            "session.list": self._handle_session_list,
+            "session.set_accessibility": self._handle_session_set_accessibility,
+            "tool.background_status": self._handle_tool_background_status,
+            "tool.dynamic_register": self._handle_tool_dynamic_register,
+            "tool.dynamic_unregister": self._handle_tool_dynamic_unregister,
+            "tool.get": self._handle_tool_get,
+            "tool.get_schema": self._handle_tool_get_schema,
+            "tool.list": self._handle_tool_list,
+            "tool.set_timeout": self._handle_tool_set_timeout,
+            "tool.call": self._handle_tool_call,
+        }
+        methods.update(core)
+        for sd in self._sub_dispatchers:
+            methods.update(sd.get_handlers())
+        return {"methods": sorted(methods.keys()), "count": len(methods)}
+
+    async def _handle_tool_call(self, params: dict) -> dict:
+        tool_name = params.get("tool_name", "")
+        arguments = params.get("arguments", {})
+        if not tool_name:
+            return {"status": "error", "message": "tool_name is required"}
+        registry = self._get_tool_registry()
+        tool = registry._tools.get(tool_name)
+        if tool is None:
+            return {"status": "error", "message": f"tool '{tool_name}' not found"}
+        try:
+            result = await tool.execute(arguments)
+            return {"status": "ok", "result": result}
+        except Exception as e:
+            logger.error("tool.call %s failed: %s", tool_name, e)
+            return {"status": "error", "message": str(e)}
 
     async def _handle_mlx_start(self, params: dict) -> dict:
         model = params.get("model", "")
@@ -1315,8 +1413,57 @@ class DaemonServer:
     async def _handle_ws_client(
         self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter
     ) -> None:
-        self._ws_clients.append(writer)
         peer = writer.get_extra_info("peername")
+        try:
+            header_line = await asyncio.wait_for(reader.readline(), timeout=5.0)
+            header_text = header_line.decode("utf-8", errors="replace").strip()
+            is_ws_upgrade = "Upgrade: websocket" in header_text or "upgrade: websocket" in header_text.lower()
+            if is_ws_upgrade:
+                remaining_headers = b""
+                while True:
+                    line = await asyncio.wait_for(reader.readline(), timeout=5.0)
+                    remaining_headers += line
+                    if line == b"\r\n" or line == b"\n":
+                        break
+                import base64
+                import hashlib
+                ws_key = ""
+                for h in remaining_headers.decode("utf-8", errors="replace").split("\r\n"):
+                    if h.lower().startswith("sec-websocket-key:"):
+                        ws_key = h.split(":", 1)[1].strip()
+                if ws_key:
+                    accept = base64.b64encode(
+                        hashlib.sha1((ws_key + "258EAFA5-E914-47DA-95CA-5AB5DC65B283").encode()).digest()
+                    ).decode()
+                    response = (
+                        "HTTP/1.1 101 Switching Protocols\r\n"
+                        "Upgrade: websocket\r\n"
+                        "Connection: Upgrade\r\n"
+                        f"Sec-WebSocket-Accept: {accept}\r\n\r\n"
+                    )
+                    writer.write(response.encode())
+                    await writer.drain()
+                    logger.info("WS handshake completed for %s", peer)
+                else:
+                    writer.write(b"HTTP/1.1 400 Bad Request\r\n\r\n")
+                    await writer.drain()
+                    writer.close()
+                    return
+            else:
+                writer.write(b"HTTP/1.1 400 Expected WebSocket Upgrade\r\n\r\n")
+                await writer.drain()
+                writer.close()
+                return
+        except asyncio.TimeoutError:
+            logger.warning("WS handshake timeout from %s", peer)
+            writer.close()
+            return
+        except Exception as e:
+            logger.error("WS handshake error from %s: %s", peer, e)
+            writer.close()
+            return
+
+        self._ws_clients.append(writer)
         logger.info("WS client connected: %s", peer)
         try:
             while self._running:

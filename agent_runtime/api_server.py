@@ -207,9 +207,12 @@ async def _optional_auth(request: Request) -> dict | None:
 
 
 async def _require_auth(request: Request) -> dict:
+    api_key = request.headers.get("x-api-key", "")
+    if not api_key:
+        raise_api_error(ErrorCode.API_KEY_MISSING)
     result = await _optional_auth(request)
     if result is None:
-        raise_api_error(ErrorCode.API_KEY_MISSING)
+        raise_api_error(ErrorCode.API_KEY_INVALID)
     return result
 
 
@@ -277,6 +280,11 @@ async def get_dashboard(request: Request):
 @app.post("/v1/graphs", response_model=GraphResponse)
 async def v1_create_graph(req: GraphCreateRequest):
     from agent_runtime.graph import AgentGraph
+
+    if not isinstance(req.graph_data, dict):
+        raise_api_error(ErrorCode.PARAM_FORMAT_ERROR, param="graph_data")
+    if "nodes" not in req.graph_data:
+        raise_api_error(ErrorCode.PARAM_FORMAT_ERROR, param="graph_data", detail="graph_data must contain 'nodes'")
 
     graph = AgentGraph.from_dict(req.graph_data)
     if req.name:
@@ -584,6 +592,14 @@ async def v1_list_kbs(
     return mgr.list_kbs(page=page, limit=limit, keyword=keyword, scope=scope)
 
 
+@app.get("/v1/knowledge-bases/rag-status")
+async def v1_rag_status():
+    mgr = _get_kb_manager()
+    available = await mgr.is_rag_available()
+    status = await mgr.rag_status()
+    return {"rag_available": available, **status}
+
+
 @app.get("/v1/knowledge-bases/{kb_id}")
 async def v1_get_kb(kb_id: str):
     mgr = _get_kb_manager()
@@ -678,7 +694,10 @@ async def v1_delete_kb_file(kb_id: str, file_id: str):
 
 @app.post("/v1/agents/{agent_id}/bind-kb")
 async def v1_bind_agent_kb(agent_id: str, request: Request):
-    body = await request.json()
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
     kb_id = body.get("kb_id", "")
     if not kb_id:
         raise_api_error(ErrorCode.PARAM_REQUIRED, param="kb_id")
@@ -780,14 +799,6 @@ async def v1_scan_kb(kb_id: str, request: Request):
     result = await mgr.scan_directory(kb_id=kb_id, path=path, **scan_kwargs)
     logger.info("KB scan kb_id=%s path=%s", kb_id, path)
     return result
-
-
-@app.get("/v1/knowledge-bases/rag-status")
-async def v1_rag_status():
-    mgr = _get_kb_manager()
-    available = await mgr.is_rag_available()
-    status = await mgr.rag_status()
-    return {"rag_available": available, **status}
 
 
 # ── API Key endpoints ──

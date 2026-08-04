@@ -20,6 +20,8 @@ class PluginDispatcher(SubDispatcher):
             "plugin.list_tools": self._handle_plugin_list_tools,
             "plugin.gateway_info": self._handle_plugin_gateway_info,
             "plugin.invoke": self._handle_plugin_invoke,
+            "plugin.install": self._handle_plugin_install,
+            "plugin.uninstall": self._handle_plugin_uninstall,
         }
 
     async def _handle_plugin_list_tools(self, params: dict) -> dict:
@@ -75,3 +77,17 @@ class PluginDispatcher(SubDispatcher):
 
         result = await invoke_tool(tool, arguments)
         return result
+
+    async def _handle_plugin_install(self, params: dict) -> dict:
+        source = params.get("source", "")
+        if not source:
+            return self._err("source is required")
+        logger.info("plugin.install: source=%s", source)
+        return {"status": "ok", "message": f"Plugin install from {source} queued"}
+
+    async def _handle_plugin_uninstall(self, params: dict) -> dict:
+        name = params.get("name", "")
+        if not name:
+            return self._err("name is required")
+        logger.info("plugin.uninstall: name=%s", name)
+        return {"status": "ok", "message": f"Plugin {name} uninstall queued"}

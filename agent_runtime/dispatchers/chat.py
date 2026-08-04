@@ -21,6 +21,8 @@ class ChatDispatcher(SubDispatcher):
             "chat.switch_branch": self._handle_chat_switch_branch,
             "chat.branches": self._handle_chat_branches,
             "chat.message_tree": self._handle_chat_message_tree,
+            "chat.history": self._handle_chat_message_tree,
+            "session.create": self._handle_chat_create,
             "style.list": self._handle_style_list,
             "style.get": self._handle_style_get,
             "style.create": self._handle_style_create,
@@ -88,7 +90,7 @@ class ChatDispatcher(SubDispatcher):
             events.append(ev_dict)
             if ev.type.value == "token":
                 full_content += ev.content
-            await self._broadcast_event(
+            await self._daemon._broadcast_event(
                 "chat_event",
                 {
                     "session_id": session_id,

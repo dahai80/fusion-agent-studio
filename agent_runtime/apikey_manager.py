@@ -86,6 +86,7 @@ class ApiKeyManager:
         self.base_path = Path(base_path)
         self._keys: dict[str, ApiKeyConfig] = {}
         self._load_index()
+        self._ensure_bootstrap_key()
 
     @property
     def index_path(self) -> Path:
@@ -103,6 +104,20 @@ class ApiKeyManager:
             except (json.JSONDecodeError, OSError) as exc:
                 logger.error("Failed to load API keys index: %s", exc)
                 self._keys = {}
+
+    def _ensure_bootstrap_key(self) -> None:
+        if self._keys:
+            return
+        logger.info("No API keys found, creating bootstrap key")
+        result = self.create(
+            name="bootstrap",
+            permissions=["agent:execute", "apikey:manage", "admin"],
+        )
+        logger.warning(
+            "Bootstrap API key created (one-time): %s  — save this now, "
+            "it will not be shown again",
+            result.get("key", ""),
+        )
 
     def _persist_index(self) -> None:
         self.base_path.mkdir(parents=True, exist_ok=True)

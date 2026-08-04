@@ -25,6 +25,7 @@ class AgentDispatcher(SubDispatcher):
             "agent.delete": self._handle_agent_delete,
             "agent.configure": self._handle_agent_configure,
             "agent.execute": self._handle_agent_execute,
+            "agent.test": self._handle_agent_execute,
             "agent.list_skills": self._handle_agent_list_skills,
             "agent.add_skill": self._handle_agent_add_skill,
             "agent.delete_skill": self._handle_agent_delete_skill,

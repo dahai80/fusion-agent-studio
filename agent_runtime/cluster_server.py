@@ -544,6 +544,27 @@ def run_cluster_server(host: str = "127.0.0.1", port: int = CLUSTER_PORT):
     uvicorn.run(app, host=host, port=port, log_level="info")
 
 
+# /v1/ aliases for consistency with main API (issue #78)
+_V1_ALIASES = {
+    "/api/health": "/v1/cluster/health",
+    "/api/v1/cluster/stats": "/v1/cluster/stats",
+    "/api/nodes": "/v1/cluster/nodes",
+    "/api/v1/nodes/{node_id}/metrics": "/v1/cluster/nodes/{node_id}/metrics",
+    "/api/join": "/v1/cluster/join",
+    "/api/tasks": "/v1/cluster/tasks",
+    "/api/tasks/submit": "/v1/cluster/tasks/submit",
+}
+for _old, _new in _V1_ALIASES.items():
+    for _route in app.routes:
+        if hasattr(_route, "path") and _route.path == _old:
+            app.routes.append(type(_route)(
+                path=_new,
+                endpoint=_route.endpoint,
+                methods=_route.methods,
+            ))
+            break
+
+
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
     run_cluster_server()

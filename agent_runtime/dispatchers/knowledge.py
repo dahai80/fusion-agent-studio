@@ -27,6 +27,7 @@ class KnowledgeDispatcher(SubDispatcher):
             "kb.ask": self._handle_kb_ask,
             "kb.scan": self._handle_kb_scan,
             "kb.health": self._handle_kb_health,
+            "kb.list": self._handle_knowledge_list,
         }
 
     async def _handle_knowledge_search(self, params: dict) -> dict:
