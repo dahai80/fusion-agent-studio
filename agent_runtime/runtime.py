@@ -530,6 +530,19 @@ class AgentRuntime:
                 next_id = graph.get_next_node(current_node_id)
                 current_node_id = next_id or ""
 
+            elif node.type == "parallel":
+                yield AgentEvent(
+                    type=AgentEventType.NODE_START,
+                    content=f"Parallel fan-out from {current_node_id}",
+                    node_id=current_node_id,
+                )
+                outgoing = graph.get_outgoing_edges(current_node_id)
+                if outgoing:
+                    next_id = outgoing[0].target_id
+                    current_node_id = next_id or ""
+                else:
+                    current_node_id = ""
+
             elif node.type == "end":
                 yield AgentEvent(
                     type=AgentEventType.END, content="Graph execution complete"

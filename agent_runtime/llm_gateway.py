@@ -20,7 +20,7 @@ from typing import Any, AsyncIterator
 logger = logging.getLogger(__name__)
 
 DEFAULT_LOCAL_BASE_URL = os.environ.get(
-    "FUSION_GATEWAY_URL", f"http://localhost:{os.environ.get('FUSION_MLX_PORT', '11432')}/v1"
+    "FUSION_GATEWAY_URL", f"http://localhost:{os.environ.get('FUSION_MLX_PORT', '11434')}/v1"
 )
 CIRCUIT_THRESHOLD = 3
 CIRCUIT_RESET_TIME = 30.0

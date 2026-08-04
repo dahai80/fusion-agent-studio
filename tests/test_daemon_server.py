@@ -23,7 +23,7 @@ def _mlx_reachable() -> bool:
     import socket
 
     try:
-        with socket.create_connection(("127.0.0.1", 11432), timeout=0.5):
+        with socket.create_connection(("127.0.0.1", 11434), timeout=0.5):
             return True
     except OSError:
         return False
@@ -153,10 +153,11 @@ class TestDaemonGraphCRUD:
 class TestDaemonMLX:
     @pytest.mark.asyncio
     async def test_mlx_status_not_running(self, daemon):
+        from agent_runtime.daemon_server import MLX_PORT
         resp = await _rpc_call(daemon.socket_path, "mlx.status")
         result = resp["result"]
         assert result["running"] is False
-        assert result["port"] == 11432
+        assert result["port"] == MLX_PORT
 
     @pytest.mark.asyncio
     @pytest.mark.skipif(

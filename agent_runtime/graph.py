@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import json
+import logging
 import uuid
 from dataclasses import dataclass, field
 from typing import Literal
+
+logger = logging.getLogger(__name__)
 
 NodeType = Literal[
     "start",
@@ -13,6 +16,7 @@ NodeType = Literal[
     "tool",
     "condition",
     "loop",
+    "parallel",
     "end",
     "error_handler",
     "rag",
@@ -101,7 +105,14 @@ class Edge:
 
     @classmethod
     def from_dict(cls, data: dict) -> Edge:
-        return cls(**data)
+        d = dict(data)
+        if "source" in d and "source_id" not in d:
+            d["source_id"] = d.pop("source")
+        if "target" in d and "target_id" not in d:
+            d["target_id"] = d.pop("target")
+        d.pop("source", None)
+        d.pop("target", None)
+        return cls(**d)
 
 
 @dataclass
@@ -135,7 +146,6 @@ class AgentGraph:
         return [e for e in self.edges if e.source_id == node_id]
 
     def get_next_node(self, current_id: str, condition_result: str = "") -> str | None:
-        """Determine the next node after the current one, respecting condition labels."""
         edges = self.get_outgoing_edges(current_id)
         if not edges:
             return None
@@ -145,10 +155,26 @@ class AgentGraph:
         for e in edges:
             if e.label == condition_result:
                 return e.target_id
+        # Try truthy/falsy normalization for condition results
+        truthy = {"true", "yes", "1"}
+        falsy = {"false", "no", "0"}
+        if condition_result.lower() in truthy:
+            for e in edges:
+                if e.label.lower() in truthy:
+                    return e.target_id
+        elif condition_result.lower() in falsy:
+            for e in edges:
+                if e.label.lower() in falsy:
+                    return e.target_id
         # Fallback: return first edge without label
         for e in edges:
             if not e.label:
                 return e.target_id
+        logger.warning(
+            "No matching edge label for condition_result=%r from node %s, "
+            "falling back to first edge %s",
+            condition_result, current_id, edges[0].target_id,
+        )
         return edges[0].target_id
 
     def find_llm_model(self) -> str:
@@ -217,17 +243,24 @@ class AgentGraph:
             nodes = {}
             for n in raw_nodes:
                 node_id = n.get("id", f"node-{len(nodes)}")
-                nodes[node_id] = NodeConfig.from_dict(n)
+                node_data = {k: v for k, v in n.items() if k != "id"}
+                nodes[node_id] = NodeConfig.from_dict(node_data)
         else:
             nodes = {}
         edges = [Edge.from_dict(e) for e in data.get("edges", [])]
+        start_node_id = data.get("start_node_id", "")
+        if not start_node_id:
+            for nid, ncfg in nodes.items():
+                if ncfg.type == "start":
+                    start_node_id = nid
+                    break
         return cls(
             id=data.get("id", ""),
             name=data.get("name", ""),
             description=data.get("description", ""),
             nodes=nodes,
             edges=edges,
-            start_node_id=data.get("start_node_id", ""),
+            start_node_id=start_node_id,
             version=data.get("version", "1.0"),
         )
 

@@ -15,11 +15,14 @@ User instruction: "坚各个产品的边界和原则，fusion-studio的GUI基本
 from __future__ import annotations
 
 import asyncio
+import base64
+import hashlib
 import json
 import logging
 import os
 import platform
 import signal
+import struct
 import subprocess
 import sys
 import time
@@ -38,7 +41,44 @@ logger = logging.getLogger(__name__)
 
 SOCKET_PATH = "/tmp/fusion-studio.sock"
 WS_PORT = 11435
-_MLX_PORT_DEFAULT = int(os.environ.get("FUSION_MLX_PORT", "11432"))
+WS_MAGIC = "258EAFA5-E914-47DA-95CA-5AB5DC65B283"
+
+
+async def _ws_read_frame(reader: asyncio.StreamReader) -> str | None:
+    header = await reader.readexactly(2)
+    opcode = header[0] & 0x0F
+    masked = (header[1] & 0x80) != 0
+    length = header[1] & 0x7F
+    if length == 126:
+        length = struct.unpack(">H", await reader.readexactly(2))[0]
+    elif length == 127:
+        length = struct.unpack(">Q", await reader.readexactly(8))[0]
+    mask_key = None
+    if masked:
+        mask_key = await reader.readexactly(4)
+    payload = await reader.readexactly(length)
+    if mask_key:
+        payload = bytes(b ^ mask_key[i % 4] for i, b in enumerate(payload))
+    if opcode == 0x8:
+        return None
+    return payload.decode("utf-8", errors="replace")
+
+
+def _ws_write_frame(writer: asyncio.StreamWriter, data: str) -> None:
+    payload = data.encode("utf-8")
+    length = len(payload)
+    frame = bytearray([0x81])
+    if length <= 125:
+        frame.append(length)
+    elif length <= 65535:
+        frame.append(126)
+        frame.extend(struct.pack(">H", length))
+    else:
+        frame.append(127)
+        frame.extend(struct.pack(">Q", length))
+    frame.extend(payload)
+    writer.write(bytes(frame))
+_MLX_PORT_DEFAULT = int(os.environ.get("FUSION_MLX_PORT", "11434"))
 MLX_PORT = _MLX_PORT_DEFAULT
 MLX_BASE_URL = os.environ.get(
     "FUSION_GATEWAY_URL",
@@ -348,7 +388,9 @@ class DaemonServer:
         self._http_task: asyncio.Task | None = None
         if self.http_port:
             try:
-                from .api_server import app as fastapi_app
+                from .api_server import app as fastapi_app, set_daemon
+
+                set_daemon(self)
                 import uvicorn as uvicorn2
 
                 http_config = uvicorn2.Config(
@@ -932,6 +974,8 @@ class DaemonServer:
     async def _handle_graph_execute(self, params: dict) -> dict:
         graph_id = params.get("graph_id", "")
         input_text = params.get("input", "")
+        if not isinstance(input_text, str):
+            input_text = json.dumps(input_text, ensure_ascii=False)
         session_id = params.get("session_id", "")
 
         graph = self.store.load_graph(graph_id)
@@ -1425,15 +1469,13 @@ class DaemonServer:
                     remaining_headers += line
                     if line == b"\r\n" or line == b"\n":
                         break
-                import base64
-                import hashlib
                 ws_key = ""
                 for h in remaining_headers.decode("utf-8", errors="replace").split("\r\n"):
                     if h.lower().startswith("sec-websocket-key:"):
                         ws_key = h.split(":", 1)[1].strip()
                 if ws_key:
                     accept = base64.b64encode(
-                        hashlib.sha1((ws_key + "258EAFA5-E914-47DA-95CA-5AB5DC65B283").encode()).digest()
+                        hashlib.sha1((ws_key + WS_MAGIC).encode()).digest()
                     ).decode()
                     response = (
                         "HTTP/1.1 101 Switching Protocols\r\n"
@@ -1467,15 +1509,15 @@ class DaemonServer:
         logger.info("WS client connected: %s", peer)
         try:
             while self._running:
-                data = await reader.readline()
-                if not data:
+                text = await _ws_read_frame(reader)
+                if text is None:
                     break
                 try:
-                    msg = json.loads(data.decode().strip())
+                    msg = json.loads(text)
                     await self._handle_ws_message(writer, msg)
                 except json.JSONDecodeError:
-                    pass
-        except Exception:
+                    logger.debug("WS non-JSON frame from %s", peer)
+        except (asyncio.IncompleteReadError, ConnectionError, OSError):
             pass
         finally:
             if writer in self._ws_clients:
@@ -1491,42 +1533,29 @@ class DaemonServer:
             mode = msg.get("mode", "")
             engine = self._get_chat_engine()
             async for ev in engine.send(session_id, message, mode=mode):
-                payload = (
-                    json.dumps(
-                        {
-                            "type": "chat_event",
-                            "session_id": session_id,
-                            "event": ev.to_dict(),
-                        }
-                    )
-                    + "\n"
-                )
-                writer.write(payload.encode())
+                _ws_write_frame(writer, json.dumps({
+                    "type": "chat_event",
+                    "session_id": session_id,
+                    "event": ev.to_dict(),
+                }))
                 await writer.drain()
-            done_payload = (
-                json.dumps(
-                    {
-                        "type": "chat_done",
-                        "session_id": session_id,
-                    }
-                )
-                + "\n"
-            )
-            writer.write(done_payload.encode())
+            _ws_write_frame(writer, json.dumps({
+                "type": "chat_done",
+                "session_id": session_id,
+            }))
             await writer.drain()
         elif action == "subscribe":
-            writer.write((json.dumps({"type": "subscribed"}) + "\n").encode())
+            _ws_write_frame(writer, json.dumps({"type": "subscribed"}))
             await writer.drain()
 
     async def _broadcast_event(self, event_type: str, data: dict) -> None:
         if not self._ws_clients:
             return
-        payload = json.dumps({"type": event_type, **data}) + "\n"
-        encoded = payload.encode()
+        payload = json.dumps({"type": event_type, **data})
 
         async def _send(client):
             try:
-                client.write(encoded)
+                _ws_write_frame(client, payload)
                 await client.drain()
                 return None
             except Exception:
@@ -1676,6 +1705,8 @@ class DaemonServer:
         mgr = self._get_session_manager()
         session_id = params.get("session_id", "")
         input_text = params.get("input", "")
+        if not isinstance(input_text, str):
+            input_text = json.dumps(input_text, ensure_ascii=False)
         bg_session = await mgr.fork(session_id, input_text)
         logger.info("session.fork: from=%s fork=%s", session_id, bg_session.id)
         return bg_session.to_dict()

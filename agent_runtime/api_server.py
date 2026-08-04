@@ -41,7 +41,7 @@ async def lifespan(application: FastAPI):
     logger.info("Fusion Agent Studio API shutting down")
 
 
-app = FastAPI(title="Fusion Agent Studio API", version="0.3.0", lifespan=lifespan)
+app = FastAPI(title="Fusion Agent Studio API", version="0.3.1", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -81,6 +81,12 @@ class ExecutionResponse(BaseModel):
 _store: AgentStore | None = None
 _runtime: AgentRuntime | None = None
 _active_sessions: dict[str, asyncio.Task] = {}
+_daemon: Any = None
+
+
+def set_daemon(daemon: Any) -> None:
+    global _daemon
+    _daemon = daemon
 
 
 def _get_store() -> AgentStore:
@@ -93,7 +99,9 @@ def _get_store() -> AgentStore:
 def _get_runtime() -> AgentRuntime:
     global _runtime
     if _runtime is None:
-        _runtime = AgentRuntime()
+        from tools import create_default_registry
+
+        _runtime = AgentRuntime(tool_registry=create_default_registry())
     return _runtime
 
 
@@ -170,6 +178,8 @@ _telemetry = None
 
 
 def _load_agents_index() -> dict:
+    if _daemon is not None and hasattr(_daemon, "_agents") and _daemon._agents:
+        return dict(_daemon._agents)
     idx_path = Path.home() / ".fusion-agent-studio" / "agents" / "index.json"
     if idx_path.exists():
         try:
