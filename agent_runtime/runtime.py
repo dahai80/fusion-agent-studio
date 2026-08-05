@@ -24,6 +24,7 @@ from .llm_gateway import LLMGateway
 from .prompt_templates import PromptTemplateManager
 from .sub_graph import SubGraphRegistry
 from .token_budget import TokenBudget
+from .trajectory_writer import get_trajectory_writer
 from .variable_manager import VariableManager
 
 if TYPE_CHECKING:
@@ -247,7 +248,7 @@ class AgentRuntime:
         context: AgentContext | None = None,
         token_budget: TokenBudget | None = None,
     ) -> AsyncIterator[AgentEvent]:
-        async for event in self._execute_graph_inner(
+        async for event in self._run_with_trajectory(
             graph, initial_input, context, token_budget, stream=False
         ):
             yield event
@@ -259,10 +260,61 @@ class AgentRuntime:
         context: AgentContext | None = None,
         token_budget: TokenBudget | None = None,
     ) -> AsyncIterator[AgentEvent]:
-        async for event in self._execute_graph_inner(
+        async for event in self._run_with_trajectory(
             graph, initial_input, context, token_budget, stream=True
         ):
             yield event
+
+    async def _run_with_trajectory(
+        self,
+        graph: AgentGraph,
+        initial_input: str = "",
+        context: AgentContext | None = None,
+        token_budget: TokenBudget | None = None,
+        stream: bool = False,
+    ) -> AsyncIterator[AgentEvent]:
+        ctx = context or AgentContext()
+        writer = get_trajectory_writer()
+        trace_id = writer.start(
+            session_id=ctx.session_id,
+            graph_id=getattr(graph, "graph_id", ""),
+            graph_name=graph.name,
+            agent_id=getattr(ctx, "agent_id", ""),
+            max_iterations=self.max_iterations,
+        )
+        logger.debug(
+            "trajectory trace=%s session=%s graph=%s stream=%s",
+            trace_id, ctx.session_id, graph.name, stream,
+        )
+        status = "completed"
+        try:
+            async for event in self._execute_graph_inner(
+                graph, initial_input, context, token_budget, stream=stream
+            ):
+                writer.record_event(ctx.session_id, event.to_dict())
+                if event.type == AgentEventType.ERROR:
+                    status = "error"
+                if event.type == AgentEventType.START:
+                    writer.record_iteration(
+                        ctx.session_id, getattr(ctx, "iteration_count", 0)
+                    )
+                yield event
+        except Exception:
+            status = "error"
+            raise
+        finally:
+            try:
+                ctx_ref = context or ctx
+                writer.record_messages(
+                    ctx_ref.session_id,
+                    [m if isinstance(m, dict) else dict(m) for m in ctx_ref.messages],
+                )
+                usage = ctx_ref.token_usage() if hasattr(ctx_ref, "token_usage") else {}
+                if usage:
+                    writer.record_token_usage(ctx_ref.session_id, usage)
+                writer.flush(ctx_ref.session_id, status=status)
+            except (OSError, ValueError, TypeError) as e:
+                logger.warning("trajectory flush failed: %s", e)
 
     async def _execute_graph_inner(
         self,

@@ -415,6 +415,15 @@ class DaemonServer:
             self.http_port,
         )
 
+        if os.environ.get("FUSION_DISABLE_TELEMETRY", "").lower() not in (
+            "1", "true", "yes",
+        ):
+            try:
+                self._get_telemetry_engine()
+                logger.info("Telemetry enabled by default (set FUSION_DISABLE_TELEMETRY=1 to disable)")
+            except Exception as e:
+                logger.warning("Telemetry auto-enable failed: %s", e)
+
         if await self._check_mlx_health():
             self._attach_mlx_client()
             logger.info("Auto-attached to running fusion-mlx on port %d", MLX_PORT)
