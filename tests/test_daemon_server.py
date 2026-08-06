@@ -159,6 +159,12 @@ class TestDaemonMLX:
         assert result["running"] is False
         assert result["port"] == MLX_PORT
 
+    def test_default_ports_align_114xx(self):
+        d = DaemonServer(socket_path="/tmp/_nonexistent.sock")
+        assert d.http_port == 11455, "agent-studio HTTP must listen on 11455 (PORT_ALLOCATION)"
+        assert d.cluster_port == 11457, "cluster port must avoid fusion-security 11454"
+        assert d.ws_port == 11435
+
     @pytest.mark.asyncio
     @pytest.mark.skipif(
         _MLX_UP, reason="fusion-mlx running; 'not running' path not testable"

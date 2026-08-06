@@ -91,8 +91,8 @@ class DaemonServer:
         self,
         socket_path: str = SOCKET_PATH,
         ws_port: int = WS_PORT,
-        cluster_port: int = 11454,
-        http_port: int = 11453,
+        cluster_port: int = 11457,
+        http_port: int = 11455,
     ):
         self.socket_path = socket_path
         self.ws_port = ws_port
