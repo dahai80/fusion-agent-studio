@@ -104,7 +104,7 @@ def _assemble_context(
 
 
 class VectorRetrievalStrategy:
-    """Retrieve documents from fusion-kb vector API. Falls back to FTS on failure."""
+    """Retrieve documents from fusion-rag vector API. Falls back to FTS on failure."""
 
     def __init__(self, base_url: str = "http://localhost:8900", timeout: float = 10.0):
         self.base_url = base_url.rstrip("/")
@@ -137,9 +137,9 @@ class VectorRetrievalStrategy:
                 f"{self.base_url}/health", timeout=aiohttp.ClientTimeout(total=3)
             ) as resp:
                 self._available = resp.status == 200
-                logger.info("fusion-kb availability check: %s", self._available)
+                logger.info("fusion-rag availability check: %s", self._available)
         except Exception as e:
-            logger.warning("fusion-kb not reachable at %s: %s", self.base_url, e)
+            logger.warning("fusion-rag not reachable at %s: %s", self.base_url, e)
             self._available = False
         return self._available
 
@@ -159,7 +159,7 @@ class VectorRetrievalStrategy:
                 timeout=aiohttp.ClientTimeout(total=self.timeout),
             ) as resp:
                 if resp.status != 200:
-                    logger.warning("fusion-kb search returned status %d", resp.status)
+                    logger.warning("fusion-rag search returned status %d", resp.status)
                     return []
                 data = await resp.json()
                 entries = []
@@ -169,19 +169,19 @@ class VectorRetrievalStrategy:
                             id=item.get("id", ""),
                             content=item.get("content", ""),
                             scope=item.get("scope", scope),
-                            source=item.get("source", "fusion-kb"),
+                            source=item.get("source", "fusion-rag"),
                             created_at=item.get("created_at", 0),
                             metadata=item.get("metadata", {}),
                         )
                     )
                 logger.info(
-                    "fusion-kb search returned %d entries for query=%r",
+                    "fusion-rag search returned %d entries for query=%r",
                     len(entries),
                     query,
                 )
                 return entries
         except Exception as e:
-            logger.error("fusion-kb search failed: %s", e)
+            logger.error("fusion-rag search failed: %s", e)
             return []
 
     def reset_availability(self) -> None:
@@ -308,7 +308,7 @@ class RAGPipeline:
                 "top_k": cfg.top_k,
                 "rerank": cfg.rerank,
                 "retrieved_at": time.time(),
-                "source": "fusion-kb",
+                "source": "fusion-rag",
             },
         )
 

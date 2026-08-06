@@ -41,7 +41,7 @@ async def lifespan(application: FastAPI):
     logger.info("Fusion Agent Studio API shutting down")
 
 
-app = FastAPI(title="Fusion Agent Studio API", version="0.3.3", lifespan=lifespan)
+app = FastAPI(title="Fusion Agent Studio API", version="0.3.4", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,

@@ -161,7 +161,7 @@ class KnowledgeDispatcher(SubDispatcher):
         if not available:
             return {
                 "status": "error",
-                "message": f"fusion-kb not reachable at {base_url}",
+                "message": f"fusion-rag not reachable at {base_url}",
             }
         top_k = params.get("top_k", 5)
         scope = params.get("scope", "")
