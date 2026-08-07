@@ -1071,7 +1071,7 @@ class DaemonServer:
             self._cached_tool_registry = create_default_registry()
             logger.info(
                 "Cached default tool registry with %d tools",
-                len(self._cached_tool_registry.tools),
+                self._cached_tool_registry.count,
             )
         return self._cached_tool_registry
 
@@ -1079,7 +1079,7 @@ class DaemonServer:
         registry = self._get_tool_registry()
         tools = []
         for name, tool in registry._tools.items():
-            schema = tool.get_schema()
+            schema = tool.openai_schema().get("function", {})
             tools.append(
                 {
                     "name": name,
@@ -1095,10 +1095,10 @@ class DaemonServer:
     async def _handle_tool_get(self, params: dict) -> dict:
         tool_name = params.get("name", "")
         registry = self._get_tool_registry()
-        tool = registry.tools.get(tool_name)
+        tool = registry._tools.get(tool_name)
         if tool is None:
             raise ValueError(f"Tool not found: {tool_name}")
-        schema = tool.get_schema()
+        schema = tool.openai_schema().get("function", {})
         return {
             "name": tool_name,
             "description": schema.get("description", ""),
