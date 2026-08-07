@@ -175,6 +175,28 @@ class TestDaemonMLX:
         assert result["healthy"] is False
 
 
+class TestDaemonHardwareMetrics:
+    @pytest.mark.asyncio
+    async def test_hardware_metrics_schema(self, daemon):
+        resp = await _rpc_call(daemon.socket_path, "hardware.metrics")
+        result = resp["result"]
+        assert "memory" in result
+        assert "cpu" in result
+        assert "gpu" in result
+        assert "mlx" in result
+        for key in ("total_gb", "used_gb", "percent"):
+            assert key in result["memory"]
+        for key in ("percent", "count"):
+            assert key in result["cpu"]
+        assert "running" in result["mlx"]
+
+    @pytest.mark.asyncio
+    async def test_hardware_metrics_memory_total_positive(self, daemon):
+        resp = await _rpc_call(daemon.socket_path, "hardware.metrics")
+        result = resp["result"]
+        assert result["memory"]["total_gb"] > 0
+
+
 class TestDaemonEnvCheck:
     @pytest.mark.asyncio
     async def test_env_health_check(self, daemon):
