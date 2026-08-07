@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-
 # Default English locale
 EN_LOCALE: dict[str, str] = {
     # Canvas

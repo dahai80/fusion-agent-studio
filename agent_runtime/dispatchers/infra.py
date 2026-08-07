@@ -1,12 +1,13 @@
 """Sub-dispatcher: InfraDispatcher."""
 
 from __future__ import annotations
-import logging
-from .base import SubDispatcher
-from typing import Callable
-from ..daemon_server import MLX_PORT
-import time
 
+import logging
+import time
+from typing import Callable
+
+from ..daemon_server import MLX_PORT
+from .base import SubDispatcher
 
 logger = logging.getLogger(__name__)
 

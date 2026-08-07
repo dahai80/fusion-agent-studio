@@ -2,12 +2,11 @@
 
 from __future__ import annotations
 
-
 from server.fusion_mlx_client import (
     FusionMLXClient,
-    StreamChunk,
-    MCPTool,
     MCPResource,
+    MCPTool,
+    StreamChunk,
 )
 
 

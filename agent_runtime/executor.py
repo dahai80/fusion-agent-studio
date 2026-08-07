@@ -13,9 +13,10 @@ from typing import TYPE_CHECKING, Any
 from .graph import NodeConfig
 
 if TYPE_CHECKING:
-    from .context import AgentContext
     from server.fusion_mlx_client import FusionMLXClient
     from tools.registry import ToolRegistry
+
+    from .context import AgentContext
 
 logger = logging.getLogger(__name__)
 

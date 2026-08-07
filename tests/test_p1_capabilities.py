@@ -7,8 +7,9 @@ from pathlib import Path
 
 import pytest
 
-from agent_runtime.variable_manager import VariableManager
-from agent_runtime.debugger import StepDebugger, DebuggerState
+from agent_runtime.debugger import DebuggerState, StepDebugger
+from agent_runtime.deployer import GraphDeployer
+from agent_runtime.graph import AgentGraph, NodeConfig
 from agent_runtime.json_schema import JsonSchemaValidator
 from agent_runtime.prompt_templates import (
     PromptTemplate,
@@ -16,11 +17,9 @@ from agent_runtime.prompt_templates import (
     register_default_prompt_templates,
 )
 from agent_runtime.sub_graph import SubGraphNode, SubGraphRegistry
-from agent_runtime.graph import AgentGraph, NodeConfig
-from agent_runtime.deployer import GraphDeployer
+from agent_runtime.variable_manager import VariableManager
 from tools.plugin_manager import PluginManager
 from tools.registry import ToolRegistry
-
 
 # ── VariableManager ──
 

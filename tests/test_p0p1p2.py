@@ -11,36 +11,34 @@ import shutil
 import tempfile
 import time
 
-
-from agent_runtime.plaza import Plaza, PlazaMessage, PlazaChannel
-from agent_runtime.safety import (
-    SafetyGateway,
-    SafetyLevel,
-    SafetyAction,
-    SafetyPolicy,
-    DiffPreviewRequest,
-    CAT_CODE_ANALYSIS,
-    CAT_DOC_RETRIEVAL,
-    CAT_FILE_WRITE,
-    CAT_SHELL_EXEC,
-    CAT_GIT_PUSH,
-    CAT_CODE_EDIT,
-)
-from agent_runtime.rag_pipeline import RAGPipeline, RAGConfig, RAGResult
-from agent_runtime.memory_engine import MemoryEngine, MemoryTier
-from agent_runtime.planner import PlannerEngine, ExecutionPlan, PlanStep
+from agent_runtime.agent_package import AgentManifest, AgentPackage
 from agent_runtime.data_ingestion import (
-    WebReader,
+    DirectoryReader,
     GitHubReader,
     NotionReader,
     PDFReader,
-    DirectoryReader,
+    WebReader,
 )
-from agent_runtime.agent_package import AgentPackage, AgentManifest
-from agent_runtime.llm_gateway import LLMGateway, ModelConfig, GatewayResponse
 from agent_runtime.graph import AgentGraph, NodeConfig
+from agent_runtime.llm_gateway import GatewayResponse, LLMGateway, ModelConfig
+from agent_runtime.memory_engine import MemoryEngine, MemoryTier
+from agent_runtime.planner import ExecutionPlan, PlannerEngine, PlanStep
+from agent_runtime.plaza import Plaza, PlazaChannel, PlazaMessage
+from agent_runtime.rag_pipeline import RAGConfig, RAGPipeline, RAGResult
 from agent_runtime.runtime import AgentRuntime
-
+from agent_runtime.safety import (
+    CAT_CODE_ANALYSIS,
+    CAT_CODE_EDIT,
+    CAT_DOC_RETRIEVAL,
+    CAT_FILE_WRITE,
+    CAT_GIT_PUSH,
+    CAT_SHELL_EXEC,
+    DiffPreviewRequest,
+    SafetyAction,
+    SafetyGateway,
+    SafetyLevel,
+    SafetyPolicy,
+)
 
 # ─── P0: Plaza ──────────────────────────────────────────────
 

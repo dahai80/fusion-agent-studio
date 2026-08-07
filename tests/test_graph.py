@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 
-
 from agent_runtime.graph import AgentGraph, Edge, NodeConfig
 
 

@@ -1,5 +1,6 @@
 import pytest
-from agent_runtime.telemetry import TelemetryEngine, Span, TelemetryConfig
+
+from agent_runtime.telemetry import Span, TelemetryConfig, TelemetryEngine
 
 
 @pytest.fixture

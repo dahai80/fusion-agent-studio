@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-
 import pytest
 
 from agent_runtime.context import AgentEventType
@@ -10,8 +9,8 @@ from agent_runtime.graph import AgentGraph, NodeConfig
 from agent_runtime.llm_gateway import LLMGateway
 from agent_runtime.runtime import AgentRuntime
 from tools.base import BaseTool
+from tools.mcp_tool import MCPRegistry, MCPTool
 from tools.registry import ToolRegistry
-from tools.mcp_tool import MCPTool, MCPRegistry
 
 
 class EchoTool(BaseTool):
@@ -162,7 +161,7 @@ class TestSafetyGateway:
 
     @pytest.fixture
     def safety_gateway(self):
-        from agent_runtime.safety import SafetyGateway, SafetyPolicy, SafetyLevel
+        from agent_runtime.safety import SafetyGateway, SafetyLevel, SafetyPolicy
 
         gw = SafetyGateway()
         gw.add_policy(

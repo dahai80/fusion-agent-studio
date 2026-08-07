@@ -10,14 +10,13 @@ import tempfile
 
 import pytest
 
-from agent_runtime.errors import ErrorCode, ErrorType, ErrorResponse, raise_api_error
-from agent_runtime.safety import detect_prompt_injection
-from agent_runtime.rate_limiter import RateLimiter
+from agent_runtime.agent_package import AgentManifest, AgentPackage
 from agent_runtime.agent_version import AgentVersionStore
-from agent_runtime.knowledge_base import KnowledgeBaseManager
 from agent_runtime.audit_logger import AuditLogger
-from agent_runtime.agent_package import AgentPackage, AgentManifest
-
+from agent_runtime.errors import ErrorCode, ErrorResponse, ErrorType, raise_api_error
+from agent_runtime.knowledge_base import KnowledgeBaseManager
+from agent_runtime.rate_limiter import RateLimiter
+from agent_runtime.safety import detect_prompt_injection
 
 # ── Errors ──
 
@@ -363,8 +362,9 @@ class TestAgentFork:
 
 class TestV1Routes:
     def test_v1_health(self):
-        from agent_runtime.api_server import app
         from fastapi.testclient import TestClient
+
+        from agent_runtime.api_server import app
 
         client = TestClient(app)
         resp = client.get("/v1/health")
@@ -373,16 +373,18 @@ class TestV1Routes:
         assert data["status"] == "ok"
 
     def test_v1_dashboard(self):
-        from agent_runtime.api_server import app
         from fastapi.testclient import TestClient
+
+        from agent_runtime.api_server import app
 
         client = TestClient(app)
         resp = client.get("/v1/dashboard")
         assert resp.status_code == 200
 
     def test_v1_graphs_list_empty(self):
-        from agent_runtime.api_server import app
         from fastapi.testclient import TestClient
+
+        from agent_runtime.api_server import app
 
         client = TestClient(app)
         resp = client.get("/v1/graphs")
@@ -394,32 +396,36 @@ class TestV1Routes:
         assert "limit" in data
 
     def test_v1_agents_list_empty(self):
-        from agent_runtime.api_server import app
         from fastapi.testclient import TestClient
+
+        from agent_runtime.api_server import app
 
         client = TestClient(app)
         resp = client.get("/v1/agents")
         assert resp.status_code == 200
 
     def test_v1_kbs_list_empty(self):
-        from agent_runtime.api_server import app
         from fastapi.testclient import TestClient
+
+        from agent_runtime.api_server import app
 
         client = TestClient(app)
         resp = client.get("/v1/knowledge-bases")
         assert resp.status_code == 200
 
     def test_v1_audit_logs_requires_auth(self):
-        from agent_runtime.api_server import app
         from fastapi.testclient import TestClient
+
+        from agent_runtime.api_server import app
 
         client = TestClient(app)
         resp = client.get("/v1/audit-logs")
         assert resp.status_code == 401
 
     def test_v1_usage_summary(self):
-        from agent_runtime.api_server import app
         from fastapi.testclient import TestClient
+
+        from agent_runtime.api_server import app
 
         client = TestClient(app)
         resp = client.get("/v1/usage/summary")

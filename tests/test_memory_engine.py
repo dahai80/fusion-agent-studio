@@ -1,10 +1,11 @@
 """Tests for MemoryEngine — persistent memory with FTS5 search."""
 
-import pytest
 import tempfile
 import time
 import uuid
 from pathlib import Path
+
+import pytest
 
 from agent_runtime.memory_engine import MemoryEngine, MemoryEntry, MemoryTier
 

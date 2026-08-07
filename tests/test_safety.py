@@ -4,23 +4,23 @@ import asyncio
 import threading
 
 from agent_runtime.safety import (
-    SafetyGateway,
-    SafetyLevel,
-    SafetyAction,
-    SafetyVerdict,
-    SafetyRule,
-    SafetyPolicy,
-    DiffPreviewRequest,
     CAT_CODE_ANALYSIS,
+    CAT_CODE_EDIT,
+    CAT_DATABASE_WRITE,
     CAT_DOC_RETRIEVAL,
-    CAT_KNOWLEDGE_SEARCH,
     CAT_FILE_READ,
     CAT_FILE_WRITE,
-    CAT_CODE_EDIT,
-    CAT_SHELL_EXEC,
     CAT_GIT_PUSH,
-    CAT_DATABASE_WRITE,
+    CAT_KNOWLEDGE_SEARCH,
     CAT_NETWORK_ACCESS,
+    CAT_SHELL_EXEC,
+    DiffPreviewRequest,
+    SafetyAction,
+    SafetyGateway,
+    SafetyLevel,
+    SafetyPolicy,
+    SafetyRule,
+    SafetyVerdict,
 )
 
 

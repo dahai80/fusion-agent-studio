@@ -1,20 +1,20 @@
 """Sub-dispatcher modules for DaemonServer RPC decomposition."""
 
-from .base import SubDispatcher
-from .marketplace import MarketplaceDispatcher
-from .deploy import DeployDispatcher
-from .knowledge import KnowledgeDispatcher
 from .agent import AgentDispatcher
-from .chat import ChatDispatcher
-from .team import TeamDispatcher
-from .infra import InfraDispatcher
-from .workflow import WorkflowDispatcher
-from .safety import SafetyDispatcher
-from .planner import PlannerDispatcher
-from .memory import MemoryDispatcher
-from .plugin import PluginDispatcher
 from .artifact import ArtifactDispatcher
+from .base import SubDispatcher
+from .chat import ChatDispatcher
+from .deploy import DeployDispatcher
+from .infra import InfraDispatcher
+from .knowledge import KnowledgeDispatcher
+from .marketplace import MarketplaceDispatcher
+from .memory import MemoryDispatcher
+from .planner import PlannerDispatcher
+from .plugin import PluginDispatcher
+from .safety import SafetyDispatcher
+from .team import TeamDispatcher
 from .trainer import TrainerDispatcher
+from .workflow import WorkflowDispatcher
 
 __all__ = [
     "SubDispatcher",

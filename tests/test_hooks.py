@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-
 from agent_runtime.context import AgentEventType
 from agent_runtime.graph import AgentGraph, NodeConfig
 from agent_runtime.hooks import HookConfig, HookEngine, HookResult

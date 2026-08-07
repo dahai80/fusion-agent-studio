@@ -1,16 +1,17 @@
 """Sub-dispatcher: AgentDispatcher."""
 
 from __future__ import annotations
+
 import asyncio
 import logging
 import os
 import time
 from pathlib import Path
-from .base import SubDispatcher
 from typing import Callable
+
 from ..daemon_server import MLX_PORT
 from ..graph import AgentGraph, NodeConfig
-
+from .base import SubDispatcher
 
 logger = logging.getLogger(__name__)
 
@@ -69,7 +70,7 @@ class AgentDispatcher(SubDispatcher):
         self._daemon._load_agents_index()
         agent_id = params.get("id", uuid.uuid4().hex[:12])
 
-        from ..agent_package import AgentPackage, AgentManifest
+        from ..agent_package import AgentManifest, AgentPackage
 
         agent_dir = self._daemon._agent_dir(agent_id)
         manifest = AgentManifest(

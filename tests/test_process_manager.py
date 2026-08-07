@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-
 from server.process_manager import FusionMLXProcessManager
 
 
@@ -10,6 +9,7 @@ class TestFusionMLXProcessManager:
     def test_init_defaults(self, monkeypatch):
         monkeypatch.delenv("FUSION_MLX_PORT", raising=False)
         import importlib
+
         import server.process_manager as mod
         importlib.reload(mod)
         mgr = mod.FusionMLXProcessManager()

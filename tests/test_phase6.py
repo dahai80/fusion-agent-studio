@@ -1,10 +1,10 @@
 """Tests for Phase 6 features: async safety approval, token budget, chat branches, self-repair retry."""
 
-from agent_runtime.context import AgentEventType
-from agent_runtime.token_budget import TokenBudget
 from agent_runtime.chat_engine import ChatEngine, ChatMessage, ChatMode
-from agent_runtime.safety import SafetyGateway, SafetyLevel, SafetyAction
+from agent_runtime.context import AgentEventType
 from agent_runtime.graph import NodeConfig
+from agent_runtime.safety import SafetyAction, SafetyGateway, SafetyLevel
+from agent_runtime.token_budget import TokenBudget
 
 
 class TestTokenBudget:

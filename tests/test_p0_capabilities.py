@@ -6,17 +6,17 @@ import hashlib
 from unittest.mock import MagicMock
 
 import pytest
-from agent_runtime.undo_manager import UndoManager, CanvasSnapshot
+
+from agent_runtime.context import AgentEventType
 from agent_runtime.graph import AgentGraph, NodeConfig
 from agent_runtime.runtime import AgentRuntime
-from agent_runtime.context import AgentEventType
 from agent_runtime.templates import TemplateManager, register_default_templates
-from tools.registry import ToolRegistry
-from tools.http_tools import HttpRequestTool
+from agent_runtime.undo_manager import CanvasSnapshot, UndoManager
 from tools.code_tools import CodeExecuteTool
-from tools.data_tools import JsonParseTool, CsvParseTool, Base64Tool
-from tools.utility_tools import DateTimeTool, UuidTool, HashTool, PathOpsTool, ZipTool
-
+from tools.data_tools import Base64Tool, CsvParseTool, JsonParseTool
+from tools.http_tools import HttpRequestTool
+from tools.registry import ToolRegistry
+from tools.utility_tools import DateTimeTool, HashTool, PathOpsTool, UuidTool, ZipTool
 
 # ── UndoManager ──
 

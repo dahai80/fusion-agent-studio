@@ -55,6 +55,12 @@ start() {
     mkdir -p "$LOG_DIR"
     ensure_venv
 
+    # 商用默认安全策略: 注入检测开启 + L2 (注入 block, 危险操作 preview).
+    # 可被环境变量显式覆盖.
+    export FUSION_SAFETY_INJECTION="${FUSION_SAFETY_INJECTION:-1}"
+    export FUSION_SAFETY_LEVEL="${FUSION_SAFETY_LEVEL:-L2}"
+    log_info "safety: injection=${FUSION_SAFETY_INJECTION} level=${FUSION_SAFETY_LEVEL}"
+
     # Clean stale socket from a previous crash.
     rm -f "$SOCKET"
 

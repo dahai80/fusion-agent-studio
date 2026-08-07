@@ -18,7 +18,6 @@ _RUNS: dict[str, dict[str, Any]] = {}
 
 def _export_sft_dataset(trace_ids: list[str] | None = None) -> tuple[str, int]:
     _DATASET_DIR.mkdir(parents=True, exist_ok=True)
-    writer = get_trajectory_writer()
     files = sorted(TRAJECTORY_DIR.glob("*.json"), reverse=True)
     records: list[dict[str, Any]] = []
     for f in files:
@@ -54,7 +53,7 @@ def _export_sft_dataset(trace_ids: list[str] | None = None) -> tuple[str, int]:
 
 async def _run_sft(dataset: str, model: str, preset: str | None) -> dict[str, Any]:
     from fusion_trainer import TrainerConfig
-    from fusion_trainer.sft import SFTTrainer, SFT_PRESETS
+    from fusion_trainer.sft import SFT_PRESETS, SFTTrainer
 
     cfg = TrainerConfig()
     cfg.dataset.path = dataset
@@ -74,7 +73,7 @@ async def _run_rlsl(
     dataset: str, model: str, method: str, preset: str | None
 ) -> dict[str, Any]:
     from fusion_trainer import TrainerConfig
-    from fusion_trainer.rlsl import RLSLEngine, RLSL_PRESETS
+    from fusion_trainer.rlsl import RLSL_PRESETS, RLSLEngine
 
     cfg = TrainerConfig()
     cfg.dataset.path = dataset

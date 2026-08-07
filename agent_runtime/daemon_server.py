@@ -29,13 +29,13 @@ import time
 from pathlib import Path
 from typing import Any
 
+from .chat_engine import ChatEngine
+from .code_sandbox import CodeSandbox
 from .graph import AgentGraph, NodeConfig
 from .llm_gateway import LLMGateway
 from .persistence import AgentStore
 from .rag_pipeline import RAGPipeline
 from .runtime import AgentRuntime
-from .chat_engine import ChatEngine
-from .code_sandbox import CodeSandbox
 
 logger = logging.getLogger(__name__)
 
@@ -194,8 +194,9 @@ class DaemonServer:
 
     def _get_orchestrator(self):
         if self._orchestrator is None:
-            from .orchestrator import MultiAgentOrchestrator
             from tools import create_default_registry
+
+            from .orchestrator import MultiAgentOrchestrator
 
             registry = create_default_registry()
             self._orchestrator = MultiAgentOrchestrator(
@@ -372,8 +373,9 @@ class DaemonServer:
         self._cluster_task: asyncio.Task | None = None
         if self.cluster_port:
             try:
-                from .cluster_server import app as cluster_app
                 import uvicorn
+
+                from .cluster_server import app as cluster_app
 
                 config = uvicorn.Config(
                     cluster_app,
@@ -390,7 +392,8 @@ class DaemonServer:
         self._http_task: asyncio.Task | None = None
         if self.http_port:
             try:
-                from .api_server import app as fastapi_app, set_daemon
+                from .api_server import app as fastapi_app
+                from .api_server import set_daemon
 
                 set_daemon(self)
                 import uvicorn as uvicorn2
@@ -429,6 +432,25 @@ class DaemonServer:
         if await self._check_mlx_health():
             self._attach_mlx_client()
             logger.info("Auto-attached to running fusion-mlx on port %d", MLX_PORT)
+
+        self._log_startup_selfcheck()
+
+    def _log_startup_selfcheck(self) -> None:
+        try:
+            import sqlite_vec  # noqa: F401
+
+            logger.info("startup selfcheck: sqlite-vec available (full RAG hybrid)")
+        except ImportError:
+            logger.warning(
+                "startup selfcheck: sqlite-vec MISSING — RAG degraded to FTS5-only. "
+                "Install with: pip install -e '.[rag]'"
+            )
+        safety = self._get_safety()
+        logger.info(
+            "startup selfcheck: safety level=%s injection=%s",
+            safety.level.value,
+            getattr(safety, "enable_injection", False),
+        )
 
     async def stop(self) -> None:
         self._running = False
@@ -551,7 +573,6 @@ class DaemonServer:
             "graph.get": self._handle_graph_get,
             "graph.list": self._handle_graph_list,
             "graph.update": self._handle_graph_update,
-            "hardware.metrics": self._handle_hardware_metrics,
             "mlx.health": self._handle_mlx_health,
             "mlx.infer": self._handle_mlx_infer,
             "mlx.restart": self._handle_mlx_restart,
@@ -594,20 +615,20 @@ class DaemonServer:
 
     def _init_sub_dispatchers(self):
         from .dispatchers import (
-            MarketplaceDispatcher,
-            DeployDispatcher,
-            KnowledgeDispatcher,
             AgentDispatcher,
-            ChatDispatcher,
-            TeamDispatcher,
-            InfraDispatcher,
-            WorkflowDispatcher,
-            SafetyDispatcher,
-            PlannerDispatcher,
-            MemoryDispatcher,
-            PluginDispatcher,
             ArtifactDispatcher,
+            ChatDispatcher,
+            DeployDispatcher,
+            InfraDispatcher,
+            KnowledgeDispatcher,
+            MarketplaceDispatcher,
+            MemoryDispatcher,
+            PlannerDispatcher,
+            PluginDispatcher,
+            SafetyDispatcher,
+            TeamDispatcher,
             TrainerDispatcher,
+            WorkflowDispatcher,
         )
 
         return [
@@ -715,7 +736,6 @@ class DaemonServer:
             "graph.get": self._handle_graph_get,
             "graph.list": self._handle_graph_list,
             "graph.update": self._handle_graph_update,
-            "hardware.metrics": self._handle_hardware_metrics,
             "mlx.health": self._handle_mlx_health,
             "mlx.infer": self._handle_mlx_infer,
             "mlx.restart": self._handle_mlx_restart,
@@ -1349,8 +1369,9 @@ class DaemonServer:
         description = params.get("description", "")
         tool_params = params.get("parameters", {})
 
-        from tools.base import BaseTool
         from types import new_class
+
+        from tools.base import BaseTool
 
         param_dict = {}
         if isinstance(tool_params, dict):

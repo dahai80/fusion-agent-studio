@@ -3,18 +3,18 @@
 from __future__ import annotations
 
 import asyncio
+
 import pytest
 
-from agent_runtime.fusion_code_bridge import FusionCodeBridge, CodeTask, CodeResult
 from agent_runtime.agent_templates import (
-    AgentTemplate,
     TEMPLATES,
-    list_templates,
+    AgentTemplate,
     get_template,
     instantiate_template,
+    list_templates,
 )
 from agent_runtime.api_server import app
-
+from agent_runtime.fusion_code_bridge import CodeResult, CodeTask, FusionCodeBridge
 
 # ── FusionCodeBridge ──────────────────────────────────────
 
@@ -242,7 +242,7 @@ class TestAgentTemplates:
 class TestAPIServer:
     @pytest.fixture
     def client(self):
-        from httpx import AsyncClient, ASGITransport
+        from httpx import ASGITransport, AsyncClient
 
         transport = ASGITransport(app=app)
         return AsyncClient(transport=transport, base_url="http://test")

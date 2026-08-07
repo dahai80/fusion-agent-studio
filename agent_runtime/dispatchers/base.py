@@ -1,9 +1,10 @@
 """Sub-dispatcher base class for DaemonServer RPC decomposition."""
 
 from __future__ import annotations
+
+import logging
 from abc import ABC, abstractmethod
 from typing import Any, Callable
-import logging
 
 logger = logging.getLogger(__name__)
 

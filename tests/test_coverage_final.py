@@ -10,11 +10,10 @@ from unittest.mock import patch
 import pytest
 
 from tools.base import BaseTool
-from tools.terminal_tools import TerminalTool
-from tools.file_tools import FileReadTool, FileWriteTool, FileListTool
-from tools.text_tools import TextSearchTool
+from tools.file_tools import FileListTool, FileReadTool, FileWriteTool
 from tools.git_tools import GitTool
-
+from tools.terminal_tools import TerminalTool
+from tools.text_tools import TextSearchTool
 
 # ── BaseTool: line 35 (__init_subclass__ sets name) ──
 

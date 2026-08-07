@@ -4,14 +4,13 @@ from __future__ import annotations
 
 import json
 import logging
-
-from unittest.mock import MagicMock, AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 from agent_runtime.context import AgentContext, AgentEventType
 from agent_runtime.debugger import StepDebugger
 from agent_runtime.graph import AgentGraph, NodeConfig
 from agent_runtime.prompt_templates import PromptTemplate, PromptTemplateManager
-from agent_runtime.runtime import AgentRuntime, ConditionEngine, _MAX_TOOL_CALL_CHAIN
+from agent_runtime.runtime import _MAX_TOOL_CALL_CHAIN, AgentRuntime, ConditionEngine
 from agent_runtime.variable_manager import VariableManager
 from server.fusion_mlx_client import LLMResponse
 

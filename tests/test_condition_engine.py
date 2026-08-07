@@ -1,8 +1,9 @@
 """Tests for ConditionEngine — condition expression evaluation."""
 
 import pytest
-from agent_runtime.runtime import ConditionEngine
+
 from agent_runtime.context import AgentContext
+from agent_runtime.runtime import ConditionEngine
 from agent_runtime.variable_manager import VariableManager
 
 

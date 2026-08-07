@@ -876,8 +876,9 @@ class PDFReader:
 
     def _extract_bytes_with_pypdf(self, data: bytes) -> str:
         try:
-            from pypdf import PdfReader as _PdfReader
             import io as _io
+
+            from pypdf import PdfReader as _PdfReader
 
             reader = _PdfReader(_io.BytesIO(data))
             pages = []
@@ -888,8 +889,9 @@ class PDFReader:
             return "\n\n".join(pages)
         except ImportError:
             try:
-                from PyPDF2 import PdfReader as _PdfReader2
                 import io as _io2
+
+                from PyPDF2 import PdfReader as _PdfReader2
 
                 reader = _PdfReader2(_io2.BytesIO(data))
                 pages = []

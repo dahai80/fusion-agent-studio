@@ -13,8 +13,8 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Any
 
-from .fmp_router import FMProtocol, AgentInfo
-from .safety import SafetyGateway, CAT_SHELL_EXEC
+from .fmp_router import AgentInfo, FMProtocol
+from .safety import CAT_SHELL_EXEC, SafetyGateway
 
 logger = logging.getLogger(__name__)
 

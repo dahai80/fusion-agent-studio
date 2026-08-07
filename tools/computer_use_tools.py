@@ -40,9 +40,9 @@ if _PLATFORM_OK:
             kCGEventRightMouseDown,
             kCGEventRightMouseUp,
             kCGHIDEventTap,
+            kCGNullWindowID,
             kCGWindowImageDefault,
             kCGWindowListOptionOnScreenOnly,
-            kCGNullWindowID,
         )
         _QUARTZ_OK = True
     except ImportError:

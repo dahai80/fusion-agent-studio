@@ -19,8 +19,8 @@ import uuid
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
-from .context import AgentContext, AgentEvent, AgentEventType
 from .compactor import Compactor
+from .context import AgentContext, AgentEvent, AgentEventType
 from .graph import AgentGraph
 from .llm_gateway import LLMGateway
 
@@ -364,8 +364,10 @@ class MultiAgentOrchestrator:
 
                 if self.swarm_router and i + 1 < len(agents):
                     from .swarm_router import (
-                        SwarmAgent,
                         HandoffContext as SwarmHandoffContext,
+                    )
+                    from .swarm_router import (
+                        SwarmAgent,
                     )
 
                     if not self.swarm_router.get_agent(agent_config.name):

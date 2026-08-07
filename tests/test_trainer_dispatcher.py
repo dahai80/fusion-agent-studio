@@ -3,8 +3,6 @@ import json
 import os
 import tempfile
 
-import pytest
-
 from agent_runtime.dispatchers import TrainerDispatcher
 from agent_runtime.dispatchers.trainer import TrainerDispatcher as TD2
 from agent_runtime.training_service import TrainingService

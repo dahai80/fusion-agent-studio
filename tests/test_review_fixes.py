@@ -113,8 +113,8 @@ class TestLLMGatewayStreamTimeout:
 
 class TestPersistenceListProjection:
     def test_list_sessions_skips_messages_json(self, tmp_path):
-        from agent_runtime.persistence import AgentStore
         from agent_runtime.chat_engine import ChatMessage
+        from agent_runtime.persistence import AgentStore
 
         store = AgentStore(str(tmp_path / "test.db"))
 

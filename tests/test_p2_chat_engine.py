@@ -6,11 +6,11 @@ import pytest
 
 from agent_runtime.chat_engine import (
     ChatEngine,
-    ChatSession,
-    ChatMessage,
     ChatEvent,
     ChatEventType,
+    ChatMessage,
     ChatMode,
+    ChatSession,
 )
 from agent_runtime.persistence import AgentStore
 
@@ -116,8 +116,8 @@ def test_delete_session(engine):
 
 
 def test_send_simple_mode(engine):
-    from agent_runtime.runtime import AgentRuntime
     from agent_runtime.llm_gateway import LLMGateway, ModelConfig
+    from agent_runtime.runtime import AgentRuntime
     from server.fusion_mlx_client import FusionMLXClient, StreamChunk
 
     class FakeStreamClient:

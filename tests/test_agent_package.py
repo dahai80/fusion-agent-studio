@@ -1,7 +1,8 @@
 """Tests for AgentPackage and AgentManifest — .fusion-agent package system."""
 
-import pytest
 import tempfile
+
+import pytest
 
 from agent_runtime.agent_package import (
     AgentManifest,

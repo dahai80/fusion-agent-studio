@@ -10,20 +10,19 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from agent_runtime.runtime import AgentRuntime
-from agent_runtime.orchestrator import MultiAgentOrchestrator, AgentConfig
 from agent_runtime.context import AgentContext, AgentEventType
-from agent_runtime.graph import AgentGraph, NodeConfig
 from agent_runtime.exporter import GraphExporter
-from tools.registry import ToolRegistry
-from tools.base import BaseTool
-from tools.file_tools import FileReadTool, FileWriteTool, FileListTool
-from tools.terminal_tools import TerminalTool
-from tools.git_tools import GitTool
-from tools.text_tools import TextSearchTool
+from agent_runtime.graph import AgentGraph, NodeConfig
+from agent_runtime.orchestrator import AgentConfig, MultiAgentOrchestrator
+from agent_runtime.runtime import AgentRuntime
 from server.fusion_mlx_client import FusionMLXClient, LLMResponse
 from server.process_manager import FusionMLXProcessManager
-
+from tools.base import BaseTool
+from tools.file_tools import FileListTool, FileReadTool, FileWriteTool
+from tools.git_tools import GitTool
+from tools.registry import ToolRegistry
+from tools.terminal_tools import TerminalTool
+from tools.text_tools import TextSearchTool
 
 # ── Mock-based FusionMLXClient tests ──
 

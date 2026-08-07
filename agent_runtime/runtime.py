@@ -15,8 +15,8 @@ import re
 import time
 from typing import TYPE_CHECKING, Any, AsyncIterator
 
-from .context import AgentContext, AgentEvent, AgentEventType
 from .compactor import Compactor
+from .context import AgentContext, AgentEvent, AgentEventType
 from .debugger import StepDebugger
 from .graph import AgentGraph, NodeConfig
 from .json_schema import JsonSchemaValidator
@@ -28,12 +28,13 @@ from .trajectory_writer import get_trajectory_writer
 from .variable_manager import VariableManager
 
 if TYPE_CHECKING:
-    from .safety import SafetyGateway
-    from .persistence import AgentStore
-    from .memory_engine import MemoryEngine
-    from tools.base import BaseTool
     from server.fusion_mlx_client import FusionMLXClient
+    from tools.base import BaseTool
     from tools.registry import ToolRegistry
+
+    from .memory_engine import MemoryEngine
+    from .persistence import AgentStore
+    from .safety import SafetyGateway
 
 logger = logging.getLogger(__name__)
 
@@ -1392,8 +1393,9 @@ class AgentRuntime:
         if self.tools.has(tool_name):
             return f"Tool '{tool_name}' already registered"
 
-        from tools.base import BaseTool
         from types import new_class
+
+        from tools.base import BaseTool
 
         param_dict = {}
         if isinstance(tool_params, dict):

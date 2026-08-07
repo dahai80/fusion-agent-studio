@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-
 from server.fusion_mlx_client import FusionMLXClient, LLMResponse
 
 
@@ -32,6 +31,7 @@ class TestFusionMLXClient:
         monkeypatch.delenv("FUSION_MLX_PORT", raising=False)
         monkeypatch.delenv("FUSION_MLX_API_KEY", raising=False)
         import importlib
+
         import server.fusion_mlx_client as mod
         importlib.reload(mod)
         client = mod.FusionMLXClient()

@@ -1,6 +1,6 @@
 from .agent import Agent
-from .tool import Tool
 from .client import AgentClient
+from .tool import Tool
 
 __all__ = [
     "Agent",

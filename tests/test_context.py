@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import time
 
-
 from agent_runtime.context import AgentContext, AgentEvent, AgentEventType
 
 

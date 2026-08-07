@@ -4,43 +4,42 @@ from __future__ import annotations
 
 import pytest
 
-from agent_runtime.data_ingestion import (
-    Document,
-    Chunk,
-    DocumentReader,
-    FixedSizeChunker,
-    SentenceChunker,
-    MarkdownChunker,
-    ETLPipeline,
-    strip_whitespace,
-    truncate,
-    add_metadata,
-    filter_empty_chunks,
+from agent_runtime.aware_engine import (
+    ASTDiffLayer,
+    AwareEngine,
+    AwareResult,
+    DebounceLayer,
+    FileEvent,
+    ModelGateLayer,
 )
 from agent_runtime.code_sandbox import (
     ASTChecker,
-    DiffPreview,
     CodeSandbox,
+    DiffPreview,
     SandboxResult,
 )
-from agent_runtime.aware_engine import (
-    FileEvent,
-    AwareResult,
-    DebounceLayer,
-    ASTDiffLayer,
-    ModelGateLayer,
-    AwareEngine,
+from agent_runtime.data_ingestion import (
+    Chunk,
+    Document,
+    DocumentReader,
+    ETLPipeline,
+    FixedSizeChunker,
+    MarkdownChunker,
+    SentenceChunker,
+    add_metadata,
+    filter_empty_chunks,
+    strip_whitespace,
+    truncate,
 )
 from agent_runtime.fmp_router import (
+    AgentCircuitBreaker,
     AgentInfo,
     FMPMessageV2,
-    AgentCircuitBreaker,
+    FMProtocol,
+    MentionRouter,
     MessageDedup,
     TurnManager,
-    MentionRouter,
-    FMProtocol,
 )
-
 
 # ── Data Ingestion (Phase 4) ────────────────────────────
 

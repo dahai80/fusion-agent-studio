@@ -7,10 +7,10 @@ import asyncio
 import pytest
 
 from agent_runtime.knowledge_engine import (
+    EMBEDDING_DIM,
     KnowledgeEngine,
     KnowledgeEntry,
     _stub_embedding,
-    EMBEDDING_DIM,
 )
 from agent_runtime.llm_gateway import (
     LLMGateway,
@@ -19,10 +19,10 @@ from agent_runtime.llm_gateway import (
     _ModelCircuitBreaker,
 )
 from agent_runtime.swarm_router import (
-    SwarmRouter,
-    SwarmAgent,
-    TaskDelegation,
     HandoffContext,
+    SwarmAgent,
+    SwarmRouter,
+    TaskDelegation,
 )
 
 

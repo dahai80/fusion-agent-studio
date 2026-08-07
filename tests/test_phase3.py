@@ -3,27 +3,28 @@
 from __future__ import annotations
 
 import time
+
 import pytest
 
-from agent_runtime.graph import AgentGraph, NodeConfig
-from agent_runtime.graph_editor import (
-    GraphEditor,
-    GraphDocument,
-    NodePosition,
-    ValidationResult,
-    ValidationIssue,
-    validate_graph,
-    auto_layout,
-)
-from agent_runtime.metrics_engine import (
-    MetricsEngine,
-    InferenceMetrics,
-    SessionRecord,
-    MetricsSummary,
-)
 from agent_runtime.agent_marketplace import (
     AgentMarketplace,
     MarketEntry,
+)
+from agent_runtime.graph import AgentGraph, NodeConfig
+from agent_runtime.graph_editor import (
+    GraphDocument,
+    GraphEditor,
+    NodePosition,
+    ValidationIssue,
+    ValidationResult,
+    auto_layout,
+    validate_graph,
+)
+from agent_runtime.metrics_engine import (
+    InferenceMetrics,
+    MetricsEngine,
+    MetricsSummary,
+    SessionRecord,
 )
 
 

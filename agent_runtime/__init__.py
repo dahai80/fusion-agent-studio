@@ -1,130 +1,130 @@
 """Agent Runtime — core engine for agent orchestration and execution."""
 
-from .graph import AgentGraph, Edge, NodeConfig, NodeType
-from .context import AgentContext, AgentEvent, AgentEventType
-from .runtime import AgentRuntime, ConditionEngine
-from .orchestrator import (
-    MultiAgentOrchestrator,
-    AgentConfig,
-    OrchestrationResult,
-    HandoffContext,
-)
-from .persistence import AgentStore, Checkpoint
-from .exporter import GraphExporter
-from .debugger import StepDebugger
-from .variable_manager import VariableManager
-from .json_schema import JsonSchemaValidator
-from .prompt_templates import PromptTemplateManager
-from .sub_graph import SubGraphRegistry
+from .agent_marketplace import AgentMarketplace, MarketEntry
 from .agent_package import AgentManifest, AgentPackage
-from .memory_engine import MemoryEngine, MemoryEntry, MemoryTier
-from .safety import (
-    SafetyGateway,
-    SafetyLevel,
-    SafetyAction,
-    SafetyVerdict,
-    SafetyRule,
-    SafetyPolicy,
-    DiffPreviewRequest,
-    CAT_CODE_ANALYSIS,
-    CAT_DOC_RETRIEVAL,
-    CAT_KNOWLEDGE_SEARCH,
-    CAT_FILE_READ,
-    CAT_FILE_WRITE,
-    CAT_CODE_EDIT,
-    CAT_SHELL_EXEC,
-    CAT_GIT_PUSH,
-    CAT_DATABASE_WRITE,
-    CAT_NETWORK_ACCESS,
-)
-from .fusion_code_bridge import FusionCodeBridge, CodeTask, CodeResult
-from .api_server import app as api_app
 from .agent_templates import (
-    AgentTemplate,
     TEMPLATES,
-    list_templates,
+    AgentTemplate,
     get_template,
     instantiate_template,
+    list_templates,
 )
-from .graph_editor import (
-    GraphEditor,
-    GraphDocument,
-    NodePosition,
-    ValidationResult,
-    ValidationIssue,
-    validate_graph,
-    auto_layout,
+from .api_server import app as api_app
+from .aware_engine import (
+    ASTDiffLayer,
+    AwareEngine,
+    AwareResult,
+    DebounceLayer,
+    FileEvent,
+    ModelGateLayer,
 )
-from .metrics_engine import (
-    MetricsEngine,
-    InferenceMetrics,
-    SessionRecord,
-    MetricsSummary,
-)
-from .agent_marketplace import AgentMarketplace, MarketEntry
-from .data_ingestion import (
-    Document,
-    Chunk,
-    DocumentReader,
-    FixedSizeChunker,
-    SentenceChunker,
-    MarkdownChunker,
-    ETLPipeline,
-    WebReader,
-    GitHubReader,
-    NotionReader,
-    PDFReader,
-    DirectoryReader,
+from .chat_engine import (
+    ChatEngine,
+    ChatEvent,
+    ChatEventType,
+    ChatMessage,
+    ChatMode,
+    ChatSession,
 )
 from .code_sandbox import (
-    ASTChecker,
-    DiffPreview,
-    CodeSandbox,
     ASTAnalysis,
+    ASTChecker,
+    CodeSandbox,
+    DiffPreview,
     DiffResult,
     SandboxResult,
 )
-from .aware_engine import (
-    FileEvent,
-    AwareResult,
-    DebounceLayer,
-    ASTDiffLayer,
-    ModelGateLayer,
-    AwareEngine,
+from .context import AgentContext, AgentEvent, AgentEventType
+from .daemon_server import DaemonServer, run_daemon
+from .data_ingestion import (
+    Chunk,
+    DirectoryReader,
+    Document,
+    DocumentReader,
+    ETLPipeline,
+    FixedSizeChunker,
+    GitHubReader,
+    MarkdownChunker,
+    NotionReader,
+    PDFReader,
+    SentenceChunker,
+    WebReader,
 )
+from .debugger import StepDebugger
+from .exporter import GraphExporter
 from .fmp_router import (
+    AgentCircuitBreaker,
     AgentInfo,
     FMPMessageV2,
-    AgentCircuitBreaker,
+    FMProtocol,
+    MentionRouter,
     MessageDedup,
     TurnManager,
-    MentionRouter,
-    FMProtocol,
 )
+from .fusion_code_bridge import CodeResult, CodeTask, FusionCodeBridge
+from .graph import AgentGraph, Edge, NodeConfig, NodeType
+from .graph_editor import (
+    GraphDocument,
+    GraphEditor,
+    NodePosition,
+    ValidationIssue,
+    ValidationResult,
+    auto_layout,
+    validate_graph,
+)
+from .json_schema import JsonSchemaValidator
 from .knowledge_engine import KnowledgeEngine, KnowledgeEntry
-from .llm_gateway import LLMGateway, ModelConfig, ModelStats, GatewayResponse
+from .llm_gateway import GatewayResponse, LLMGateway, ModelConfig, ModelStats
+from .memory_engine import MemoryEngine, MemoryEntry, MemoryTier
+from .metrics_engine import (
+    InferenceMetrics,
+    MetricsEngine,
+    MetricsSummary,
+    SessionRecord,
+)
+from .orchestrator import (
+    AgentConfig,
+    HandoffContext,
+    MultiAgentOrchestrator,
+    OrchestrationResult,
+)
+from .persistence import AgentStore, Checkpoint
+from .planner import ExecutionPlan, PlannerEngine, PlanStep
+from .plaza import Plaza, PlazaChannel, PlazaMessage
+from .prompt_templates import PromptTemplateManager
 from .rag_pipeline import (
-    RAGPipeline,
     RAGConfig,
-    RAGResult,
     RAGNodeMixin,
+    RAGPipeline,
+    RAGResult,
     VectorRetrievalStrategy,
 )
-from .swarm_router import SwarmRouter, SwarmAgent, TaskDelegation
-from .plaza import Plaza, PlazaMessage, PlazaChannel
-from .planner import PlannerEngine, PlanStep, ExecutionPlan
-from .verifier import VerificationEngine, VerificationResult
-from .daemon_server import DaemonServer, run_daemon
-from .chat_engine import (
-    ChatEngine,
-    ChatSession,
-    ChatMessage,
-    ChatEvent,
-    ChatEventType,
-    ChatMode,
+from .runtime import AgentRuntime, ConditionEngine
+from .safety import (
+    CAT_CODE_ANALYSIS,
+    CAT_CODE_EDIT,
+    CAT_DATABASE_WRITE,
+    CAT_DOC_RETRIEVAL,
+    CAT_FILE_READ,
+    CAT_FILE_WRITE,
+    CAT_GIT_PUSH,
+    CAT_KNOWLEDGE_SEARCH,
+    CAT_NETWORK_ACCESS,
+    CAT_SHELL_EXEC,
+    DiffPreviewRequest,
+    SafetyAction,
+    SafetyGateway,
+    SafetyLevel,
+    SafetyPolicy,
+    SafetyRule,
+    SafetyVerdict,
 )
-from .triggers import Webhook, CronJob, CronExecution, WebhookManager, CronManager
+from .sub_graph import SubGraphRegistry
+from .swarm_router import SwarmAgent, SwarmRouter, TaskDelegation
 from .token_budget import TokenBudget
+from .triggers import CronExecution, CronJob, CronManager, Webhook, WebhookManager
+from .variable_manager import VariableManager
+from .verifier import VerificationEngine, VerificationResult
 
 __all__ = [
     "AgentGraph",

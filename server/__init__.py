@@ -4,7 +4,7 @@
 # User instruction: "fusion-rag 已经完成issue和pr，可以开展相关的工作落地"
 
 from .fusion_mlx_client import FusionMLXClient, LLMResponse
-from .fusion_rag_client import FusionRAGClient, SearchResult, AskResult, DocumentInfo
+from .fusion_rag_client import AskResult, DocumentInfo, FusionRAGClient, SearchResult
 from .process_manager import FusionMLXProcessManager
 
 __all__ = [

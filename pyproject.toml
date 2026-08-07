@@ -16,6 +16,7 @@ test = [
     "pytest-asyncio>=0.23.0",
     "pytest-cov>=5.0.0",
     "pytest-mock>=3.14.0",
+    "ruff>=0.6.0",
 ]
 rag = [
     "sqlite-vec>=0.1.9",
@@ -24,6 +25,13 @@ rag = [
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+filterwarnings = [
+    # pytest-asyncio 在 Python 3.14 触发的弃用警告 (第三方库, 待上游修复)
+    "ignore::DeprecationWarning:pytest_asyncio.*",
+    "ignore:.*asyncio.get_event_loop_policy.*:DeprecationWarning",
+    "ignore:.*asyncio.set_event_loop_policy.*:DeprecationWarning",
+    "ignore:.*asyncio.iscoroutinefunction.*:DeprecationWarning",
+]
 
 [tool.coverage.run]
 source = ["agent_runtime", "tools", "server"]

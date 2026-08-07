@@ -4,16 +4,17 @@
 # Schemas: SearchResult(content,score,source,metadata,chunk_id), AskResult(answer,sources,confidence)
 # User instruction: "fusion-rag 已经完成issue和pr，可以开展相关的工作落地"
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock
 
+import pytest
+
 from server.fusion_rag_client import (
-    FusionRAGClient,
-    SearchResult,
-    AskResult,
-    DocumentInfo,
     RAG_BASE_URL,
     RAG_PORT,
+    AskResult,
+    DocumentInfo,
+    FusionRAGClient,
+    SearchResult,
 )
 
 

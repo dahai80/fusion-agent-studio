@@ -1,12 +1,14 @@
 """Sub-dispatcher: TeamDispatcher."""
 
 from __future__ import annotations
-import logging
-import signal
-from .base import SubDispatcher
-from typing import Callable
+
 import asyncio
+import logging
 import os
+import signal
+from typing import Callable
+
+from .base import SubDispatcher
 
 logger = logging.getLogger(__name__)
 
@@ -224,8 +226,9 @@ class TeamDispatcher(SubDispatcher):
         self._cluster_task: asyncio.Task | None = None
         if self._daemon.cluster_port:
             try:
-                from ..cluster_server import app as cluster_app
                 import uvicorn
+
+                from ..cluster_server import app as cluster_app
 
                 config = uvicorn.Config(
                     cluster_app,
@@ -244,8 +247,9 @@ class TeamDispatcher(SubDispatcher):
         self._http_task: asyncio.Task | None = None
         if self._daemon.http_port:
             try:
-                from ..api_server import app as fastapi_app
                 import uvicorn as uvicorn2
+
+                from ..api_server import app as fastapi_app
 
                 http_config = uvicorn2.Config(
                     fastapi_app,

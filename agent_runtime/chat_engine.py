@@ -7,11 +7,11 @@ import time
 import uuid
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, AsyncIterator, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, AsyncIterator
 
 if TYPE_CHECKING:
-    from .runtime import AgentRuntime
     from .persistence import AgentStore
+    from .runtime import AgentRuntime
 
 logger = logging.getLogger(__name__)
 
@@ -567,7 +567,7 @@ class ChatEngine:
             graph.add_edge("llm", "end")
 
         try:
-            from .context import AgentEventType, AgentContext
+            from .context import AgentContext, AgentEventType
 
             # 预加载会话历史，避免 agent 模式丢失上下文 (bug2/3/4)
             # send() 已追加新 user 消息 + 空 assistant 消息，排除最后两条，

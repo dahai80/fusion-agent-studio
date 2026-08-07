@@ -7,13 +7,13 @@ from pathlib import Path
 
 import pytest
 
-from tools.base import BaseTool, ToolResult
-from tools.registry import ToolRegistry
-from tools.file_tools import FileReadTool, FileWriteTool, FileListTool
-from tools.terminal_tools import TerminalTool
-from tools.git_tools import GitTool
-from tools.text_tools import TextProcessTool, TextSearchTool
 from tools import create_default_registry
+from tools.base import BaseTool, ToolResult
+from tools.file_tools import FileListTool, FileReadTool, FileWriteTool
+from tools.git_tools import GitTool
+from tools.registry import ToolRegistry
+from tools.terminal_tools import TerminalTool
+from tools.text_tools import TextProcessTool, TextSearchTool
 
 
 class TestToolResult:
@@ -70,7 +70,7 @@ class TestToolRegistry:
 
     def test_register_no_name(self):
         registry = ToolRegistry()
-        from unittest.mock import MagicMock, AsyncMock
+        from unittest.mock import AsyncMock, MagicMock
 
         bad_tool = MagicMock(spec=BaseTool)
         bad_tool.name = ""

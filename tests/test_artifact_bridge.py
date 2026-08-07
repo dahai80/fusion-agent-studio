@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from agent_runtime.artifact_bridge import ArtifactBridge
-from agent_runtime.artifact_tools import ArtifactManager, ARTIFACT_SYSTEM_PROMPT
+from agent_runtime.artifact_tools import ARTIFACT_SYSTEM_PROMPT, ArtifactManager
 from agent_runtime.dispatchers.artifact import ArtifactDispatcher
 
 
@@ -237,7 +237,10 @@ class TestAS8ArtifactSystemPrompt:
         assert "artifact-ref" in ARTIFACT_SYSTEM_PROMPT
 
     def test_artifact_long_text_template(self):
-        from agent_runtime.prompt_templates import PromptTemplateManager, register_default_prompt_templates
+        from agent_runtime.prompt_templates import (
+            PromptTemplateManager,
+            register_default_prompt_templates,
+        )
         mgr = PromptTemplateManager()
         register_default_prompt_templates(mgr)
         rendered = mgr.render(

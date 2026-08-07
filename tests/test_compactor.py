@@ -1,7 +1,6 @@
 from __future__ import annotations
 
-
-from agent_runtime.compactor import Compactor, CompactionConfig
+from agent_runtime.compactor import CompactionConfig, Compactor
 from agent_runtime.context import AgentEventType
 from agent_runtime.graph import AgentGraph, NodeConfig
 from agent_runtime.runtime import AgentRuntime
@@ -230,7 +229,7 @@ class TestCompactorPersistence:
 
 class TestGatewayReactive413:
     async def test_reactive_retry_on_context_too_long(self):
-        from agent_runtime.llm_gateway import LLMGateway, GatewayResponse, ModelConfig
+        from agent_runtime.llm_gateway import GatewayResponse, LLMGateway, ModelConfig
 
         gw = LLMGateway(compactor=Compactor())
         gw.register_model(ModelConfig(name="m1", priority=1))

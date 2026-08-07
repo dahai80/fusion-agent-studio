@@ -4,15 +4,14 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from agent_runtime.artifact_bridge import ArtifactBridge
 from agent_runtime.artifact_tools import (
+    VALID_GENERATION_PHASES,
     ArtifactManager,
     ArtifactRecord,
-    VALID_GENERATION_PHASES,
 )
-from agent_runtime.artifact_bridge import ArtifactBridge
 from agent_runtime.context import AgentContext
 from agent_runtime.runtime import AgentRuntime
-
 
 # ── WF-1: Anti-Forgetting Turn Counter ─────────────────────────
 

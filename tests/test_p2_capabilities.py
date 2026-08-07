@@ -9,10 +9,9 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from agent_runtime.triggers import WebhookManager, CronManager, Webhook, CronJob
 from agent_runtime.i18n import I18n
-from tools.db_tools import SqliteQueryTool, AnnotationNode, PerformanceMonitor
-
+from agent_runtime.triggers import CronJob, CronManager, Webhook, WebhookManager
+from tools.db_tools import AnnotationNode, PerformanceMonitor, SqliteQueryTool
 
 # ── WebhookManager ──
 
@@ -200,8 +199,8 @@ class TestSqliteQueryTool:
 
     @pytest.mark.asyncio
     async def test_select(self):
-        import tempfile
         import os
+        import tempfile
 
         with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
             db_path = f.name
@@ -221,8 +220,8 @@ class TestSqliteQueryTool:
 
     @pytest.mark.asyncio
     async def test_select_empty(self):
-        import tempfile
         import os
+        import tempfile
 
         with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
             db_path = f.name

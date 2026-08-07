@@ -4,15 +4,15 @@ from __future__ import annotations
 
 import pytest
 
-from agent_runtime.orchestrator import (
-    MultiAgentOrchestrator,
-    AgentConfig,
-    OrchestrationResult,
-    HandoffContext,
-)
 from agent_runtime.graph import AgentGraph, NodeConfig
-from tools.registry import ToolRegistry
+from agent_runtime.orchestrator import (
+    AgentConfig,
+    HandoffContext,
+    MultiAgentOrchestrator,
+    OrchestrationResult,
+)
 from tools.base import BaseTool
+from tools.registry import ToolRegistry
 
 
 class MockTool(BaseTool):
@@ -189,6 +189,7 @@ class TestHandoffPattern:
 
     async def test_handoff_error_stops_chain(self):
         from unittest.mock import patch
+
         from agent_runtime.runtime import AgentRuntime
 
         reg = ToolRegistry()
@@ -405,9 +406,10 @@ class TestSupervisorPattern:
         assert decision["done"] is False
 
     async def test_supervisor_worker_error(self):
-        from server.fusion_mlx_client import LLMResponse
         from unittest.mock import patch
+
         from agent_runtime.runtime import AgentRuntime
+        from server.fusion_mlx_client import LLMResponse
 
         mlx = MockMLXClient(
             responses=[

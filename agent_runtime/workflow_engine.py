@@ -547,8 +547,8 @@ class WorkflowEngine:
 
         if graph_id and self.orchestrator:
             try:
-                from .runtime import AgentRuntime
                 from .graph import AgentGraph
+                from .runtime import AgentRuntime
 
                 store = self.orchestrator.__dict__.get("_store")
                 if store:

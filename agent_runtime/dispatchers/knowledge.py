@@ -1,10 +1,12 @@
 """Sub-dispatcher: KnowledgeDispatcher."""
 
 from __future__ import annotations
+
 import logging
-from .base import SubDispatcher
 from typing import Callable
+
 from ..rag_pipeline import RAGConfig
+from .base import SubDispatcher
 
 logger = logging.getLogger(__name__)
 

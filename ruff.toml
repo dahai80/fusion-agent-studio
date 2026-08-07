@@ -1,0 +1,16 @@
+target-version = "py311"
+line-length = 100
+extend-exclude = ["langflow", ".venv", "build", "dist"]
+
+[lint]
+# 商用 CI 冷启动规则集: 只拦致命正确性问题 + 导入排序.
+# 其余风格类 (BLE001/S110/UP 等 489 项) 留待后续逐步收紧, 不阻断发布.
+select = [
+    "E9",   # 语法错误 / 运行时解析错误
+    "F",    # pyflakes: 未定义名、未用 import、重复定义等
+    "I",    # import 排序
+]
+ignore = []
+
+[lint.isort]
+known-first-party = ["agent_runtime", "tools", "server"]
