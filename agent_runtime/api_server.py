@@ -41,7 +41,7 @@ async def lifespan(application: FastAPI):
     logger.info("Fusion Agent Studio API shutting down")
 
 
-app = FastAPI(title="Fusion Agent Studio API", version="0.3.4", lifespan=lifespan)
+app = FastAPI(title="Fusion Agent Studio API", version="0.3.5", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -1110,7 +1110,7 @@ async def test_agent_with_project(
     return await v1_test_agent(agent_id, project_id, kb_id, message)
 
 
-def run_server(host: str = "127.0.0.1", port: int = 11453):
+def run_server(host: str = "127.0.0.1", port: int = 11455):
     import uvicorn
 
     uvicorn.run(app, host=host, port=port, log_level="info")

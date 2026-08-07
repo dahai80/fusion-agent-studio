@@ -78,7 +78,9 @@ def _ws_write_frame(writer: asyncio.StreamWriter, data: str) -> None:
         frame.extend(struct.pack(">Q", length))
     frame.extend(payload)
     writer.write(bytes(frame))
-_MLX_PORT_DEFAULT = int(os.environ.get("FUSION_MLX_PORT", "11434"))
+# NetLayer 方案B: 默认经 fusion-gateway :11432 调用 fusion-mlx，不直连 :11434。
+# 保留 FUSION_GATEWAY_URL / FUSION_MLX_PORT 显式覆盖 (可回退直连 11434)。
+_MLX_PORT_DEFAULT = int(os.environ.get("FUSION_MLX_PORT", "11432"))
 MLX_PORT = _MLX_PORT_DEFAULT
 MLX_BASE_URL = os.environ.get(
     "FUSION_GATEWAY_URL",

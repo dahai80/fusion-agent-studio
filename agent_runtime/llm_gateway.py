@@ -19,8 +19,10 @@ from typing import Any, AsyncIterator
 
 logger = logging.getLogger(__name__)
 
+# NetLayer 方案B: 默认经 fusion-gateway :11432 (变量名 GATEWAY 与默认值名副其实)。
+# 保留 FUSION_GATEWAY_URL / FUSION_MLX_PORT 显式覆盖 (可回退直连 11434)。
 DEFAULT_LOCAL_BASE_URL = os.environ.get(
-    "FUSION_GATEWAY_URL", f"http://localhost:{os.environ.get('FUSION_MLX_PORT', '11434')}/v1"
+    "FUSION_GATEWAY_URL", f"http://localhost:{os.environ.get('FUSION_MLX_PORT', '11432')}/v1"
 )
 CIRCUIT_THRESHOLD = 3
 CIRCUIT_RESET_TIME = 30.0

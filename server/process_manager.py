@@ -20,7 +20,7 @@ class FusionMLXProcessManager:
 
     def __init__(
         self,
-        port: int = int(os.environ.get("FUSION_MLX_PORT", "11434")),
+        port: int = int(os.environ.get("FUSION_MLX_PORT", "11432")),
         model: str = "",
         model_dir: str = "",
         host: str = "127.0.0.1",
