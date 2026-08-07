@@ -551,6 +551,7 @@ class DaemonServer:
             "graph.get": self._handle_graph_get,
             "graph.list": self._handle_graph_list,
             "graph.update": self._handle_graph_update,
+            "hardware.metrics": self._handle_hardware_metrics,
             "mlx.health": self._handle_mlx_health,
             "mlx.infer": self._handle_mlx_infer,
             "mlx.restart": self._handle_mlx_restart,
@@ -559,6 +560,7 @@ class DaemonServer:
             "mlx.status": self._handle_mlx_status,
             "mlx.stop": self._handle_mlx_stop,
             "mlx.switch_model_mid_turn": self._handle_mlx_switch_model_mid_turn,
+            "hardware.metrics": self._handle_hardware_metrics,
             "ping": self._handle_ping,
             "daemon.ping": self._handle_daemon_ping,
             "daemon.status": self._handle_daemon_status,
@@ -713,6 +715,7 @@ class DaemonServer:
             "graph.get": self._handle_graph_get,
             "graph.list": self._handle_graph_list,
             "graph.update": self._handle_graph_update,
+            "hardware.metrics": self._handle_hardware_metrics,
             "mlx.health": self._handle_mlx_health,
             "mlx.infer": self._handle_mlx_infer,
             "mlx.restart": self._handle_mlx_restart,
@@ -721,6 +724,7 @@ class DaemonServer:
             "mlx.status": self._handle_mlx_status,
             "mlx.stop": self._handle_mlx_stop,
             "mlx.switch_model_mid_turn": self._handle_mlx_switch_model_mid_turn,
+            "hardware.metrics": self._handle_hardware_metrics,
             "ping": self._handle_ping,
             "daemon.ping": self._handle_daemon_ping,
             "daemon.status": self._handle_daemon_status,
@@ -843,6 +847,44 @@ class DaemonServer:
     async def _handle_mlx_health(self, params: dict) -> dict:
         healthy = await self._check_mlx_health()
         return {"healthy": healthy, "port": MLX_PORT}
+
+    async def _handle_hardware_metrics(self, params: dict) -> dict:
+        try:
+            import psutil
+        except ImportError:
+            logger.warning("psutil unavailable for hardware.metrics")
+            return {
+                "memory": {"total_gb": 0, "used_gb": 0, "percent": 0},
+                "cpu": {"percent": 0, "count": 0},
+                "gpu": {"available": False},
+                "mlx": {"running": await self._check_mlx_health()},
+            }
+
+        mem = psutil.virtual_memory()
+        total_gb = round(mem.total / 1024**3, 2)
+        used_gb = round(mem.used / 1024**3, 2)
+        mlx_running = await self._check_mlx_health()
+        logger.info(
+            "hardware.metrics: mem=%.1f/%.1fGB cpu%%=%s cores=%d mlx=%s",
+            used_gb,
+            total_gb,
+            psutil.cpu_percent(interval=0),
+            psutil.cpu_count(),
+            mlx_running,
+        )
+        return {
+            "memory": {
+                "total_gb": total_gb,
+                "used_gb": used_gb,
+                "percent": round(mem.percent, 1),
+            },
+            "cpu": {
+                "percent": psutil.cpu_percent(interval=0),
+                "count": psutil.cpu_count() or 0,
+            },
+            "gpu": {"available": True, "type": "apple-silicon"},
+            "mlx": {"running": mlx_running},
+        }
 
     async def _handle_mlx_set_model(self, params: dict) -> dict:
         model = params.get("model", "")
