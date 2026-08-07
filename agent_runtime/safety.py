@@ -276,10 +276,12 @@ class SafetyGateway:
         custom_rules: list[SafetyRule] | None = None,
         approver: ApproverCallback | None = None,
         policies: list[SafetyPolicy] | None = None,
+        enable_injection: bool = False,
     ):
         self.level = level
         self.custom_rules = custom_rules or []
         self.approver = approver
+        self.enable_injection = enable_injection
         self._policies = policies if policies is not None else list(_DEFAULT_POLICIES)
         self._pending_approvals: dict[str, asyncio.Future[bool]] = {}
         self._pending_action_approvals: dict[str, dict[str, Any]] = {}
@@ -519,6 +521,32 @@ class SafetyGateway:
             ]
 
     def check(self, content: str, context: str = "") -> SafetyVerdict:
+        if self.enable_injection:
+            inj = detect_prompt_injection(content)
+            if inj["detected"]:
+                if self._level_ord(self.level) >= self._level_ord(SafetyLevel.L2):
+                    logger.warning(
+                        "Injection blocked at L%d: %d patterns",
+                        self._level_ord(self.level),
+                        inj["match_count"],
+                    )
+                    return SafetyVerdict(
+                        action=SafetyAction.BLOCK,
+                        reason=f"Prompt injection detected ({inj['match_count']} patterns)",
+                        requires_approval=True,
+                        metadata={"injection": True, "matches": inj["matches"]},
+                    )
+                logger.info(
+                    "Injection flagged for approval at L1: %d patterns",
+                    inj["match_count"],
+                )
+                return SafetyVerdict(
+                    action=SafetyAction.PREVIEW,
+                    reason=f"Prompt injection detected ({inj['match_count']} patterns)",
+                    requires_approval=True,
+                    metadata={"injection": True, "matches": inj["matches"]},
+                )
+
         verdicts = []
         for rule in self.rules:
             if self._level_ord(self.level) < self._level_ord(rule.min_level):
