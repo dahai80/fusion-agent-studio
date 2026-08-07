@@ -35,6 +35,9 @@ cd fusion-agent-studio
 # Install
 pip install -e .
 
+# With local vector search (sqlite-vec + FTS5 + RRF hybrid)
+pip install -e ".[rag]"
+
 # Run tests
 pip install -e ".[test]"
 pytest tests/
