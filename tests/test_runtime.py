@@ -620,3 +620,122 @@ class TestExecutorCompatShim:
         ne = NodeExecutor(mlx_client, tool_registry)
         with pytest.raises(NotImplementedError):
             ne.get_handler("llm")
+
+
+class JsonTool(BaseTool):
+    name = "json_tool"
+    description = "Returns a JSON string"
+    parameters = {}
+
+    async def execute(self, **kwargs) -> str:
+        return '{"image_paths": ["/tmp/a.png", "/tmp/b.png"], "description": "hi"}'
+
+
+class PlainTool(BaseTool):
+    name = "plain_tool"
+    description = "Returns a plain string"
+    parameters = {}
+
+    async def execute(self, **kwargs) -> str:
+        return "/tmp/video.mp4"
+
+
+class TestToolOutputMapping:
+    """tool 节点 output_mapping：把工具返回值写入变量供下游引用。"""
+
+    @pytest.mark.asyncio
+    async def test_whole_result_mapping(self, mlx_client):
+        registry = ToolRegistry()
+        registry.register(PlainTool())
+        graph = AgentGraph(name="WholeResult")
+        graph.add_node("start", NodeConfig(type="start", label="Start"))
+        graph.add_node(
+            "t",
+            NodeConfig(
+                type="tool",
+                label="Plain",
+                tool_name="plain_tool",
+                tool_params={"output_mapping": {"result": "video_path"}},
+            ),
+        )
+        graph.add_node("end", NodeConfig(type="end", label="End"))
+        graph.add_edge("start", "t")
+        graph.add_edge("t", "end")
+        runtime = AgentRuntime(mlx_client, registry)
+        async for _ in runtime.execute_graph(graph, "go"):
+            pass
+        assert runtime.variables.get("video_path") == "/tmp/video.mp4"
+
+    @pytest.mark.asyncio
+    async def test_json_key_mapping(self, mlx_client):
+        registry = ToolRegistry()
+        registry.register(JsonTool())
+        graph = AgentGraph(name="JsonKey")
+        graph.add_node("start", NodeConfig(type="start", label="Start"))
+        graph.add_node(
+            "t",
+            NodeConfig(
+                type="tool",
+                label="Json",
+                tool_name="json_tool",
+                tool_params={
+                    "output_mapping": {
+                        "image_paths": "image_paths",
+                        "description": "desc",
+                    }
+                },
+            ),
+        )
+        graph.add_node("end", NodeConfig(type="end", label="End"))
+        graph.add_edge("start", "t")
+        graph.add_edge("t", "end")
+        runtime = AgentRuntime(mlx_client, registry)
+        async for _ in runtime.execute_graph(graph, "go"):
+            pass
+        assert runtime.variables.get("image_paths") == ["/tmp/a.png", "/tmp/b.png"]
+        assert runtime.variables.get("desc") == "hi"
+
+    @pytest.mark.asyncio
+    async def test_no_mapping_backward_compat(self, mlx_client):
+        registry = ToolRegistry()
+        registry.register(PlainTool())
+        graph = AgentGraph(name="NoMapping")
+        graph.add_node("start", NodeConfig(type="start", label="Start"))
+        graph.add_node(
+            "t", NodeConfig(type="tool", label="Plain", tool_name="plain_tool")
+        )
+        graph.add_node("end", NodeConfig(type="end", label="End"))
+        graph.add_edge("start", "t")
+        graph.add_edge("t", "end")
+        runtime = AgentRuntime(mlx_client, registry)
+        events = []
+        async for event in runtime.execute_graph(graph, "go"):
+            events.append(event)
+        # 无 mapping 时不写变量，行为与现状一致
+        assert runtime.variables.get("video_path") == ""
+        tool_results = [e for e in events if e.type == AgentEventType.TOOL_RESULT]
+        assert tool_results and tool_results[0].content == "/tmp/video.mp4"
+
+    @pytest.mark.asyncio
+    async def test_json_key_falls_back_to_whole(self, mlx_client):
+        registry = ToolRegistry()
+        registry.register(PlainTool())
+        graph = AgentGraph(name="Fallback")
+        graph.add_node("start", NodeConfig(type="start", label="Start"))
+        graph.add_node(
+            "t",
+            NodeConfig(
+                type="tool",
+                label="Plain",
+                tool_name="plain_tool",
+                tool_params={"output_mapping": {"missing_key": "out"}},
+            ),
+        )
+        graph.add_node("end", NodeConfig(type="end", label="End"))
+        graph.add_edge("start", "t")
+        graph.add_edge("t", "end")
+        runtime = AgentRuntime(mlx_client, registry)
+        async for _ in runtime.execute_graph(graph, "go"):
+            pass
+        # 非 JSON -> 回退整值
+        assert runtime.variables.get("out") == "/tmp/video.mp4"

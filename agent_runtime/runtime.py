@@ -1638,12 +1638,46 @@ class AgentRuntime:
         ctx.add_message("tool", str(result), tool_call_id=f"tool_{node.tool_name}")
         ctx.messages[-1]["_node_id"] = node.label
 
+        output_mapping = node.tool_params.get("output_mapping", {})
+        if output_mapping:
+            self._apply_tool_output_mapping(output_mapping, result, node.label)
+
         yield AgentEvent(
             type=AgentEventType.TOOL_RESULT,
             content=str(result),
             name=node.tool_name,
             node_id=node.label,
         )
+
+    def _apply_tool_output_mapping(
+        self, output_mapping: dict, result: Any, node_label: str
+    ) -> None:
+        """把工具返回值按 output_mapping 写入变量，供下游节点 {{ var }} 引用。
+
+        约定 {source_key: target_var}，与 sub_graph output_mapping 一致：
+        - source_key 为 "" 或 "result"：整值写入 target_var
+        - 否则：尝试 json.loads(result) 按 source_key 取值；解析失败回退整值并记 warning
+        """
+        parsed = None
+        for source_key, target_var in output_mapping.items():
+            if not target_var:
+                continue
+            if source_key in ("", "result"):
+                self.variables.set(target_var, result)
+                continue
+            if parsed is None and isinstance(result, str):
+                try:
+                    parsed = json.loads(result)
+                except (ValueError, TypeError):
+                    logger.warning(
+                        "output_mapping: node=%s result 非 JSON，回退整值写入 %s",
+                        node_label,
+                        target_var,
+                    )
+            if isinstance(parsed, dict) and source_key in parsed:
+                self.variables.set(target_var, parsed[source_key])
+            else:
+                self.variables.set(target_var, result)
 
     def _execute_condition_node(
         self, ctx: AgentContext, node: NodeConfig
