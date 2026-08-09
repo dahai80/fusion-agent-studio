@@ -3,9 +3,17 @@ import json
 import os
 import tempfile
 
+import pytest
+
 from agent_runtime.dispatchers import TrainerDispatcher
 from agent_runtime.dispatchers.trainer import TrainerDispatcher as TD2
 from agent_runtime.training_service import TrainingService
+
+_HAS_FUSION_TRAINER = True
+try:
+    import fusion_trainer  # noqa: F401
+except ImportError:
+    _HAS_FUSION_TRAINER = False
 
 
 def _write_pref_dataset() -> str:
@@ -75,6 +83,7 @@ def test_trainer_trajectories_list_limit_validation():
     }
 
 
+@pytest.mark.skipif(not _HAS_FUSION_TRAINER, reason="fusion_trainer not installed")
 def test_training_service_info_returns_version():
     svc = TrainingService()
     info = svc.info()
@@ -92,6 +101,7 @@ def test_training_service_run_rlsl_rejects_bad_method():
     assert result == {"error": "method must be dpo|orpo|grpo"}
 
 
+@pytest.mark.skipif(not _HAS_FUSION_TRAINER, reason="fusion_trainer not installed")
 def test_training_service_run_rlsl_surfaces_upstream_error():
     svc = TrainingService()
     result = svc.run_rlsl(model="m", method="dpo", dataset=_write_pref_dataset())
