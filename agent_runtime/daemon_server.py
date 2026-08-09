@@ -113,6 +113,7 @@ class DaemonServer:
         self._safety = None
         self._rag: RAGPipeline | None = None
         self._agents: dict[str, dict] = {}
+        self._agents_index_loaded = False
         self._marketplace = None
         self._chat_engine: ChatEngine | None = None
         self._orchestrator = None
@@ -1453,11 +1454,43 @@ class DaemonServer:
         logger.debug("Persisted agents index: %d agents", len(self._agents))
 
     def _load_agents_index(self):
+        if self._agents_index_loaded:
+            return
         idx_path = Path.home() / ".fusion-agent-studio" / "agents" / "index.json"
-        if idx_path.exists() and not self._agents:
+        if idx_path.exists():
             with open(idx_path, "r", encoding="utf-8") as f:
                 self._agents = json.load(f)
             logger.info("Loaded agents index: %d agents", len(self._agents))
+        if not self._agents:
+            self._rebuild_agents_index_from_disk()
+        self._agents_index_loaded = True
+
+    def _rebuild_agents_index_from_disk(self):
+        agents_root = Path.home() / ".fusion-agent-studio" / "agents"
+        if not agents_root.is_dir():
+            return
+        count_before = len(self._agents)
+        for agent_dir in agents_root.iterdir():
+            if not agent_dir.is_dir():
+                continue
+            agent_id = agent_dir.name
+            if agent_id in self._agents:
+                continue
+            manifest_path = agent_dir / ".fusion-agent" / "manifest.json"
+            if not manifest_path.exists():
+                continue
+            try:
+                with open(manifest_path, "r", encoding="utf-8") as f:
+                    meta = json.load(f)
+            except (OSError, json.JSONDecodeError) as e:
+                logger.warning("skip unreadable manifest %s: %s", manifest_path, e)
+                continue
+            meta["id"] = agent_id
+            self._agents[agent_id] = meta
+        added = len(self._agents) - count_before
+        if added:
+            self._persist_agents_index()
+            logger.info("rebuilt agents index from disk: +%d agents", added)
 
     # ── Agent handlers ──
 

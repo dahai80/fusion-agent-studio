@@ -2,6 +2,8 @@
 
 import pytest
 
+pytest.importorskip("fusion_plugins_ecosystem")
+
 from agent_runtime.plugin_bridge import (
     build_manifests,
     build_registry,

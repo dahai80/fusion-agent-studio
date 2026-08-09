@@ -8,14 +8,13 @@ from agent_runtime.daemon_server import DaemonServer
 
 
 @pytest.fixture
-def daemon(tmp_path):
+def daemon(tmp_path, monkeypatch):
+    fake_home = tmp_path / "home"
+    fake_home.mkdir()
+    monkeypatch.setattr(Path, "home", lambda: fake_home)
     d = DaemonServer(socket_path=str(tmp_path / "test.sock"))
     d._agents = {}
     yield d
-    agents_dir = Path.home() / ".fusion-agent-studio" / "agents"
-    idx = agents_dir / "index.json"
-    if idx.exists():
-        idx.unlink()
 
 
 async def _run(daemon, method, params=None):
