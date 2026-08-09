@@ -40,7 +40,7 @@ async def lifespan(application: FastAPI):
     logger.info("Fusion Agent Studio API shutting down")
 
 
-app = FastAPI(title="Fusion Agent Studio API", version="0.3.6", lifespan=lifespan)
+app = FastAPI(title="Fusion Agent Studio API", version="0.3.7", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -186,7 +186,42 @@ def _load_agents_index() -> dict:
                 return json.load(f)
         except Exception:
             pass
-    return {}
+    index = _rebuild_agents_index_from_disk()
+    if index:
+        logger.info("agents index rebuilt from disk: %d agents", len(index))
+    return index
+
+
+def _rebuild_agents_index_from_disk() -> dict:
+    agents_root = Path.home() / ".fusion-agent-studio" / "agents"
+    if not agents_root.is_dir():
+        return {}
+    index: dict[str, dict] = {}
+    for agent_dir in agents_root.iterdir():
+        if not agent_dir.is_dir():
+            continue
+        manifest_path = agent_dir / ".fusion-agent" / "manifest.json"
+        if not manifest_path.exists():
+            continue
+        try:
+            with open(manifest_path, encoding="utf-8") as f:
+                meta = json.load(f)
+        except (OSError, json.JSONDecodeError) as e:
+            logger.warning("skip unreadable manifest %s: %s", manifest_path, e)
+            continue
+        agent_id = agent_dir.name
+        meta["id"] = agent_id
+        index[agent_id] = meta
+    if index:
+        idx_path = agents_root / "index.json"
+        try:
+            idx_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(idx_path, "w", encoding="utf-8") as f:
+                json.dump(index, f, indent=4, ensure_ascii=False)
+            logger.info("persisted rebuilt agents index -> %s", idx_path)
+        except OSError as e:
+            logger.warning("failed to persist agents index: %s", e)
+    return index
 
 
 def _paginate(data: list, page: int = 1, limit: int = 20) -> dict:
@@ -1104,6 +1139,54 @@ async def get_agent_preview(agent_id: str):
 
 @app.post("/agents/{agent_id}/test")
 async def test_agent_with_project(
+    agent_id: str, project_id: str = "", kb_id: str = "", message: str = "hello"
+):
+    return await v1_test_agent(agent_id, project_id, kb_id, message)
+
+
+# ── /api/v1/* aliases ──
+# Issue #100: fusion-projects (project_service) requests /api/v1/agents.
+# Mirror the agent read endpoints under the /api/v1 prefix so external
+# clients using the /api convention resolve without code changes upstream.
+@app.get("/api/v1/agents")
+async def api_v1_list_agents(
+    page: int = 1, limit: int = 20, status: str = "", keyword: str = ""
+):
+    return await v1_list_agents(page=page, limit=limit, status=status, keyword=keyword)
+
+
+@app.get("/api/v1/agents/published")
+async def api_v1_list_published_agents():
+    return await v1_list_published_agents()
+
+
+@app.get("/api/v1/agents/{agent_id}/definition")
+async def api_v1_get_agent_definition(agent_id: str):
+    return await v1_get_agent_definition(agent_id)
+
+
+@app.get("/api/v1/agents/{agent_id}/status")
+async def api_v1_get_agent_status(agent_id: str):
+    return await v1_get_agent_status(agent_id)
+
+
+@app.get("/api/v1/agents/{agent_id}/history")
+async def api_v1_get_agent_history(agent_id: str, limit: int = 20, page: int = 1):
+    return await v1_get_agent_history(agent_id, limit=limit, page=page)
+
+
+@app.get("/api/v1/agents/{agent_id}/artifacts")
+async def api_v1_list_agent_artifacts(agent_id: str):
+    return await v1_list_agent_artifacts(agent_id)
+
+
+@app.get("/api/v1/agents/{agent_id}/preview")
+async def api_v1_get_agent_preview(agent_id: str):
+    return await v1_get_agent_preview(agent_id)
+
+
+@app.post("/api/v1/agents/{agent_id}/test")
+async def api_v1_test_agent(
     agent_id: str, project_id: str = "", kb_id: str = "", message: str = "hello"
 ):
     return await v1_test_agent(agent_id, project_id, kb_id, message)
