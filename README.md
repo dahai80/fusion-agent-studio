@@ -38,6 +38,10 @@ pip install -e .
 # With local vector search (sqlite-vec + FTS5 + RRF hybrid)
 pip install -e ".[rag]"
 
+# With fusion-plugins-ecosystem bridge (PluginManifest/MCP/Claude gateway)
+# NOTE: fusion-plugins-ecosystem is not on PyPI — install from the fusion monorepo
+pip install -e ".[plugins]"
+
 # Run tests
 pip install -e ".[test]"
 pytest tests/
@@ -235,6 +239,8 @@ python my_agent.py
 ### Integration
 - ✅ **fusion-mlx** — Apple Silicon optimized model serving
 - ✅ **OpenAI-compatible API** — Works with any OpenAI-compatible backend
+- ✅ **HTTP REST API** — FastAPI on `127.0.0.1:11455` (launched by `start.sh` via the daemon). Routes under both `/v1/*` and `/api/v1/*` (alias) so external clients using either convention resolve. Agent index auto-rebuilt from on-disk manifests on startup.
+- ✅ **fusion-projects** — project_service binds agents via `GET /api/v1/agents` (set `FUSION_AGENT_STUDIO_URL=http://127.0.0.1:11455`)
 - ✅ **macOS native** — SwiftUI app with WKWebView canvas integration
 - ✅ **i18n** — English and Chinese UI strings
 
