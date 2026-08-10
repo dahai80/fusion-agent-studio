@@ -50,6 +50,8 @@ class NodeConfig:
     retry_on_error: bool = False
     # Allow LLM to dynamically register/unregister tools at runtime
     allow_dynamic_tools: bool = False
+    # Disable tool injection for this LLM node (pure text/structured output)
+    disable_tools: bool = False
     # Effort level for reasoning models
     effort: str = ""
     # Agent loop: ""=off (graph-reentry), "agent"=内生多轮工具回灌
@@ -74,6 +76,7 @@ class NodeConfig:
             "max_iterations": self.max_iterations,
             "retry_on_error": self.retry_on_error,
             "allow_dynamic_tools": self.allow_dynamic_tools,
+            "disable_tools": self.disable_tools,
             "effort": self.effort,
             "loop_mode": self.loop_mode,
             "max_loop_iterations": self.max_loop_iterations,

@@ -35,6 +35,7 @@ class MockMLXClient:
     def __init__(self):
         self.call_count = 0
         self.responses = []
+        self.last_tools = None
 
     def add_response(self, content: str, tool_calls: list | None = None):
         self.responses.append({"content": content, "tool_calls": tool_calls or []})
@@ -43,6 +44,7 @@ class MockMLXClient:
         self, model, messages, tools=None, temperature=0.7, max_tokens=4096, **kwargs
     ):
         self.call_count += 1
+        self.last_tools = tools
         if not self.responses:
             from server.fusion_mlx_client import LLMResponse
 
@@ -739,3 +741,52 @@ class TestToolOutputMapping:
             pass
         # 非 JSON -> 回退整值
         assert runtime.variables.get("out") == "/tmp/video.mp4"
+
+
+class TestLLMNodeDisableTools:
+    """LLM 节点 disable_tools：为 True 时不注入 tools_schema。"""
+
+    @pytest.mark.asyncio
+    async def test_disable_tools_passes_none(self, mlx_client, tool_registry):
+        graph = AgentGraph(name="DisableTools")
+        graph.add_node("start", NodeConfig(type="start", label="Start"))
+        graph.add_node(
+            "llm",
+            NodeConfig(
+                type="llm",
+                label="Report",
+                model="test-model",
+                disable_tools=True,
+            ),
+        )
+        graph.add_node("end", NodeConfig(type="end", label="End"))
+        graph.add_edge("start", "llm")
+        graph.add_edge("llm", "end")
+        mlx_client.add_response("纯文本日报")
+        runtime = AgentRuntime(mlx_client, tool_registry)
+        async for _ in runtime.execute_graph(graph, "写日报"):
+            pass
+        # disable_tools=True -> 传给 LLM 的 tools 应为 None
+        assert mlx_client.last_tools is None
+
+    @pytest.mark.asyncio
+    async def test_default_injects_tools_schema(self, mlx_client, tool_registry):
+        graph = AgentGraph(name="DefaultTools")
+        graph.add_node("start", NodeConfig(type="start", label="Start"))
+        graph.add_node(
+            "llm",
+            NodeConfig(type="llm", label="LLM", model="test-model"),
+        )
+        graph.add_node("end", NodeConfig(type="end", label="End"))
+        graph.add_edge("start", "llm")
+        graph.add_edge("llm", "end")
+        mlx_client.add_response("ok")
+        runtime = AgentRuntime(mlx_client, tool_registry)
+        async for _ in runtime.execute_graph(graph, "go"):
+            pass
+        # 默认注入 -> tools_schema 非空且含已注册工具
+        assert mlx_client.last_tools is not None
+        assert isinstance(mlx_client.last_tools, list)
+        assert len(mlx_client.last_tools) >= 1
+        names = {t.get("function", {}).get("name") for t in mlx_client.last_tools}
+        assert "mock_tool" in names

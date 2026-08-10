@@ -721,6 +721,13 @@ class AgentRuntime:
         """Execute an LLM node — call fusion-mlx via HTTP API. Supports streaming."""
         messages = []
 
+        if node.disable_tools:
+            tools_schema = None
+            logger.info(
+                "LLM node %s disable_tools=True, tool injection skipped",
+                node.label,
+            )
+
         node_prompt = node.system_prompt or system_prompt
         if node_prompt:
             template_name = self._extract_template_name(node_prompt)
