@@ -229,6 +229,57 @@ class TestAgentSkills:
         )
         assert result["deleted"] is True
 
+    @pytest.mark.asyncio
+    async def test_skill_execute_not_found(self, daemon):
+        created = await _run(daemon, "agent.create", {"name": "SkillExecNF"})
+        agent_id = created["agent_id"]
+        result = await _run(
+            daemon,
+            "skill.execute",
+            {"agent_id": agent_id, "skill_name": "nope", "input": "hi"},
+        )
+        assert result["status"] == "error"
+        assert "Skill not found" in result["message"]
+
+    @pytest.mark.asyncio
+    async def test_skill_execute_runs_steps(self, daemon, monkeypatch):
+        created = await _run(daemon, "agent.create", {"name": "SkillExecRun"})
+        agent_id = created["agent_id"]
+        await _run(
+            daemon,
+            "agent.add_skill",
+            {
+                "agent_id": agent_id,
+                "skill_name": "two_step",
+                "skill_def": {
+                    "name": "two_step",
+                    "system_prompt": "You are a skill.",
+                    "steps": [
+                        {"name": "a", "prompt": "say A", "action": "generate"},
+                        {"name": "b", "prompt": "say B", "action": "generate"},
+                    ],
+                },
+            },
+        )
+
+        from agent_runtime.chat_engine import ChatEvent, ChatEventType
+
+        class _FakeEngine:
+            async def send(self, session_id, message, mode="", content=None):
+                yield ChatEvent(type=ChatEventType.TOKEN, content="ok")
+
+        monkeypatch.setattr(daemon, "_get_chat_engine", lambda: _FakeEngine())
+
+        result = await _run(
+            daemon,
+            "skill.execute",
+            {"agent_id": agent_id, "skill_name": "two_step", "input": "go"},
+        )
+        assert result["skill_name"] == "two_step"
+        assert len(result["steps"]) == 2
+        assert all(s["status"] == "completed" for s in result["steps"])
+        assert result["result"] == "ok"
+
 
 class TestAgentSoul:
     @pytest.mark.asyncio
