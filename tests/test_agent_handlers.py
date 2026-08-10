@@ -264,8 +264,15 @@ class TestAgentSkills:
 
         from agent_runtime.chat_engine import ChatEvent, ChatEventType
 
+        class _FakeSession:
+            id = "fake-session-id"
+
         class _FakeEngine:
+            def create_session(self, mode="simple", title="", graph_id="", metadata=None):
+                return _FakeSession()
+
             async def send(self, session_id, message, mode="", content=None):
+                assert session_id == "fake-session-id"
                 yield ChatEvent(type=ChatEventType.TOKEN, content="ok")
 
         monkeypatch.setattr(daemon, "_get_chat_engine", lambda: _FakeEngine())

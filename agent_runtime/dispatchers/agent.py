@@ -451,7 +451,12 @@ class AgentDispatcher(SubDispatcher):
         steps = skill_def.get("steps", [])
         results = []
         chat_engine = self._daemon._get_chat_engine()
-        session_id = f"skill-{agent_id}-{skill_name}-{id(params):012x}"
+        session = chat_engine.create_session(
+            mode="simple",
+            title=f"skill-{skill_name}",
+            metadata={"agent_id": agent_id, "skill_name": skill_name},
+        )
+        session_id = session.id
 
         if steps:
             step_results = []
