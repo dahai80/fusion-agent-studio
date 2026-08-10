@@ -439,13 +439,10 @@ class AgentDispatcher(SubDispatcher):
         if not pkg.exists:
             return {"status": "error", "message": f"Agent not found: {agent_id}"}
 
-        skills = pkg.list_skills()
-        skill_def = None
-        for s in skills:
-            if s.get("name") == skill_name:
-                skill_def = s
-                break
-        if skill_def is None:
+        if skill_name not in pkg.list_skills():
+            return {"status": "error", "message": f"Skill not found: {skill_name}"}
+        skill_def = pkg.load_skill(skill_name)
+        if not skill_def:
             return {"status": "error", "message": f"Skill not found: {skill_name}"}
 
         system_prompt = skill_def.get(
@@ -454,7 +451,12 @@ class AgentDispatcher(SubDispatcher):
         steps = skill_def.get("steps", [])
         results = []
         chat_engine = self._daemon._get_chat_engine()
-        session_id = f"skill-{agent_id}-{skill_name}-{id(params):012x}"
+        session = chat_engine.create_session(
+            mode="simple",
+            title=f"skill-{skill_name}",
+            metadata={"agent_id": agent_id, "skill_name": skill_name},
+        )
+        session_id = session.id
 
         if steps:
             step_results = []
