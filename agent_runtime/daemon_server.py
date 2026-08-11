@@ -1059,6 +1059,16 @@ class DaemonServer:
             raise ValueError(f"Graph not found: {graph_id}")
 
         rt = self._get_runtime()
+        initial_vars = params.get("variables", {})
+        if isinstance(initial_vars, dict):
+            for k, v in initial_vars.items():
+                rt.variables.set(str(k), v)
+            logger.info(
+                "graph.execute %s pre-set %d variables: %s",
+                graph_id,
+                len(initial_vars),
+                list(initial_vars.keys()),
+            )
         events = []
 
         async for event in rt.execute_graph(graph, input_text):
