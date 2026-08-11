@@ -1,5 +1,9 @@
 """Built-in tools for agent execution."""
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 from .artifact_fc_tools import (
     ArtifactContextBudgetTool,
     ArtifactCreateSnapshotTool,
@@ -100,4 +104,9 @@ def create_default_registry() -> ToolRegistry:
     registry.register(ArtifactPatchTool())
     registry.register(ArtifactLoadTool())
     registry.register(ArtifactContextBudgetTool())
+    from .plugin_manager import PluginManager
+    _pm = PluginManager(registry)
+    _pm.load_all()
+    if _pm.loaded_count:
+        logger.info("create_default_registry loaded %d plugin tools", _pm.loaded_count)
     return registry
