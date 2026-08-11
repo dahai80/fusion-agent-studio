@@ -783,7 +783,7 @@ class DaemonServer:
         if tool is None:
             return {"status": "error", "message": f"tool '{tool_name}' not found"}
         try:
-            result = await tool.execute(arguments)
+            result = await tool.execute(**arguments)
             return {"status": "ok", "result": result}
         except Exception as e:
             logger.error("tool.call %s failed: %s", tool_name, e)
