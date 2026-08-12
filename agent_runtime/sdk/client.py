@@ -63,7 +63,11 @@ class AgentClient:
     async def _connect(self):
         import asyncio
 
-        reader, writer = await asyncio.open_unix_connection(self.socket_path)
+        # asyncio StreamReader 默认 limit=64KB, graph.execute 全量 events 等大响应
+        # 单行 JSON 会超限抛 LimitOverrunError. 提高到 16MB 覆盖业务 DAG 响应.
+        reader, writer = await asyncio.open_unix_connection(
+            self.socket_path, limit=2**24
+        )
         return reader, writer
 
     async def ping(self) -> dict:
