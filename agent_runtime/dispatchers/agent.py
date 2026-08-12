@@ -492,6 +492,7 @@ class AgentDispatcher(SubDispatcher):
                             "name": step.get("name", f"Step {i + 1}"),
                             "action": action,
                             "status": "completed",
+                            "output": response_text,
                             "output_length": len(response_text),
                         }
                     )
@@ -532,6 +533,7 @@ class AgentDispatcher(SubDispatcher):
                         "name": skill_name,
                         "action": "generate",
                         "status": "completed",
+                        "output": final_result,
                         "output_length": len(final_result),
                     }
                 )
