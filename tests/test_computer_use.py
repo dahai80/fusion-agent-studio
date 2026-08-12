@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from tools import create_default_registry
@@ -115,6 +117,14 @@ class TestClipboardTool:
 
 
 class TestRegistryIntegration:
+    @pytest.fixture(autouse=True)
+    def _isolate_plugin_dir(self, tmp_path, monkeypatch):
+        # PR #116 起 create_default_registry 会 PluginManager.load_all()
+        # 读 ~/.fusion-agent-studio/plugins. 隔离到空 tmp 目录, 避免本机插件
+        # (如 douyin_*) 污染 registry.count 断言.
+        fake_home = tmp_path / "home"
+        monkeypatch.setattr(Path, "home", lambda: fake_home)
+
     def test_computer_use_tools_in_registry(self):
         registry = create_default_registry()
         assert registry.has("screen_capture")
