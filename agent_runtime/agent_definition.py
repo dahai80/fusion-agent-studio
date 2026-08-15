@@ -54,6 +54,7 @@ class AgentToolConfig:
     type: str = "function"
     description: str = ""
     endpoint: str = ""
+    config: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -61,6 +62,7 @@ class AgentToolConfig:
             "type": self.type,
             "description": self.description,
             "endpoint": self.endpoint,
+            "config": self.config,
         }
 
     @classmethod
@@ -70,6 +72,7 @@ class AgentToolConfig:
             type=data.get("type", "function"),
             description=data.get("description", ""),
             endpoint=data.get("endpoint", ""),
+            config=data.get("config", {}) or {},
         )
 
 
@@ -381,7 +384,12 @@ class AgentDefinition:
             kb_id=",".join(manifest_dict.get("knowledge_base_ids", [])),
             strategy=manifest_dict.get("rag_strategy", "hybrid"),
         )
-        tools_cfg = [AgentToolConfig(name=t) for t in manifest_dict.get("tools", [])]
+        tools_cfg = []
+        for t in manifest_dict.get("tools", []):
+            if isinstance(t, dict):
+                tools_cfg.append(AgentToolConfig.from_dict(t))
+            else:
+                tools_cfg.append(AgentToolConfig(name=str(t)))
         meta_cfg = AgentMetadataConfig(
             author=manifest_dict.get("author", ""),
             tags=manifest_dict.get("tags", []),

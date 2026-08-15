@@ -222,6 +222,7 @@ class AgentRuntime:
         self._tool_call_chain_count = 0
         self._safety_futures: dict[str, asyncio.Future[bool]] = {}
         self._safety_timeout: float = 60.0
+        self.tool_configs: dict[str, dict[str, Any]] = {}
 
         if llm_gateway:
             self.llm_gateway = llm_gateway
@@ -241,6 +242,35 @@ class AgentRuntime:
             "provided" if mlx_client else "none",
             "provided" if llm_gateway else ("auto-from-mlx" if mlx_client else "empty"),
         )
+
+    def set_tool_configs(self, definition: Any) -> None:
+        # 声明式工具配置注入 (#125): 从 AgentDefinition.tools[].config 构建
+        # tool_name -> config dict 映射, 工具执行时作为默认参数合并.
+        configs: dict[str, dict[str, Any]] = {}
+        tools = getattr(definition, "tools", None) or []
+        for tc in tools:
+            name = getattr(tc, "name", "") or ""
+            cfg = getattr(tc, "config", None) or {}
+            if name and isinstance(cfg, dict) and cfg:
+                configs[name] = cfg
+        self.tool_configs = configs
+        logger.info("set_tool_configs: %d tools with config", len(configs))
+
+    def _merge_tool_config_defaults(self, tool_name: str, args: dict) -> dict:
+        # 把 manifest 声明的 tool.config 作为默认参数合并; 调用方显式传参优先.
+        cfg = self.tool_configs.get(tool_name)
+        if not cfg:
+            return args
+        merged = dict(cfg)
+        if isinstance(args, dict):
+            merged.update(args)
+        logger.debug(
+            "tool %s config defaults merged: %d keys, overrides=%d",
+            tool_name,
+            len(cfg),
+            len(args) if isinstance(args, dict) else 0,
+        )
+        return merged
 
     async def execute_graph(
         self,
@@ -1135,6 +1165,9 @@ class AgentRuntime:
                     if tool is None:
                         raise KeyError(func_name)
                     validated_args = self._validate_tool_args(tool, func_args)
+                    validated_args = self._merge_tool_config_defaults(
+                        func_name, validated_args
+                    )
                     result = await tool.execute(**validated_args)
                 except KeyError:
                     result = f"Error: Tool '{func_name}' not found"
@@ -1636,6 +1669,7 @@ class AgentRuntime:
 
         try:
             tool = self.tools.get(node.tool_name)
+            params = self._merge_tool_config_defaults(node.tool_name, params)
             result = await tool.execute(**params)
         except KeyError:
             result = f"Error: Tool '{node.tool_name}' not found"
