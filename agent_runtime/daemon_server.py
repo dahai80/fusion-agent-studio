@@ -1724,9 +1724,9 @@ class DaemonServer:
         try:
             import httpx
 
-            # 携带 fusion-mlx 配置的 api_key，否则开启鉴权时 /models 返回 401
+            # 携带对应路径的 api_key，否则开启鉴权时 /models 返回 401
             # 被误判为不健康 (bug6 一直显示检测中)
-            key = self._read_mlx_api_key()
+            key = self._resolve_mlx_api_key_for_attach()
             headers = {"Authorization": f"Bearer {key}"} if key else {}
             async with httpx.AsyncClient(timeout=2.0) as client:
                 resp = await client.get(f"{MLX_BASE_URL}/models", headers=headers)
@@ -1738,7 +1738,7 @@ class DaemonServer:
         try:
             import httpx
 
-            key = self._read_mlx_api_key()
+            key = self._resolve_mlx_api_key_for_attach()
             headers = {"Authorization": f"Bearer {key}"} if key else {}
             async with httpx.AsyncClient(timeout=5.0) as client:
                 resp = await client.get(f"{MLX_BASE_URL}/models", headers=headers)
@@ -1759,7 +1759,7 @@ class DaemonServer:
     def _attach_mlx_client(self) -> None:
         from server.fusion_mlx_client import FusionMLXClient
 
-        api_key = self._read_mlx_api_key()
+        api_key = self._resolve_mlx_api_key_for_attach()
         client = FusionMLXClient(base_url=MLX_BASE_URL, api_key=api_key)
         self._gateway.set_default_client(client)
         loaded = self._discover_mlx_model_id(api_key)
@@ -1771,6 +1771,62 @@ class DaemonServer:
             "set" if api_key else "none",
             self._gateway._default_model,
         )
+
+    def _is_gateway_path(self) -> bool:
+        # NetLayer 方案B: MLX_BASE_URL 默认经 fusion-gateway (:11432)，
+        # gateway 客户端鉴权独立一套 (config.yaml auth.master_key/api_keys)，
+        # 与 fusion-mlx 的 upstream key (dahai168) 不同。直连 :11434 时返回 False。
+        # 运行时读 FUSION_MLX_PORT (而非 import 期捕获的 MLX_PORT), 支持 start.sh
+        # 重启时切换端口而不重新 import 模块 (issue #128 测试复现)。
+        if os.environ.get("FUSION_GATEWAY_URL"):
+            return True
+        port = int(os.environ.get("FUSION_MLX_PORT", str(MLX_PORT)))
+        return port != 11434
+
+    def _resolve_mlx_api_key_for_attach(self) -> str:
+        # 经 gateway 路径需用 gateway client key，否则 gateway 返回 401 →
+        # _discover_mlx_model_id 失败 → _default_model 空 → LLM 调用静默空输出 (issue #128)。
+        if self._is_gateway_path():
+            key = self._read_gateway_api_key()
+            if key:
+                logger.info("use gateway client api_key for attach (path=gateway)")
+                return key
+            logger.warning(
+                "gateway path but no gateway client key resolved, "
+                "fallback to mlx upstream key (may 401)"
+            )
+        return self._read_mlx_api_key()
+
+    def _read_gateway_api_key(self) -> str:
+        # gateway 客户端 key 优先级：
+        #   FUSION_GATEWAY_API_KEY 环境变量 > gateway config.yaml auth.master_key > api_keys[0].key
+        env_key = os.environ.get("FUSION_GATEWAY_API_KEY")
+        if env_key:
+            return env_key
+        cfg_path = os.environ.get(
+            "FUSION_GATEWAY_CONFIG",
+            os.path.expanduser("~/fusion/fusion-gateway/config.yaml"),
+        )
+        try:
+            import yaml
+
+            with open(cfg_path) as f:
+                data = yaml.safe_load(f) or {}
+            auth = data.get("auth") or {}
+            master = auth.get("master_key")
+            if master:
+                return str(master)
+            keys = auth.get("api_keys") or []
+            if keys and isinstance(keys, list):
+                first = keys[0] or {}
+                k = first.get("key")
+                if k:
+                    return str(k)
+        except FileNotFoundError:
+            logger.debug("gateway config not found: %s", cfg_path)
+        except Exception as exc:
+            logger.warning("read gateway api_key from %s failed: %s", cfg_path, exc)
+        return ""
 
     def _read_mlx_api_key(self) -> str:
         # 读取 fusion-mlx 配置的 api_key，避免硬编码 (bug1 联动)。
