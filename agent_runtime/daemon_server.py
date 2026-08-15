@@ -1069,6 +1069,31 @@ class DaemonServer:
                 len(initial_vars),
                 list(initial_vars.keys()),
             )
+        # 声明式工具配置注入 (#125): 按 agent_id 加载 definition, 把
+        # tools[].config 接入 runtime, 工具执行时作为默认参数合并.
+        agent_id = params.get("agent_id", "")
+        if agent_id:
+            try:
+                from .agent_definition import AgentDefinition
+
+                defn_path = os.path.join(
+                    str(self._agent_dir(agent_id)), "definition.json"
+                )
+                if os.path.exists(defn_path):
+                    with open(defn_path) as f:
+                        definition = AgentDefinition.from_dict(json.load(f))
+                    rt.set_tool_configs(definition)
+                    logger.info(
+                        "graph.execute %s loaded tool configs from agent %s",
+                        graph_id,
+                        agent_id,
+                    )
+            except Exception as exc:
+                logger.warning(
+                    "graph.execute %s load tool configs failed: %s",
+                    graph_id,
+                    exc,
+                )
         events = []
 
         async for event in rt.execute_graph(graph, input_text):
