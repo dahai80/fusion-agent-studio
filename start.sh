@@ -61,6 +61,10 @@ start() {
     export FUSION_SAFETY_LEVEL="${FUSION_SAFETY_LEVEL:-L2}"
     log_info "safety: injection=${FUSION_SAFETY_INJECTION} level=${FUSION_SAFETY_LEVEL}"
 
+    # 运维修补：清掉 shell 继承的 FUSION_MLX_API_KEY（可能过期 → daemon 调 mlx_script 401）。
+    # 统一走 ~/.fusion-mlx/settings.json auth.api_key，与 mlx daemon / comfyui 同源。
+    unset FUSION_MLX_API_KEY
+
     # Clean stale socket from a previous crash.
     rm -f "$SOCKET"
 
