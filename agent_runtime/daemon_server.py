@@ -1103,6 +1103,8 @@ class DaemonServer:
         if not isinstance(input_text, str):
             input_text = json.dumps(input_text, ensure_ascii=False)
         session_id = params.get("session_id", "")
+        # #141 priority-4: 透传 task_id, 执行产物回写 task.artifact_ids + 状态.
+        task_id = params.get("task_id", "")
 
         graph = self.store.load_graph(graph_id)
         if graph is None:
@@ -1146,18 +1148,76 @@ class DaemonServer:
                 )
         events = []
 
+        # #141 priority-4: 关联 task 时, 执行前置 running.
+        artifact_ids: list[str] = []
+        if task_id:
+            try:
+                ts = self._get_task_store()
+                ts.update_status(task_id, "running")
+                logger.info("graph.execute %s linked task %s -> running", graph_id, task_id)
+            except Exception as exc:
+                logger.warning("graph.execute %s set task %s running failed: %s", graph_id, task_id, exc)
+
         async for event in rt.execute_graph(graph, input_text):
             ev_dict = (
                 event.to_dict() if hasattr(event, "to_dict") else {"type": str(event)}
             )
             events.append(ev_dict)
+            # 收集 artifact_create 工具产物 id, 执行后回写 task.artifact_ids.
+            if (
+                ev_dict.get("type") == "tool_result"
+                and ev_dict.get("name") == "artifact_create"
+            ):
+                aid = self._extract_artifact_id(ev_dict.get("content", ""))
+                if aid:
+                    artifact_ids.append(aid)
 
         logger.info("Graph %s executed: %d events", graph_id, len(events))
+
+        # #141 priority-4: 关联 task 时, 回写 artifact_ids + 完成状态 + last_result.
+        if task_id:
+            try:
+                ts = self._get_task_store()
+                if artifact_ids:
+                    ts.add_artifacts(task_id, artifact_ids)
+                ts.update_status(
+                    task_id,
+                    "completed",
+                    last_result={
+                        "session_id": session_id or f"sess-{int(time.time())}",
+                        "events": len(events),
+                        "artifact_ids": artifact_ids,
+                    },
+                )
+                logger.info(
+                    "graph.execute %s linked task %s -> completed, artifacts=%s",
+                    graph_id,
+                    task_id,
+                    artifact_ids,
+                )
+            except Exception as exc:
+                logger.warning("graph.execute %s writeback task %s failed: %s", graph_id, task_id, exc)
+
         return {
             "session_id": session_id or f"sess-{int(time.time())}",
             "events": events,
             "status": "completed",
+            "task_id": task_id,
+            "artifact_ids": artifact_ids,
         }
+
+    def _extract_artifact_id(self, content: str) -> str:
+        # #141 priority-4: 从 artifact_create 工具结果 JSON 提取 artifact_id.
+        # 工具返回 json.dumps({"status":..., "artifact_id":...}); 容错非 JSON.
+        if not content:
+            return ""
+        try:
+            data = json.loads(content) if isinstance(content, str) else content
+            if isinstance(data, dict):
+                return str(data.get("artifact_id", "") or "")
+        except Exception:
+            return ""
+        return ""
 
     async def _handle_graph_update(self, params: dict) -> dict:
         graph_id = params.get("graph_id", "")
@@ -1469,10 +1529,11 @@ class DaemonServer:
                 logger.warning("Cron job %s input_data not JSON dict: %s", job.id, exc)
                 variables = {}
         logger.info("Cron job %s triggering graph.execute %s", job.id, job.graph_id)
-        result = await self._handle_graph_execute({
-            "graph_id": job.graph_id,
-            "variables": variables,
-        })
+        # #141 priority-4: input_data 可能携带 task_id, 透传让产物回写 task.
+        exec_params = {"graph_id": job.graph_id, "variables": variables}
+        if isinstance(variables, dict) and variables.get("task_id"):
+            exec_params["task_id"] = variables["task_id"]
+        result = await self._handle_graph_execute(exec_params)
         return {
             "status": result.get("status", ""),
             "events": len(result.get("events", [])),
