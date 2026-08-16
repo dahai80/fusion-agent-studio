@@ -415,6 +415,10 @@ class DaemonServer:
 
         self._running = True
         self._start_time = time.time()
+        try:
+            self._get_cron_manager().start()
+        except Exception as e:
+            logger.warning("Cron manager failed to start: %s", e)
         logger.info(
             "Daemon listening on %s + WS on %d + Cluster on %d + HTTP on %d",
             self.socket_path,
@@ -1434,8 +1438,34 @@ class DaemonServer:
             import os
 
             db_path = os.path.expanduser("~/.fusion-agent-studio/cron.db")
-            self._cron_manager = CronManager(db_path=db_path)
+            self._cron_manager = CronManager(db_path=db_path, default_handler=self._cron_default_handler)
         return self._cron_manager
+
+    async def _cron_default_handler(self, job) -> dict:
+        import json as _json
+
+        if not getattr(job, "graph_id", ""):
+            logger.warning("Cron job %s has no graph_id, skipping", job.id)
+            return {"status": "skipped", "reason": "no graph_id"}
+        variables = {}
+        raw = getattr(job, "input_data", "") or ""
+        if raw:
+            try:
+                variables = _json.loads(raw)
+                if not isinstance(variables, dict):
+                    variables = {"input": variables}
+            except Exception as exc:
+                logger.warning("Cron job %s input_data not JSON dict: %s", job.id, exc)
+                variables = {}
+        logger.info("Cron job %s triggering graph.execute %s", job.id, job.graph_id)
+        result = await self._handle_graph_execute({
+            "graph_id": job.graph_id,
+            "variables": variables,
+        })
+        return {
+            "status": result.get("status", ""),
+            "events": len(result.get("events", [])),
+        }
 
     async def _handle_tool_dynamic_register(self, params: dict) -> dict:
         from tools import ToolRegistry

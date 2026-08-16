@@ -166,13 +166,14 @@ class WebhookManager:
 class CronManager:
     """Manages scheduled cron jobs with SQLite persistence and full 5-field cron parsing."""
 
-    def __init__(self, db_path: str = ""):
+    def __init__(self, db_path: str = "", default_handler: Callable | None = None):
         self._jobs: dict[str, CronJob] = {}
         self._handlers: dict[str, Callable] = {}
         self._running = False
         self._task: asyncio.Task | None = None
         self._db_path = db_path
         self._conn = None
+        self._default_handler: Callable | None = default_handler
         if db_path:
             self._init_db(db_path)
             self._load_jobs()
@@ -385,7 +386,7 @@ class CronManager:
                         job_id=job.id,
                         started_at=now,
                     )
-                    handler = self._handlers.get(job.id)
+                    handler = self._handlers.get(job.id) or self._default_handler
                     if handler:
                         try:
                             result = await handler(job)

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import tempfile
 from pathlib import Path
@@ -118,6 +119,44 @@ class TestCronManager:
         # Actually, the loop sets next_run in register(), so it won't be 0
         # Let's just verify the loop doesn't crash
         assert True
+
+    @pytest.mark.asyncio
+    async def test_cron_default_handler_fallback(self, tmp_path):
+        # default_handler fires when no per-job handler stored (restart recovery path)
+        default = AsyncMock(return_value={"status": "completed", "events": 4})
+        cm = CronManager(db_path=str(tmp_path / "cron.db"), default_handler=default)
+        j = CronJob(id="cdef", name="Default", expression="* * * * *", graph_id="g1")
+        cm._jobs[j.id] = j
+        j.next_run = 1.0  # past timestamp -> triggers on next tick
+        cm._running = True  # enable loop body for one tick
+        try:
+            await asyncio.wait_for(cm._run_loop(), timeout=0.5)
+        except asyncio.TimeoutError:
+            pass
+        cm.stop()
+        default.assert_awaited_once()
+        args, _ = default.call_args
+        assert args[0].id == "cdef"
+        exes = cm.list_executions(job_id="cdef", limit=5)
+        assert any(e["status"] == "success" for e in exes)
+        cm.close()
+
+    @pytest.mark.asyncio
+    async def test_cron_no_handler_no_default(self, tmp_path):
+        # neither per-job nor default handler -> no_handler status
+        cm = CronManager(db_path=str(tmp_path / "cron.db"))
+        j = CronJob(id="cnone", name="Nope", expression="* * * * *")
+        cm._jobs[j.id] = j
+        j.next_run = 1.0  # past timestamp -> triggers on next tick
+        cm._running = True  # enable loop body for one tick
+        try:
+            await asyncio.wait_for(cm._run_loop(), timeout=0.5)
+        except asyncio.TimeoutError:
+            pass
+        cm.stop()
+        exes = cm.list_executions(job_id="cnone", limit=5)
+        assert any(e["status"] == "no_handler" for e in exes)
+        cm.close()
 
 
 # ── I18n ──
