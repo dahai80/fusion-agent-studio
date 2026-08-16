@@ -191,6 +191,7 @@ python my_agent.py
 - ✅ **数据阅读器** — Web、GitHub、Notion、PDF、目录阅读器，LlamaIndex 风格文档导入
 - ✅ **AgentPackage 工作区** — 快照/恢复工作区目录、.git 快照、源码管理、技能 DAG 导入/导出
 - ✅ **智能体循环 (内生回灌)** - `loop_mode="agent"` LLM 节点在每轮工具调用后重新调用自身，直到 end_turn；每节点 `max_loop_iterations` 上限，stop_reason 驱动终止
+- ✅ **逐节点模型卸载 (可选, #149)** - 环境变量 `FUSION_AGENT_UNLOAD_MODEL_AFTER_NODE=1` 在 LLM 节点推进到下一节点后，请求 fusion-mlx 卸载当前模型，降低多模型工作流链的内存峰值。默认关闭（保留连续同模型节点的模型复用）；非致命——卸载失败或模型已被驱逐都不会中断工作流；工具回灌轮不会触发卸载
 - ✅ **上下文压缩** - 4 阶段管道 (microcompact → smart-truncate → hard-compact) + `reactive_strip` 413 恢复；确定性优先，MLX 可选；接入智能体循环每轮；`LLMGateway` 中反应式 413 自动重试
 - ✅ **Hooks 生命周期** - `HookEngine` 10 个事件 (PRE/POST_TOOL_USE、SESSION_START/END、STOP、PRE_COMPACT、SUBAGENT_*、USER_PROMPT_SUBMIT)；回调 + 命令钩子，正则匹配，block/approve 决策
 - ✅ **工作流引擎** — 6 种执行模式 (pipeline、parallel_barrier、loop_until_dry、loop_until_budget、adversarial_verify、judge_panel)；WorkflowConfig + WorkflowRun 生命周期
