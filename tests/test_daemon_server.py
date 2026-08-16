@@ -1014,3 +1014,56 @@ class TestHarnessEndpoints:
             "context.usage",
         ]:
             assert daemon._get_handler(m) is not None, m
+
+
+class TestDaemonCronRuntime:
+    @pytest.mark.asyncio
+    async def test_cron_loop_started_with_daemon(self, daemon):
+        # 断裂点 1 修复: daemon start() 必须启动 cron loop
+        cm = daemon._get_cron_manager()
+        assert cm._running is True
+
+    @pytest.mark.asyncio
+    async def test_cron_default_handler_executes_graph(self, daemon):
+        # 断裂点 2 修复: 默认 handler 包装 graph.execute
+        create_resp = await _rpc_call(
+            daemon.socket_path,
+            "graph.create",
+            {
+                "name": "Cron Target",
+                "nodes": [
+                    {"id": "start", "type": "start"},
+                    {"id": "end", "type": "end"},
+                ],
+                "edges": [{"source_id": "start", "target_id": "end"}],
+            },
+        )
+        graph_id = create_resp["result"]["graph_id"]
+        reg_resp = await _rpc_call(
+            daemon.socket_path,
+            "cron.register",
+            {
+                "id": "cron_e2e_test",
+                "name": "E2E trigger",
+                "expression": "* * * * *",
+                "graph_id": graph_id,
+                "input_data": '{"hook_variant": "A"}',
+            },
+        )
+        assert reg_resp["result"]["status"] == "ok"
+        cm = daemon._get_cron_manager()
+        job = cm.get("cron_e2e_test")
+        assert job is not None and job.graph_id == graph_id
+        result = await daemon._cron_default_handler(job)
+        assert result["status"] == "completed"
+        assert result["events"] >= 1
+        await cm.aunregister("cron_e2e_test")
+
+    @pytest.mark.asyncio
+    async def test_cron_default_handler_no_graph_id_skips(self, daemon):
+        from agent_runtime.triggers import CronJob
+
+        job = CronJob(id="skip_test", name="No graph", expression="* * * * *")
+        result = await daemon._cron_default_handler(job)
+        assert result["status"] == "skipped"
+        assert result["reason"] == "no graph_id"
