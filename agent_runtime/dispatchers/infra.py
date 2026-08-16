@@ -37,6 +37,12 @@ class InfraDispatcher(SubDispatcher):
             "cron.unregister": self._handle_cron_unregister,
             "cron.list": self._handle_cron_list,
             "cron.list_executions": self._handle_cron_list_executions,
+            "task.submit": self._handle_task_submit,
+            "task.list": self._handle_task_list,
+            "task.get": self._handle_task_get,
+            "task.status": self._handle_task_status,
+            "task.cancel": self._handle_task_cancel,
+            "task.rerun": self._handle_task_rerun,
             "hooks.list": self._handle_hooks_list,
             "hooks.register": self._handle_hooks_register,
             "hooks.test": self._handle_hooks_test,
@@ -205,6 +211,110 @@ class InfraDispatcher(SubDispatcher):
         job_id = params.get("job_id", "")
         limit = params.get("limit", 20)
         return {"executions": await cm.alist_executions(job_id=job_id, limit=limit)}
+
+    # ── Task handlers (#141 priority 1: task.* 持久化) ──
+
+    async def _handle_task_submit(self, params: dict) -> dict:
+        # 提交通用 Task. trigger=immediate/cron/run_at; cron 同步注册 cron job 关联.
+        from ..task_store import TRIGGER_CRON, Task
+
+        store = self._daemon._get_task_store()
+        trigger = params.get("trigger", "immediate")
+        task = Task(
+            task_id=params.get("task_id", ""),
+            title=params.get("title", ""),
+            description=params.get("description", ""),
+            agent_id=params.get("agent_id", ""),
+            graph_id=params.get("graph_id", ""),
+            trigger=trigger,
+            cron_expression=params.get("cron_expression", ""),
+            run_at=float(params.get("run_at", 0) or 0),
+            input=params.get("input", ""),
+            status=params.get("status", "pending"),
+            priority=int(params.get("priority", 0) or 0),
+            session_id=params.get("session_id", ""),
+            max_retries=int(params.get("max_retries", 0) or 0),
+        )
+        task = store.submit(task)
+        # cron 触发: 同步注册 cron job, 回写 cron_job_id 关联.
+        if trigger == TRIGGER_CRON and task.cron_expression and task.graph_id:
+            try:
+                from ..triggers import CronJob
+
+                cm = self._daemon._get_cron_manager()
+                job = CronJob(
+                    id=f"{task.task_id}_cron",
+                    name=task.title or task.task_id,
+                    expression=task.cron_expression,
+                    graph_id=task.graph_id,
+                    input_data=task.input,
+                    max_retries=task.max_retries,
+                )
+                await cm.aregister(job)
+                task.cron_job_id = job.id
+                task.updated_at = time.time()
+                store.submit(task)
+                logger.info("task %s linked cron job %s", task.task_id, job.id)
+            except Exception as exc:
+                logger.warning("task %s cron register failed: %s", task.task_id, exc)
+        return {"status": "ok", "task": task.to_dict()}
+
+    async def _handle_task_list(self, params: dict) -> dict:
+        store = self._daemon._get_task_store()
+        tasks = store.list(
+            status=params.get("status", ""),
+            agent_id=params.get("agent_id", ""),
+            limit=int(params.get("limit", 100) or 100),
+        )
+        return {"tasks": tasks, "total": len(tasks)}
+
+    async def _handle_task_get(self, params: dict) -> dict:
+        store = self._daemon._get_task_store()
+        task_id = params.get("task_id", "")
+        task = store.get(task_id)
+        if not task:
+            return {"status": "error", "message": f"Task not found: {task_id}"}
+        return {"task": task.to_dict()}
+
+    async def _handle_task_status(self, params: dict) -> dict:
+        store = self._daemon._get_task_store()
+        task_id = params.get("task_id", "")
+        status = params.get("status", "")
+        ok = store.update_status(
+            task_id,
+            status,
+            last_result=params.get("last_result"),
+            last_error=params.get("last_error", ""),
+        )
+        if not ok:
+            return {"status": "error", "message": f"Task not found or invalid status: {task_id}/{status}"}
+        task = store.get(task_id)
+        return {"status": "ok", "task": task.to_dict() if task else None}
+
+    async def _handle_task_cancel(self, params: dict) -> dict:
+        store = self._daemon._get_task_store()
+        task_id = params.get("task_id", "")
+        ok = store.cancel(task_id)
+        if not ok:
+            return {"status": "error", "message": f"Task not cancelable: {task_id}"}
+        task = store.get(task_id)
+        # cron 关联的 job 一并注销.
+        if task and task.cron_job_id:
+            try:
+                cm = self._daemon._get_cron_manager()
+                await cm.aunregister(task.cron_job_id)
+                logger.info("task %s canceled, unregistered cron job %s", task_id, task.cron_job_id)
+            except Exception as exc:
+                logger.warning("task %s cron unregister failed: %s", task_id, exc)
+        return {"status": "ok", "task": task.to_dict() if task else None}
+
+    async def _handle_task_rerun(self, params: dict) -> dict:
+        store = self._daemon._get_task_store()
+        task_id = params.get("task_id", "")
+        task = store.rerun(task_id)
+        if not task:
+            return {"status": "error", "message": f"Task not found: {task_id}"}
+        return {"status": "ok", "task": task.to_dict()}
 
     # ── Dynamic tool handlers ──
 

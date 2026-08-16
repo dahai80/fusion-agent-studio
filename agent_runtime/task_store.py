@@ -1,0 +1,350 @@
+"""Task persistence — generic Task records backed by SQLite.
+
+模式参考 triggers.CronManager: 同目录 ~/.fusion-agent-studio/ 下独立 db,
+INSERT OR REPLACE upsert, check_same_thread=False, to_thread 异步写.
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+import sqlite3
+import time
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any
+
+logger = logging.getLogger(__name__)
+
+# Task 状态机: pending(已提交待触发) -> running(执行中) -> completed/failed/canceled
+TASK_STATUS_PENDING = "pending"
+TASK_STATUS_RUNNING = "running"
+TASK_STATUS_COMPLETED = "completed"
+TASK_STATUS_FAILED = "failed"
+TASK_STATUS_CANCELED = "canceled"
+
+# 触发类型: immediate(立即) / cron(周期) / run_at(一次性定时)
+TRIGGER_IMMEDIATE = "immediate"
+TRIGGER_CRON = "cron"
+TRIGGER_RUN_AT = "run_at"
+
+_VALID_STATUSES = {
+    TASK_STATUS_PENDING,
+    TASK_STATUS_RUNNING,
+    TASK_STATUS_COMPLETED,
+    TASK_STATUS_FAILED,
+    TASK_STATUS_CANCELED,
+}
+_VALID_TRIGGERS = {TRIGGER_IMMEDIATE, TRIGGER_CRON, TRIGGER_RUN_AT}
+
+
+@dataclass
+class Task:
+    # 通用 Task 记录: 关联 agent/graph, 可 immediate/cron/run_at 触发, 持久化产物与结果.
+    task_id: str = ""
+    title: str = ""
+    description: str = ""
+    agent_id: str = ""
+    graph_id: str = ""
+    trigger: str = TRIGGER_IMMEDIATE
+    cron_expression: str = ""
+    run_at: float = 0.0
+    cron_job_id: str = ""
+    input: str = ""
+    status: str = TASK_STATUS_PENDING
+    priority: int = 0
+    session_id: str = ""
+    artifact_ids: list[str] = field(default_factory=list)
+    last_result: dict[str, Any] = field(default_factory=dict)
+    last_error: str = ""
+    retry_count: int = 0
+    max_retries: int = 0
+    created_at: float = 0.0
+    updated_at: float = 0.0
+    last_run_at: float = 0.0
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "task_id": self.task_id,
+            "title": self.title,
+            "description": self.description,
+            "agent_id": self.agent_id,
+            "graph_id": self.graph_id,
+            "trigger": self.trigger,
+            "cron_expression": self.cron_expression,
+            "run_at": self.run_at,
+            "cron_job_id": self.cron_job_id,
+            "input": self.input,
+            "status": self.status,
+            "priority": self.priority,
+            "session_id": self.session_id,
+            "artifact_ids": list(self.artifact_ids),
+            "last_result": dict(self.last_result),
+            "last_error": self.last_error,
+            "retry_count": self.retry_count,
+            "max_retries": self.max_retries,
+            "created_at": self.created_at,
+            "updated_at": self.updated_at,
+            "last_run_at": self.last_run_at,
+        }
+
+    @classmethod
+    def from_row(cls, row: tuple) -> Task:
+        # row 顺序与 _init_db 列定义一致.
+        artifact_ids = []
+        if row[12]:
+            try:
+                artifact_ids = json.loads(row[12])
+                if not isinstance(artifact_ids, list):
+                    artifact_ids = []
+            except Exception:
+                artifact_ids = []
+        last_result = {}
+        if row[13]:
+            try:
+                decoded = json.loads(row[13])
+                if isinstance(decoded, dict):
+                    last_result = decoded
+            except Exception:
+                last_result = {}
+        return cls(
+            task_id=row[0],
+            title=row[1],
+            description=row[2],
+            agent_id=row[3],
+            graph_id=row[4],
+            trigger=row[5],
+            cron_expression=row[6],
+            run_at=row[7],
+            cron_job_id=row[8],
+            input=row[9],
+            status=row[10],
+            priority=row[11],
+            artifact_ids=artifact_ids,
+            last_result=last_result,
+            last_error=row[14] or "",
+            retry_count=row[15],
+            max_retries=row[16],
+            created_at=row[17],
+            updated_at=row[18],
+            last_run_at=row[19],
+        )
+
+
+class TaskStore:
+    # SQLite 持久化 Task 记录. db_path 空则不落库(仅内存, 测试可用).
+    def __init__(self, db_path: str = ""):
+        self._tasks: dict[str, Task] = {}
+        self._db_path = db_path
+        self._conn: sqlite3.Connection | None = None
+        # 自增序号, 配合毫秒时间戳生成唯一 task_id, 避免同毫秒并发提交撞 id.
+        self._id_seq = 0
+        if db_path:
+            self._init_db(db_path)
+            self._load_tasks()
+            # 载入已有任务后, 序号至少覆盖现有数量, 防止新 id 撞上老 id.
+            self._id_seq = len(self._tasks)
+
+    def _init_db(self, db_path: str) -> None:
+        path = Path(db_path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        self._conn = sqlite3.connect(str(path), check_same_thread=False)
+        self._conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS tasks (
+                task_id TEXT PRIMARY KEY,
+                title TEXT DEFAULT '',
+                description TEXT DEFAULT '',
+                agent_id TEXT DEFAULT '',
+                graph_id TEXT DEFAULT '',
+                trigger TEXT DEFAULT 'immediate',
+                cron_expression TEXT DEFAULT '',
+                run_at REAL DEFAULT 0,
+                cron_job_id TEXT DEFAULT '',
+                input TEXT DEFAULT '',
+                status TEXT DEFAULT 'pending',
+                priority INTEGER DEFAULT 0,
+                artifact_ids TEXT DEFAULT '[]',
+                last_result TEXT DEFAULT '{}',
+                last_error TEXT DEFAULT '',
+                retry_count INTEGER DEFAULT 0,
+                max_retries INTEGER DEFAULT 0,
+                created_at REAL DEFAULT 0,
+                updated_at REAL DEFAULT 0,
+                last_run_at REAL DEFAULT 0
+            )
+            """
+        )
+        self._conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status)"
+        )
+        self._conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_tasks_agent ON tasks(agent_id)"
+        )
+        self._conn.commit()
+        logger.info("TaskStore DB initialized: %s", db_path)
+
+    def _load_tasks(self) -> None:
+        if not self._conn:
+            return
+        rows = self._conn.execute("SELECT * FROM tasks").fetchall()
+        for row in rows:
+            task = Task.from_row(row)
+            self._tasks[task.task_id] = task
+        logger.info("Loaded %d tasks from DB", len(self._tasks))
+
+    def _save_task(self, task: Task) -> None:
+        if not self._conn:
+            return
+        self._conn.execute(
+            """INSERT OR REPLACE INTO tasks
+               (task_id, title, description, agent_id, graph_id, trigger,
+                cron_expression, run_at, cron_job_id, input, status, priority,
+                artifact_ids, last_result, last_error, retry_count, max_retries,
+                created_at, updated_at, last_run_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                task.task_id,
+                task.title,
+                task.description,
+                task.agent_id,
+                task.graph_id,
+                task.trigger,
+                task.cron_expression,
+                task.run_at,
+                task.cron_job_id,
+                task.input,
+                task.status,
+                task.priority,
+                json.dumps(task.artifact_ids, ensure_ascii=False),
+                json.dumps(task.last_result, ensure_ascii=False),
+                task.last_error,
+                task.retry_count,
+                task.max_retries,
+                task.created_at,
+                task.updated_at,
+                task.last_run_at,
+            ),
+        )
+        self._conn.commit()
+
+    def _delete_task(self, task_id: str) -> None:
+        if not self._conn:
+            return
+        self._conn.execute("DELETE FROM tasks WHERE task_id = ?", (task_id,))
+        self._conn.commit()
+
+    def submit(self, task: Task) -> Task:
+        # 新建/覆盖提交. 自动补 task_id/时间戳; trigger/status 走校验回退默认.
+        # task_id 用 毫秒+自增序号 避免同毫秒并发提交撞 id (INSERT OR REPLACE 会覆盖).
+        if not task.task_id:
+            self._id_seq += 1
+            task.task_id = f"task_{int(time.time() * 1000)}_{self._id_seq}"
+        if not task.created_at:
+            task.created_at = time.time()
+        task.updated_at = time.time()
+        if task.trigger not in _VALID_TRIGGERS:
+            logger.warning("invalid trigger=%s, fallback immediate", task.trigger)
+            task.trigger = TRIGGER_IMMEDIATE
+        if task.status not in _VALID_STATUSES:
+            task.status = TASK_STATUS_PENDING
+        self._tasks[task.task_id] = task
+        self._save_task(task)
+        logger.info(
+            "Task submitted: %s trigger=%s graph=%s status=%s",
+            task.task_id, task.trigger, task.graph_id, task.status,
+        )
+        return task
+
+    def get(self, task_id: str) -> Task | None:
+        return self._tasks.get(task_id)
+
+    def list(
+        self,
+        status: str = "",
+        agent_id: str = "",
+        limit: int = 100,
+    ) -> list[dict]:
+        tasks = list(self._tasks.values())
+        if status:
+            tasks = [t for t in tasks if t.status == status]
+        if agent_id:
+            tasks = [t for t in tasks if t.agent_id == agent_id]
+        tasks.sort(key=lambda t: (t.priority, t.created_at), reverse=True)
+        if limit > 0:
+            tasks = tasks[:limit]
+        return [t.to_dict() for t in tasks]
+
+    def update_status(
+        self,
+        task_id: str,
+        status: str,
+        last_result: dict | None = None,
+        last_error: str = "",
+    ) -> bool:
+        task = self._tasks.get(task_id)
+        if not task:
+            return False
+        if status not in _VALID_STATUSES:
+            logger.warning("invalid status=%s, ignore", status)
+            return False
+        task.status = status
+        task.updated_at = time.time()
+        if status == TASK_STATUS_RUNNING:
+            task.last_run_at = task.updated_at
+        if last_result is not None:
+            task.last_result = last_result
+        if last_error:
+            task.last_error = last_error
+        self._save_task(task)
+        logger.info(
+            "Task %s status -> %s (result=%d keys, error=%d chars)",
+            task_id, status, len(task.last_result), len(task.last_error),
+        )
+        return True
+
+    def cancel(self, task_id: str) -> bool:
+        # 仅 pending/running 可取消; completed/failed/canceled 幂等返 False.
+        task = self._tasks.get(task_id)
+        if not task:
+            return False
+        if task.status in (TASK_STATUS_COMPLETED, TASK_STATUS_CANCELED):
+            return False
+        return self.update_status(task_id, TASK_STATUS_CANCELED)
+
+    def rerun(self, task_id: str) -> Task | None:
+        # 重置为 pending, retry_count+1, 供调度/前端再次拉起.
+        task = self._tasks.get(task_id)
+        if not task:
+            return None
+        task.status = TASK_STATUS_PENDING
+        task.retry_count += 1
+        task.last_error = ""
+        task.updated_at = time.time()
+        self._save_task(task)
+        logger.info("Task %s rerun queued, retry_count=%d", task_id, task.retry_count)
+        return task
+
+    def add_artifacts(self, task_id: str, artifact_ids: list[str]) -> bool:
+        task = self._tasks.get(task_id)
+        if not task:
+            return False
+        for aid in artifact_ids:
+            if aid and aid not in task.artifact_ids:
+                task.artifact_ids.append(aid)
+        task.updated_at = time.time()
+        self._save_task(task)
+        return True
+
+    def delete(self, task_id: str) -> bool:
+        task = self._tasks.pop(task_id, None)
+        if not task:
+            return False
+        self._delete_task(task_id)
+        logger.info("Task deleted: %s", task_id)
+        return True
+
+    def close(self) -> None:
+        if self._conn:
+            self._conn.close()
+            self._conn = None

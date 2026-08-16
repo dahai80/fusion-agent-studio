@@ -20,10 +20,19 @@ from agent_runtime.daemon_server import DaemonServer
 
 
 def _mlx_reachable() -> bool:
+    # 与 daemon_server._check_mlx_health 探测的 MLX_BASE_URL 对齐:
+    # NetLayer 方案B 后默认经 gateway :11432, 不再直连 :11434.
+    # 否则 gateway 起着但 11434 没起时, _MLX_UP=False 却 mlx.health=True, "not running" 用例误判失败.
     import socket
+    from urllib.parse import urlparse
 
+    gw = os.environ.get("FUSION_GATEWAY_URL")
+    url = gw or f"http://127.0.0.1:{os.environ.get('FUSION_MLX_PORT', '11432')}/v1"
+    parsed = urlparse(url)
+    host = parsed.hostname or "127.0.0.1"
+    port = parsed.port or (443 if parsed.scheme == "https" else 80)
     try:
-        with socket.create_connection(("127.0.0.1", 11434), timeout=0.5):
+        with socket.create_connection((host, port), timeout=0.5):
             return True
     except OSError:
         return False
