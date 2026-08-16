@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import sqlite3
 import time
 from contextlib import contextmanager
@@ -13,6 +14,9 @@ from typing import Any
 from .chat_engine import ChatSession
 from .context import AgentContext
 from .graph import AgentGraph
+
+logger = logging.getLogger(__name__)
+
 
 
 @dataclass
@@ -179,6 +183,48 @@ class AgentStore:
         with self._cursor() as conn:
             cursor = conn.execute("DELETE FROM graphs WHERE id = ?", (graph_id,))
         return cursor.rowcount > 0
+
+    def delete_graphs_by_names(self, names: list[str]) -> int:
+        """批量删除指定名称的 graph（用于清理测试残留）。
+
+        Args:
+            names: 要删除的 graph 名称列表（精确匹配）
+
+        Returns:
+            实际删除的条数
+        """
+        if not names:
+            return 0
+        placeholders = ",".join("?" for _ in names)
+        with self._cursor() as conn:
+            cursor = conn.execute(
+                f"DELETE FROM graphs WHERE name IN ({placeholders})",
+                names,
+            )
+        deleted = cursor.rowcount
+        logger.info("delete_graphs_by_names: deleted %d graphs (names=%s)", deleted, names)
+        return deleted
+
+    def delete_graphs_by_name_prefix(self, prefix: str) -> int:
+        """删除名称以指定前缀开头的 graph（如 'e2e-' 前缀清理 e2e 测试残留）。
+
+        Args:
+            prefix: 名称前缀
+
+        Returns:
+            实际删除的条数
+        """
+        if not prefix:
+            return 0
+        pattern = f"{prefix}%"
+        with self._cursor() as conn:
+            cursor = conn.execute(
+                "DELETE FROM graphs WHERE name LIKE ?",
+                (pattern,),
+            )
+        deleted = cursor.rowcount
+        logger.info("delete_graphs_by_name_prefix: deleted %d graphs (prefix=%s)", deleted, prefix)
+        return deleted
 
     # ── Session Management ──
 

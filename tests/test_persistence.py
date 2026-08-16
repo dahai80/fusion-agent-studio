@@ -63,6 +63,32 @@ class TestAgentStore:
         deleted = store.delete_graph("nonexistent")
         assert deleted is False
 
+    def test_delete_graphs_by_names(self, store):
+        for name in ["Test Agent", "Test Agent", "fetch-me", "keep-me"]:
+            g = AgentGraph(name=name)
+            store.save_graph(g)
+        assert len(store.list_graphs()) == 4
+        deleted = store.delete_graphs_by_names(["Test Agent", "fetch-me"])
+        assert deleted == 3
+        remaining = [g["name"] for g in store.list_graphs()]
+        assert remaining == ["keep-me"]
+
+    def test_delete_graphs_by_names_empty(self, store):
+        assert store.delete_graphs_by_names([]) == 0
+
+    def test_delete_graphs_by_name_prefix(self, store):
+        for name in ["e2e-test", "e2e-loop", "e2e-rag", "douyin_daily", "keep"]:
+            g = AgentGraph(name=name)
+            store.save_graph(g)
+        assert len(store.list_graphs()) == 5
+        deleted = store.delete_graphs_by_name_prefix("e2e-")
+        assert deleted == 3
+        remaining = sorted(g["name"] for g in store.list_graphs())
+        assert remaining == ["douyin_daily", "keep"]
+
+    def test_delete_graphs_by_name_prefix_empty(self, store):
+        assert store.delete_graphs_by_name_prefix("") == 0
+
     def test_list_graphs(self, store, sample_graph):
         store.save_graph(sample_graph)
         graphs = store.list_graphs()
