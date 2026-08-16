@@ -347,3 +347,118 @@ class TestTaskArtifactWriteback:
         assert resp["result"]["status"] == "completed"
         assert resp["result"]["artifact_ids"] == ["art-doc"]
         assert resp["result"]["task_id"] == ""
+
+
+# ── #141 priority-2: project.* 多 Task 聚合容器 (TaskBoardView 看板) ──
+
+
+class TestProjectStoreUnit:
+    def test_projects_aggregates_counts(self, store):
+        from agent_runtime.task_store import Task
+
+        store.submit(Task(task_id="t1", title="a", project_id="proj-A", status=TASK_STATUS_PENDING))
+        store.submit(Task(task_id="t2", title="b", project_id="proj-A", status=TASK_STATUS_COMPLETED))
+        store.submit(Task(task_id="t3", title="c", project_id="proj-B", status=TASK_STATUS_RUNNING))
+        # project_id 空的不计入聚合.
+        store.submit(Task(task_id="t4", title="d", project_id=""))
+        projects = store.projects()
+        pids = {p["project_id"] for p in projects}
+        assert pids == {"proj-A", "proj-B"}
+        a = next(p for p in projects if p["project_id"] == "proj-A")
+        assert a["total"] == 2
+        assert a["pending"] == 1
+        assert a["completed"] == 1
+
+    def test_list_filters_by_project(self, store):
+        from agent_runtime.task_store import Task
+
+        store.submit(Task(task_id="t1", title="a", project_id="proj-A"))
+        store.submit(Task(task_id="t2", title="b", project_id="proj-B"))
+        store.submit(Task(task_id="t3", title="c", project_id="proj-A"))
+        a_tasks = store.list(project_id="proj-A")
+        assert [t["task_id"] for t in a_tasks] == ["t3", "t1"]
+
+    def test_project_id_persisted_roundtrip(self, tmp_path):
+        from agent_runtime.task_store import Task
+
+        s = TaskStore(db_path=str(tmp_path / "proj_tasks.db"))
+        s.submit(Task(task_id="t1", title="x", project_id="proj-A"))
+        s.close()
+        s2 = TaskStore(db_path=str(tmp_path / "proj_tasks.db"))
+        t = s2.get("t1")
+        assert t is not None
+        assert t.project_id == "proj-A"
+        s2.close()
+
+    def test_old_db_migrates_project_id_column(self, tmp_path):
+        # 老库无 project_id 列(其余列齐全), 重新打开应自动 ALTER 迁移, 不报错.
+        import sqlite3
+
+        dbp = str(tmp_path / "old_tasks.db")
+        conn = sqlite3.connect(dbp)
+        conn.execute(
+            """CREATE TABLE tasks (
+                task_id TEXT PRIMARY KEY, title TEXT DEFAULT '',
+                description TEXT DEFAULT '', agent_id TEXT DEFAULT '',
+                graph_id TEXT DEFAULT '', trigger TEXT DEFAULT 'immediate',
+                cron_expression TEXT DEFAULT '', run_at REAL DEFAULT 0,
+                cron_job_id TEXT DEFAULT '', input TEXT DEFAULT '',
+                status TEXT DEFAULT 'pending', priority INTEGER DEFAULT 0,
+                artifact_ids TEXT DEFAULT '[]', last_result TEXT DEFAULT '{}',
+                last_error TEXT DEFAULT '', retry_count INTEGER DEFAULT 0,
+                max_retries INTEGER DEFAULT 0, created_at REAL DEFAULT 0,
+                updated_at REAL DEFAULT 0, last_run_at REAL DEFAULT 0
+            )"""
+        )
+        conn.execute("INSERT INTO tasks (task_id, title) VALUES ('old1', 'legacy')")
+        conn.commit()
+        conn.close()
+        s = TaskStore(db_path=dbp)
+        t = s.get("old1")
+        assert t is not None
+        assert t.project_id == ""
+        s.close()
+
+
+class TestProjectRpc:
+    @pytest.mark.asyncio
+    async def test_project_list_aggregates(self, daemon):
+        await _rpc_call(daemon.socket_path, "task.submit", {"title": "a", "project_id": "proj-A"})
+        await _rpc_call(
+            daemon.socket_path,
+            "task.submit",
+            {"title": "b", "project_id": "proj-A", "status": "completed"},
+        )
+        await _rpc_call(daemon.socket_path, "task.submit", {"title": "c", "project_id": "proj-B"})
+        resp = await _rpc_call(daemon.socket_path, "project.list", {})
+        projects = resp["result"]["projects"]
+        a = next(p for p in projects if p["project_id"] == "proj-A")
+        assert a["total"] == 2
+        assert a["completed"] == 1
+        b = next(p for p in projects if p["project_id"] == "proj-B")
+        assert b["total"] == 1
+
+    @pytest.mark.asyncio
+    async def test_project_tasks_filter(self, daemon):
+        await _rpc_call(daemon.socket_path, "task.submit", {"title": "a", "project_id": "proj-X"})
+        s2 = await _rpc_call(
+            daemon.socket_path,
+            "task.submit",
+            {"title": "b", "project_id": "proj-X", "status": "completed"},
+        )
+        await _rpc_call(daemon.socket_path, "task.submit", {"title": "c", "project_id": "proj-Y"})
+        resp = await _rpc_call(daemon.socket_path, "project.tasks", {"project_id": "proj-X"})
+        assert resp["result"]["project_id"] == "proj-X"
+        assert resp["result"]["total"] == 2
+        done = await _rpc_call(
+            daemon.socket_path,
+            "project.tasks",
+            {"project_id": "proj-X", "status": "completed"},
+        )
+        assert done["result"]["total"] == 1
+        assert done["result"]["tasks"][0]["task_id"] == s2["result"]["task"]["task_id"]
+
+    @pytest.mark.asyncio
+    async def test_project_tasks_requires_project_id(self, daemon):
+        resp = await _rpc_call(daemon.socket_path, "project.tasks", {})
+        assert resp["result"]["status"] == "error"

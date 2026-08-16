@@ -37,6 +37,14 @@ _VALID_STATUSES = {
 }
 _VALID_TRIGGERS = {TRIGGER_IMMEDIATE, TRIGGER_CRON, TRIGGER_RUN_AT}
 
+# 列读取顺序(显式 SELECT, 保证 from_row 位置稳定, 不受 ALTER 追列影响).
+_TASK_COLUMNS = [
+    "task_id", "title", "description", "agent_id", "graph_id", "trigger",
+    "cron_expression", "run_at", "cron_job_id", "input", "status", "priority",
+    "project_id", "artifact_ids", "last_result", "last_error", "retry_count",
+    "max_retries", "created_at", "updated_at", "last_run_at",
+]
+
 
 @dataclass
 class Task:
@@ -54,6 +62,7 @@ class Task:
     status: str = TASK_STATUS_PENDING
     priority: int = 0
     session_id: str = ""
+    project_id: str = ""
     artifact_ids: list[str] = field(default_factory=list)
     last_result: dict[str, Any] = field(default_factory=dict)
     last_error: str = ""
@@ -78,6 +87,7 @@ class Task:
             "status": self.status,
             "priority": self.priority,
             "session_id": self.session_id,
+            "project_id": self.project_id,
             "artifact_ids": list(self.artifact_ids),
             "last_result": dict(self.last_result),
             "last_error": self.last_error,
@@ -92,17 +102,17 @@ class Task:
     def from_row(cls, row: tuple) -> Task:
         # row 顺序与 _init_db 列定义一致.
         artifact_ids = []
-        if row[12]:
+        if row[13]:
             try:
-                artifact_ids = json.loads(row[12])
+                artifact_ids = json.loads(row[13])
                 if not isinstance(artifact_ids, list):
                     artifact_ids = []
             except Exception:
                 artifact_ids = []
         last_result = {}
-        if row[13]:
+        if row[14]:
             try:
-                decoded = json.loads(row[13])
+                decoded = json.loads(row[14])
                 if isinstance(decoded, dict):
                     last_result = decoded
             except Exception:
@@ -120,14 +130,15 @@ class Task:
             input=row[9],
             status=row[10],
             priority=row[11],
+            project_id=row[12] or "",
             artifact_ids=artifact_ids,
             last_result=last_result,
-            last_error=row[14] or "",
-            retry_count=row[15],
-            max_retries=row[16],
-            created_at=row[17],
-            updated_at=row[18],
-            last_run_at=row[19],
+            last_error=row[15] or "",
+            retry_count=row[16],
+            max_retries=row[17],
+            created_at=row[18],
+            updated_at=row[19],
+            last_run_at=row[20],
         )
 
 
@@ -164,6 +175,7 @@ class TaskStore:
                 input TEXT DEFAULT '',
                 status TEXT DEFAULT 'pending',
                 priority INTEGER DEFAULT 0,
+                project_id TEXT DEFAULT '',
                 artifact_ids TEXT DEFAULT '[]',
                 last_result TEXT DEFAULT '{}',
                 last_error TEXT DEFAULT '',
@@ -181,13 +193,23 @@ class TaskStore:
         self._conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_tasks_agent ON tasks(agent_id)"
         )
+        # 老库迁移: CREATE IF NOT EXISTS 不会补列, 先 ALTER 补 project_id, 再建其索引 (#141 priority-2).
+        cols = {row[1] for row in self._conn.execute("PRAGMA table_info(tasks)").fetchall()}
+        if "project_id" not in cols:
+            self._conn.execute("ALTER TABLE tasks ADD COLUMN project_id TEXT DEFAULT ''")
+            logger.info("Migrated tasks table: added project_id column")
+        self._conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_tasks_project ON tasks(project_id)"
+        )
         self._conn.commit()
         logger.info("TaskStore DB initialized: %s", db_path)
 
     def _load_tasks(self) -> None:
         if not self._conn:
             return
-        rows = self._conn.execute("SELECT * FROM tasks").fetchall()
+        rows = self._conn.execute(
+            "SELECT " + ", ".join(_TASK_COLUMNS) + " FROM tasks"
+        ).fetchall()
         for row in rows:
             task = Task.from_row(row)
             self._tasks[task.task_id] = task
@@ -200,9 +222,9 @@ class TaskStore:
             """INSERT OR REPLACE INTO tasks
                (task_id, title, description, agent_id, graph_id, trigger,
                 cron_expression, run_at, cron_job_id, input, status, priority,
-                artifact_ids, last_result, last_error, retry_count, max_retries,
+                project_id, artifact_ids, last_result, last_error, retry_count, max_retries,
                 created_at, updated_at, last_run_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 task.task_id,
                 task.title,
@@ -216,6 +238,7 @@ class TaskStore:
                 task.input,
                 task.status,
                 task.priority,
+                task.project_id,
                 json.dumps(task.artifact_ids, ensure_ascii=False),
                 json.dumps(task.last_result, ensure_ascii=False),
                 task.last_error,
@@ -263,6 +286,7 @@ class TaskStore:
         self,
         status: str = "",
         agent_id: str = "",
+        project_id: str = "",
         limit: int = 100,
     ) -> list[dict]:
         tasks = list(self._tasks.values())
@@ -270,6 +294,8 @@ class TaskStore:
             tasks = [t for t in tasks if t.status == status]
         if agent_id:
             tasks = [t for t in tasks if t.agent_id == agent_id]
+        if project_id:
+            tasks = [t for t in tasks if t.project_id == project_id]
         tasks.sort(key=lambda t: (t.priority, t.created_at), reverse=True)
         if limit > 0:
             tasks = tasks[:limit]
@@ -343,6 +369,25 @@ class TaskStore:
         self._delete_task(task_id)
         logger.info("Task deleted: %s", task_id)
         return True
+
+    def projects(self) -> list[dict]:
+        # 聚合 distinct project_id 及其任务数/状态分布 (#141 priority-2 多 Task 看板).
+        buckets: dict[str, dict[str, Any]] = {}
+        for t in self._tasks.values():
+            pid = t.project_id or ""
+            if not pid:
+                continue
+            b = buckets.setdefault(
+                pid,
+                {"project_id": pid, "total": 0, "pending": 0, "running": 0,
+                 "completed": 0, "failed": 0, "canceled": 0},
+            )
+            b["total"] += 1
+            if t.status in b:
+                b[t.status] += 1
+        result = sorted(buckets.values(), key=lambda b: b["total"], reverse=True)
+        logger.info("Aggregated %d projects from %d tasks", len(result), len(self._tasks))
+        return result
 
     def close(self) -> None:
         if self._conn:
