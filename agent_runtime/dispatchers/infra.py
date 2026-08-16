@@ -43,6 +43,8 @@ class InfraDispatcher(SubDispatcher):
             "task.status": self._handle_task_status,
             "task.cancel": self._handle_task_cancel,
             "task.rerun": self._handle_task_rerun,
+            "project.list": self._handle_project_list,
+            "project.tasks": self._handle_project_tasks,
             "hooks.list": self._handle_hooks_list,
             "hooks.register": self._handle_hooks_register,
             "hooks.test": self._handle_hooks_test,
@@ -233,6 +235,7 @@ class InfraDispatcher(SubDispatcher):
             status=params.get("status", "pending"),
             priority=int(params.get("priority", 0) or 0),
             session_id=params.get("session_id", ""),
+            project_id=params.get("project_id", ""),
             max_retries=int(params.get("max_retries", 0) or 0),
         )
         task = store.submit(task)
@@ -281,6 +284,7 @@ class InfraDispatcher(SubDispatcher):
         tasks = store.list(
             status=params.get("status", ""),
             agent_id=params.get("agent_id", ""),
+            project_id=params.get("project_id", ""),
             limit=int(params.get("limit", 100) or 100),
         )
         return {"tasks": tasks, "total": len(tasks)}
@@ -332,6 +336,29 @@ class InfraDispatcher(SubDispatcher):
         if not task:
             return {"status": "error", "message": f"Task not found: {task_id}"}
         return {"status": "ok", "task": task.to_dict()}
+
+    # ── Project handlers (#141 priority 2: 多 Task 聚合容器/看板) ──
+
+    async def _handle_project_list(self, params: dict) -> dict:
+        # 聚合所有 project_id 及其任务数/状态分布; project 即 task.project_id 标签分组.
+        store = self._daemon._get_task_store()
+        projects = store.projects()
+        logger.info("project.list -> %d projects", len(projects))
+        return {"projects": projects, "total": len(projects)}
+
+    async def _handle_project_tasks(self, params: dict) -> dict:
+        # 单 project 下任务列表(可选 status 过滤), 供前端 TaskBoardView 看板渲染.
+        store = self._daemon._get_task_store()
+        project_id = params.get("project_id", "")
+        if not project_id:
+            return {"status": "error", "message": "project_id required"}
+        tasks = store.list(
+            project_id=project_id,
+            status=params.get("status", ""),
+            limit=int(params.get("limit", 500) or 500),
+        )
+        logger.info("project.tasks %s -> %d tasks", project_id, len(tasks))
+        return {"project_id": project_id, "tasks": tasks, "total": len(tasks)}
 
     # ── Dynamic tool handlers ──
 
