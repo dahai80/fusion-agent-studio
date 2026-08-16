@@ -230,6 +230,51 @@ class TestTaskRpc:
         assert rerun["result"]["task"]["status"] == TASK_STATUS_PENDING
 
     @pytest.mark.asyncio
+    async def test_task_delete(self, daemon):
+        sub = await _rpc_call(daemon.socket_path, "task.submit", {"title": "del me"})
+        task_id = sub["result"]["task"]["task_id"]
+        dele = await _rpc_call(daemon.socket_path, "task.delete", {"task_id": task_id})
+        assert dele["result"]["status"] == "ok"
+        assert dele["result"]["deleted"] is True
+        # 删除后 get 应找不到.
+        get = await _rpc_call(daemon.socket_path, "task.get", {"task_id": task_id})
+        assert "error" in get["result"] or get["result"]["status"] == "error"
+
+    @pytest.mark.asyncio
+    async def test_task_delete_not_found(self, daemon):
+        resp = await _rpc_call(daemon.socket_path, "task.delete", {"task_id": "nope"})
+        assert resp["result"]["status"] == "error"
+
+    @pytest.mark.asyncio
+    async def test_task_add_artifacts(self, daemon):
+        sub = await _rpc_call(daemon.socket_path, "task.submit", {"title": "art me"})
+        task_id = sub["result"]["task"]["task_id"]
+        resp = await _rpc_call(
+            daemon.socket_path,
+            "task.add_artifacts",
+            {"task_id": task_id, "artifact_ids": ["art-1", "art-2"]},
+        )
+        assert resp["result"]["status"] == "ok"
+        assert resp["result"]["added"] is True
+        assert resp["result"]["artifact_ids"] == ["art-1", "art-2"]
+        # 重复 add 不应产生重复.
+        resp2 = await _rpc_call(
+            daemon.socket_path,
+            "task.add_artifacts",
+            {"task_id": task_id, "artifact_ids": ["art-1", "art-3"]},
+        )
+        assert resp2["result"]["artifact_ids"] == ["art-1", "art-2", "art-3"]
+
+    @pytest.mark.asyncio
+    async def test_task_add_artifacts_not_found(self, daemon):
+        resp = await _rpc_call(
+            daemon.socket_path,
+            "task.add_artifacts",
+            {"task_id": "nope", "artifact_ids": ["art-1"]},
+        )
+        assert resp["result"]["status"] == "error"
+
+    @pytest.mark.asyncio
     async def test_task_get_not_found(self, daemon):
         resp = await _rpc_call(daemon.socket_path, "task.get", {"task_id": "nope"})
         assert "error" in resp["result"] or resp["result"]["status"] == "error"

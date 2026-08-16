@@ -43,6 +43,8 @@ class InfraDispatcher(SubDispatcher):
             "task.status": self._handle_task_status,
             "task.cancel": self._handle_task_cancel,
             "task.rerun": self._handle_task_rerun,
+            "task.delete": self._handle_task_delete,
+            "task.add_artifacts": self._handle_task_add_artifacts,
             "project.list": self._handle_project_list,
             "project.tasks": self._handle_project_tasks,
             "hooks.list": self._handle_hooks_list,
@@ -336,6 +338,37 @@ class InfraDispatcher(SubDispatcher):
         if not task:
             return {"status": "error", "message": f"Task not found: {task_id}"}
         return {"status": "ok", "task": task.to_dict()}
+
+    async def _handle_task_delete(self, params: dict) -> dict:
+        store = self._daemon._get_task_store()
+        task_id = params.get("task_id", "")
+        task = store.get(task_id)
+        # cron 关联的 job 一并注销.
+        if task and task.cron_job_id:
+            try:
+                cm = self._daemon._get_cron_manager()
+                await cm.aunregister(task.cron_job_id)
+                logger.info("task %s deleted, unregistered cron job %s", task_id, task.cron_job_id)
+            except Exception as exc:
+                logger.warning("task %s cron unregister failed: %s", task_id, exc)
+        ok = store.delete(task_id)
+        if not ok:
+            return {"status": "error", "message": f"Task not found: {task_id}"}
+        logger.info("task %s deleted", task_id)
+        return {"status": "ok", "deleted": True}
+
+    async def _handle_task_add_artifacts(self, params: dict) -> dict:
+        store = self._daemon._get_task_store()
+        task_id = params.get("task_id", "")
+        artifact_ids = params.get("artifact_ids", []) or []
+        if not isinstance(artifact_ids, list):
+            return {"status": "error", "message": "artifact_ids must be a list"}
+        ok = store.add_artifacts(task_id, [str(a) for a in artifact_ids])
+        if not ok:
+            return {"status": "error", "message": f"Task not found: {task_id}"}
+        task = store.get(task_id)
+        logger.info("task %s add_artifacts %d -> %s", task_id, len(artifact_ids), task.artifact_ids if task else [])
+        return {"status": "ok", "added": True, "artifact_ids": task.artifact_ids if task else []}
 
     # ── Project handlers (#141 priority 2: 多 Task 聚合容器/看板) ──
 
