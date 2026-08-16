@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import re
 import time
 from typing import TYPE_CHECKING, Any, AsyncIterator
@@ -40,6 +41,14 @@ logger = logging.getLogger(__name__)
 
 _MAX_TOOL_CALL_CHAIN = 10
 _MAX_RETRY_CONTEXT_MESSAGES = 20
+
+
+def _env_flag(name: str, default: bool = False) -> bool:
+    """Parse a boolean env var: 1/true/yes/on (case-insensitive) => True."""
+    raw = os.environ.get(name, "")
+    if not raw:
+        return default
+    return raw.strip().lower() in ("1", "true", "yes", "on")
 
 
 class ConditionEngine:
@@ -223,6 +232,13 @@ class AgentRuntime:
         self._safety_futures: dict[str, asyncio.Future[bool]] = {}
         self._safety_timeout: float = 60.0
         self.tool_configs: dict[str, dict[str, Any]] = {}
+        # Issue #149: optional per-node model unload to lower peak memory on
+        # multi-model workflow chains. Default OFF to preserve model reuse
+        # across consecutive same-model nodes. Env:
+        # FUSION_AGENT_UNLOAD_MODEL_AFTER_NODE=1/true/yes enables it.
+        self.unload_model_after_node = _env_flag(
+            "FUSION_AGENT_UNLOAD_MODEL_AFTER_NODE", default=False
+        )
 
         if llm_gateway:
             self.llm_gateway = llm_gateway
@@ -546,6 +562,15 @@ class AgentRuntime:
                     pass
                 else:
                     self._tool_call_chain_count = 0
+                    # Issue #149: optional per-node model unload. Only fire
+                    # when the node is fully done (advancing to the next
+                    # node), never during tool-call re-entry on the same
+                    # node. Non-fatal: a failed/already-evicted unload is a
+                    # warning, not a workflow error.
+                    if self.unload_model_after_node:
+                        served_model = node.model or model
+                        if served_model:
+                            await self.llm_gateway.unload_model(served_model)
                     next_id = graph.get_next_node(current_node_id)
                     current_node_id = next_id or ""
 

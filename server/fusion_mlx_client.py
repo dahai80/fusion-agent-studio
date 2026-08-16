@@ -153,6 +153,22 @@ class FusionMLXClient:
         data = resp.json()
         return data.get("data", [])
 
+    async def unload_model(self, model_id: str) -> dict[str, Any]:
+        """Unload a model from fusion-mlx's engine pool.
+
+        Proxies to POST /v1/models/{model_id}/unload. Requires the client's
+        api_key to satisfy fusion-mlx's admin auth (Bearer matches configured
+        key); local loopback deployments pass source-check in dev mode.
+        Returns the raw response dict on success.
+
+        Non-fatal by design: callers (workflow runtime per-node unload) must
+        treat failure as a warning, not an error, so a transient 401/404 from
+        an already-evicted model never aborts the workflow.
+        """
+        resp = await self.client.post(f"/models/{model_id}/unload")
+        resp.raise_for_status()
+        return resp.json()
+
     async def health(self) -> bool:
         """Check if fusion-mlx is healthy and reachable."""
         try:

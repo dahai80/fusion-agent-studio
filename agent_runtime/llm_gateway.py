@@ -552,6 +552,36 @@ class LLMGateway:
             for m in self._models.values()
         ]
 
+    async def unload_model(self, model_id: str) -> bool:
+        """Unload a model from fusion-mlx's pool via the default client.
+
+        Returns True on success, False if no default client or the unload
+        failed. Always non-fatal: callers use this for the optional per-node
+        unload optimization and must not abort the workflow on failure.
+        """
+        if not model_id:
+            return False
+        if not self._default_client or not hasattr(
+            self._default_client, "unload_model"
+        ):
+            logger.debug(
+                "unload_model skipped: no default client with unload_model, "
+                "model=%s",
+                model_id,
+            )
+            return False
+        try:
+            await self._default_client.unload_model(model_id)
+            logger.info("unload_model ok: model=%s", model_id)
+            return True
+        except Exception as exc:
+            logger.warning(
+                "unload_model failed (non-fatal): model=%s err=%s",
+                model_id,
+                exc,
+            )
+            return False
+
     async def health(self) -> bool:
         """Health check — proxies to default client if set."""
         if self._default_client and hasattr(self._default_client, "health"):
