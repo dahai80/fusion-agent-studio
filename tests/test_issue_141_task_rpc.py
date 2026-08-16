@@ -243,3 +243,107 @@ class TestTaskRpc:
         done = await _rpc_call(daemon.socket_path, "task.list", {"status": "completed"})
         assert done["result"]["total"] == 1
         assert done["result"]["tasks"][0]["task_id"] == tid
+
+
+# ── #141 priority-4: task↔artifact 回写 (graph.execute 透传 task_id) ──
+
+
+class _FakeArtifactCreateTool:
+    # 假 artifact_create 工具: 直接返回带 artifact_id 的 JSON, 不依赖 ArtifactManager/LLM.
+    name = "artifact_create"
+    description = "fake artifact create"
+    parameters = {"name": {"type": "string"}}
+
+    async def execute(self, **kwargs):
+        aid = "art-" + str(kwargs.get("name", "x"))
+        return json.dumps({"status": "ok", "artifact_id": aid, "name": kwargs.get("name", "")})
+
+    def openai_schema(self):
+        return {"type": "function", "function": {"name": self.name, "description": self.description}}
+
+
+class TestTaskArtifactWriteback:
+    @pytest.mark.asyncio
+    async def test_graph_execute_writes_back_artifacts(self, daemon, tmp_path):
+        from agent_runtime.graph import AgentGraph, NodeConfig
+        from agent_runtime.runtime import AgentRuntime
+        from tools.registry import ToolRegistry
+
+        # 注入带假 artifact_create 工具的 runtime.
+        reg = ToolRegistry()
+        reg.register(_FakeArtifactCreateTool())
+        daemon._runtime = AgentRuntime(tool_registry=reg)
+
+        graph = AgentGraph(id="g-art", name="Art Graph")
+        graph.add_node("start", NodeConfig(type="start", label="Start"))
+        graph.add_node(
+            "art",
+            NodeConfig(
+                type="tool",
+                label="CreateArtifact",
+                tool_name="artifact_create",
+                tool_params={"name": "report"},
+            ),
+        )
+        graph.add_node("end", NodeConfig(type="end", label="End"))
+        graph.add_edge("start", "art")
+        graph.add_edge("art", "end")
+        daemon.store.save_graph(graph)
+
+        # 提交一个关联该 graph 的 task.
+        sub = await _rpc_call(
+            daemon.socket_path,
+            "task.submit",
+            {"title": "art task", "graph_id": "g-art"},
+        )
+        task_id = sub["result"]["task"]["task_id"]
+
+        # graph.execute 透传 task_id, 执行后应回写 artifact_ids + completed.
+        resp = await _rpc_call(
+            daemon.socket_path,
+            "graph.execute",
+            {"graph_id": "g-art", "task_id": task_id},
+        )
+        assert resp["result"]["status"] == "completed"
+        assert "art-report" in resp["result"]["artifact_ids"]
+
+        # 查 task: artifact_ids 已回写, 状态 completed.
+        get = await _rpc_call(daemon.socket_path, "task.get", {"task_id": task_id})
+        task = get["result"]["task"]
+        assert task["status"] == TASK_STATUS_COMPLETED
+        assert "art-report" in task["artifact_ids"]
+        assert task["last_result"]["artifact_ids"] == ["art-report"]
+
+    @pytest.mark.asyncio
+    async def test_graph_execute_without_task_id_no_writeback(self, daemon, tmp_path):
+        # 不传 task_id 时, 行为不变, 不触发 task 回写.
+        from agent_runtime.graph import AgentGraph, NodeConfig
+        from agent_runtime.runtime import AgentRuntime
+        from tools.registry import ToolRegistry
+
+        reg = ToolRegistry()
+        reg.register(_FakeArtifactCreateTool())
+        daemon._runtime = AgentRuntime(tool_registry=reg)
+
+        graph = AgentGraph(id="g-noart", name="No Task Graph")
+        graph.add_node("start", NodeConfig(type="start", label="Start"))
+        graph.add_node(
+            "art",
+            NodeConfig(
+                type="tool",
+                label="CreateArtifact",
+                tool_name="artifact_create",
+                tool_params={"name": "doc"},
+            ),
+        )
+        graph.add_node("end", NodeConfig(type="end", label="End"))
+        graph.add_edge("start", "art")
+        graph.add_edge("art", "end")
+        daemon.store.save_graph(graph)
+
+        resp = await _rpc_call(
+            daemon.socket_path, "graph.execute", {"graph_id": "g-noart"}
+        )
+        assert resp["result"]["status"] == "completed"
+        assert resp["result"]["artifact_ids"] == ["art-doc"]
+        assert resp["result"]["task_id"] == ""
