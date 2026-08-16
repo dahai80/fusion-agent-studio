@@ -95,12 +95,14 @@ class DaemonServer:
         ws_port: int = WS_PORT,
         cluster_port: int = 11457,
         http_port: int = 11455,
+        store_path: str = "",
     ):
         self.socket_path = socket_path
         self.ws_port = ws_port
         self.cluster_port = cluster_port
         self.http_port = http_port
-        self.store = AgentStore()
+        # store_path 非空时用指定 db 路径（测试隔离用临时库），空则默认用户库.
+        self.store = AgentStore(store_path) if store_path else AgentStore()
         self._gateway = LLMGateway()
         self._runtime: AgentRuntime | None = None
         self._mlx_process: subprocess.Popen | None = None
@@ -1052,13 +1054,11 @@ class DaemonServer:
         return {"deleted": True}
 
     async def _handle_graph_purge_test(self, params: dict) -> dict:
-        """清理测试残留 graph。
-
-        params:
-            names: list[str] — 精确匹配名称批量删（可选）
-            prefixes: list[str] — 按名称前缀批量删（可选，如 ["e2e-"]）
-            dry_run: bool — 仅返回将删除的数量，不实际删除（默认 false）
-        """
+        # 清理测试残留 graph。
+        # params:
+        #   names: list[str] — 精确匹配名称批量删（可选）
+        #   prefixes: list[str] — 按名称前缀批量删（可选，如 ["e2e-"]）
+        #   dry_run: bool — 仅返回将删除的数量，不实际删除（默认 false）
         names = params.get("names") or []
         prefixes = params.get("prefixes") or []
         dry_run = bool(params.get("dry_run", False))

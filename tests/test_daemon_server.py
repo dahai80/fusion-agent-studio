@@ -41,19 +41,30 @@ def socket_path():
 
 
 @pytest.fixture
-async def daemon(socket_path):
-    d = DaemonServer(socket_path=socket_path, ws_port=0, cluster_port=0, http_port=0)
+def store_db(tmp_path):
+    # #135: 用临时库隔离, 不污染用户真实 ~/.fusion-agent-studio/store.db.
+    db = tmp_path / "test_store.db"
+    yield str(db)
+
+
+@pytest.fixture
+async def daemon(socket_path, store_db):
+    d = DaemonServer(
+        socket_path=socket_path, ws_port=0, cluster_port=0, http_port=0, store_path=store_db
+    )
     await d.start()
     yield d
     await d.stop()
 
 
 @pytest.fixture
-async def daemon_stub(socket_path):
+async def daemon_stub(socket_path, store_db):
     # planner/RAG 测试在 fusion-mlx 运行时会走真实 LLM, 套件并发负载下
     # 偶发超时 flaky. 清掉 _default_client + _default_model → gateway.route
     # 返回 None → chat 立即返空 → planner/RAG 走 stub 路径, 确定性.
-    d = DaemonServer(socket_path=socket_path, ws_port=0, cluster_port=0, http_port=0)
+    d = DaemonServer(
+        socket_path=socket_path, ws_port=0, cluster_port=0, http_port=0, store_path=store_db
+    )
     await d.start()
     d._gateway._default_client = None
     d._gateway._default_model = ""
@@ -185,6 +196,50 @@ class TestDaemonGraphCRUD:
             daemon.socket_path, "graph.get", {"graph_id": "nonexistent"}
         )
         assert "error" in resp
+
+    @pytest.mark.asyncio
+    async def test_graph_purge_test_by_names(self, daemon):
+        # #135: graph.purge_test 按 names 精确清理 + dry_run 不实删.
+        # 用唯一前缀隔离, 不依赖 store 是否已被既有残留污染.
+        tag = "purgename-"
+        for name in [tag + "a", tag + "a", tag + "keep"]:
+            await _rpc_call(
+                daemon.socket_path,
+                "graph.create",
+                {"name": name, "nodes": [{"id": "start", "type": "start"}], "edges": []},
+            )
+
+        dry = await _rpc_call(
+            daemon.socket_path, "graph.purge_test", {"names": [tag + "a"], "dry_run": True}
+        )
+        assert dry["result"]["dry_run"] is True
+        assert dry["result"]["would_delete"] == 2
+
+        real = await _rpc_call(
+            daemon.socket_path, "graph.purge_test", {"names": [tag + "a"]}
+        )
+        assert real["result"]["deleted"] == 2
+        after = (await _rpc_call(daemon.socket_path, "graph.list"))["result"]["graphs"]
+        ours = sorted(g["name"] for g in after if g["name"].startswith(tag))
+        assert ours == [tag + "keep"]
+
+    @pytest.mark.asyncio
+    async def test_graph_purge_test_by_prefix(self, daemon):
+        # #135: graph.purge_test 按前缀批量清理 e2e- 残留.
+        tag = "purgepre-"
+        for name in [tag + "flow", tag + "loop", tag + "keep"]:
+            await _rpc_call(
+                daemon.socket_path,
+                "graph.create",
+                {"name": name, "nodes": [{"id": "start", "type": "start"}], "edges": []},
+            )
+        resp = await _rpc_call(
+            daemon.socket_path, "graph.purge_test", {"prefixes": [tag + "flow", tag + "loop"]}
+        )
+        assert resp["result"]["deleted"] == 2
+        after = (await _rpc_call(daemon.socket_path, "graph.list"))["result"]["graphs"]
+        ours = sorted(g["name"] for g in after if g["name"].startswith(tag))
+        assert ours == [tag + "keep"]
 
 
 class TestDaemonMLX:
