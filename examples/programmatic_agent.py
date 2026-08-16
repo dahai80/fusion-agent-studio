@@ -19,14 +19,14 @@ from pathlib import Path
 # Add parent directory to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from agent_runtime import AgentRuntime, AgentGraph, NodeConfig
-from agent_runtime.variable_manager import VariableManager
+from agent_runtime import AgentGraph, AgentRuntime, NodeConfig
 from agent_runtime.debugger import StepDebugger
-from agent_runtime.json_schema import JsonSchemaValidator
 from agent_runtime.exporter import GraphExporter
+from agent_runtime.json_schema import JsonSchemaValidator
 from agent_runtime.templates import TemplateManager, register_default_templates
-from tools import create_default_registry
+from agent_runtime.variable_manager import VariableManager
 from server.fusion_mlx_client import FusionMLXClient
+from tools import create_default_registry
 
 
 async def example_1_basic_agent():

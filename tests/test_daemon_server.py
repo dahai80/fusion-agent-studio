@@ -48,6 +48,21 @@ async def daemon(socket_path):
     await d.stop()
 
 
+@pytest.fixture
+async def daemon_stub(socket_path):
+    # planner/RAG 测试在 fusion-mlx 运行时会走真实 LLM, 套件并发负载下
+    # 偶发超时 flaky. 清掉 _default_client + _default_model → gateway.route
+    # 返回 None → chat 立即返空 → planner/RAG 走 stub 路径, 确定性.
+    d = DaemonServer(socket_path=socket_path, ws_port=0, cluster_port=0, http_port=0)
+    await d.start()
+    d._gateway._default_client = None
+    d._gateway._default_model = ""
+    d._planner = None
+    d._rag = None
+    yield d
+    await d.stop()
+
+
 async def _rpc_call(
     socket_path: str, method: str, params: dict | None = None, msg_id: int = 1
 ) -> dict:
@@ -318,9 +333,9 @@ class TestDaemonMLXInfer:
 
 class TestDaemonPlanner:
     @pytest.mark.asyncio
-    async def test_planner_create_plan(self, daemon):
+    async def test_planner_create_plan(self, daemon_stub):
         resp = await _rpc_call(
-            daemon.socket_path,
+            daemon_stub.socket_path,
             "planner.create_plan",
             {"task": "Refactor the auth module", "context": "Python project"},
         )
@@ -337,15 +352,15 @@ class TestDaemonPlanner:
         assert resp["result"]["status"] == "error"
 
     @pytest.mark.asyncio
-    async def test_planner_get_plan(self, daemon):
+    async def test_planner_get_plan(self, daemon_stub):
         create = await _rpc_call(
-            daemon.socket_path,
+            daemon_stub.socket_path,
             "planner.create_plan",
             {"task": "Test task"},
         )
         plan_id = create["result"]["plan"]["id"]
         resp = await _rpc_call(
-            daemon.socket_path, "planner.get_plan", {"plan_id": plan_id}
+            daemon_stub.socket_path, "planner.get_plan", {"plan_id": plan_id}
         )
         assert resp["result"]["plan"]["id"] == plan_id
 
@@ -357,89 +372,89 @@ class TestDaemonPlanner:
         assert resp["result"]["status"] == "error"
 
     @pytest.mark.asyncio
-    async def test_planner_approve_plan(self, daemon):
+    async def test_planner_approve_plan(self, daemon_stub):
         create = await _rpc_call(
-            daemon.socket_path,
+            daemon_stub.socket_path,
             "planner.create_plan",
             {"task": "Approve test"},
         )
         plan_id = create["result"]["plan"]["id"]
         resp = await _rpc_call(
-            daemon.socket_path, "planner.approve_plan", {"plan_id": plan_id}
+            daemon_stub.socket_path, "planner.approve_plan", {"plan_id": plan_id}
         )
         assert resp["result"]["approved"] is True
 
     @pytest.mark.asyncio
-    async def test_planner_reject_plan(self, daemon):
+    async def test_planner_reject_plan(self, daemon_stub):
         create = await _rpc_call(
-            daemon.socket_path,
+            daemon_stub.socket_path,
             "planner.create_plan",
             {"task": "Reject test"},
         )
         plan_id = create["result"]["plan"]["id"]
         resp = await _rpc_call(
-            daemon.socket_path,
+            daemon_stub.socket_path,
             "planner.reject_plan",
             {"plan_id": plan_id, "reason": "bad"},
         )
         assert resp["result"]["rejected"] is True
 
     @pytest.mark.asyncio
-    async def test_planner_list_plans(self, daemon):
+    async def test_planner_list_plans(self, daemon_stub):
         await _rpc_call(
-            daemon.socket_path, "planner.create_plan", {"task": "List test 1"}
+            daemon_stub.socket_path, "planner.create_plan", {"task": "List test 1"}
         )
         await _rpc_call(
-            daemon.socket_path, "planner.create_plan", {"task": "List test 2"}
+            daemon_stub.socket_path, "planner.create_plan", {"task": "List test 2"}
         )
-        resp = await _rpc_call(daemon.socket_path, "planner.list_plans", {})
+        resp = await _rpc_call(daemon_stub.socket_path, "planner.list_plans", {})
         assert len(resp["result"]["plans"]) >= 2
 
     @pytest.mark.asyncio
-    async def test_planner_cancel_plan(self, daemon):
+    async def test_planner_cancel_plan(self, daemon_stub):
         create = await _rpc_call(
-            daemon.socket_path,
+            daemon_stub.socket_path,
             "planner.create_plan",
             {"task": "Cancel test"},
         )
         plan_id = create["result"]["plan"]["id"]
         resp = await _rpc_call(
-            daemon.socket_path, "planner.cancel_plan", {"plan_id": plan_id}
+            daemon_stub.socket_path, "planner.cancel_plan", {"plan_id": plan_id}
         )
         assert resp["result"]["cancelled"] is True
 
     @pytest.mark.asyncio
-    async def test_planner_execute_step(self, daemon):
+    async def test_planner_execute_step(self, daemon_stub):
         create = await _rpc_call(
-            daemon.socket_path,
+            daemon_stub.socket_path,
             "planner.create_plan",
             {"task": "Step exec test"},
         )
         plan_id = create["result"]["plan"]["id"]
         await _rpc_call(
-            daemon.socket_path, "planner.approve_plan", {"plan_id": plan_id}
+            daemon_stub.socket_path, "planner.approve_plan", {"plan_id": plan_id}
         )
         step_id = create["result"]["plan"]["steps"][0]["id"]
         resp = await _rpc_call(
-            daemon.socket_path,
+            daemon_stub.socket_path,
             "planner.execute_step",
             {"plan_id": plan_id, "step_id": step_id},
         )
         assert "step" in resp["result"]
 
     @pytest.mark.asyncio
-    async def test_planner_execute_plan(self, daemon):
+    async def test_planner_execute_plan(self, daemon_stub):
         create = await _rpc_call(
-            daemon.socket_path,
+            daemon_stub.socket_path,
             "planner.create_plan",
             {"task": "Plan exec test"},
         )
         plan_id = create["result"]["plan"]["id"]
         await _rpc_call(
-            daemon.socket_path, "planner.approve_plan", {"plan_id": plan_id}
+            daemon_stub.socket_path, "planner.approve_plan", {"plan_id": plan_id}
         )
         resp = await _rpc_call(
-            daemon.socket_path, "planner.execute_plan", {"plan_id": plan_id}
+            daemon_stub.socket_path, "planner.execute_plan", {"plan_id": plan_id}
         )
         assert "plan" in resp["result"]
 
@@ -451,8 +466,10 @@ class TestDaemonRAG:
         assert resp["result"]["status"] == "error"
 
     @pytest.mark.asyncio
-    async def test_rag_query_returns_result(self, daemon):
-        resp = await _rpc_call(daemon.socket_path, "rag.query", {"query": "test query"})
+    async def test_rag_query_returns_result(self, daemon_stub):
+        resp = await _rpc_call(
+            daemon_stub.socket_path, "rag.query", {"query": "test query"}
+        )
         result = resp["result"]
         assert "answer" in result
         assert "sources" in result
