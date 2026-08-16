@@ -129,6 +129,7 @@ class AgentGraph:
     edges: list[Edge] = field(default_factory=list)
     start_node_id: str = ""
     version: str = "1.0"
+    agent_id: str = ""
 
     def __post_init__(self):
         if not self.id:
@@ -232,6 +233,7 @@ class AgentGraph:
             "edges": [e.to_dict() for e in self.edges],
             "start_node_id": self.start_node_id,
             "version": self.version,
+            "agent_id": self.agent_id,
         }
 
     def to_json(self, indent: int = 2) -> str:
@@ -265,6 +267,7 @@ class AgentGraph:
             edges=edges,
             start_node_id=start_node_id,
             version=data.get("version", "1.0"),
+            agent_id=data.get("agent_id", ""),
         )
 
     @classmethod

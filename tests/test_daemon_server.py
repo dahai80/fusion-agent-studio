@@ -120,6 +120,28 @@ class TestDaemonGraphCRUD:
         assert get_resp["result"]["name"] == "Get Test"
 
     @pytest.mark.asyncio
+    async def test_graph_agent_id_persisted(self, daemon):
+        # #131: graph 元数据内嵌 agent_id, create→get 往返不丢.
+        create_resp = await _rpc_call(
+            daemon.socket_path,
+            "graph.create",
+            {
+                "name": "AgentGraph",
+                "nodes": [
+                    {"id": "start", "type": "start"},
+                    {"id": "end", "type": "end"},
+                ],
+                "edges": [{"source_id": "start", "target_id": "end"}],
+                "agent_id": "c65efddbe8c5",
+            },
+        )
+        graph_id = create_resp["result"]["graph_id"]
+        get_resp = await _rpc_call(
+            daemon.socket_path, "graph.get", {"graph_id": graph_id}
+        )
+        assert get_resp["result"]["agent_id"] == "c65efddbe8c5"
+
+    @pytest.mark.asyncio
     async def test_graph_delete(self, daemon):
         create_resp = await _rpc_call(
             daemon.socket_path,

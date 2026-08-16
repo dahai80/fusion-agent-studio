@@ -231,6 +231,22 @@ class TestAgentGraph:
         assert len(graph.nodes) == 2
         assert len(graph.edges) == 1
 
+    def test_from_dict_agent_id(self):
+        # #131: graph 元数据内嵌 agent_id, 旧 graph 无此字段为空 (向后兼容).
+        data_with = {
+            "name": "G1",
+            "nodes": {"s": {"type": "start"}, "e": {"type": "end"}},
+            "edges": [{"source_id": "s", "target_id": "e"}],
+            "agent_id": "c65efddbe8c5",
+        }
+        g1 = AgentGraph.from_dict(data_with)
+        assert g1.agent_id == "c65efddbe8c5"
+        data_without = {"name": "G2", "nodes": {"s": {"type": "start"}}}
+        g2 = AgentGraph.from_dict(data_without)
+        assert g2.agent_id == ""
+        # to_dict 往返保留 agent_id (persistence save/load 不丢).
+        assert AgentGraph.from_dict(g1.to_dict()).agent_id == "c65efddbe8c5"
+
     def test_to_json(self):
         graph = AgentGraph(name="Test")
         graph.add_node("s", NodeConfig(type="start"))

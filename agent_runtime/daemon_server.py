@@ -986,6 +986,7 @@ class DaemonServer:
         else:
             graph = AgentGraph(name=name or "Untitled")
             graph.description = description
+            graph.agent_id = params.get("agent_id", "")
 
             nodes_data = params.get("nodes", [])
             for n in nodes_data:
@@ -1037,6 +1038,7 @@ class DaemonServer:
             "edges": [e.to_dict() for e in graph.edges],
             "start_node_id": graph.start_node_id,
             "version": graph.version,
+            "agent_id": graph.agent_id,
         }
 
     async def _handle_graph_delete(self, params: dict) -> dict:
@@ -1069,9 +1071,9 @@ class DaemonServer:
                 len(initial_vars),
                 list(initial_vars.keys()),
             )
-        # 声明式工具配置注入 (#125): 按 agent_id 加载 definition, 把
-        # tools[].config 接入 runtime, 工具执行时作为默认参数合并.
-        agent_id = params.get("agent_id", "")
+        # 声明工具配置注入 (#125/#131): agent_id 优先取 params, 回退 graph 元数据.
+        # graph 内嵌 agent_id 让 CLI/GUI 等任意调用方零改动触发注入.
+        agent_id = params.get("agent_id", "") or getattr(graph, "agent_id", "")
         if agent_id:
             try:
                 from .agent_definition import AgentDefinition
