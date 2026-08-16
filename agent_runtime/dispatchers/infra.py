@@ -257,6 +257,23 @@ class InfraDispatcher(SubDispatcher):
                 logger.info("task %s linked cron job %s", task.task_id, job.id)
             except Exception as exc:
                 logger.warning("task %s cron register failed: %s", task.task_id, exc)
+        # run_at 触发 (#141 priority-3): 一次性定时, 注册 one-shot cron job 回写 cron_job_id.
+        elif trigger == "run_at" and task.run_at > 0 and task.graph_id:
+            try:
+                cm = self._daemon._get_cron_manager()
+                job = await cm.aregister_once(
+                    run_at=task.run_at,
+                    graph_id=task.graph_id,
+                    input_data=task.input,
+                    job_id=f"{task.task_id}_once",
+                    name=task.title or task.task_id,
+                )
+                task.cron_job_id = job.id
+                task.updated_at = time.time()
+                store.submit(task)
+                logger.info("task %s linked one-shot job %s run_at=%.0f", task.task_id, job.id, task.run_at)
+            except Exception as exc:
+                logger.warning("task %s run_at register failed: %s", task.task_id, exc)
         return {"status": "ok", "task": task.to_dict()}
 
     async def _handle_task_list(self, params: dict) -> dict:

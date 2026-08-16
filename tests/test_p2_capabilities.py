@@ -158,6 +158,72 @@ class TestCronManager:
         assert any(e["status"] == "no_handler" for e in exes)
         cm.close()
 
+    # ── #141 priority-3: register_once (一次性定时 run_at) ──
+
+    def test_register_once_creates_one_shot_job(self):
+        cm = CronManager()
+        job = cm.register_once(run_at=1.0, graph_id="g1", input_data="payload", name="once1")
+        assert job.one_shot is True
+        assert job.expression == "@once"
+        assert job.graph_id == "g1"
+        assert job.input_data == "payload"
+        assert job.id in cm._jobs
+        loaded = cm.get(job.id)
+        assert loaded is not None and loaded.one_shot is True
+        cm.close()
+
+    @pytest.mark.asyncio
+    async def test_register_once_auto_unregisters_after_fire(self, tmp_path):
+        # one-shot 触发后 _run_loop 应自动注销 (不排下次).
+        fired = {"count": 0}
+
+        async def handler(job):
+            fired["count"] += 1
+            return {"ok": True}
+
+        cm = CronManager(db_path=str(tmp_path / "cron.db"), default_handler=handler)
+        job = cm.register_once(run_at=1.0, graph_id="g1", job_id="once_fire")
+        assert job.id in cm._jobs
+        cm._running = True
+        try:
+            await asyncio.wait_for(cm._run_loop(), timeout=0.5)
+        except asyncio.TimeoutError:
+            pass
+        cm.stop()
+        # 触发后自动注销: 内存与 DB 都不应再有该 job.
+        assert fired["count"] == 1
+        assert job.id not in cm._jobs
+        assert cm.get(job.id) is None
+        cm.close()
+
+    def test_register_once_persisted_and_reloaded(self, tmp_path):
+        db = str(tmp_path / "cron.db")
+        cm = CronManager(db_path=db)
+        cm.register_once(run_at=1.0, graph_id="g9", job_id="once_persist", name="p")
+        cm.close()
+        # 重启加载, one_shot 应还原.
+        cm2 = CronManager(db_path=db)
+        loaded = cm2.get("once_persist")
+        assert loaded is not None
+        assert loaded.one_shot is True
+        assert loaded.graph_id == "g9"
+        cm2.close()
+
+    @pytest.mark.asyncio
+    async def test_aregister_once_roundtrip(self, tmp_path):
+        cm = CronManager(db_path=str(tmp_path / "cron.db"))
+        job = await cm.aregister_once(run_at=1.0, graph_id="ga", job_id="once_async")
+        assert job.id == "once_async"
+        assert cm.get("once_async") is not None
+        cm.close()
+
+    def test_cron_job_to_dict_includes_one_shot(self):
+        j = CronJob(id="c1", name="t", expression="* * * * *", one_shot=True)
+        d = j.to_dict()
+        assert d["one_shot"] is True
+        j2 = CronJob.from_dict(d)
+        assert j2.one_shot is True
+
 
 # ── I18n ──
 

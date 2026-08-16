@@ -41,6 +41,7 @@ class CronJob:
     input_data: str = ""
     max_retries: int = 0
     retry_count: int = 0
+    one_shot: bool = False  # #141 priority-3: 一次性定时任务 (run_at), 触发后自动注销
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -55,6 +56,7 @@ class CronJob:
             "input_data": self.input_data,
             "max_retries": self.max_retries,
             "retry_count": self.retry_count,
+            "one_shot": self.one_shot,
         }
 
     @classmethod
@@ -71,6 +73,7 @@ class CronJob:
             input_data=data.get("input_data", ""),
             max_retries=data.get("max_retries", 0),
             retry_count=data.get("retry_count", 0),
+            one_shot=data.get("one_shot", False),
         )
 
 
@@ -194,9 +197,15 @@ class CronManager:
                 created_at REAL DEFAULT 0,
                 input_data TEXT DEFAULT '',
                 max_retries INTEGER DEFAULT 0,
-                retry_count INTEGER DEFAULT 0
+                retry_count INTEGER DEFAULT 0,
+                one_shot INTEGER DEFAULT 0
             )
         """)
+        # #141 priority-3: 老库无 one_shot 列, ALTER 兜底迁移 (CREATE IF NOT EXISTS 不会加列).
+        cols = {row[1] for row in self._conn.execute("PRAGMA table_info(cron_jobs)").fetchall()}
+        if "one_shot" not in cols:
+            self._conn.execute("ALTER TABLE cron_jobs ADD COLUMN one_shot INTEGER DEFAULT 0")
+            logger.info("CronManager migrated cron_jobs: added one_shot column")
         self._conn.execute("""
             CREATE TABLE IF NOT EXISTS cron_executions (
                 id TEXT PRIMARY KEY,
@@ -231,6 +240,7 @@ class CronManager:
                 input_data=row[8],
                 max_retries=row[9],
                 retry_count=row[10],
+                one_shot=bool(row[11]) if len(row) > 11 else False,
             )
             self._jobs[job.id] = job
         logger.info("Loaded %d cron jobs from DB", len(self._jobs))
@@ -240,8 +250,8 @@ class CronManager:
             return
         self._conn.execute(
             """INSERT OR REPLACE INTO cron_jobs
-               (id, name, expression, graph_id, enabled, last_run, next_run, created_at, input_data, max_retries, retry_count)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+               (id, name, expression, graph_id, enabled, last_run, next_run, created_at, input_data, max_retries, retry_count, one_shot)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 job.id,
                 job.name,
@@ -254,6 +264,7 @@ class CronManager:
                 job.input_data,
                 job.max_retries,
                 job.retry_count,
+                int(job.one_shot),
             ),
         )
         self._conn.commit()
@@ -310,6 +321,51 @@ class CronManager:
             self._handlers[job.id] = handler
         await asyncio.to_thread(self._save_job, job)
         logger.info("Cron job registered (async): %s (%s)", job.id, job.expression)
+
+    def register_once(
+        self,
+        run_at: float,
+        graph_id: str,
+        input_data: str = "",
+        job_id: str = "",
+        name: str = "",
+        handler: Callable | None = None,
+    ) -> CronJob:
+        # #141 priority-3: 一次性定时任务 (run_at). 不走 cron 表达式, next_run=run_at,
+        # one_shot=True 触发后 _run_loop 自动注销. run_at 已过期则立即排队下一 tick 触发.
+        if not job_id:
+            job_id = f"once_{int(time.time() * 1000)}_{id(self) % 100000}"
+        job = CronJob(
+            id=job_id,
+            name=name or job_id,
+            expression="@once",
+            graph_id=graph_id,
+            input_data=input_data,
+            next_run=float(run_at) if run_at > 0 else time.time(),
+            created_at=time.time(),
+            one_shot=True,
+        )
+        self._jobs[job_id] = job
+        if handler:
+            self._handlers[job_id] = handler
+        self._save_job(job)
+        logger.info("One-shot cron job registered: %s run_at=%.0f", job_id, job.next_run)
+        return job
+
+    async def aregister_once(
+        self,
+        run_at: float,
+        graph_id: str,
+        input_data: str = "",
+        job_id: str = "",
+        name: str = "",
+        handler: Callable | None = None,
+    ) -> CronJob:
+        job = self.register_once(
+            run_at, graph_id, input_data, job_id, name, handler
+        )
+        await asyncio.to_thread(self._save_job, job)
+        return job
 
     def unregister(self, job_id: str) -> None:
         self._jobs.pop(job_id, None)
@@ -412,8 +468,15 @@ class CronManager:
                     exe.finished_at = time.time()
                     await asyncio.to_thread(self._save_execution, exe)
                     job.last_run = now
-                    job.next_run = self._compute_next_run(job.expression)
-                    await asyncio.to_thread(self._save_job, job)
+                    if job.one_shot:
+                        # #141 priority-3: 一次性任务触发后自动注销, 不再排下次.
+                        logger.info("One-shot cron job %s fired and auto-unregistered", job.id)
+                        self._jobs.pop(job.id, None)
+                        self._handlers.pop(job.id, None)
+                        await asyncio.to_thread(self._delete_job, job.id)
+                    else:
+                        job.next_run = self._compute_next_run(job.expression)
+                        await asyncio.to_thread(self._save_job, job)
             await asyncio.sleep(15)
 
     def _compute_next_run(self, expression: str) -> float:
