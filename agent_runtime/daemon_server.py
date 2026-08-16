@@ -570,6 +570,7 @@ class DaemonServer:
             "env.repair_all": self._handle_env_repair_all,
             "graph.create": self._handle_graph_create,
             "graph.delete": self._handle_graph_delete,
+            "graph.purge_test": self._handle_graph_purge_test,
             "graph.execute": self._handle_graph_execute,
             "graph.get": self._handle_graph_get,
             "graph.list": self._handle_graph_list,
@@ -733,6 +734,7 @@ class DaemonServer:
             "env.repair_all": self._handle_env_repair_all,
             "graph.create": self._handle_graph_create,
             "graph.delete": self._handle_graph_delete,
+            "graph.purge_test": self._handle_graph_purge_test,
             "graph.execute": self._handle_graph_execute,
             "graph.get": self._handle_graph_get,
             "graph.list": self._handle_graph_list,
@@ -1048,6 +1050,48 @@ class DaemonServer:
             raise ValueError(f"Graph not found: {graph_id}")
         logger.info("Deleted graph %s", graph_id)
         return {"deleted": True}
+
+    async def _handle_graph_purge_test(self, params: dict) -> dict:
+        """清理测试残留 graph。
+
+        params:
+            names: list[str] — 精确匹配名称批量删（可选）
+            prefixes: list[str] — 按名称前缀批量删（可选，如 ["e2e-"]）
+            dry_run: bool — 仅返回将删除的数量，不实际删除（默认 false）
+        """
+        names = params.get("names") or []
+        prefixes = params.get("prefixes") or []
+        dry_run = bool(params.get("dry_run", False))
+
+        before = len(self.store.list_graphs())
+        if dry_run:
+            all_graphs = self.store.list_graphs()
+            will_delete = sum(1 for g in all_graphs if g.get("name") in names)
+            will_delete += sum(
+                1 for g in all_graphs if any(g.get("name", "").startswith(p) for p in prefixes)
+            )
+            logger.info("graph.purge_test dry_run: would delete %d/%d graphs", will_delete, before)
+            return {"dry_run": True, "would_delete": will_delete, "total": before}
+
+        deleted_by_names = 0
+        deleted_by_prefix = 0
+        if names:
+            deleted_by_names = self.store.delete_graphs_by_names(names)
+        for p in prefixes:
+            deleted_by_prefix += self.store.delete_graphs_by_name_prefix(p)
+        after = len(self.store.list_graphs())
+        total_deleted = deleted_by_names + deleted_by_prefix
+        logger.info(
+            "graph.purge_test: deleted %d (names=%d, prefixes=%d), %d -> %d",
+            total_deleted, deleted_by_names, deleted_by_prefix, before, after,
+        )
+        return {
+            "deleted": total_deleted,
+            "deleted_by_names": deleted_by_names,
+            "deleted_by_prefixes": deleted_by_prefix,
+            "before": before,
+            "after": after,
+        }
 
     async def _handle_graph_execute(self, params: dict) -> dict:
         graph_id = params.get("graph_id", "")
