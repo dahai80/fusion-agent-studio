@@ -230,7 +230,7 @@ python my_agent.py
 ### Triggers
 - ✅ **Webhook** — External event triggers
 - ✅ **Cron** — Scheduled execution (cron expressions)
-- ✅ **Task store** — Generic Task persistence (SQLite `~/.fusion-agent-studio/tasks.db`); status machine pending→running→completed/failed/canceled; triggers immediate/cron/run_at; daemon `task.*` RPC (6 methods: submit/list/get/status/cancel/rerun); cron-triggered tasks auto-register a CronJob and write back `cron_job_id`
+- ✅ **Task store** — Generic Task persistence (SQLite `~/.fusion-agent-studio/tasks.db`); status machine pending→running→completed/failed/canceled; triggers immediate/cron/run_at; daemon `task.*` RPC (8 methods: submit/list/get/status/cancel/rerun/delete/add_artifacts); cron-triggered tasks auto-register a CronJob and write back `cron_job_id`
 - ✅ **Project aggregation** — Multi-Task board container via `project_id` label on tasks; daemon `project.*` RPC (project.list aggregates task counts/status distribution, project.tasks filters by project+optional status) for TaskBoardView
 
 ### Plugin System
