@@ -229,6 +229,7 @@ python my_agent.py
 ### Triggers
 - ✅ **Webhook** — External event triggers
 - ✅ **Cron** — Scheduled execution (cron expressions)
+- ✅ **Task store** — Generic Task persistence (SQLite `~/.fusion-agent-studio/tasks.db`); status machine pending→running→completed/failed/canceled; triggers immediate/cron/run_at; daemon `task.*` RPC (6 methods: submit/list/get/status/cancel/rerun); cron-triggered tasks auto-register a CronJob and write back `cron_job_id`
 
 ### Plugin System
 - ✅ Dynamic loading of user-defined Python tools
