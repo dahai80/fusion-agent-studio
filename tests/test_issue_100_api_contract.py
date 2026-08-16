@@ -133,7 +133,10 @@ class TestDaemonRebuildIndex:
 
         monkeypatch.setattr(Path, "home", lambda: fake_home)
 
-        daemon = DaemonServer(socket_path=str(tmp_path / "test.sock"))
+        daemon = DaemonServer(
+            socket_path=str(tmp_path / "test.sock"),
+            store_path=str(tmp_path / "test_store.db"),
+        )
         daemon._load_agents_index()
         assert aid in daemon._agents
         assert daemon._agents[aid]["id"] == aid
