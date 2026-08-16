@@ -1441,6 +1441,17 @@ class DaemonServer:
             self._cron_manager = CronManager(db_path=db_path, default_handler=self._cron_default_handler)
         return self._cron_manager
 
+    def _get_task_store(self):
+        # #141: 通用 Task 持久化, 独立 tasks.db. 测试可设 self._task_store 注入临时库.
+        from .task_store import TaskStore
+
+        if not hasattr(self, "_task_store") or self._task_store is None:
+            import os
+
+            db_path = os.path.expanduser("~/.fusion-agent-studio/tasks.db")
+            self._task_store = TaskStore(db_path=db_path)
+        return self._task_store
+
     async def _cron_default_handler(self, job) -> dict:
         import json as _json
 
