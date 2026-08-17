@@ -39,7 +39,10 @@ get_pid() {
 is_running() {
     local pid
     pid=$(get_pid)
-    [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null
+    if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; then
+        return 0
+    fi
+    pgrep -f "agent_runtime.daemon_server" >/dev/null 2>&1
 }
 
 # Health = process alive AND socket file present (socket is created by the daemon).
@@ -116,7 +119,13 @@ stop() {
 
 status() {
     if is_healthy; then
-        echo "running (PID $(get_pid), socket=${SOCKET})"
+        local pid
+        pid=$(get_pid)
+        if [[ -z "$pid" ]]; then
+            pid=$(pgrep -f "agent_runtime.daemon_server" | head -1)
+            [[ -n "$pid" ]] && echo "running (PID ${pid}, launchd-managed, socket=${SOCKET})" && exit 0
+        fi
+        echo "running (PID ${pid}, socket=${SOCKET})"
         exit 0
     fi
     echo "not running"
@@ -128,13 +137,92 @@ restart() {
     start
 }
 
+# ── launchd install/uninstall ──────────────────────────────────────
+# 让 daemon 开机自启 + 崩溃/被停后自动拉起, 保证 cron 调度不依赖人手动维持进程.
+# 背景: 2026-08-17 daemon 07:39 被外部关停后无人拉起 -> 全天 4 个发布 cron 错过.
+_LAUNCHD_PLIST="${HOME}/Library/LaunchAgents/com.fusion-agent-studio.server.plist"
+_LAUNCHD_LABEL="com.fusion-agent-studio.server"
+
+install_launchd() {
+    if [[ -f "${_LAUNCHD_PLIST}" ]]; then
+        log_warn "LaunchAgent already installed at ${_LAUNCHD_PLIST}"
+        log_info "Use 'start.sh uninstall-launchd' to remove first"
+        exit 0
+    fi
+
+    mkdir -p "$(dirname "${_LAUNCHD_PLIST}")"
+    mkdir -p "${LOG_DIR}"
+
+    local py_bin
+    if [[ -f "${VENV}/bin/python3" ]]; then
+        py_bin="${VENV}/bin/python3"
+    else
+        py_bin="$(command -v python3)"
+        log_warn "no .venv/bin/python3, using ${py_bin}"
+    fi
+
+    cat > "${_LAUNCHD_PLIST}" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>${_LAUNCHD_LABEL}</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>${py_bin}</string>
+        <string>-m</string>
+        <string>agent_runtime.daemon_server</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>${SCRIPT_DIR}</string>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>${LOG_DIR}/stdout.log</string>
+    <key>StandardErrorPath</key>
+    <string>${LOG_DIR}/stderr.log</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/usr/local/bin:/usr/bin:/bin:/opt/homebrew/bin:${VENV}/bin</string>
+        <key>FUSION_SAFETY_INJECTION</key>
+        <string>1</string>
+        <key>FUSION_SAFETY_LEVEL</key>
+        <string>L2</string>
+    </dict>
+</dict>
+</plist>
+PLIST
+
+    launchctl load "${_LAUNCHD_PLIST}" 2>/dev/null || true
+    log_info "LaunchAgent installed and loaded: ${_LAUNCHD_PLIST}"
+    log_info "Daemon will auto-start on login and restart on crash/stop"
+    log_info "NOTE: FUSION_MLX_API_KEY intentionally NOT set in plist -> daemon uses ~/.fusion-mlx/settings.json (dahai168)"
+}
+
+uninstall_launchd() {
+    if [[ ! -f "${_LAUNCHD_PLIST}" ]]; then
+        log_warn "No LaunchAgent found at ${_LAUNCHD_PLIST}"
+        exit 0
+    fi
+
+    launchctl unload "${_LAUNCHD_PLIST}" 2>/dev/null || true
+    rm -f "${_LAUNCHD_PLIST}"
+    log_info "LaunchAgent uninstalled"
+}
+
 case "${1:-status}" in
     start)   start ;;
     stop)    stop ;;
     restart) restart ;;
     status)  status ;;
+    install-launchd)   install_launchd ;;
+    uninstall-launchd) uninstall_launchd ;;
     *)
-        echo "Usage: $0 {start|stop|restart|status}"
+        echo "Usage: $0 {start|stop|restart|status|install-launchd|uninstall-launchd}"
         exit 2
         ;;
 esac
