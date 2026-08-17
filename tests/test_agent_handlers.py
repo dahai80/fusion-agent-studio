@@ -387,6 +387,121 @@ class TestAgentSkills:
         assert result["steps"][0]["status"] == "error"
         assert "missing command" in result["steps"][0]["error"]
 
+    @pytest.mark.asyncio
+    async def test_skill_execute_terminal_step_interpolates_capture(self, daemon, monkeypatch):
+        # #156: terminal step 的 command 应插值前序 capture_to 变量 (terminal→terminal).
+        created = await _run(daemon, "agent.create", {"name": "SkillTermInterp"})
+        agent_id = created["agent_id"]
+        await _run(
+            daemon,
+            "agent.add_skill",
+            {
+                "agent_id": agent_id,
+                "skill_name": "term_interp",
+                "skill_def": {
+                    "name": "term_interp",
+                    "steps": [
+                        {
+                            "name": "produce",
+                            "action": "terminal",
+                            "command": "echo payload-XYZ",
+                            "capture_to": "data",
+                        },
+                        {
+                            "name": "consume",
+                            "action": "terminal",
+                            "command": "echo got:{data}",
+                            "capture_to": "out",
+                        },
+                    ],
+                },
+            },
+        )
+
+        class _FakeSession:
+            id = "fake-session-interp"
+
+        class _FakeEngine:
+            def create_session(self, mode="simple", title="", graph_id="", metadata=None):
+                return _FakeSession()
+
+            async def send(self, session_id, message, mode="", content=None):
+                from agent_runtime.chat_engine import ChatEvent, ChatEventType
+
+                yield ChatEvent(type=ChatEventType.TOKEN, content="noop")
+
+        monkeypatch.setattr(daemon, "_get_chat_engine", lambda: _FakeEngine())
+
+        result = await _run(
+            daemon,
+            "skill.execute",
+            {"agent_id": agent_id, "skill_name": "term_interp", "input": "go"},
+        )
+        assert len(result["steps"]) == 2
+        consume = result["steps"][1]
+        assert consume["status"] == "completed"
+        assert "got:payload-XYZ" in consume["output"]
+        assert "{data}" not in consume["output"]
+
+    @pytest.mark.asyncio
+    async def test_skill_execute_generate_step_capture_to(self, daemon, monkeypatch):
+        # #156: generate step 支持 capture_to, 输出可供后续 terminal step 插值 (generate→terminal).
+        created = await _run(daemon, "agent.create", {"name": "SkillGenCapture"})
+        agent_id = created["agent_id"]
+        await _run(
+            daemon,
+            "agent.add_skill",
+            {
+                "agent_id": agent_id,
+                "skill_name": "gen_capture",
+                "skill_def": {
+                    "name": "gen_capture",
+                    "steps": [
+                        {
+                            "name": "decide",
+                            "action": "generate",
+                            "prompt": "decide something",
+                            "capture_to": "decision",
+                        },
+                        {
+                            "name": "act",
+                            "action": "terminal",
+                            "command": "echo decision-is:{decision}",
+                            "capture_to": "out",
+                        },
+                    ],
+                },
+            },
+        )
+
+        class _FakeSession:
+            id = "fake-session-gencap"
+
+        class _FakeEngine:
+            def create_session(self, mode="simple", title="", graph_id="", metadata=None):
+                return _FakeSession()
+
+            async def send(self, session_id, message, mode="", content=None):
+                from agent_runtime.chat_engine import ChatEvent, ChatEventType
+
+                yield ChatEvent(type=ChatEventType.TOKEN, content="PUBLISH_NOW")
+
+        monkeypatch.setattr(daemon, "_get_chat_engine", lambda: _FakeEngine())
+
+        result = await _run(
+            daemon,
+            "skill.execute",
+            {"agent_id": agent_id, "skill_name": "gen_capture", "input": "go"},
+        )
+        assert len(result["steps"]) == 2
+        gen_step = result["steps"][0]
+        assert gen_step["action"] == "generate"
+        assert gen_step["capture_to"] == "decision"
+        act_step = result["steps"][1]
+        assert act_step["status"] == "completed"
+        assert "decision-is:PUBLISH_NOW" in act_step["output"]
+        assert "{decision}" not in act_step["output"]
+
 
 class TestAgentSoul:
     @pytest.mark.asyncio

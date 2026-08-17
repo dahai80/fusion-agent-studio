@@ -460,6 +460,8 @@ class AgentDispatcher(SubDispatcher):
                 action = step.get("action", "generate")
                 if action == "terminal":
                     command = step.get("command", "")
+                    for cname, cval in captures.items():
+                        command = command.replace("{" + cname + "}", cval)
                     if not command:
                         results.append(
                             {
@@ -535,6 +537,9 @@ class AgentDispatcher(SubDispatcher):
                         if ev.type.value == "token":
                             response_text += ev.content
                     step_results.append(response_text[:4000])
+                    gen_capture = step.get("capture_to", "")
+                    if gen_capture:
+                        captures[gen_capture] = response_text
                     results.append(
                         {
                             "step": i + 1,
@@ -543,6 +548,7 @@ class AgentDispatcher(SubDispatcher):
                             "status": "completed",
                             "output": response_text,
                             "output_length": len(response_text),
+                            "capture_to": gen_capture,
                         }
                     )
                     logger.info(
