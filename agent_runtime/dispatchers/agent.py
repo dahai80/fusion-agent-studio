@@ -351,11 +351,7 @@ class AgentDispatcher(SubDispatcher):
         events = []
         try:
             async for event in rt.execute_graph(graph, input_text):
-                ev_dict = (
-                    event.to_dict()
-                    if hasattr(event, "to_dict")
-                    else {"type": str(event)}
-                )
+                ev_dict = event.to_dict() if hasattr(event, "to_dict") else {"type": str(event)}
                 events.append(ev_dict)
         except Exception as e:
             logger.warning("agent.execute runtime error: %s", e)
@@ -445,9 +441,7 @@ class AgentDispatcher(SubDispatcher):
         if not skill_def:
             return {"status": "error", "message": f"Skill not found: {skill_name}"}
 
-        system_prompt = skill_def.get(
-            "system_prompt", skill_def.get("systemPrompt", "")
-        )
+        system_prompt = skill_def.get("system_prompt", skill_def.get("systemPrompt", ""))
         steps = skill_def.get("steps", [])
         results = []
         chat_engine = self._daemon._get_chat_engine()
@@ -460,14 +454,71 @@ class AgentDispatcher(SubDispatcher):
 
         if steps:
             step_results = []
+            captures = {}
             for i, step in enumerate(steps):
                 step_prompt = step.get("prompt", "")
                 action = step.get("action", "generate")
+                if action == "terminal":
+                    command = step.get("command", "")
+                    if not command:
+                        results.append(
+                            {
+                                "step": i + 1,
+                                "name": step.get("name", f"Step {i + 1}"),
+                                "action": action,
+                                "status": "error",
+                                "error": "terminal step missing command",
+                            }
+                        )
+                        step_results.append("Error: terminal step missing command")
+                        break
+                    try:
+                        registry = self._daemon._get_tool_registry()
+                        tool = registry.get("terminal")
+                        tool_out = await tool.execute(
+                            command=command,
+                            timeout=int(step.get("timeout", 30)),
+                            workdir=step.get("cwd", step.get("workdir", "")),
+                        )
+                        capture = step.get("capture_to", "")
+                        if capture:
+                            captures[capture] = str(tool_out)
+                        step_results.append(str(tool_out)[:4000])
+                        results.append(
+                            {
+                                "step": i + 1,
+                                "name": step.get("name", f"Step {i + 1}"),
+                                "action": action,
+                                "status": "completed",
+                                "output": tool_out,
+                                "output_length": len(str(tool_out)),
+                                "capture_to": capture,
+                            }
+                        )
+                        logger.info(
+                            "skill.execute: terminal step %d/%d completed, %d chars",
+                            i + 1,
+                            len(steps),
+                            len(str(tool_out)),
+                        )
+                    except Exception as e:
+                        step_results.append(f"Error: {e}")
+                        results.append(
+                            {
+                                "step": i + 1,
+                                "name": step.get("name", f"Step {i + 1}"),
+                                "action": action,
+                                "status": "error",
+                                "error": str(e),
+                            }
+                        )
+                        break
+                    continue
                 step_input = (
-                    step_prompt.replace("{input}", user_input)
-                    if step_prompt
-                    else user_input
+                    step_prompt.replace("{input}", user_input) if step_prompt else user_input
                 )
+                for cname, cval in captures.items():
+                    step_input = step_input.replace("{" + cname + "}", cval)
                 if step_results:
                     step_input += "\n\nPrevious step results:\n" + "\n".join(
                         f"[Step {j + 1}]: {r}" for j, r in enumerate(step_results)
@@ -480,9 +531,7 @@ class AgentDispatcher(SubDispatcher):
 
                 try:
                     response_text = ""
-                    async for ev in chat_engine.send(
-                        session_id, step_input, mode="skill"
-                    ):
+                    async for ev in chat_engine.send(session_id, step_input, mode="skill"):
                         if ev.type.value == "token":
                             response_text += ev.content
                     step_results.append(response_text[:4000])
@@ -577,9 +626,7 @@ class AgentDispatcher(SubDispatcher):
         )
         try:
             decomp_text = ""
-            async for ev in chat_engine.send(
-                session_id, decompose_prompt, mode="research"
-            ):
+            async for ev in chat_engine.send(session_id, decompose_prompt, mode="research"):
                 if ev.type.value == "token":
                     decomp_text += ev.content
             steps_taken += 1
@@ -619,9 +666,7 @@ class AgentDispatcher(SubDispatcher):
             )
             try:
                 search_text = ""
-                async for ev in chat_engine.send(
-                    session_id, search_prompt, mode="research"
-                ):
+                async for ev in chat_engine.send(session_id, search_prompt, mode="research"):
                     if ev.type.value == "token":
                         search_text += ev.content
                 steps_taken += 1
@@ -648,9 +693,7 @@ class AgentDispatcher(SubDispatcher):
         )
         try:
             suff_text = ""
-            async for ev in chat_engine.send(
-                session_id, sufficiency_prompt, mode="research"
-            ):
+            async for ev in chat_engine.send(session_id, sufficiency_prompt, mode="research"):
                 if ev.type.value == "token":
                     suff_text += ev.content
             sufficient = "SUFFICIENT" in suff_text.upper()
@@ -667,9 +710,7 @@ class AgentDispatcher(SubDispatcher):
             )
             try:
                 extra_text = ""
-                async for ev in chat_engine.send(
-                    session_id, extra_prompt, mode="research"
-                ):
+                async for ev in chat_engine.send(session_id, extra_prompt, mode="research"):
                     if ev.type.value == "token":
                         extra_text += ev.content
                 steps_taken += 1
@@ -690,9 +731,7 @@ class AgentDispatcher(SubDispatcher):
         )
         try:
             final_answer = ""
-            async for ev in chat_engine.send(
-                session_id, synthesize_prompt, mode="research"
-            ):
+            async for ev in chat_engine.send(session_id, synthesize_prompt, mode="research"):
                 if ev.type.value == "token":
                     final_answer += ev.content
             steps_taken += 1
@@ -819,17 +858,14 @@ class AgentDispatcher(SubDispatcher):
 
         try:
             from ..code_sandbox import CodeSandbox
+
             sandbox = CodeSandbox(timeout=timeout, use_sandbox=True)
             result = await asyncio.to_thread(sandbox.execute, code, language)
             output = result.stdout
             if result.stderr:
                 output = (output + "\n" + result.stderr) if output else result.stderr
             if result.timed_out:
-                output = (
-                    (output + "\nExecution timed out")
-                    if output
-                    else "Execution timed out"
-                )
+                output = (output + "\nExecution timed out") if output else "Execution timed out"
             logger.info(
                 "_execute_code_task done: task=%s exit=%s success=%s exec_id=%s",
                 task["task_id"],
@@ -839,9 +875,7 @@ class AgentDispatcher(SubDispatcher):
             )
             return {"output": output, "exit_code": result.exit_code}
         except Exception as exc:
-            logger.error(
-                "_execute_code_task error: task=%s error=%s", task["task_id"], exc
-            )
+            logger.error("_execute_code_task error: task=%s error=%s", task["task_id"], exc)
             return {"output": str(exc), "exit_code": 1}
 
     async def _handle_agent_task_status(self, params: dict) -> dict:
@@ -1083,11 +1117,7 @@ class AgentDispatcher(SubDispatcher):
         total_output_tokens = 0
         try:
             async for event in rt.execute_graph(graph, input_text):
-                ev_dict = (
-                    event.to_dict()
-                    if hasattr(event, "to_dict")
-                    else {"type": str(event)}
-                )
+                ev_dict = event.to_dict() if hasattr(event, "to_dict") else {"type": str(event)}
                 events.append(ev_dict)
                 ev_type = ev_dict.get("type", "")
                 if ev_type == "TOOL_CALL":
@@ -1146,9 +1176,7 @@ class AgentDispatcher(SubDispatcher):
         if not pkg.exists:
             return {"status": "error", "message": f"Agent not found: {agent_id}"}
         manifest = pkg.load_manifest()
-        rag_enabled = (
-            bool(manifest.knowledge_base_ids) or manifest.rag_strategy != "none"
-        )
+        rag_enabled = bool(manifest.knowledge_base_ids) or manifest.rag_strategy != "none"
         permissions = self._daemon._get_agent_permissions(agent_id, manifest)
         preview = {
             "agentId": agent_id,
@@ -1184,9 +1212,7 @@ class AgentDispatcher(SubDispatcher):
         execute_params = {
             "agent_id": agent_id,
             "message": message,
-            "knowledge_base_ids": [override_kb]
-            if override_kb
-            else manifest.knowledge_base_ids,
+            "knowledge_base_ids": [override_kb] if override_kb else manifest.knowledge_base_ids,
             "project_context": {
                 "project_id": project_id,
                 "kb_id": override_kb,
@@ -1304,9 +1330,7 @@ class AgentDispatcher(SubDispatcher):
         caller_id = params.get("caller_id", "")
         message = params.get("message", "")
         mgr = self._daemon._get_cowork_manager()
-        result = await mgr.call_agent(
-            space_id, agent_id, caller_id=caller_id, message=message
-        )
+        result = await mgr.call_agent(space_id, agent_id, caller_id=caller_id, message=message)
         logger.info(
             "agent.cowork.call: space=%s agent=%s caller=%s",
             space_id,

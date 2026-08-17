@@ -106,9 +106,7 @@ class TestAgentList:
 
     @pytest.mark.asyncio
     async def test_list_filter_by_tags(self, daemon):
-        await _run(
-            daemon, "agent.create", {"name": "TagBot", "tags": ["code", "assistant"]}
-        )
+        await _run(daemon, "agent.create", {"name": "TagBot", "tags": ["code", "assistant"]})
         await _run(daemon, "agent.create", {"name": "NoTagBot", "tags": []})
         result = await _run(daemon, "agent.list", {"tags": ["code"]})
         names = [a["name"] for a in result["agents"]]
@@ -120,9 +118,7 @@ class TestAgentUpdate:
     async def test_update_name(self, daemon):
         created = await _run(daemon, "agent.create", {"name": "OldName"})
         agent_id = created["agent_id"]
-        result = await _run(
-            daemon, "agent.update", {"agent_id": agent_id, "name": "NewName"}
-        )
+        result = await _run(daemon, "agent.update", {"agent_id": agent_id, "name": "NewName"})
         assert result["updated"] is True
         assert result["manifest"]["name"] == "NewName"
 
@@ -183,9 +179,7 @@ class TestAgentConfigure:
     async def test_configure_empty_config(self, daemon):
         created = await _run(daemon, "agent.create", {"name": "ConfigBot2"})
         agent_id = created["agent_id"]
-        result = await _run(
-            daemon, "agent.configure", {"agent_id": agent_id, "config": {}}
-        )
+        result = await _run(daemon, "agent.configure", {"agent_id": agent_id, "config": {}})
         assert result["status"] == "error"
 
 
@@ -287,6 +281,112 @@ class TestAgentSkills:
         assert all(s["status"] == "completed" for s in result["steps"])
         assert result["result"] == "ok"
 
+    @pytest.mark.asyncio
+    async def test_skill_execute_terminal_step_captures(self, daemon, monkeypatch):
+        # #152: terminal step 用 TerminalTool 跑命令, capture_to 写变量供后续 step 插值.
+        created = await _run(daemon, "agent.create", {"name": "SkillTerm"})
+        agent_id = created["agent_id"]
+        await _run(
+            daemon,
+            "agent.add_skill",
+            {
+                "agent_id": agent_id,
+                "skill_name": "term_pipeline",
+                "skill_def": {
+                    "name": "term_pipeline",
+                    "steps": [
+                        {
+                            "name": "fetch",
+                            "action": "terminal",
+                            "command": "echo hello-from-fetch",
+                            "capture_to": "fetch_output",
+                        },
+                        {
+                            "name": "summarize",
+                            "action": "generate",
+                            "prompt": "Summarize: {fetch_output}",
+                        },
+                    ],
+                },
+            },
+        )
+
+        seen_prompts = []
+
+        class _FakeSession:
+            id = "fake-session-term"
+
+        class _FakeEngine:
+            def create_session(self, mode="simple", title="", graph_id="", metadata=None):
+                return _FakeSession()
+
+            async def send(self, session_id, message, mode="", content=None):
+                seen_prompts.append(message)
+                from agent_runtime.chat_engine import ChatEvent, ChatEventType
+
+                yield ChatEvent(type=ChatEventType.TOKEN, content="summarized")
+
+        monkeypatch.setattr(daemon, "_get_chat_engine", lambda: _FakeEngine())
+
+        result = await _run(
+            daemon,
+            "skill.execute",
+            {"agent_id": agent_id, "skill_name": "term_pipeline", "input": "go"},
+        )
+        assert len(result["steps"]) == 2
+        term_step = result["steps"][0]
+        assert term_step["action"] == "terminal"
+        assert term_step["status"] == "completed"
+        assert "hello-from-fetch" in term_step["output"]
+        assert term_step["capture_to"] == "fetch_output"
+        # generate step 的 prompt 应被插值替换 capture 变量.
+        assert "hello-from-fetch" in seen_prompts[0]
+        assert "{fetch_output}" not in seen_prompts[0]
+
+    @pytest.mark.asyncio
+    async def test_skill_execute_terminal_missing_command(self, daemon, monkeypatch):
+        # terminal step 缺 command 应报 error 并终止后续 step.
+        created = await _run(daemon, "agent.create", {"name": "SkillTermErr"})
+        agent_id = created["agent_id"]
+        await _run(
+            daemon,
+            "agent.add_skill",
+            {
+                "agent_id": agent_id,
+                "skill_name": "term_bad",
+                "skill_def": {
+                    "name": "term_bad",
+                    "steps": [
+                        {"name": "noop", "action": "terminal", "capture_to": "x"},
+                        {"name": "after", "action": "generate", "prompt": "after"},
+                    ],
+                },
+            },
+        )
+
+        class _FakeSession:
+            id = "fake-session-err"
+
+        class _FakeEngine:
+            def create_session(self, mode="simple", title="", graph_id="", metadata=None):
+                return _FakeSession()
+
+            async def send(self, session_id, message, mode="", content=None):
+                from agent_runtime.chat_engine import ChatEvent, ChatEventType
+
+                yield ChatEvent(type=ChatEventType.TOKEN, content="should-not-run")
+
+        monkeypatch.setattr(daemon, "_get_chat_engine", lambda: _FakeEngine())
+
+        result = await _run(
+            daemon,
+            "skill.execute",
+            {"agent_id": agent_id, "skill_name": "term_bad", "input": "go"},
+        )
+        assert len(result["steps"]) == 1
+        assert result["steps"][0]["status"] == "error"
+        assert "missing command" in result["steps"][0]["error"]
+
 
 class TestAgentSoul:
     @pytest.mark.asyncio
@@ -311,13 +411,9 @@ class TestAgentSoul:
 class TestAgentExecute:
     @pytest.mark.asyncio
     async def test_execute_without_mlx(self, daemon):
-        created = await _run(
-            daemon, "agent.create", {"name": "ExecBot", "model": "test-model"}
-        )
+        created = await _run(daemon, "agent.create", {"name": "ExecBot", "model": "test-model"})
         agent_id = created["agent_id"]
-        result = await _run(
-            daemon, "agent.execute", {"agent_id": agent_id, "input": "hello"}
-        )
+        result = await _run(daemon, "agent.execute", {"agent_id": agent_id, "input": "hello"})
         assert "events" in result or "status" in result
 
 
