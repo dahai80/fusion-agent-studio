@@ -40,6 +40,7 @@ class AgentDispatcher(SubDispatcher):
             "agent.tasks": self._handle_agent_tasks,
             "agent.publish": self._handle_agent_publish,
             "agent.archive": self._handle_agent_archive,
+            "agent.unpublish": self._handle_agent_unpublish,
             "agent.clone": self._handle_agent_clone,
             "agent.get_api_endpoint": self._handle_agent_get_api_endpoint,
             "agent.execute_stream": self._handle_agent_execute_stream,
@@ -1006,6 +1007,37 @@ class AgentDispatcher(SubDispatcher):
             self._daemon._persist_agents_index()
         logger.info("agent.archive: id=%s", agent_id)
         return {"agent_id": agent_id, "status": "archived"}
+
+    async def _handle_agent_unpublish(self, params: dict) -> dict:
+        agent_id = params.get("agent_id", "")
+        if not agent_id:
+            return {"status": "error", "message": "agent_id parameter required"}
+        from ..agent_package import AgentPackage
+
+        agent_dir = self._daemon._agent_dir(agent_id)
+        pkg = AgentPackage(agent_dir)
+        if not pkg.exists:
+            return {"status": "error", "message": f"Agent not found: {agent_id}"}
+        manifest = pkg.load_manifest()
+        previous_status = manifest.status
+        if previous_status not in ("published", "archived"):
+            return {
+                "status": "error",
+                "message": f"Agent not published/archived (current: {previous_status})",
+            }
+        manifest.status = "draft"
+        manifest.published_at = None
+        pkg.save_manifest(manifest)
+        self._daemon._load_agents_index()
+        if agent_id in self._daemon._agents:
+            self._daemon._agents[agent_id].update(manifest.to_dict())
+            self._daemon._persist_agents_index()
+        logger.info("agent.unpublish: id=%s prev=%s", agent_id, previous_status)
+        return {
+            "agent_id": agent_id,
+            "status": "draft",
+            "previous_status": previous_status,
+        }
 
     async def _handle_agent_clone(self, params: dict) -> dict:
         import uuid
