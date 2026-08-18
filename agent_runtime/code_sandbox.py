@@ -28,6 +28,78 @@ SANDBOX_PROFILE = """
 (deny network*)
 """
 
+LANGUAGES = {
+    "python": {
+        "ext": "py",
+        "type": "interpreted",
+        "run": lambda work_dir, script: [sys.executable, str(script)],
+    },
+    "shell": {
+        "ext": "sh",
+        "type": "interpreted",
+        "run": lambda work_dir, script: ["bash", str(script)],
+    },
+    "bash": {
+        "ext": "sh",
+        "type": "interpreted",
+        "run": lambda work_dir, script: ["bash", str(script)],
+    },
+    "javascript": {
+        "ext": "js",
+        "type": "interpreted",
+        "run": lambda work_dir, script: ["node", str(script)],
+    },
+    "swift": {
+        "ext": "swift",
+        "type": "interpreted",
+        "run": lambda work_dir, script: ["swift", str(script)],
+    },
+    "go": {
+        "ext": "go",
+        "type": "compiled",
+        "run": lambda work_dir, script: ["go", "run", str(script)],
+    },
+    "cpp": {
+        "ext": "cpp",
+        "type": "compiled",
+        "run": None,
+    },
+    "c": {
+        "ext": "c",
+        "type": "compiled",
+        "run": None,
+    },
+}
+
+
+def supported_languages() -> list[dict[str, Any]]:
+    avail = []
+    for lang, spec in LANGUAGES.items():
+        avail.append({"language": lang, "type": spec["type"]})
+    return avail
+
+
+def is_language_available(language: str) -> bool:
+    import shutil
+
+    spec = LANGUAGES.get(language)
+    if not spec:
+        return False
+    if language == "cpp" or language == "c":
+        return shutil.which("clang++") is not None
+    if language == "go":
+        return shutil.which("go") is not None
+    if language == "javascript":
+        return shutil.which("node") is not None
+    if language == "swift":
+        return shutil.which("swift") is not None
+    if language in ("shell", "bash"):
+        return shutil.which("bash") is not None
+    if language == "python":
+        return True
+    return False
+
+
 DANGEROUS_IMPORTS = {
     "os",
     "subprocess",
@@ -256,46 +328,87 @@ class CodeSandbox:
 
     def execute(self, code: str, language: str = "python") -> SandboxResult:
         exec_id = uuid.uuid4().hex[:8]
-        analysis = self._ast_checker.analyze(code)
-        if not analysis.safe:
-            logger.warning(
-                "Code safety check FAILED for exec %s: %s", exec_id, analysis.issues
-            )
-            return SandboxResult(
-                success=False,
-                exit_code=-1,
-                stderr=f"Safety check failed: {'; '.join(analysis.issues)}",
-                execution_id=exec_id,
-            )
-
-        with tempfile.TemporaryDirectory(prefix=f"sandbox_{exec_id}_") as tmpdir:
-            if language == "python":
-                return self._execute_python(code, tmpdir, exec_id)
+        spec = LANGUAGES.get(language)
+        if not spec:
             return SandboxResult(
                 success=False,
                 stderr=f"Unsupported language: {language}",
                 execution_id=exec_id,
             )
+        if not is_language_available(language):
+            return SandboxResult(
+                success=False,
+                stderr=f"Language toolchain not available: {language}",
+                execution_id=exec_id,
+            )
+        if language == "python":
+            analysis = self._ast_checker.analyze(code)
+            if not analysis.safe:
+                logger.warning(
+                    "Code safety check FAILED for exec %s: %s", exec_id, analysis.issues
+                )
+                return SandboxResult(
+                    success=False,
+                    exit_code=-1,
+                    stderr=f"Safety check failed: {'; '.join(analysis.issues)}",
+                    execution_id=exec_id,
+                )
 
-    def _execute_python(self, code: str, work_dir: str, exec_id: str) -> SandboxResult:
-        script_path = Path(work_dir) / "script.py"
+        with tempfile.TemporaryDirectory(prefix=f"sandbox_{exec_id}_") as tmpdir:
+            if language in ("cpp", "c"):
+                return self._execute_compiled(code, tmpdir, exec_id, spec["ext"])
+            return self._execute_interpreted(code, tmpdir, exec_id, language, spec)
+
+    def _execute_interpreted(
+        self, code: str, work_dir: str, exec_id: str, language: str, spec: dict
+    ) -> SandboxResult:
+        script_path = Path(work_dir) / f"script.{spec['ext']}"
         script_path.write_text(code, encoding="utf-8")
+
+        base_cmd = spec["run"](work_dir, script_path)
+        if self.use_sandbox:
+            profile = SANDBOX_PROFILE.replace("__SANDBOX_DIR__", work_dir)
+            profile_path = Path(work_dir) / "sandbox.sb"
+            profile_path.write_text(profile)
+            logger.info("Sandbox profile written: %s (lang=%s)", profile_path, language)
+            cmd = ["sandbox-exec", "-f", str(profile_path)] + base_cmd
+        else:
+            cmd = base_cmd
+
+        return self._run_proc(cmd, work_dir, exec_id)
+
+    def _execute_compiled(
+        self, code: str, work_dir: str, exec_id: str, ext: str
+    ) -> SandboxResult:
+        src_path = Path(work_dir) / f"script.{ext}"
+        src_path.write_text(code, encoding="utf-8")
+        bin_path = Path(work_dir) / "script.out"
+
+        compile_cmd = ["clang++", "-std=c++17", "-o", str(bin_path), str(src_path)]
+        if ext == "c":
+            compile_cmd = ["clang", "-std=c11", "-o", str(bin_path), str(src_path)]
 
         if self.use_sandbox:
             profile = SANDBOX_PROFILE.replace("__SANDBOX_DIR__", work_dir)
             profile_path = Path(work_dir) / "sandbox.sb"
             profile_path.write_text(profile)
-            logger.info("Sandbox profile written: %s", profile_path)
-            cmd = [
-                "sandbox-exec",
-                "-f",
-                str(profile_path),
-                sys.executable,
-                str(script_path),
-            ]
-        else:
-            cmd = [sys.executable, str(script_path)]
+            logger.info("Sandbox profile written: %s (lang=%s)", profile_path, ext)
+            compile_cmd = ["sandbox-exec", "-f", str(profile_path)] + compile_cmd
 
+        cproc = self._run_proc(compile_cmd, work_dir, exec_id)
+        if not cproc.success:
+            return cproc
+
+        run_cmd = [str(bin_path)]
+        if self.use_sandbox:
+            profile_path = Path(work_dir) / "sandbox.sb"
+            run_cmd = ["sandbox-exec", "-f", str(profile_path), str(bin_path)]
+        return self._run_proc(run_cmd, work_dir, exec_id)
+
+    def _run_proc(
+        self, cmd: list[str], work_dir: str, exec_id: str
+    ) -> SandboxResult:
+        logger.info("Sandbox exec %s: cmd=%s", exec_id, cmd)
         try:
             proc = subprocess.run(
                 cmd,
@@ -329,3 +442,4 @@ class CodeSandbox:
                 stderr=str(e),
                 execution_id=exec_id,
             )
+

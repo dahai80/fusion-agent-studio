@@ -199,6 +199,24 @@ class TestAgentUnpublish:
         assert result["status"] == "error"
 
 
+class TestAgentCodeLanguages:
+    @pytest.mark.asyncio
+    async def test_code_languages_returns_list(self, daemon):
+        result = await _run(daemon, "agent.code_languages", {})
+        assert "languages" in result
+        assert isinstance(result["languages"], list)
+        names = [l["language"] for l in result["languages"]]
+        assert "python" in names
+
+    @pytest.mark.asyncio
+    async def test_code_languages_entry_schema(self, daemon):
+        result = await _run(daemon, "agent.code_languages", {})
+        for entry in result["languages"]:
+            assert "language" in entry
+            assert "type" in entry
+            assert entry["type"] in ("interpreted", "compiled")
+
+
 class TestAgentConfigure:
     @pytest.mark.asyncio
     async def test_configure_model_and_temperature(self, daemon):
