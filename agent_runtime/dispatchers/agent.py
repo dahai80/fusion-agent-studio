@@ -41,6 +41,7 @@ class AgentDispatcher(SubDispatcher):
             "agent.publish": self._handle_agent_publish,
             "agent.archive": self._handle_agent_archive,
             "agent.unpublish": self._handle_agent_unpublish,
+            "agent.code_languages": self._handle_agent_code_languages,
             "agent.clone": self._handle_agent_clone,
             "agent.get_api_endpoint": self._handle_agent_get_api_endpoint,
             "agent.execute_stream": self._handle_agent_execute_stream,
@@ -860,9 +861,6 @@ class AgentDispatcher(SubDispatcher):
             language,
             timeout,
         )
-        if language != "python":
-            return {"output": f"Unsupported language: {language}", "exit_code": 1}
-
         try:
             from ..code_sandbox import CodeSandbox
 
@@ -1038,6 +1036,17 @@ class AgentDispatcher(SubDispatcher):
             "status": "draft",
             "previous_status": previous_status,
         }
+
+    async def _handle_agent_code_languages(self, params: dict) -> dict:
+        from ..code_sandbox import is_language_available, supported_languages
+
+        available = [
+            lang
+            for lang in supported_languages()
+            if is_language_available(lang["language"])
+        ]
+        logger.info("agent.code_languages: available=%s", available)
+        return {"languages": available}
 
     async def _handle_agent_clone(self, params: dict) -> dict:
         import uuid

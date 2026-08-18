@@ -17,6 +17,8 @@ from agent_runtime.code_sandbox import (
     CodeSandbox,
     DiffPreview,
     SandboxResult,
+    is_language_available,
+    supported_languages,
 )
 from agent_runtime.data_ingestion import (
     Chunk,
@@ -336,6 +338,84 @@ class TestCodeSandbox:
         d = r.to_dict()
         assert d["success"]
         assert d["execution_id"] == "abc"
+
+    def test_shell_execution(self):
+        sandbox = CodeSandbox(use_sandbox=False, timeout=10)
+        result = sandbox.execute("echo hello_world", language="shell")
+        assert result.success
+        assert "hello_world" in result.stdout
+
+    def test_javascript_execution(self):
+        if not is_language_available("javascript"):
+            import pytest
+
+            pytest.skip("node not installed")
+        sandbox = CodeSandbox(use_sandbox=False, timeout=10)
+        result = sandbox.execute("console.log('js_ok')", language="javascript")
+        assert result.success
+        assert "js_ok" in result.stdout
+
+    def test_swift_execution(self):
+        if not is_language_available("swift"):
+            import pytest
+
+            pytest.skip("swift not installed")
+        sandbox = CodeSandbox(use_sandbox=False, timeout=15)
+        result = sandbox.execute('print("swift_ok")', language="swift")
+        assert result.success
+        assert "swift_ok" in result.stdout
+
+    def test_go_execution(self):
+        if not is_language_available("go"):
+            import pytest
+
+            pytest.skip("go not installed")
+        sandbox = CodeSandbox(use_sandbox=False, timeout=15)
+        result = sandbox.execute(
+            'package main\nimport "fmt"\nfunc main(){fmt.Println("go_ok")}',
+            language="go",
+        )
+        assert result.success
+        assert "go_ok" in result.stdout
+
+    def test_cpp_execution(self):
+        if not is_language_available("cpp"):
+            import pytest
+
+            pytest.skip("clang++ not installed")
+        sandbox = CodeSandbox(use_sandbox=False, timeout=15)
+        result = sandbox.execute(
+            '#include <iostream>\nint main(){std::cout<<"cpp_ok\\n";return 0;}',
+            language="cpp",
+        )
+        assert result.success
+        assert "cpp_ok" in result.stdout
+
+    def test_c_execution(self):
+        if not is_language_available("c"):
+            import pytest
+
+            pytest.skip("clang not installed")
+        sandbox = CodeSandbox(use_sandbox=False, timeout=15)
+        result = sandbox.execute(
+            '#include <stdio.h>\nint main(){printf("c_ok\\n");return 0;}',
+            language="c",
+        )
+        assert result.success
+        assert "c_ok" in result.stdout
+
+    def test_supported_languages_list(self):
+        langs = supported_languages()
+        names = [l["language"] for l in langs]
+        assert "python" in names
+        assert "shell" in names
+        assert "cpp" in names
+        for entry in langs:
+            assert "language" in entry and "type" in entry
+
+    def test_is_language_available(self):
+        assert is_language_available("python") is True
+        assert is_language_available("ruby") is False
 
 
 # ── Aware Engine (Phase 5) ──────────────────────────────
