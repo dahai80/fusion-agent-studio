@@ -158,6 +158,47 @@ class TestAgentDelete:
         assert result["deleted"] is True
 
 
+class TestAgentUnpublish:
+    @pytest.mark.asyncio
+    async def test_unpublish_from_published(self, daemon):
+        created = await _run(daemon, "agent.create", {"name": "PubBot"})
+        agent_id = created["agent_id"]
+        await _run(daemon, "agent.publish", {"agent_id": agent_id})
+        result = await _run(daemon, "agent.unpublish", {"agent_id": agent_id})
+        assert result["status"] == "draft"
+        assert result["previous_status"] == "published"
+        agent = await _run(daemon, "agent.get", {"agent_id": agent_id})
+        assert agent["agent"]["status"] == "draft"
+        assert agent["agent"].get("published_at") is None
+
+    @pytest.mark.asyncio
+    async def test_unpublish_from_archived(self, daemon):
+        created = await _run(daemon, "agent.create", {"name": "ArchBot"})
+        agent_id = created["agent_id"]
+        await _run(daemon, "agent.publish", {"agent_id": agent_id})
+        await _run(daemon, "agent.archive", {"agent_id": agent_id})
+        result = await _run(daemon, "agent.unpublish", {"agent_id": agent_id})
+        assert result["status"] == "draft"
+        assert result["previous_status"] == "archived"
+
+    @pytest.mark.asyncio
+    async def test_unpublish_draft_is_error(self, daemon):
+        created = await _run(daemon, "agent.create", {"name": "DraftBot"})
+        agent_id = created["agent_id"]
+        result = await _run(daemon, "agent.unpublish", {"agent_id": agent_id})
+        assert result["status"] == "error"
+
+    @pytest.mark.asyncio
+    async def test_unpublish_missing_id(self, daemon):
+        result = await _run(daemon, "agent.unpublish", {})
+        assert result["status"] == "error"
+
+    @pytest.mark.asyncio
+    async def test_unpublish_not_found(self, daemon):
+        result = await _run(daemon, "agent.unpublish", {"agent_id": "ghost"})
+        assert result["status"] == "error"
+
+
 class TestAgentConfigure:
     @pytest.mark.asyncio
     async def test_configure_model_and_temperature(self, daemon):
