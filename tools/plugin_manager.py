@@ -27,6 +27,7 @@ class PluginManager:
         self.plugin_dir = Path(plugin_dir)
         self.plugin_dir.mkdir(parents=True, exist_ok=True)
         self._loaded: dict[str, str] = {}  # plugin_name -> file_path
+        self._failed: dict[str, str] = {}  # plugin_name -> error (显式化加载失败, 见 issue #164)
 
     def discover(self) -> list[dict[str, Any]]:
         """Scan the plugin directory and return metadata about available plugins."""
@@ -67,6 +68,7 @@ class PluginManager:
             return None
         except Exception as e:
             logger.error("Failed to load plugin %s: %s", name, e)
+            self._failed[name] = str(e)
             return None
 
     def load_all(self) -> list[BaseTool]:
@@ -76,6 +78,13 @@ class PluginManager:
             tool = self.load_plugin(plugin["name"])
             if tool:
                 tools.append(tool)
+        if self._failed:
+            logger.warning(
+                "plugin load failures (%d): %s — daemon may be missing tools, "
+                "check venv deps (pip install -e .[plugins-extra])",
+                len(self._failed),
+                list(self._failed.keys()),
+            )
         return tools
 
     def unload(self, name: str) -> None:
@@ -119,3 +128,8 @@ class {name.capitalize()}Tool(BaseTool):
     @property
     def loaded_count(self) -> int:
         return len(self._loaded)
+
+    @property
+    def failed_plugins(self) -> dict[str, str]:
+        # 暴露加载失败的 plugin (name->error), 供 daemon.status/监控显式化, 见 issue #164.
+        return dict(self._failed)
