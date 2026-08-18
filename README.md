@@ -163,7 +163,7 @@ python my_agent.py
 - ✅ **Rate limiter** — Token bucket per-key and per-agent QPS limiting
 - ✅ **Daemon server** — UDS JSON-RPC 2.0 server for fusion-studio GUI integration, 11 sub-dispatchers + 40 core RPCs
 - ✅ **Sub-Dispatcher architecture** — DaemonServer decomposed from 191 RPCs into 11 independent sub-dispatchers (agent, chat, deploy, infra, knowledge, marketplace, memory, planner, safety, team, workflow) with backward-compatible `__getattr__` proxy
-- ✅ **Agent lifecycle** — draft → published → archived status flow with version tracking, API endpoint generation, clone, debug execute_stream
+- ✅ **Agent lifecycle** — draft → published → archived status flow with version tracking, API endpoint generation, clone, debug execute_stream, and `agent.unpublish` RPC (#159) to revert published/archived back to draft
 - ✅ **Agent version/snapshot** — VersionRecord store, snapshot/restore/duplicate agent versions
 - ✅ **Knowledge Base entity** — First-class KB CRUD, file upload, agent binding, ETL pipeline
 - ✅ **Audit logging** — SQLite-backed admin action audit trail with query/export
@@ -183,7 +183,7 @@ python my_agent.py
 - ✅ **Agent marketplace** — Import/export .fusion-agent packages, search, categories, install
 - ✅ **Data ingestion** — Document readers (txt/md/json/csv/html), ETL pipeline, chunking (fixed-size, sentence, markdown-heading)
 - ✅ **Cluster manager** — Moved to [fusion-multi-node](../fusion-multi-node/) — standalone multi-node cluster for Apple Silicon
-- ✅ **Code sandbox** — AST safety analysis, diff preview, macOS sandbox-exec isolation for code execution
+- ✅ **Code sandbox** — AST safety analysis, diff preview, macOS sandbox-exec isolation for code execution; multi-language support (#161) — python/shell/bash/javascript/swift/go (interpreted) + cpp/c (compiled via clang), with `agent.code_languages` RPC returning the environment's actually-available languages so the frontend renders the selector dynamically
 - ✅ **3-Tier aware engine** — Debounce → AST diff → LLM gate cascade for file-change significance detection
 - ✅ **FMP router v2** — @Mention routing, round-robin turns, per-agent circuit breaker, message dedup
 - ✅ **Knowledge engine** — SQLite-vec + FTS5 hybrid search, RRF fusion, scoped namespaces, auto-embedding
