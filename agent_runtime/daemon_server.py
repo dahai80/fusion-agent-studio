@@ -1915,6 +1915,19 @@ class DaemonServer:
         if loaded:
             self._gateway._default_model = loaded
             self._gateway.register_default_local(name=loaded, base_url=MLX_BASE_URL)
+        # issue #170: gateway 路径转发上游失败 (502) 时, 直连 fusion-mlx 11434 兜底.
+        # 直连路径 _default_client 已指 11434, 无需重复.
+        if self._is_gateway_path():
+            mlx_key = self._read_mlx_api_key()
+            direct = FusionMLXClient(
+                base_url="http://127.0.0.1:11434/v1", api_key=mlx_key
+            )
+            self._gateway.set_mlx_direct_client(direct)
+            logger.info(
+                "MLX direct fallback client attached for gateway path "
+                "(api_key=%s)",
+                "set" if mlx_key else "none",
+            )
         logger.info(
             "MLX client attached to gateway (api_key=%s, default_model=%s)",
             "set" if api_key else "none",

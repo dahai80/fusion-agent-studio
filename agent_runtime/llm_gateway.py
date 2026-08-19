@@ -191,6 +191,10 @@ class LLMGateway:
         self._lock = threading.Lock()
         self._default_model = default_model
         self._default_client: Any = None
+        # 经 fusion-gateway 路径时, _default_client 指向 gateway (:11432).
+        # gateway 转发上游失败 (issue #170: gateway 路由 cloud 502) 时,
+        # 直连 fusion-mlx (:11434) 的兜底 client, 避免空输出.
+        self._mlx_direct_client: Any = None
         self._compactor = compactor
         logger.info("LLMGateway initialized (default_model=%s)", default_model)
 
@@ -221,6 +225,16 @@ class LLMGateway:
             logger.info("Default client set, no default_model specified")
         else:
             logger.info("Default client set with default_model=%s", self._default_model)
+
+    def set_mlx_direct_client(self, client: Any) -> None:
+        # issue #170: gateway 路径 (:11432) 转发上游失败 (路由 cloud 502) 时,
+        # 用直连 fusion-mlx (:11434) 的 client 兜底, 避免空输出.
+        # 仅 gateway 路径注入; 直连路径 (_default_client 已指 11434) 不需.
+        self._mlx_direct_client = client
+        logger.info(
+            "MLX direct fallback client set (base_url=%s)",
+            getattr(client, "base_url", "?"),
+        )
 
     def register_model(self, config: ModelConfig) -> None:
         with self._lock:
@@ -728,6 +742,39 @@ class LLMGateway:
                 logger.warning(
                     "Default client call failed for %s: %s", config.name, exc
                 )
+                # issue #170: gateway client 失败 (502/路由 cloud 错) 时,
+                # 直连 fusion-mlx 11434 兜底, 不再空输出.
+                if self._mlx_direct_client is not None:
+                    try:
+                        direct_resp = await self._mlx_direct_client.chat(
+                            model=config.name,
+                            messages=messages,
+                            tools=tools,
+                            temperature=temperature
+                            if temperature is not None
+                            else config.temperature,
+                            max_tokens=max_tokens
+                            if max_tokens is not None
+                            else config.max_tokens,
+                        )
+                        logger.info(
+                            "MLX direct fallback ok for %s (gateway had failed)",
+                            config.name,
+                        )
+                        return GatewayResponse(
+                            content=direct_resp.content,
+                            tool_calls=direct_resp.tool_calls,
+                            finish_reason=direct_resp.finish_reason,
+                            usage=direct_resp.usage,
+                            model=config.name,
+                            fallback_from="mlx-direct",
+                        )
+                    except Exception as direct_exc:
+                        logger.warning(
+                            "MLX direct fallback also failed for %s: %s",
+                            config.name,
+                            direct_exc,
+                        )
                 raise
 
         try:
