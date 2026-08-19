@@ -277,11 +277,14 @@ class LLMGateway:
                 and (not exclude or m.name not in exclude)
             ]
         if not candidates:
-            if self._default_model:
-                logger.info(
-                    "No registered models, falling back to default_model=%s",
-                    self._default_model,
-                )
+            if self._default_model and (
+                not exclude or self._default_model not in exclude
+            ):
+                if not exclude:
+                    logger.info(
+                        "No registered models, falling back to default_model=%s",
+                        self._default_model,
+                    )
                 return ModelConfig(
                     name=self._default_model,
                     base_url=str(self._default_client.base_url) if self._default_client else "",
@@ -308,7 +311,8 @@ class LLMGateway:
     ) -> list[ModelConfig]:
         chain = []
         exclude = set()
-        while True:
+        max_chain = max(len(self._models), 1) + 1
+        while len(chain) < max_chain:
             model = self.route(
                 capability=capability, min_context=min_context, exclude=exclude
             )
@@ -316,6 +320,13 @@ class LLMGateway:
                 break
             chain.append(model)
             exclude.add(model.name)
+        if len(chain) >= max_chain:
+            logger.warning(
+                "get_fallback_chain hit max_chain=%d guard, possible route() "
+                "fallback not honoring exclude (capability=%s)",
+                max_chain,
+                capability,
+            )
         return chain
 
     async def chat(
