@@ -1076,3 +1076,25 @@ class TestDaemonCronRuntime:
         result = await daemon._cron_default_handler(job)
         assert result["status"] == "skipped"
         assert result["reason"] == "no graph_id"
+
+
+class TestDaemonStatusFailedPlugins:
+    # issue #164: daemon.status 必须显式暴露 plugin 加载失败, 避免静默缺工具.
+
+    @pytest.mark.asyncio
+    async def test_status_returns_failed_plugins_key(self, daemon):
+        resp = await _rpc_call(daemon.socket_path, "daemon.status")
+        assert "result" in resp
+        result = resp["result"]
+        # 新增 failed_plugins 字段, 始终存在 (dict[str,str], 空表示无失败).
+        assert "failed_plugins" in result
+        assert isinstance(result["failed_plugins"], dict)
+
+    @pytest.mark.asyncio
+    async def test_status_failed_plugins_reflects_registry(self, daemon):
+        # 注入一个模拟失败 plugin, 确认 daemon.status 透传 registry.failed_plugins.
+        reg = daemon._get_tool_registry()
+        reg.failed_plugins = {"fake_broken_plugin": "No module named 'cv2'"}
+        resp = await _rpc_call(daemon.socket_path, "daemon.status")
+        result = resp["result"]
+        assert result["failed_plugins"] == {"fake_broken_plugin": "No module named 'cv2'"}

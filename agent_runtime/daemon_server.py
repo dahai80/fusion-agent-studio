@@ -721,6 +721,7 @@ class DaemonServer:
             "default_model": self._gateway._default_model or "",
             "active_sessions": len(self._active_executions),
             "uptime": time.time() - self._start_time if hasattr(self, "_start_time") and self._start_time else 0,
+            "failed_plugins": self._get_tool_registry().failed_plugins,
         }
 
     async def _handle_daemon_shutdown(self, params: dict) -> dict:

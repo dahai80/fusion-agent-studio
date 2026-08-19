@@ -109,4 +109,6 @@ def create_default_registry() -> ToolRegistry:
     _pm.load_all()
     if _pm.loaded_count:
         logger.info("create_default_registry loaded %d plugin tools", _pm.loaded_count)
+    if _pm.failed_plugins:
+        registry.failed_plugins = _pm.failed_plugins
     return registry

@@ -15,6 +15,7 @@ class ToolRegistry:
 
     def __init__(self):
         self._tools: dict[str, BaseTool] = {}
+        self.failed_plugins: dict[str, str] = {}  # plugin_name -> error, 显式化加载失败 (issue #164)
 
     def register(self, tool: BaseTool) -> None:
         """Register a tool."""
