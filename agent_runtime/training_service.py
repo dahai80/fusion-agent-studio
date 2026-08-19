@@ -180,3 +180,98 @@ class TrainingService:
         except ImportError as e:
             logger.warning("fusion_trainer not importable: %s", e)
             return {"error": "fusion_trainer not installed"}
+
+    # ------------------------------------------------------------------
+    # RunManager-backed surface (live progress + full config + run history).
+    # Kept separate from the legacy _RUNS dict above so existing callers
+    # keep working; the GUI uses these for real loss curves + run registry.
+    # ------------------------------------------------------------------
+
+    def run_manager(self):
+        """Lazily build a single RunManager (fusion_trainer.run_manager)."""
+        rm = getattr(self, "_run_manager", None)
+        if rm is None:
+            from fusion_trainer.run_manager import RunManager
+
+            rm = RunManager()
+            self._run_manager = rm
+        return rm
+
+    def start_sft_cfg(self, config_dict: dict[str, Any]) -> dict[str, Any]:
+        from fusion_trainer.config import (
+            DatasetConfig,
+            RLSLConfig,
+            SFTConfig,
+            TrainerConfig,
+        )
+
+        cfg = _build_trainer_config(
+            config_dict, DatasetConfig, RLSLConfig, SFTConfig, TrainerConfig
+        )
+        return self.run_manager().start_sft(cfg)
+
+    def start_rlsl_cfg(self, config_dict: dict[str, Any]) -> dict[str, Any]:
+        from fusion_trainer.config import (
+            DatasetConfig,
+            RLSLConfig,
+            SFTConfig,
+            TrainerConfig,
+        )
+
+        cfg = _build_trainer_config(
+            config_dict, DatasetConfig, RLSLConfig, SFTConfig, TrainerConfig
+        )
+        return self.run_manager().start_rlsl(cfg)
+
+    def list_runs(self, limit: int = 50) -> list[dict[str, Any]]:
+        return self.run_manager().list_runs(limit=limit)
+
+    def run_status_rm(self, run_id: str) -> dict[str, Any]:
+        return self.run_manager().run_status(run_id)
+
+    def run_progress(self, run_id: str, since_step: int = -1) -> dict[str, Any]:
+        return self.run_manager().run_progress(run_id, since_step=since_step)
+
+    def stop_run(self, run_id: str) -> dict[str, Any]:
+        return self.run_manager().stop_run(run_id)
+
+    def list_presets(self, kind: str = "") -> list[dict[str, Any]]:
+        return self.run_manager().list_presets(kind=kind)
+
+    def list_datasets(self) -> list[dict[str, Any]]:
+        return self.run_manager().list_datasets()
+
+    def preview_dataset(self, name: str, limit: int = 5) -> dict[str, Any]:
+        return self.run_manager().preview_dataset(name, limit=limit)
+
+    def list_adapters(self, model: str = "") -> list[dict[str, Any]]:
+        return self.run_manager().list_adapters(model=model)
+
+    def delete_adapter(self, name: str) -> dict[str, Any]:
+        return self.run_manager().delete_adapter(name)
+
+    def info_full(self) -> dict[str, Any]:
+        return self.run_manager().info()
+
+
+def _build_trainer_config(
+    d: dict[str, Any], DatasetConfig, RLSLConfig, SFTConfig, TrainerConfig
+) -> Any:
+    """Deserialize a TrainerConfig JSON payload into a TrainerConfig instance.
+
+    Sub-dicts (dataset/sft/rlsl) are rebuilt from their dataclasses; missing
+    keys fall back to dataclass defaults. Non-dataclass scalars (seed,
+    model_hub_path, cache_path, mlx_port) are passed through.
+    """
+    dataset = DatasetConfig(**(d.get("dataset") or {}))
+    sft = SFTConfig(**(d.get("sft") or {}))
+    rlsl = RLSLConfig(**(d.get("rlsl") or {}))
+    return TrainerConfig(
+        dataset=dataset,
+        sft=sft,
+        rlsl=rlsl,
+        seed=d.get("seed", 42),
+        model_hub_path=d.get("model_hub_path", ""),
+        cache_path=d.get("cache_path", ""),
+        mlx_port=d.get("mlx_port"),
+    )

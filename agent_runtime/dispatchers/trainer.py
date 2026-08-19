@@ -17,6 +17,19 @@ class TrainerDispatcher(SubDispatcher):
             "trainer.rlsl": self._handle_rlsl,
             "trainer.info": self._handle_info,
             "trainer.runs.status": self._handle_runs_status,
+            # RunManager-backed surface (live progress + full config + registry).
+            "trainer.start_sft": self._handle_start_sft,
+            "trainer.start_rlsl": self._handle_start_rlsl,
+            "trainer.runs.list": self._handle_runs_list,
+            "trainer.runs.status_full": self._handle_runs_status_full,
+            "trainer.runs.progress": self._handle_runs_progress,
+            "trainer.runs.stop": self._handle_runs_stop,
+            "trainer.presets.list": self._handle_presets_list,
+            "trainer.datasets.list": self._handle_datasets_list,
+            "trainer.datasets.preview": self._handle_datasets_preview,
+            "trainer.adapters.list": self._handle_adapters_list,
+            "trainer.adapters.delete": self._handle_adapters_delete,
+            "trainer.info_full": self._handle_info_full,
         }
 
     def _service(self):
@@ -84,3 +97,78 @@ class TrainerDispatcher(SubDispatcher):
         if not run_id:
             return self._err("run_id parameter required")
         return self._ok(self._service().run_status(run_id))
+
+    # ------------------------------------------------------------------
+    # RunManager-backed handlers (live progress + full config + registry).
+    # ------------------------------------------------------------------
+
+    async def _handle_start_sft(self, params: dict) -> dict:
+        config_dict = params.get("config")
+        if not isinstance(config_dict, dict):
+            return self._err("config parameter (TrainerConfig dict) required")
+        result = self._service().start_sft_cfg(config_dict)
+        if "error" in result:
+            return self._err(result["error"])
+        logger.info("trainer.start_sft -> %s", result.get("run_id"))
+        return self._ok(result)
+
+    async def _handle_start_rlsl(self, params: dict) -> dict:
+        config_dict = params.get("config")
+        if not isinstance(config_dict, dict):
+            return self._err("config parameter (TrainerConfig dict) required")
+        result = self._service().start_rlsl_cfg(config_dict)
+        if "error" in result:
+            return self._err(result["error"])
+        logger.info("trainer.start_rlsl -> %s", result.get("run_id"))
+        return self._ok(result)
+
+    async def _handle_runs_list(self, params: dict) -> dict:
+        limit = int(params.get("limit", 50))
+        if limit < 1 or limit > 500:
+            return self._err("limit must be between 1 and 500")
+        return self._ok({"runs": self._service().list_runs(limit=limit)})
+
+    async def _handle_runs_status_full(self, params: dict) -> dict:
+        run_id = params.get("run_id", "")
+        if not run_id:
+            return self._err("run_id parameter required")
+        return self._ok(self._service().run_status_rm(run_id))
+
+    async def _handle_runs_progress(self, params: dict) -> dict:
+        run_id = params.get("run_id", "")
+        if not run_id:
+            return self._err("run_id parameter required")
+        since_step = int(params.get("since_step", -1))
+        return self._ok(self._service().run_progress(run_id, since_step=since_step))
+
+    async def _handle_runs_stop(self, params: dict) -> dict:
+        run_id = params.get("run_id", "")
+        if not run_id:
+            return self._err("run_id parameter required")
+        return self._ok(self._service().stop_run(run_id))
+
+    async def _handle_presets_list(self, params: dict) -> dict:
+        kind = params.get("kind", "")
+        return self._ok({"presets": self._service().list_presets(kind=kind)})
+
+    async def _handle_datasets_list(self, params: dict) -> dict:
+        return self._ok({"datasets": self._service().list_datasets()})
+
+    async def _handle_datasets_preview(self, params: dict) -> dict:
+        name = params.get("name", "")
+        if not name:
+            return self._err("name parameter required")
+        limit = int(params.get("limit", 5))
+        return self._ok(self._service().preview_dataset(name, limit=limit))
+
+    async def _handle_adapters_list(self, params: dict) -> dict:
+        return self._ok({"adapters": self._service().list_adapters(model=params.get("model", ""))})
+
+    async def _handle_adapters_delete(self, params: dict) -> dict:
+        name = params.get("name", "")
+        if not name:
+            return self._err("name parameter required")
+        return self._ok(self._service().delete_adapter(name))
+
+    async def _handle_info_full(self, params: dict) -> dict:
+        return self._ok(self._service().info_full())
