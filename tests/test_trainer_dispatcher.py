@@ -36,10 +36,22 @@ def test_trainer_dispatcher_handlers_registered():
     d = TrainerDispatcher(_FakeDaemon())
     keys = sorted(d.get_handlers().keys())
     assert keys == [
+        "trainer.adapters.delete",
+        "trainer.adapters.list",
+        "trainer.datasets.list",
+        "trainer.datasets.preview",
         "trainer.info",
+        "trainer.info_full",
+        "trainer.presets.list",
         "trainer.rlsl",
+        "trainer.runs.list",
+        "trainer.runs.progress",
         "trainer.runs.status",
+        "trainer.runs.status_full",
+        "trainer.runs.stop",
         "trainer.sft",
+        "trainer.start_rlsl",
+        "trainer.start_sft",
         "trainer.trajectories.list",
     ]
 
@@ -123,3 +135,64 @@ def test_trainer_rlsl_handler_schedules_task_and_surfaces_error():
     assert result["run_id"]
     status = d._service().run_status(result["run_id"])
     assert status["method"] == "dpo"
+
+
+# ---------------------------------------------------------------------------
+# RunManager-backed handler param validation (no live MLX needed).
+# ---------------------------------------------------------------------------
+
+
+def test_trainer_start_sft_requires_config():
+    d = TrainerDispatcher(_FakeDaemon())
+    assert asyncio.run(d._handle_start_sft({})) == {
+        "error": "config parameter (TrainerConfig dict) required"
+    }
+
+
+def test_trainer_start_rlsl_requires_config():
+    d = TrainerDispatcher(_FakeDaemon())
+    assert asyncio.run(d._handle_start_rlsl({})) == {
+        "error": "config parameter (TrainerConfig dict) required"
+    }
+
+
+def test_trainer_runs_list_limit_validation():
+    d = TrainerDispatcher(_FakeDaemon())
+    assert asyncio.run(d._handle_runs_list({"limit": 0})) == {
+        "error": "limit must be between 1 and 500"
+    }
+
+
+def test_trainer_runs_status_full_requires_run_id():
+    d = TrainerDispatcher(_FakeDaemon())
+    assert asyncio.run(d._handle_runs_status_full({})) == {
+        "error": "run_id parameter required"
+    }
+
+
+def test_trainer_runs_progress_requires_run_id():
+    d = TrainerDispatcher(_FakeDaemon())
+    assert asyncio.run(d._handle_runs_progress({})) == {
+        "error": "run_id parameter required"
+    }
+
+
+def test_trainer_runs_stop_requires_run_id():
+    d = TrainerDispatcher(_FakeDaemon())
+    assert asyncio.run(d._handle_runs_stop({})) == {
+        "error": "run_id parameter required"
+    }
+
+
+def test_trainer_datasets_preview_requires_name():
+    d = TrainerDispatcher(_FakeDaemon())
+    assert asyncio.run(d._handle_datasets_preview({})) == {
+        "error": "name parameter required"
+    }
+
+
+def test_trainer_adapters_delete_requires_name():
+    d = TrainerDispatcher(_FakeDaemon())
+    assert asyncio.run(d._handle_adapters_delete({})) == {
+        "error": "name parameter required"
+    }
