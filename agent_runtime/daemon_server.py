@@ -543,6 +543,15 @@ class DaemonServer:
         msg_id = message.get("id")
         method = message.get("method", "")
         params = message.get("params", {})
+        # JSON-RPC 2.0 允许 params 是 object 或 array, 部分客户端序列化 str params 为字符串值.
+        # 规范化 str -> dict, 避免 handler 内 params.get 崩溃 (issue #172).
+        if isinstance(params, str):
+            try:
+                params = json.loads(params) if params.strip() else {}
+            except (ValueError, TypeError):
+                params = {}
+            if not isinstance(params, dict):
+                params = {}
 
         if "jsonrpc" not in message or message["jsonrpc"] != "2.0":
             return self._error_response(

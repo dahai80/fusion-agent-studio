@@ -1098,3 +1098,47 @@ class TestDaemonStatusFailedPlugins:
         resp = await _rpc_call(daemon.socket_path, "daemon.status")
         result = resp["result"]
         assert result["failed_plugins"] == {"fake_broken_plugin": "No module named 'cv2'"}
+
+
+class TestDispatchStrParamsTolerance:
+    # issue #172: 客户端传 str params (如 "{}" 或 json.dumps) 时 _dispatch 须规范化为 dict,
+    # 否则 handler 内 params.get 崩溃 AttributeError.
+
+    async def _rpc_call_str_params(self, socket_path, method, params_str, msg_id=1):
+        # 绕过 _rpc_call (只接 dict), 直接发 str params.
+        reader, writer = await asyncio.open_unix_connection(socket_path, limit=2**20)
+        request = {"jsonrpc": "2.0", "id": msg_id, "method": method, "params": params_str}
+        writer.write(json.dumps(request).encode() + b"\n")
+        await writer.drain()
+        data = await asyncio.wait_for(reader.readline(), timeout=5.0)
+        writer.close()
+        await writer.wait_closed()
+        return json.loads(data)
+
+    @pytest.mark.asyncio
+    async def test_str_params_empty_dict_string(self, daemon):
+        # params="{}" 应被解析为 {} -> graph.list 不崩, 正常返回.
+        resp = await self._rpc_call_str_params(daemon.socket_path, "graph.list", "{}")
+        assert "result" in resp, resp
+        assert "graphs" in resp["result"]
+
+    @pytest.mark.asyncio
+    async def test_str_params_json_object(self, daemon):
+        # params='{"limit":5}' 应被解析为 dict -> daemon.status 不崩.
+        resp = await self._rpc_call_str_params(
+            daemon.socket_path, "daemon.status", '{"limit": 5}'
+        )
+        assert "result" in resp, resp
+
+    @pytest.mark.asyncio
+    async def test_str_params_invalid_json(self, daemon):
+        # params="not-json" 应兜底为 {} -> 不崩, 返回正常 result (非 error -32603).
+        resp = await self._rpc_call_str_params(daemon.socket_path, "graph.list", "not-json")
+        assert "result" in resp, resp
+        assert "graphs" in resp["result"]
+
+    @pytest.mark.asyncio
+    async def test_str_params_empty_string(self, daemon):
+        # params="" 应兜底为 {} -> graph.list 不崩.
+        resp = await self._rpc_call_str_params(daemon.socket_path, "graph.list", "")
+        assert "result" in resp, resp
