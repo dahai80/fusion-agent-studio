@@ -55,6 +55,11 @@ class PlannerDispatcher(SubDispatcher):
         plan_id = params.get("plan_id", "")
         planner = self._daemon._get_planner()
         ok = planner.approve_plan(plan_id)
+        # C6: also resolve any in-graph approval future (planner node blocking).
+        rt = self._daemon._get_runtime()
+        if hasattr(rt, "approve_plan_in_graph"):
+            rt.approve_plan_in_graph(plan_id)
+        logger.info("planner.approve_plan: plan_id=%s ok=%s", plan_id, ok)
         return {"approved": ok}
 
     async def _handle_planner_reject_plan(self, params: dict) -> dict:
@@ -62,6 +67,11 @@ class PlannerDispatcher(SubDispatcher):
         reason = params.get("reason", "")
         planner = self._daemon._get_planner()
         ok = planner.reject_plan(plan_id, reason=reason)
+        # C6: also resolve any in-graph approval future (planner node blocking).
+        rt = self._daemon._get_runtime()
+        if hasattr(rt, "reject_plan_in_graph"):
+            rt.reject_plan_in_graph(plan_id)
+        logger.info("planner.reject_plan: plan_id=%s ok=%s", plan_id, ok)
         return {"rejected": ok}
 
     async def _handle_planner_execute_step(self, params: dict) -> dict:

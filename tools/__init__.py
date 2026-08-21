@@ -36,6 +36,7 @@ from .file_tools import (
 from .git_tools import GitTool
 from .http_tools import HttpRequestTool
 from .mcp_tool import MCPRegistry, MCPTool
+from .plan_tools import EXIT_PLAN_MODE_SENTINEL, ExitPlanModeTool
 from .registry import ToolRegistry
 from .terminal_tools import TerminalTool
 from .text_tools import TextProcessTool, TextSearchTool
@@ -58,6 +59,8 @@ __all__ = [
     "CodeSandboxTool",
     "CsvParseTool",
     "DateTimeTool",
+    "EXIT_PLAN_MODE_SENTINEL",
+    "ExitPlanModeTool",
     "FileDeleteTool",
     "FileEditTool",
     "FileGlobTool",
@@ -87,7 +90,7 @@ __all__ = [
 
 
 def create_default_registry() -> ToolRegistry:
-    """Create a ToolRegistry with all built-in tools registered (36 tools)."""
+    """Create a ToolRegistry with all built-in tools registered (37 tools)."""
     registry = ToolRegistry()
     registry.register(FileReadTool())
     registry.register(FileWriteTool())
@@ -125,6 +128,7 @@ def create_default_registry() -> ToolRegistry:
     registry.register(ArtifactPatchTool())
     registry.register(ArtifactLoadTool())
     registry.register(ArtifactContextBudgetTool())
+    registry.register(ExitPlanModeTool())
     from .plugin_manager import PluginManager
     _pm = PluginManager(registry)
     _pm.load_all()

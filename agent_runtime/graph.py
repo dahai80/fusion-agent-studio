@@ -130,6 +130,9 @@ class AgentGraph:
     start_node_id: str = ""
     version: str = "1.0"
     agent_id: str = ""
+    # C6 plan-as-mode: when True the graph runs in read-only explore phase;
+    # write tools are gated off until exit_plan_mode flips the runtime flag.
+    plan_mode: bool = False
 
     def __post_init__(self):
         if not self.id:
@@ -234,6 +237,7 @@ class AgentGraph:
             "start_node_id": self.start_node_id,
             "version": self.version,
             "agent_id": self.agent_id,
+            "plan_mode": self.plan_mode,
         }
 
     def to_json(self, indent: int = 2) -> str:
@@ -268,6 +272,7 @@ class AgentGraph:
             start_node_id=start_node_id,
             version=data.get("version", "1.0"),
             agent_id=data.get("agent_id", ""),
+            plan_mode=data.get("plan_mode", False),
         )
 
     @classmethod

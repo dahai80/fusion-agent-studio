@@ -29,6 +29,11 @@ class AgentEventType(str, Enum):
     TOKEN_BUDGET_EXCEEDED = "token_budget_exceeded"
     RETRY = "retry"
     RETRY_SUCCESS = "retry_success"
+    # C6 plan-as-mode: emitted when exit_plan_mode transitions read-only
+    # explore -> execution (plan_mode flipped off).
+    PLAN_MODE_EXIT = "plan_mode_exit"
+    # C6 plan-as-mode: emitted when planner node blocks awaiting approval.
+    PLAN_APPROVAL = "plan_approval"
 
 
 @dataclass
