@@ -1714,8 +1714,6 @@ class DaemonServer:
             language,
             timeout,
         )
-        if language != "python":
-            return {"output": f"Unsupported language: {language}", "exit_code": 1}
 
         try:
             sandbox = CodeSandbox(timeout=timeout, use_sandbox=True)

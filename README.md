@@ -103,7 +103,7 @@ python my_agent.py
 │  ┌─────────────────────┐   ┌─────────────────┐               │
 │  │  Agent Runtime      │   │  Tool System     │               │
 │  │  ┌───────────────┐  │   │  ┌───────────┐  │               │
-│  │  │ State Machine │  │   │  │ 31 tools  │  │               │
+│  │  │ State Machine │  │   │  │ 36 tools  │  │               │
 │  │  │ Graph Executor│  │   │  │ Registry  │  │               │
 │  │  │ Orchestrator  │  │   │  │ Plugin    │  │               │
 │  │  │ Debugger      │  │   │  └───────────┘  │               │
@@ -137,7 +137,7 @@ python my_agent.py
 | `agent_runtime/dispatchers/` | 11 Sub-Dispatchers extracted from DaemonServer — agent, chat, deploy, infra, knowledge, marketplace, memory, planner, safety, team, workflow | 13 files |
 | `agent_runtime/sdk/` | Agent SDK: Agent, Tool, AgentClient for programmatic access over JSON-RPC | 3 files |
 | `agent_runtime/plugins/` | Built-in workflow plugins: code_review, feature_dev, security_scan, pr_review, agent_builder | 5 manifests |
-| `tools/` | Built-in tool system: 31 tools + plugin system | 11 files |
+| `tools/` | Built-in tool system: 36 tools + plugin system | 11 files |
 | `server/` | fusion-mlx HTTP client + process manager | 2 files |
 
 ---
@@ -215,15 +215,15 @@ python my_agent.py
 - ✅ **Mid-turn model switch** — Switch LLM mid-conversation; daemon `mlx.switch_model` RPC
 - ✅ **Tool schema lazy load** — On-demand OpenAI-compatible schema generation; daemon `tool.get_schema` RPC
 
-### Tools (19 built-in)
+### Tools (36 built-in)
 | Category | Tools |
 |----------|-------|
-| **File** | `file_read`, `file_write`, `file_list` |
+| **File** | `file_read`, `file_write`, `file_edit` (in-place old→new), `file_delete`, `file_list`, `file_grep` (recursive content search), `file_glob` (recursive pattern find) |
 | **Terminal** | `terminal` (shell execution) |
 | **Git** | `git` (status, log, diff, commit, branch, pull) |
 | **Text** | `text_process`, `text_search` |
 | **HTTP** | `http_request` (GET/POST/PUT/DELETE/PATCH) |
-| **Code** | `code_execute` (subprocess sandbox) |
+| **Code** | `code_execute` (subprocess sandbox), `code_sandbox` (sandbox-exec isolation + AST check, 8 languages) |
 | **Data** | `json_parse`, `csv_parse`, `base64` |
 | **Utility** | `date_time`, `uuid`, `hash`, `path_ops`, `zip` |
 | **Database** | `sqlite_query` |

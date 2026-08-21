@@ -2,9 +2,12 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import sys
 
 from .base import BaseTool
+
+logger = logging.getLogger(__name__)
 
 
 class CodeExecuteTool(BaseTool):
@@ -40,3 +43,81 @@ class CodeExecuteTool(BaseTool):
             return f"Error: Code execution timed out after {timeout}s"
         except Exception as e:
             return f"Error: {type(e).__name__}: {e}"
+
+
+class CodeSandboxTool(BaseTool):
+    """Execute code in macOS sandbox-exec isolation with AST safety checks.
+
+    Wraps agent_runtime.code_sandbox.CodeSandbox (8 languages, sandbox-exec
+    profile, Python AST analysis). Stronger isolation than CodeExecuteTool.
+    """
+
+    name = "code_sandbox"
+    description = (
+        "Execute code in macOS sandbox-exec isolation with AST safety checks. "
+        "Supports python/shell/bash/javascript/swift/go/cpp/c. "
+        "Python code is AST-checked for dangerous imports/calls before running."
+    )
+    parameters = {
+        "code": {
+            "type": "string",
+            "description": "Code to execute",
+        },
+        "language": {
+            "type": "string",
+            "description": "Language: python/shell/bash/javascript/swift/go/cpp/c (default: python)",
+            "default": "python",
+            "enum": [
+                "python", "shell", "bash", "javascript",
+                "swift", "go", "cpp", "c",
+            ],
+        },
+        "timeout": {
+            "type": "integer",
+            "description": "Timeout in seconds (default: 30)",
+            "default": 30,
+        },
+        "use_sandbox": {
+            "type": "boolean",
+            "description": "Use sandbox-exec isolation (default: true). Set false to bypass on non-macOS.",
+            "default": True,
+        },
+    }
+
+    async def execute(self, **kwargs) -> str:
+        code = kwargs.get("code", "")
+        language = kwargs.get("language", "python")
+        timeout = int(kwargs.get("timeout", 30))
+        use_sandbox = kwargs.get("use_sandbox", True)
+
+        if not code:
+            return "Error: code is required"
+
+        try:
+            from agent_runtime.code_sandbox import CodeSandbox
+
+            sandbox = CodeSandbox(timeout=timeout, use_sandbox=use_sandbox)
+            logger.info(
+                "code_sandbox: lang=%s timeout=%s sandbox=%s",
+                language, timeout, use_sandbox,
+            )
+            result = await asyncio.to_thread(
+                sandbox.execute, code, language
+            )
+        except Exception as e:
+            return f"Error: {type(e).__name__}: {e}"
+
+        if result.timed_out:
+            return f"Error: Code execution timed out after {timeout}s (exec_id={result.execution_id})"
+        if not result.success:
+            err = result.stderr.strip() if result.stderr else f"exit code {result.exit_code}"
+            return f"Error: {err} (exec_id={result.execution_id})"
+
+        output = result.stdout.strip()
+        if result.stderr.strip():
+            output = f"{output}\n[STDERR]\n{result.stderr.strip()}" if output else result.stderr.strip()
+        logger.info(
+            "code_sandbox: exit=%d exec_id=%s stdout=%d bytes",
+            result.exit_code, result.execution_id, len(result.stdout),
+        )
+        return output if output else f"(no output, exec_id={result.execution_id})"

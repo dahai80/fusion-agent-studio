@@ -131,7 +131,7 @@ class TestRegistryIntegration:
         assert registry.has("mouse")
         assert registry.has("keyboard")
         assert registry.has("clipboard")
-        assert registry.count == 31
+        assert registry.count == 36
 
     def test_tool_schemas_valid(self):
         registry = create_default_registry()

@@ -15,7 +15,7 @@ from .artifact_fc_tools import (
     ArtifactUpdateTool,
 )
 from .base import BaseTool, ToolResult
-from .code_tools import CodeExecuteTool
+from .code_tools import CodeExecuteTool, CodeSandboxTool
 from .computer_use_tools import (
     ClipboardTool,
     KeyboardTool,
@@ -24,7 +24,15 @@ from .computer_use_tools import (
 )
 from .data_tools import Base64Tool, CsvParseTool, JsonParseTool
 from .db_tools import AnnotationNode, SqliteQueryTool
-from .file_tools import FileListTool, FileReadTool, FileWriteTool
+from .file_tools import (
+    FileDeleteTool,
+    FileEditTool,
+    FileGlobTool,
+    FileGrepTool,
+    FileListTool,
+    FileReadTool,
+    FileWriteTool,
+)
 from .git_tools import GitTool
 from .http_tools import HttpRequestTool
 from .registry import ToolRegistry
@@ -46,8 +54,13 @@ __all__ = [
     "BaseTool",
     "ClipboardTool",
     "CodeExecuteTool",
+    "CodeSandboxTool",
     "CsvParseTool",
     "DateTimeTool",
+    "FileDeleteTool",
+    "FileEditTool",
+    "FileGlobTool",
+    "FileGrepTool",
     "FileListTool",
     "FileReadTool",
     "FileWriteTool",
@@ -71,17 +84,22 @@ __all__ = [
 
 
 def create_default_registry() -> ToolRegistry:
-    """Create a ToolRegistry with all built-in tools registered (31 tools)."""
+    """Create a ToolRegistry with all built-in tools registered (36 tools)."""
     registry = ToolRegistry()
     registry.register(FileReadTool())
     registry.register(FileWriteTool())
+    registry.register(FileEditTool())
+    registry.register(FileDeleteTool())
     registry.register(FileListTool())
+    registry.register(FileGrepTool())
+    registry.register(FileGlobTool())
     registry.register(TerminalTool())
     registry.register(GitTool())
     registry.register(TextProcessTool())
     registry.register(TextSearchTool())
     registry.register(HttpRequestTool())
     registry.register(CodeExecuteTool())
+    registry.register(CodeSandboxTool())
     registry.register(JsonParseTool())
     registry.register(CsvParseTool())
     registry.register(Base64Tool())
