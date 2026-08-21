@@ -8,6 +8,7 @@ from .deploy import DeployDispatcher
 from .infra import InfraDispatcher
 from .knowledge import KnowledgeDispatcher
 from .marketplace import MarketplaceDispatcher
+from .mcp import McpDispatcher
 from .memory import MemoryDispatcher
 from .planner import PlannerDispatcher
 from .plugin import PluginDispatcher
@@ -19,6 +20,7 @@ from .workflow import WorkflowDispatcher
 __all__ = [
     "SubDispatcher",
     "MarketplaceDispatcher",
+    "McpDispatcher",
     "DeployDispatcher",
     "KnowledgeDispatcher",
     "AgentDispatcher",

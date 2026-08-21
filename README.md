@@ -241,6 +241,13 @@ python my_agent.py
 - ✅ Plugin directory at `~/.fusion-agent-studio/plugins/`
 - ✅ Template generator for new plugins
 
+### MCP (Model Context Protocol) — inbound
+- ✅ **Three transports** — `http` (JSON-RPC POST), `stdio` (spawn MCP server subprocess, JSON-RPC over stdin/stdout), `sse` (Server-Sent Events + POST)
+- ✅ **Tool discovery** — `MCPRegistry.register_server()` discovers MCP tools via `tools/list` and registers each as an `MCPTool` (BaseTool) into the ToolRegistry, callable by agents
+- ✅ **Resources & prompts** — `resources/list` and `prompts/list` discovery
+- ✅ **Daemon RPC** — `mcp.register_server` / `mcp.list_servers` / `mcp.unregister_server` / `mcp.list_resources` / `mcp.list_prompts` (lazy registry, no idle spin until a server is registered)
+- Usage: `mcp.register_server {"server_url": "http://localhost:3000/rpc"}` or `{"stdio_cmd": ["npx", "mcp-server-fs"]}` or `{"sse_url": "...", "post_url": "..."}`
+
 ### Integration
 - ✅ **fusion-mlx** — Apple Silicon optimized model serving
 - ✅ **OpenAI-compatible API** — Works with any OpenAI-compatible backend

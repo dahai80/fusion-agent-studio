@@ -35,6 +35,7 @@ from .file_tools import (
 )
 from .git_tools import GitTool
 from .http_tools import HttpRequestTool
+from .mcp_tool import MCPRegistry, MCPTool
 from .registry import ToolRegistry
 from .terminal_tools import TerminalTool
 from .text_tools import TextProcessTool, TextSearchTool
@@ -69,6 +70,8 @@ __all__ = [
     "HttpRequestTool",
     "JsonParseTool",
     "KeyboardTool",
+    "MCPRegistry",
+    "MCPTool",
     "MouseTool",
     "PathOpsTool",
     "ScreenCaptureTool",
