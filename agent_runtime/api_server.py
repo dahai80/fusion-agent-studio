@@ -21,6 +21,7 @@ from typing import Any
 
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from agent_runtime.errors import ErrorCode, raise_api_error
@@ -1078,7 +1079,7 @@ async def ws_execute(websocket: WebSocket, graph_id: str):
         init_msg = await asyncio.wait_for(websocket.receive_json(), timeout=30.0)
         if isinstance(init_msg, dict):
             input_text = init_msg.get("input", "")
-        async for event in rt.execute_graph(graph, input_text):
+        async for event in rt.execute_graph_stream(graph, input_text):
             ev_dict = (
                 event.to_dict() if hasattr(event, "to_dict") else {"type": str(event)}
             )
@@ -1100,6 +1101,40 @@ async def ws_execute(websocket: WebSocket, graph_id: str):
             await websocket.close()
         except Exception:
             pass
+
+
+@app.get("/v1/graphs/{graph_id}/execute/stream")
+async def v1_execute_graph_stream(graph_id: str, input: str = ""):
+    """Server-Sent Events stream — pushes per-token TOKEN events as they arrive.
+
+    Real streaming: connects execute_graph_stream (stream=True) so LLM nodes
+    emit per-token TOKEN events. Each event is sent as an SSE ``data:`` line.
+    Client connects with EventSource; no buffering at the boundary.
+    """
+    graph = _get_store().load_graph(graph_id)
+    if graph is None:
+        raise_api_error(ErrorCode.AGENT_NOT_FOUND, param="graph_id")
+    rt = _get_runtime()
+
+    async def event_generator():
+        logger.info("SSE stream start for graph %s", graph_id)
+        try:
+            async for event in rt.execute_graph_stream(graph, input):
+                ev_dict = (
+                    event.to_dict() if hasattr(event, "to_dict") else {"type": str(event)}
+                )
+                yield f"data: {json.dumps(ev_dict, ensure_ascii=False)}\n\n"
+        except Exception as e:
+            logger.exception("SSE stream error for graph %s", graph_id)
+            yield f"data: {json.dumps({'type': 'error', 'message': str(e)}, ensure_ascii=False)}\n\n"
+        yield f"data: {json.dumps({'type': 'done'}, ensure_ascii=False)}\n\n"
+        logger.info("SSE stream end for graph %s", graph_id)
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 @app.get("/agents/published")

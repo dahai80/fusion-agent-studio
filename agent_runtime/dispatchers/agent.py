@@ -1163,7 +1163,7 @@ class AgentDispatcher(SubDispatcher):
         total_input_tokens = 0
         total_output_tokens = 0
         try:
-            async for event in rt.execute_graph(graph, input_text):
+            async for event in rt.execute_graph_stream(graph, input_text):
                 ev_dict = event.to_dict() if hasattr(event, "to_dict") else {"type": str(event)}
                 events.append(ev_dict)
                 ev_type = ev_dict.get("type", "")
