@@ -75,6 +75,11 @@ class Agent:
         return result
 
     async def stream(self, client, input_text: str):
+        # RPC-collected stream: agent.execute_stream now uses execute_graph_stream
+        # (stream=True), so events include per-token TOKEN events (not a single THINK).
+        # This yields the full collected event list. For true incremental delivery
+        # (push as tokens arrive) use the SSE endpoint
+        # GET /v1/graphs/{graph_id}/execute/stream or the WS endpoint /ws/execute/{graph_id}.
         result = await client.call(
             "agent.execute_stream",
             {

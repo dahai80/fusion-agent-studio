@@ -214,6 +214,7 @@ python my_agent.py
 - ✅ **AX accessibility** — Semantic annotations + screen-reader descriptions for agent outputs; daemon `session.accessibility` RPC
 - ✅ **Mid-turn model switch** — Switch LLM mid-conversation; daemon `mlx.switch_model` RPC
 - ✅ **Tool schema lazy load** — On-demand OpenAI-compatible schema generation; daemon `tool.get_schema` RPC
+- ✅ **True streaming (#182)** — Per-token delivery across all boundary layers, no buffering. `execute_graph_stream` (stream=True) emits a `TOKEN` event per LLM delta; the WS path `/ws/execute/{graph_id}` now calls it (pushes `TOKEN` events instead of one buffered `THINK`); new SSE endpoint `GET /v1/graphs/{graph_id}/execute/stream?input=...` returns `text/event-stream` with per-event `data:` lines (TOKEN/THINK/TOOL_CALL/TOOL_RESULT/.../done); `agent.execute_stream` RPC yields TOKEN events. For incremental push-as-you-go use SSE or WS; the SDK `Agent.stream()` collects the full RPC event list
 
 ### Tools (36 built-in)
 | Category | Tools |
