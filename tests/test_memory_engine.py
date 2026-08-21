@@ -429,3 +429,39 @@ class TestLLMGatewayIntegration:
         assert "Summarized" in result
         assert "[Auto-summary" not in result
         eng.close()
+
+
+class TestMemoryThreadSafety:
+    """Issue #174 wiring exposed a cross-thread SQLite error: store() runs via
+    asyncio.to_thread but the connection defaulted to check_same_thread=True.
+    These guard the fix (check_same_thread=False + RLock on writes)."""
+
+    async def test_store_from_worker_thread_does_not_raise(self, engine):
+        import asyncio
+
+        mid = await asyncio.to_thread(
+            engine.store,
+            content="worker thread entry",
+            scope="ts",
+            importance=5,
+        )
+        assert mid
+        entries = engine.list_recent(scope="ts", limit=5)
+        assert any("worker thread entry" in e.content for e in entries)
+
+    async def test_concurrent_stores_serialize_safely(self, engine):
+        import asyncio
+
+        async def _one(i):
+            return await asyncio.to_thread(
+                engine.store,
+                content=f"concurrent entry {i}",
+                scope="cc",
+                importance=3,
+            )
+
+        ids = await asyncio.gather(*(_one(i) for i in range(8)))
+        assert len(ids) == 8
+        assert len(set(ids)) == 8
+        assert engine.count(scope="cc") == 8
+

@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 import logging
 import sqlite3
+import threading
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -142,12 +143,17 @@ class MemoryEngine:
         self.tiers = tiers if tiers is not None else dict(DEFAULT_TIERS)
         self._conn: sqlite3.Connection | None = None
         self._summarizing = False
+        # Thread-safe writes: store/recall run via asyncio.to_thread, so the
+        # connection is touched from worker threads. RLock serializes writes
+        # (store -> _maybe_summarize re-entry) and the connection allows
+        # cross-thread use; WAL lets reads stay concurrent.
+        self._write_lock = threading.RLock()
         self._init_db()
 
     @property
     def conn(self) -> sqlite3.Connection:
         if self._conn is None:
-            self._conn = sqlite3.connect(str(self.db_path))
+            self._conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
             self._conn.row_factory = sqlite3.Row
             self._conn.execute("PRAGMA journal_mode=WAL")
         return self._conn
@@ -246,32 +252,33 @@ class MemoryEngine:
             tier=tier,
         )
         summary_flag = 1 if is_summary else 0
-        c = self.conn.cursor()
-        c.execute(
-            "INSERT INTO memories (id, content, scope, tags, importance, created_at, metadata, tier, is_summary) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (
+        with self._write_lock:
+            c = self.conn.cursor()
+            c.execute(
+                "INSERT INTO memories (id, content, scope, tags, importance, created_at, metadata, tier, is_summary) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    entry.id,
+                    entry.content,
+                    entry.scope,
+                    entry.tags,
+                    entry.importance,
+                    entry.created_at,
+                    json.dumps(entry.metadata, ensure_ascii=False),
+                    entry.tier,
+                    summary_flag,
+                ),
+            )
+            self.conn.commit()
+            logger.debug(
+                "Stored memory %s in scope '%s' tier '%s' summary=%s",
                 entry.id,
-                entry.content,
-                entry.scope,
-                entry.tags,
-                entry.importance,
-                entry.created_at,
-                json.dumps(entry.metadata, ensure_ascii=False),
-                entry.tier,
-                summary_flag,
-            ),
-        )
-        self.conn.commit()
-        logger.debug(
-            "Stored memory %s in scope '%s' tier '%s' summary=%s",
-            entry.id,
-            scope,
-            tier,
-            is_summary,
-        )
+                scope,
+                tier,
+                is_summary,
+            )
 
-        self._maybe_summarize()
+            self._maybe_summarize()
         return entry.id
 
     def recall(

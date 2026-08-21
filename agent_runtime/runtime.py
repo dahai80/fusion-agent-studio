@@ -385,8 +385,22 @@ class AgentRuntime:
 
         yield AgentEvent(type=AgentEventType.START, content=f"Starting: {graph.name}")
 
+        # Issue #175: lifecycle hook — session start.
+        await self._fire_tool_hooks(
+            "SESSION_START",
+            "",
+            {"graph_id": graph.id, "graph_name": graph.name},
+        )
+
         initial_input = self.variables.interpolate(initial_input)
         ctx.add_message("user", initial_input)
+
+        # Issue #175: lifecycle hook — user prompt submitted.
+        await self._fire_tool_hooks(
+            "USER_PROMPT_SUBMIT",
+            "",
+            {"input": initial_input, "graph_id": graph.id},
+        )
 
         if self.memory_engine and initial_input:
             mem_ctx = await asyncio.to_thread(
@@ -479,6 +493,15 @@ class AgentRuntime:
                                 token_budget.max_tokens,
                                 artifact_tokens,
                             )
+                            await self._fire_tool_hooks(
+                                "PRE_COMPACT",
+                                "",
+                                {
+                                    "graph_id": graph.id,
+                                    "node_id": node.label or "",
+                                    "reason": "token_budget_pruning",
+                                },
+                            )
                             await self.compactor.compact(ctx.messages)
                             yield AgentEvent(
                                 type=AgentEventType.THINK,
@@ -517,6 +540,17 @@ class AgentRuntime:
                             level = self.compactor.should_compact(ctx.messages)
                             if level != "none":
                                 before = len(ctx.messages)
+                                # Issue #175: lifecycle hook — pre-compact.
+                                await self._fire_tool_hooks(
+                                    "PRE_COMPACT",
+                                    "",
+                                    {
+                                        "graph_id": graph.id,
+                                        "node_id": current_node_id,
+                                        "before": before,
+                                        "level": level,
+                                    },
+                                )
                                 ctx.messages = self.compactor.compact(
                                     ctx.messages, level
                                 )
@@ -555,6 +589,16 @@ class AgentRuntime:
                             "agent loop max iterations reached: %d node=%s",
                             max_iter,
                             current_node_id,
+                        )
+                        # Issue #175: lifecycle hook — stop (agent-loop cap).
+                        await self._fire_tool_hooks(
+                            "STOP",
+                            "",
+                            {
+                                "graph_id": graph.id,
+                                "node_id": current_node_id,
+                                "reason": "agent_loop_max",
+                            },
                         )
 
                 last_msg = ctx.messages[-1] if ctx.messages else {}
@@ -657,11 +701,23 @@ class AgentRuntime:
                 )
                 ctx.finished_at = time.time()
                 await self._auto_store_memory(ctx, graph)
+                # Issue #175: lifecycle hook — session end (clean completion).
+                await self._fire_tool_hooks(
+                    "SESSION_END",
+                    "",
+                    {"graph_id": graph.id, "status": "completed"},
+                )
                 return
 
         if ctx.is_max_iterations_reached():
             ctx.error = "Max iterations exceeded"
             yield AgentEvent(type=AgentEventType.ERROR, content=ctx.error)
+            # Issue #175: lifecycle hook — stop (iteration cap reached).
+            await self._fire_tool_hooks(
+                "STOP",
+                "",
+                {"graph_id": graph.id, "reason": "max_iterations"},
+            )
 
         ctx.finished_at = time.time()
         await self._auto_store_memory(ctx, graph)
@@ -774,6 +830,16 @@ class AgentRuntime:
         stream: bool = False,
     ) -> AsyncIterator[AgentEvent]:
         """Execute an LLM node — call fusion-mlx via HTTP API. Supports streaming."""
+        # Issue #176: per-node model override. Graph-level model is a fallback;
+        # an explicit node.model wins (matches rag/augmented-node pattern).
+        if node.model and node.model != model:
+            logger.info(
+                "LLM node %s overriding graph model %s -> %s",
+                node.label or "?",
+                model,
+                node.model,
+            )
+            model = node.model
         messages = []
 
         if node.disable_tools:
@@ -814,9 +880,6 @@ class AgentRuntime:
                         ctx.agent_id,
                     )
 
-            context_window = 32768
-            if node.model:
-                pass
             context_window = getattr(self, "_context_window_override", 32768)
             artifact_result = (
                 self.artifact_manager.get_active_artifacts_context_budget_aware(
@@ -865,6 +928,17 @@ class AgentRuntime:
                 compact_level = self.compactor.should_compact(ctx.messages)
                 if compact_level != "none":
                     before_count = len(ctx.messages)
+                    await self._fire_tool_hooks(
+                        "PRE_COMPACT",
+                        "",
+                        {
+                            "graph_id": graph.id,
+                            "node_id": node.label or "",
+                            "before": before_count,
+                            "level": compact_level,
+                            "reason": "artifact_utilization",
+                        },
+                    )
                     ctx.messages = self.compactor.compact(ctx.messages, compact_level)
                     logger.info(
                         "proactive artifact-aware compaction: mode=%s level=%s before_msgs=%d after_msgs=%d",
@@ -1900,6 +1974,12 @@ class AgentRuntime:
         )
 
         sub_ctx = AgentContext()
+        # Issue #175: lifecycle hook — sub-agent start.
+        await self._fire_tool_hooks(
+            "SUBAGENT_START",
+            "",
+            {"graph_id": sub_graph.id, "graph_name": sub_graph.name},
+        )
         async for event in sub_runtime.execute_graph(sub_graph, sub_input, sub_ctx):
             yield AgentEvent(
                 type=event.type,
@@ -1909,6 +1989,13 @@ class AgentRuntime:
                 node_id=event.node_id,
                 metadata=event.metadata,
             )
+
+        # Issue #175: lifecycle hook — sub-agent stop.
+        await self._fire_tool_hooks(
+            "SUBAGENT_STOP",
+            "",
+            {"graph_id": sub_graph.id, "graph_name": sub_graph.name},
+        )
 
         for sub_var, parent_var in output_mapping.items():
             val = sub_vars.get(sub_var, "")

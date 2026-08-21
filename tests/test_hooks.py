@@ -174,3 +174,88 @@ async def test_pre_tool_use_block_skips_execution():
     assert tool.calls == 0
     results = [e for e in events if e.type == AgentEventType.TOOL_RESULT]
     assert any("Blocked by hook" in e.content for e in results)
+
+
+async def test_lifecycle_hooks_fire_on_session_bounds():
+    # Issue #175: SESSION_START / USER_PROMPT_SUBMIT / SESSION_END must fire
+    # for a clean start->llm->end run.
+    client = MockMLXClient()
+    client.add_response("done")
+    registry = ToolRegistry()
+
+    graph = AgentGraph(name="Lifecycle")
+    graph.add_node("start", NodeConfig(type="start", label="Start"))
+    graph.add_node("llm", NodeConfig(type="llm", label="LLM", model="m"))
+    graph.add_node("end", NodeConfig(type="end", label="End"))
+    graph.add_edge("start", "llm")
+    graph.add_edge("llm", "end")
+
+    runtime = AgentRuntime(client, registry)
+    fired: list[str] = []
+    eng = HookEngine()
+    eng.register(
+        HookConfig(
+            event="SESSION_START",
+            callback=lambda p: fired.append("SESSION_START") or {},
+        )
+    )
+    eng.register(
+        HookConfig(
+            event="USER_PROMPT_SUBMIT",
+            callback=lambda p: fired.append("USER_PROMPT_SUBMIT") or {},
+        )
+    )
+    eng.register(
+        HookConfig(
+            event="SESSION_END",
+            callback=lambda p: fired.append("SESSION_END") or {},
+        )
+    )
+    runtime.hooks = eng
+
+    async for _ in runtime.execute_graph(graph, "hello"):
+        pass
+
+    assert "SESSION_START" in fired
+    assert "USER_PROMPT_SUBMIT" in fired
+    assert "SESSION_END" in fired
+
+
+async def test_stop_hook_fires_on_max_iterations():
+    # Issue #175: STOP must fire when the graph hits its iteration cap.
+    client = MockMLXClient()
+    registry = ToolRegistry()
+
+    graph = AgentGraph(name="Stop-Hook")
+    # start -> end via a condition that loops forever to force max-iter.
+    graph.add_node("start", NodeConfig(type="start", label="Start"))
+    graph.add_node(
+        "loop",
+        NodeConfig(
+            type="loop",
+            label="Loop",
+            max_iterations=2,
+            condition_expr="true",
+        ),
+    )
+    graph.add_node("end", NodeConfig(type="end", label="End"))
+    graph.add_edge("start", "loop")
+    graph.add_edge("loop", "loop")
+    graph.add_edge("loop", "end")
+
+    runtime = AgentRuntime(client, registry, max_iterations=2)
+    fired: list[str] = []
+    eng = HookEngine()
+    eng.register(
+        HookConfig(
+            event="STOP",
+            callback=lambda p: fired.append("STOP") or {},
+        )
+    )
+    runtime.hooks = eng
+
+    async for _ in runtime.execute_graph(graph, "go"):
+        pass
+
+    assert "STOP" in fired, f"expected STOP hook to fire, got {fired}"
+

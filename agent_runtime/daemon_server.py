@@ -103,6 +103,14 @@ class DaemonServer:
         self.http_port = http_port
         # store_path 非空时用指定 db 路径（测试隔离用临时库），空则默认用户库.
         self.store = AgentStore(store_path) if store_path else AgentStore()
+        # Issue #174: memory.db 与 store.db 同目录，测试隔离时落临时库，
+        # 生产落 ~/.fusion-agent-studio/memory.db（避免 CWD-relative 漂移）.
+        if store_path:
+            self._memory_db_path = str(Path(store_path).parent / "memory.db")
+        else:
+            self._memory_db_path = str(
+                Path.home() / ".fusion-agent-studio" / "memory.db"
+            )
         self._gateway = LLMGateway()
         self._runtime: AgentRuntime | None = None
         self._mlx_process: subprocess.Popen | None = None
@@ -158,9 +166,15 @@ class DaemonServer:
 
             registry = create_default_registry()
             self._runtime = AgentRuntime(
-                llm_gateway=self._gateway, tool_registry=registry
+                llm_gateway=self._gateway,
+                tool_registry=registry,
+                safety_gateway=self._get_safety(),
+                memory_engine=self._get_memory(),
             )
-            logger.info("AgentRuntime created with %d tools", len(registry._tools))
+            logger.info(
+                "AgentRuntime created with %d tools, safety+memory wired",
+                len(registry._tools),
+            )
         return self._runtime
 
     def _get_chat_engine(self) -> ChatEngine:
@@ -1446,7 +1460,9 @@ class DaemonServer:
         if self._memory is None:
             from .memory_engine import MemoryEngine
 
-            self._memory = MemoryEngine(gateway=self._gateway)
+            self._memory = MemoryEngine(
+                db_path=self._memory_db_path, gateway=self._gateway
+            )
             logger.info("MemoryEngine created at %s", self._memory.db_path)
         return self._memory
 
