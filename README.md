@@ -249,6 +249,12 @@ python my_agent.py
 - ✅ **Daemon RPC** — `mcp.register_server` / `mcp.list_servers` / `mcp.unregister_server` / `mcp.list_resources` / `mcp.list_prompts` (lazy registry, no idle spin until a server is registered)
 - Usage: `mcp.register_server {"server_url": "http://localhost:3000/rpc"}` or `{"stdio_cmd": ["npx", "mcp-server-fs"]}` or `{"sse_url": "...", "post_url": "..."}`
 
+### Plan-as-Mode (C6) — read-only explore + human approval gate
+- ✅ **`graph.plan_mode` flag** — when `True` the graph runs in a read-only explore phase. Write tools (`file_write`, `file_edit`, `file_delete`, `terminal`, …) are gated off with a `plan_mode_blocked` tool result; read tools (`file_read`, `file_list`, `file_grep`, `file_glob`, `text_search`, `text_process`, `exit_plan_mode`, `register_tool`, `unregister_tool`) execute normally.
+- ✅ **`exit_plan_mode` tool** — the transition primitive. The agent calls `exit_plan_mode {plan: "…"}` once a complete plan is presented. The runtime detects the `__EXIT_PLAN_MODE__` sentinel, flips `plan_mode=False`, emits a `PLAN_MODE_EXIT` event, and unlocks write tools for the rest of the run. Tool stays a pure `BaseTool` (no runtime coupling — sentinel is detected in the tool-call loop).
+- ✅ **Planner node in-graph block** — a `planner` node with `tool_params={"await_approval": True}` blocks execution via an `asyncio.Future` keyed by `plan_id`, emitting `PLAN_APPROVAL` events (`pending_approval` → `approved`/`rejected`). RPC `planner.approve_plan` / `planner.reject_plan` resolve the in-graph future in addition to the `PlannerEngine` status flag (solves the two-`PlannerEngine`-instance problem — dispatcher's vs node's).
+- Events: `PLAN_MODE_EXIT`, `PLAN_APPROVAL`. Tool count: 37.
+
 ### Integration
 - ✅ **fusion-mlx** — Apple Silicon optimized model serving
 - ✅ **OpenAI-compatible API** — Works with any OpenAI-compatible backend
