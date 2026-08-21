@@ -37,6 +37,8 @@ if TYPE_CHECKING:
     from .persistence import AgentStore
     from .safety import SafetyGateway
 
+from tools.plan_tools import EXIT_PLAN_MODE_SENTINEL
+
 logger = logging.getLogger(__name__)
 
 _MAX_TOOL_CALL_CHAIN = 10
@@ -232,6 +234,24 @@ class AgentRuntime:
         self._safety_futures: dict[str, asyncio.Future[bool]] = {}
         self._safety_timeout: float = 60.0
         self.tool_configs: dict[str, dict[str, Any]] = {}
+        # C6 plan-as-mode: when True, write tools are gated off (read-only
+        # explore phase). Flipped to False by exit_plan_mode tool call or by
+        # graph.plan_mode at dispatch entry. _plan_futures blocks planner
+        # nodes awaiting approval (mirrors _safety_futures pattern).
+        self.plan_mode: bool = False
+        self._plan_futures: dict[str, asyncio.Future[bool]] = {}
+        # Read-only tools allowed during plan_mode. Write tools are blocked.
+        self._plan_readonly_tools: set[str] = {
+            "file_read",
+            "file_list",
+            "file_grep",
+            "file_glob",
+            "text_search",
+            "text_process",
+            "exit_plan_mode",
+            "register_tool",
+            "unregister_tool",
+        }
         # Issue #149: optional per-node model unload to lower peak memory on
         # multi-model workflow chains. Default OFF to preserve model reuse
         # across consecutive same-model nodes. Env:
@@ -376,6 +396,13 @@ class AgentRuntime:
         ctx.max_iterations = self.max_iterations
         self._tool_call_chain_count = 0
         self._safety_futures.clear()
+        self._plan_futures.clear()
+        # C6: honor graph-level plan_mode flag at dispatch entry.
+        if getattr(graph, "plan_mode", False):
+            self.plan_mode = True
+            logger.info("Graph %s entered plan_mode (read-only explore)", graph.id)
+        else:
+            self.plan_mode = False
 
         errors = graph.validate()
         if errors:
@@ -1210,6 +1237,32 @@ class AgentRuntime:
                     yield AgentEvent(type=AgentEventType.ERROR, content=str(e))
                     return
 
+                # C6 plan-as-mode: gate write tools during read-only explore.
+                # exit_plan_mode is the transition primitive (handled below).
+                if (
+                    self.plan_mode
+                    and func_name != "exit_plan_mode"
+                    and func_name not in self._plan_readonly_tools
+                ):
+                    result = (
+                        f"Blocked: plan_mode is active (read-only explore). "
+                        f"Tool '{func_name}' writes state. Present your plan, "
+                        f"then call exit_plan_mode to transition to execution."
+                    )
+                    logger.info(
+                        "plan_mode blocked write tool=%s node=%s",
+                        func_name, node.label,
+                    )
+                    ctx.add_message("tool", result, tool_call_id=tc.get("id", ""))
+                    yield AgentEvent(
+                        type=AgentEventType.TOOL_RESULT,
+                        content=result,
+                        name=func_name,
+                        node_id=node.label,
+                        metadata={"plan_mode_blocked": True},
+                    )
+                    continue
+
                 if func_name == "__sub_graph__":
                     async for event in self._execute_sub_graph(ctx, func_args, node):
                         yield event
@@ -1272,6 +1325,32 @@ class AgentRuntime:
                     result = f"Error: Tool '{func_name}' not found"
                 except Exception as e:
                     result = f"Error: {e}"
+
+                # C6: detect exit_plan_mode sentinel -> flip plan_mode off.
+                # The tool returns the sentinel prefix + plan content; we strip
+                # the sentinel so the stored message is the clean plan text.
+                if (
+                    func_name == "exit_plan_mode"
+                    and isinstance(result, str)
+                    and result.startswith(EXIT_PLAN_MODE_SENTINEL)
+                ):
+                    plan_text = result[len(EXIT_PLAN_MODE_SENTINEL):]
+                    self.plan_mode = False
+                    result = f"Plan approved. Transitioning to execution.\n{plan_text}"
+                    logger.info(
+                        "exit_plan_mode: plan_mode->False node=%s plan_len=%d",
+                        node.label, len(plan_text),
+                    )
+                    ctx.add_message("tool", result, tool_call_id=tc.get("id", ""))
+                    ctx.messages[-1]["_node_id"] = node.label
+                    yield AgentEvent(
+                        type=AgentEventType.PLAN_MODE_EXIT,
+                        content=plan_text,
+                        name="exit_plan_mode",
+                        node_id=node.label,
+                        metadata={"plan_mode": False},
+                    )
+                    continue
 
                 ctx.add_message("tool", result, tool_call_id=tc.get("id", ""))
                 ctx.messages[-1]["_node_id"] = node.label
@@ -1626,6 +1705,26 @@ class AgentRuntime:
             return True
         return False
 
+    def approve_plan_in_graph(self, plan_id: str) -> bool:
+        # C6: resolve the in-graph planner approval future for plan_id.
+        fut = self._plan_futures.pop(plan_id, None)
+        if fut and not fut.done():
+            fut.set_result(True)
+            logger.info("approve_plan_in_graph: plan_id=%s approved", plan_id)
+            return True
+        logger.warning("approve_plan_in_graph: no pending future plan_id=%s", plan_id)
+        return False
+
+    def reject_plan_in_graph(self, plan_id: str) -> bool:
+        # C6: reject the in-graph planner approval future for plan_id.
+        fut = self._plan_futures.pop(plan_id, None)
+        if fut and not fut.done():
+            fut.set_result(False)
+            logger.info("reject_plan_in_graph: plan_id=%s rejected", plan_id)
+            return True
+        logger.warning("reject_plan_in_graph: no pending future plan_id=%s", plan_id)
+        return False
+
     async def _await_safety_approval(
         self, ctx: AgentContext, safety_result, category: str, node_label: str
     ) -> AsyncIterator[AgentEvent] | None:
@@ -1733,6 +1832,28 @@ class AgentRuntime:
                 params[k] = self.variables.interpolate(v)
             else:
                 params[k] = v
+
+        # C6 plan-as-mode: gate write tools on the standalone tool-node path.
+        if (
+            self.plan_mode
+            and node.tool_name not in self._plan_readonly_tools
+            and node.tool_name != "exit_plan_mode"
+        ):
+            ctx.error = (
+                f"Blocked: plan_mode active, tool '{node.tool_name}' writes state. "
+                f"Call exit_plan_mode to transition to execution."
+            )
+            logger.info(
+                "plan_mode blocked tool-node tool=%s node=%s",
+                node.tool_name, node.label,
+            )
+            yield AgentEvent(
+                type=AgentEventType.ERROR,
+                content=ctx.error,
+                node_id=node.label,
+                metadata={"plan_mode_blocked": True},
+            )
+            return
 
         if self.safety_gateway:
             safety_result = self.safety_gateway.evaluate_action(
@@ -2189,6 +2310,69 @@ class AgentRuntime:
                 "requires_approval": plan.overall_risk != "low",
             },
         )
+
+        # C6 plan-as-mode: block in-graph for approval when await_approval set.
+        # The future is resolved by approve_plan_in_graph/reject_plan_in_graph,
+        # called from the planner.approve_plan/reject_plan RPC handlers.
+        await_approval = node.tool_params.get("await_approval", False)
+        if await_approval:
+            timeout = float(node.tool_params.get("approval_timeout", 300.0))
+            loop = asyncio.get_running_loop()
+            future: asyncio.Future[bool] = loop.create_future()
+            self._plan_futures[plan.id] = future
+            logger.info(
+                "planner node %s blocking for approval plan_id=%s timeout=%.0fs",
+                node.label, plan.id, timeout,
+            )
+            yield AgentEvent(
+                type=AgentEventType.PLAN_APPROVAL,
+                content=f"Plan {plan.id} awaiting approval",
+                name="planner",
+                node_id=node.label,
+                metadata={
+                    "plan_id": plan.id,
+                    "action": "pending_approval",
+                    "steps": step_summaries,
+                },
+            )
+            try:
+                approved = await asyncio.wait_for(future, timeout=timeout)
+            except asyncio.TimeoutError:
+                self._plan_futures.pop(plan.id, None)
+                logger.warning("planner approval timed out plan_id=%s", plan.id)
+                yield AgentEvent(
+                    type=AgentEventType.PLAN_APPROVAL,
+                    content=f"Approval timed out for plan {plan.id}",
+                    name="planner",
+                    node_id=node.label,
+                    metadata={"plan_id": plan.id, "action": "timeout"},
+                )
+                ctx.error = f"Planner: approval timed out for plan {plan.id}"
+                yield AgentEvent(type=AgentEventType.ERROR, content=ctx.error)
+                return
+
+            self._plan_futures.pop(plan.id, None)
+            if approved:
+                logger.info("planner plan %s approved, proceeding", plan.id)
+                yield AgentEvent(
+                    type=AgentEventType.PLAN_APPROVAL,
+                    content=f"Plan {plan.id} approved",
+                    name="planner",
+                    node_id=node.label,
+                    metadata={"plan_id": plan.id, "action": "approved"},
+                )
+            else:
+                logger.info("planner plan %s rejected, stopping", plan.id)
+                yield AgentEvent(
+                    type=AgentEventType.PLAN_APPROVAL,
+                    content=f"Plan {plan.id} rejected",
+                    name="planner",
+                    node_id=node.label,
+                    metadata={"plan_id": plan.id, "action": "rejected"},
+                )
+                ctx.error = f"Planner: plan {plan.id} rejected"
+                yield AgentEvent(type=AgentEventType.ERROR, content=ctx.error)
+                return
 
     async def _execute_verify_node(
         self,
