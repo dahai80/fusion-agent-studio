@@ -95,3 +95,33 @@ class AgentClient:
         return await self.call(
             "workflow.execute", {"workflow_id": workflow_id, "input": input_text}
         )
+
+    async def register_hook(self, event: str, action: str = "", **kwargs) -> dict:
+        # C12: SDK hook 注册门面 -> hooks.register RPC.
+        params = {"event": event, "action": action, **kwargs}
+        return await self.call("hooks.register", params)
+
+    async def list_hooks(self) -> dict:
+        return await self.call("hooks.list")
+
+    async def store_memory(self, agent_id: str, content: str, **kwargs) -> dict:
+        # C12: SDK memory 存储门面 -> memory.store RPC.
+        params = {"agent_id": agent_id, "content": content, **kwargs}
+        return await self.call("memory.store", params)
+
+    async def register_tool(self, tool_dict: dict) -> dict:
+        # C12: SDK Tool daemon 注册门面.
+        # Python handler 工具 -> tool.register_python (源码 exec);
+        # schema-only -> tool.dynamic_register (terminal/shell).
+        if tool_dict.get("source"):
+            return await self.call("tool.register_python", tool_dict)
+        return await self.call("tool.dynamic_register", tool_dict)
+
+    async def unregister_tool(self, name: str) -> dict:
+        return await self.call("tool.dynamic_unregister", {"name": name})
+
+    async def configure_agent(self, agent_id: str, config: dict) -> dict:
+        # C12: SDK agent 配置门面 -> agent.configure RPC.
+        return await self.call(
+            "agent.configure", {"agent_id": agent_id, "config": config}
+        )

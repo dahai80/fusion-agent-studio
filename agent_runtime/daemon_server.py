@@ -21,6 +21,7 @@ import json
 import logging
 import os
 import platform
+import re
 import signal
 import struct
 import subprocess
@@ -146,6 +147,7 @@ class DaemonServer:
         self._audit_logger = None
         self._version_store = None
         self._offline_mode = False
+        self._SAFE_TOOL_NAME_RE = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]{0,63}$")
 
         self._sub_dispatchers = self._init_sub_dispatchers()
 
@@ -631,6 +633,7 @@ class DaemonServer:
             "tool.background_status": self._handle_tool_background_status,
             "tool.dynamic_register": self._handle_tool_dynamic_register,
             "tool.dynamic_unregister": self._handle_tool_dynamic_unregister,
+            "tool.register_python": self._handle_tool_register_python,
             "tool.get": self._handle_tool_get,
             "tool.get_schema": self._handle_tool_get_schema,
             "tool.list": self._handle_tool_list,
@@ -797,6 +800,7 @@ class DaemonServer:
             "tool.background_status": self._handle_tool_background_status,
             "tool.dynamic_register": self._handle_tool_dynamic_register,
             "tool.dynamic_unregister": self._handle_tool_dynamic_unregister,
+            "tool.register_python": self._handle_tool_register_python,
             "tool.get": self._handle_tool_get,
             "tool.get_schema": self._handle_tool_get_schema,
             "tool.list": self._handle_tool_list,
@@ -1644,6 +1648,97 @@ class DaemonServer:
             "status": "error",
             "message": f"Tool '{name}' not found in dynamic registry",
         }
+
+    async def _handle_tool_register_python(self, params: dict) -> dict:
+        # C12: SDK Tool (Python handler) daemon 注册. 收 handler 源码,
+        # daemon 端 exec 成 BaseTool 子类 (handler 函数名已知), 注册入动态 registry.
+        # 本地受信环境: exec 源码安全可接受 (等同本地运行 SDK handler).
+        from tools import ToolRegistry
+        from tools.base import BaseTool
+
+        if not hasattr(self, "_dynamic_registry"):
+            self._dynamic_registry = ToolRegistry()
+        name = params.get("name", "")
+        if not name:
+            return {"status": "error", "message": "name parameter required"}
+        if not self._SAFE_TOOL_NAME_RE.match(name):
+            return {"status": "error", "message": f"invalid tool name '{name}'"}
+
+        source = params.get("source", "")
+        handler_name = params.get("handler_name", "handler")
+        description = params.get("description", f"SDK tool: {name}")
+        tool_params = params.get("parameters", {})
+
+        if not source:
+            return {"status": "error", "message": "source parameter required"}
+
+        import textwrap
+        from types import new_class
+
+        param_dict = {}
+        if isinstance(tool_params, dict):
+            for pk, pv in tool_params.items():
+                param_dict[pk] = (
+                    pv
+                    if isinstance(pv, dict)
+                    else {"type": "string", "description": str(pv)}
+                )
+
+        # inspect.getsource 对嵌套/缩进 handler 捕获前导缩进, dedent 规整后 exec.
+        source = textwrap.dedent(source)
+        # 在隔离命名空间 exec 源码, 提取 handler 可调用对象.
+        exec_ns: dict = {}
+        try:
+            exec(compile(source, f"<sdk_tool_{name}>", "exec"), exec_ns)
+        except Exception as e:
+            logger.exception("tool.register_python exec failed for %s", name)
+            return {"status": "error", "message": f"source exec failed: {e}"}
+
+        handler_fn = exec_ns.get(handler_name)
+        if not callable(handler_fn):
+            return {
+                "status": "error",
+                "message": f"handler '{handler_name}' not found in source",
+            }
+
+        safe_name = f"Sdk_{self._SAFE_TOOL_NAME_RE.match(name).group()}"
+        is_coro = re.match(r"^\s*async\s+def\b", source, re.MULTILINE) is not None
+
+        if is_coro:
+
+            async def _exec_async(self_inner, **kw):
+                try:
+                    return await handler_fn(**kw)
+                except Exception as e:
+                    return f"Error: {e}"
+
+            def _body_async(ns):
+                ns["execute"] = _exec_async
+
+            dyn_cls = new_class(safe_name, (BaseTool,), {}, _body_async)
+        else:
+
+            async def _exec_sync(self_inner, **kw):
+                try:
+                    return handler_fn(**kw)
+                except Exception as e:
+                    return f"Error: {e}"
+
+            def _body_sync(ns):
+                ns["execute"] = _exec_sync
+
+            dyn_cls = new_class(safe_name, (BaseTool,), {}, _body_sync)
+
+        dyn_cls.name = name
+        dyn_cls.description = description
+        dyn_cls.parameters = param_dict
+        new_tool = dyn_cls()
+        self._dynamic_registry.register(new_tool)
+        logger.info(
+            "SDK Python tool registered via daemon: %s (async=%s)", name, is_coro
+        )
+        return {"status": "ok", "tool": name, "kind": "python"}
+
 
     # ── Memory handlers ──
 

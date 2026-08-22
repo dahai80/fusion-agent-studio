@@ -280,6 +280,10 @@ class AgentDispatcher(SubDispatcher):
             manifest.capabilities = config["capabilities"]
         if "safety_level" in config:
             manifest.safety_level = config["safety_level"]
+        # C12: SDK 程序化配置扩展字段. context_window 入 manifest;
+        # max_iterations 是 runtime 层 (执行时从 agent 配置读, 非 manifest 持久化).
+        if "context_window" in config:
+            manifest.context_window = int(config["context_window"])
 
         pkg.save_manifest(manifest)
 
@@ -365,9 +369,10 @@ class AgentDispatcher(SubDispatcher):
                 "session_id": f"sess-{int(time.time())}",
             }
 
-        logger.info("agent.execute: id=%s events=%d", agent_id, len(events))
+        logger.info("agent.execute: id=%s graph=%s events=%d", agent_id, graph.id, len(events))
         return {
             "agent_id": agent_id,
+            "graph_id": graph.id,
             "events": events,
             "status": "completed",
             "session_id": f"sess-{int(time.time())}",
@@ -1197,6 +1202,7 @@ class AgentDispatcher(SubDispatcher):
         return {
             "execution_id": execution_id,
             "agent_id": agent_id,
+            "graph_id": graph.id,
             "events": events,
             "status": "completed",
             "tool_calls": tool_calls_log,
