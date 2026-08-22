@@ -36,6 +36,7 @@ class MemoryDispatcher(SubDispatcher):
             importance=params.get("importance", 5),
             metadata=params.get("metadata"),
             tier=params.get("tier", ""),
+            memory_type=params.get("memory_type", ""),
         )
         logger.info(
             "memory.store: entry_id=%s scope=%s",
@@ -53,6 +54,7 @@ class MemoryDispatcher(SubDispatcher):
             limit=params.get("limit", 10),
             min_importance=params.get("min_importance", 0),
             tier=params.get("tier", ""),
+            memory_type=params.get("memory_type", ""),
         )
         return {"entries": [e.to_dict() for e in entries]}
 
@@ -63,6 +65,7 @@ class MemoryDispatcher(SubDispatcher):
             limit=params.get("limit", 20),
             min_importance=params.get("min_importance", 0),
             tier=params.get("tier", ""),
+            memory_type=params.get("memory_type", ""),
         )
         return {"entries": [e.to_dict() for e in entries]}
 
@@ -90,7 +93,11 @@ class MemoryDispatcher(SubDispatcher):
 
     async def _handle_memory_count(self, params: dict) -> dict:
         mem = self._daemon._get_memory()
-        count = mem.count(scope=params.get("scope", ""), tier=params.get("tier", ""))
+        count = mem.count(
+            scope=params.get("scope", ""),
+            tier=params.get("tier", ""),
+            memory_type=params.get("memory_type", ""),
+        )
         return {"count": count}
 
     async def _handle_memory_recall_relevant(self, params: dict) -> dict:
@@ -98,7 +105,10 @@ class MemoryDispatcher(SubDispatcher):
         query = params.get("query", "")
         limit = params.get("limit", 5)
         scope = params.get("scope", "")
-        result = mem.recall_relevant(query=query, limit=limit, scope=scope)
+        memory_type = params.get("memory_type", "")
+        result = mem.recall_relevant(
+            query=query, limit=limit, scope=scope, memory_type=memory_type
+        )
         return {"context": result}
 
     async def _handle_memory_auto_forget(self, params: dict) -> dict:

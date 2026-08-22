@@ -2777,9 +2777,14 @@ class AgentRuntime:
         last_user = user_msgs[-1] if user_msgs else ""
         last_assistant = assistant_msgs[-1] if assistant_msgs else ""
         scope = f"graph:{graph.name}"
+        content = f"Q: {last_user[:200]} A: {last_assistant[:500]}"
+        # C16: 自动存储按内容启发式归类 user/feedback/project/reference.
+        from .memory_engine import classify_memory_type
+
+        mem_type = classify_memory_type(content)
         await asyncio.to_thread(
             self.memory_engine.store,
-            content=f"Q: {last_user[:200]} A: {last_assistant[:500]}",
+            content=content,
             scope=scope,
             tags="auto-store",
             importance=7 if not ctx.error else 3,
@@ -2788,8 +2793,11 @@ class AgentRuntime:
                 "error": ctx.error,
                 "iterations": ctx.iteration_count,
             },
+            memory_type=mem_type,
         )
-        logger.info("Auto-stored execution result to memory (scope=%s)", scope)
+        logger.info(
+            "Auto-stored execution result to memory (scope=%s type=%s)", scope, mem_type
+        )
 
     def set_knowledge_engine(self, engine: Any) -> None:
         if hasattr(engine, "embedding_fn") and engine.embedding_fn is None and self.llm_gateway:

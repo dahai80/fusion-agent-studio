@@ -510,6 +510,8 @@ class ChatEngine:
             return
 
         history = self._build_llm_history(session)
+        # C16: 统一 soul.md 加载 — session 携 agent_id 时注入 soul 为 system 前缀.
+        history = self._inject_soul(session, history)
         try:
             if self.runtime.mlx:
                 async for chunk in self.runtime.llm_gateway.chat_stream(
@@ -557,9 +559,16 @@ class ChatEngine:
             from .graph import AgentGraph, NodeConfig
 
             graph = AgentGraph(name=f"chat-agent-{session.id}")
+            # C16: 统一 soul.md 加载 — agent 模式默认图用 soul 作 system_prompt.
+            from .agent_package import resolve_soul_prompt
+
+            agent_id = self._resolve_session_agent_id(session)
+            soul_prompt = resolve_soul_prompt(
+                agent_id, fallback="You are a helpful assistant."
+            )
             graph.add_node(
                 "start",
-                NodeConfig(type="start", system_prompt="You are a helpful assistant."),
+                NodeConfig(type="start", system_prompt=soul_prompt),
             )
             graph.add_node("llm", NodeConfig(type="llm", model="default"))
             graph.add_node("end", NodeConfig(type="end"))
@@ -674,6 +683,44 @@ class ChatEngine:
             if msg.tool_call_id:
                 entry["tool_call_id"] = msg.tool_call_id
             history.append(entry)
+        return history
+
+    def _resolve_session_agent_id(self, session: ChatSession) -> str:
+        # C16: session 可经 metadata.agent_id 或 graph_id 携 agent 标识.
+        agent_id = ""
+        if session.metadata:
+            agent_id = session.metadata.get("agent_id", "")
+        if not agent_id and session.graph_id and self.runtime and self.runtime.store:
+            try:
+                graph_data = self.runtime.store.load_graph(session.graph_id)
+                if graph_data:
+                    agent_id = graph_data.get("agent_id", "")
+            except Exception as e:
+                logger.debug("resolve agent_id from graph failed: %s", e)
+        return agent_id or ""
+
+    def _inject_soul(self, session: ChatSession, history: list[dict]) -> list[dict]:
+        # C16: 统一 soul.md 加载. agent_id 可用时注入 soul 为首条 system 消息,
+        # 避免覆盖已有 system 消息 (仅在无 system 前缀时前置).
+        agent_id = self._resolve_session_agent_id(session)
+        if not agent_id:
+            return history
+        try:
+            from .agent_package import resolve_soul_prompt
+
+            soul = resolve_soul_prompt(agent_id)
+        except Exception as e:
+            logger.warning("chat soul resolve failed for agent=%s: %s", agent_id, e)
+            return history
+        if not soul:
+            return history
+        # 若历史首条已是 system, 合并; 否则前置.
+        if history and history[0].get("role") == "system":
+            existing = history[0].get("content", "")
+            history[0]["content"] = f"{soul}\n\n{existing}" if existing else soul
+        else:
+            history.insert(0, {"role": "system", "content": soul})
+        logger.info("chat injected soul for agent=%s", agent_id)
         return history
 
     def _persist_session(self, session: ChatSession) -> None:

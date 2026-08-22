@@ -139,13 +139,31 @@ class SessionManager:
                 start_id = "start"
                 llm_id = "llm"
                 end_id = "end"
+                # C16: 统一 soul.md 加载 — 后台会话 metadata.agent_id 可用时用 soul.
+                bg_agent_id = ""
+                if bg.metadata:
+                    bg_agent_id = bg.metadata.get("agent_id", "")
+                bg_soul = "You are a helpful assistant."
+                if bg_agent_id:
+                    try:
+                        from .agent_package import resolve_soul_prompt
+
+                        bg_soul = resolve_soul_prompt(
+                            bg_agent_id, fallback=bg_soul
+                        )
+                    except Exception as e:
+                        logger.warning(
+                            "bg session soul resolve failed for agent=%s: %s",
+                            bg_agent_id,
+                            e,
+                        )
                 graph.add_node(start_id, NodeConfig(type=NodeType.START, label="Start"))
                 graph.add_node(
                     llm_id,
                     NodeConfig(
                         type=NodeType.LLM,
                         label="LLM",
-                        system_prompt="You are a helpful assistant.",
+                        system_prompt=bg_soul,
                     ),
                 )
                 graph.add_node(end_id, NodeConfig(type=NodeType.END, label="End"))

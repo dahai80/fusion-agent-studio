@@ -621,6 +621,22 @@ class WorkflowEngine:
         agent_name = agent_cfg.get("name", "unknown")
         graph_id = agent_cfg.get("graph_id")
         system_prompt = agent_cfg.get("system_prompt", "")
+        agent_id = agent_cfg.get("agent_id", "")
+
+        # C16: 统一 soul.md 加载 — workflow agent_cfg 带 agent_id 时,
+        # soul.md 优先于配置 system_prompt (与 agent.execute 路径一致).
+        if agent_id:
+            try:
+                from .agent_package import resolve_soul_prompt
+
+                soul = resolve_soul_prompt(agent_id, fallback=system_prompt)
+                if soul and soul != system_prompt:
+                    system_prompt = soul
+                    logger.info(
+                        "workflow _run_agent loaded soul for agent_id=%s", agent_id
+                    )
+            except Exception as e:
+                logger.warning("workflow soul resolve failed for agent_id=%s: %s", agent_id, e)
 
         if graph_id and self.orchestrator:
             try:
@@ -636,6 +652,12 @@ class WorkflowEngine:
                         graph = AgentGraph(id=graph_id)
                 else:
                     graph = AgentGraph(id=graph_id or f"g_{uuid.uuid4().hex[:8]}")
+
+                # C16: 已加载图 start 节点无 system_prompt 时, 回填 soul.
+                if agent_id:
+                    start_node = graph.get_node(graph.start_node_id) if graph else None
+                    if start_node and not (start_node.system_prompt or "").strip():
+                        start_node.system_prompt = system_prompt
 
                 runtime = AgentRuntime(
                     tool_registry=self.tool_registry,
