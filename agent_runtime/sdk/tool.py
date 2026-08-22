@@ -50,6 +50,34 @@ class Tool:
             },
         }
 
+    def to_daemon_dict(self) -> dict:
+        # C12: 序列化 Tool 供 daemon 注册. Python handler 工具附源码 (inspect.getsource),
+        # daemon 端 exec 成 BaseTool 子类; 无 handler 则 schema-only (terminal/shell).
+        import inspect
+
+        payload = {
+            "name": self.name,
+            "description": self.description,
+            "parameters": self.parameters,
+            "metadata": self.metadata,
+        }
+        if self.handler is not None:
+            try:
+                source = inspect.getsource(self.handler)
+                payload["source"] = source
+                payload["handler_name"] = self.handler.__name__
+                payload["type"] = "python"
+            except (OSError, TypeError) as e:
+                logger.warning(
+                    "Tool %s handler source unavailable: %s — fallback schema-only",
+                    self.name,
+                    e,
+                )
+                payload["type"] = "terminal"
+        else:
+            payload["type"] = "terminal"
+        return payload
+
     async def execute(self, **kwargs) -> Any:
         if self.handler is None:
             logger.error("Tool %s has no handler", self.name)
@@ -61,3 +89,14 @@ class Tool:
         except Exception as e:
             logger.exception("Tool %s execution failed", self.name)
             return {"error": str(e)}
+
+    async def register_to_daemon(self, client) -> dict:
+        # C12: 注册本 Tool 到 daemon (Python handler -> tool.register_python,
+        # schema-only -> tool.dynamic_register). 注册后 agent 可调用此工具.
+        payload = self.to_daemon_dict()
+        result = await client.register_tool(payload)
+        if "error" in result:
+            logger.error("Tool %s daemon register failed: %s", self.name, result["error"])
+        else:
+            logger.info("Tool %s registered to daemon", self.name)
+        return result
