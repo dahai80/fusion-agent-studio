@@ -172,9 +172,10 @@ class DaemonServer:
                 tool_registry=registry,
                 safety_gateway=self._get_safety(),
                 memory_engine=self._get_memory(),
+                telemetry_engine=self._get_telemetry_engine(),
             )
             logger.info(
-                "AgentRuntime created with %d tools, safety+memory wired",
+                "AgentRuntime created with %d tools, safety+memory+telemetry wired",
                 len(registry._tools),
             )
         return self._runtime
