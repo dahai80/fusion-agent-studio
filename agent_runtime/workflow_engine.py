@@ -155,17 +155,19 @@ class WorkflowConfig:
 
 
 class WorkflowEngine:
-    def __init__(self, llm_gateway=None, tool_registry=None, orchestrator=None):
+    def __init__(self, llm_gateway=None, tool_registry=None, orchestrator=None, store=None):
         self.llm_gateway = llm_gateway
         self.tool_registry = tool_registry
         self.orchestrator = orchestrator
+        self.store = store
         self._workflows: dict[str, WorkflowConfig] = {}
         self._runs: dict[str, WorkflowRun] = {}
         self._active_tasks: dict[str, asyncio.Task] = {}
         logger.info(
-            "WorkflowEngine init, llm_gateway=%s, orchestrator=%s",
+            "WorkflowEngine init, llm_gateway=%s, orchestrator=%s, store=%s",
             "provided" if llm_gateway else "none",
             "provided" if orchestrator else "none",
+            "provided" if store else "none",
         )
 
     def create_workflow(
@@ -180,23 +182,66 @@ class WorkflowEngine:
             metadata=kwargs.get("metadata", {}),
         )
         self._workflows[wf.id] = wf
+        if self.store:
+            try:
+                self.store.save_workflow(wf.id, wf.name, wf.to_dict())
+            except Exception:
+                logger.exception("persist workflow %s failed", wf.id)
         logger.info(
             "Created workflow %s id=%s with %d phases", name, wf.id, len(phase_objects)
         )
         return wf
 
     def get_workflow(self, workflow_id: str) -> WorkflowConfig | None:
-        return self._workflows.get(workflow_id)
+        wf = self._workflows.get(workflow_id)
+        if wf is not None:
+            return wf
+        if self.store:
+            try:
+                data = self.store.load_workflow(workflow_id)
+            except Exception:
+                logger.exception("load workflow %s failed", workflow_id)
+                data = None
+            if data:
+                wf = WorkflowConfig.from_dict(data)
+                self._workflows[workflow_id] = wf
+                return wf
+        return None
 
     def list_workflows(self) -> list[WorkflowConfig]:
-        return list(self._workflows.values())
+        if not self.store:
+            return list(self._workflows.values())
+        try:
+            rows = self.store.list_workflows()
+        except Exception:
+            logger.exception("list workflows failed, fallback to memory")
+            return list(self._workflows.values())
+        results: list[WorkflowConfig] = []
+        for r in rows:
+            wf_id = r.get("id", "")
+            wf = self._workflows.get(wf_id)
+            if wf is None:
+                data = self.store.load_workflow(wf_id)
+                if data:
+                    wf = WorkflowConfig.from_dict(data)
+                    self._workflows[wf_id] = wf
+            if wf is not None:
+                results.append(wf)
+        return results
 
     def delete_workflow(self, workflow_id: str) -> bool:
-        if workflow_id in self._workflows:
+        deleted = workflow_id in self._workflows
+        if deleted:
             del self._workflows[workflow_id]
+        if self.store:
+            try:
+                if self.store.delete_workflow(workflow_id):
+                    deleted = True
+            except Exception:
+                logger.exception("delete workflow %s failed", workflow_id)
+        if deleted:
             logger.info("Deleted workflow %s", workflow_id)
-            return True
-        return False
+        return deleted
 
     async def execute_workflow(
         self,
@@ -204,13 +249,14 @@ class WorkflowEngine:
         initial_input: str = "",
         budget: int | None = None,
     ) -> WorkflowRun:
-        wf = self._workflows.get(workflow_id)
+        wf = self.get_workflow(workflow_id)
         if not wf:
             raise ValueError(f"Workflow not found: {workflow_id}")
 
         run = WorkflowRun(workflow_id=workflow_id, status=WorkflowStatus.RUNNING)
         run.started_at = time.time()
         self._runs[run.id] = run
+        self._persist_run(run)
         logger.info("Starting workflow run %s for workflow %s", run.id, workflow_id)
 
         try:
@@ -232,6 +278,36 @@ class WorkflowEngine:
             run.error = str(e)
             run.finished_at = time.time()
             logger.exception("Workflow run %s failed", run.id)
+        self._persist_run(run)
+        return run
+
+    def _persist_run(self, run: WorkflowRun) -> None:
+        if not self.store:
+            return
+        try:
+            self.store.save_workflow_run(run.id, run.workflow_id, run.to_dict())
+        except Exception:
+            logger.exception("persist workflow run %s failed", run.id)
+
+    def _restore_run(self, run_id: str) -> WorkflowRun | None:
+        run = self._runs.get(run_id)
+        if run is not None:
+            return run
+        if not self.store:
+            return None
+        try:
+            data = self.store.load_workflow_run(run_id)
+        except Exception:
+            logger.exception("load workflow run %s failed", run_id)
+            return None
+        if not data:
+            return None
+        run = WorkflowRun.from_dict(data)
+        # 还原后重置运行时控制信号 (进程重启, 旧 event/flag 无效)。
+        run._pause_event = asyncio.Event()
+        run._pause_event.set()
+        run._cancel_flag = False
+        self._runs[run_id] = run
         return run
 
     async def _execute_phases(
@@ -291,6 +367,7 @@ class WorkflowEngine:
             result["duration"] = phase_duration
             accumulated_results.append(result)
             run.phase_results.append(result)
+            self._persist_run(run)
 
             if result.get("output"):
                 current_input = result["output"]
@@ -618,40 +695,60 @@ class WorkflowEngine:
         return input_text
 
     def pause_run(self, run_id: str) -> bool:
-        run = self._runs.get(run_id)
+        run = self._restore_run(run_id)
         if not run or run.status != WorkflowStatus.RUNNING:
             return False
         run._pause_event.clear()
         run.status = WorkflowStatus.PAUSED
+        self._persist_run(run)
         logger.info("Paused workflow run %s", run_id)
         return True
 
     def resume_run(self, run_id: str) -> bool:
-        run = self._runs.get(run_id)
+        run = self._restore_run(run_id)
         if not run or run.status != WorkflowStatus.PAUSED:
             return False
         run._pause_event.set()
         run.status = WorkflowStatus.RUNNING
+        self._persist_run(run)
         logger.info("Resumed workflow run %s", run_id)
         return True
 
     def cancel_run(self, run_id: str) -> bool:
-        run = self._runs.get(run_id)
+        run = self._restore_run(run_id)
         if not run or run.status not in (WorkflowStatus.RUNNING, WorkflowStatus.PAUSED):
             return False
         run._cancel_flag = True
         if run.status == WorkflowStatus.PAUSED:
             run._pause_event.set()
+        run.status = WorkflowStatus.CANCELLED
+        run.finished_at = time.time()
         task = self._active_tasks.get(run_id)
         if task and not task.done():
             task.cancel()
+        self._persist_run(run)
         logger.info("Cancelled workflow run %s", run_id)
         return True
 
     def get_run_status(self, run_id: str) -> WorkflowRun | None:
-        return self._runs.get(run_id)
+        return self._restore_run(run_id)
 
     def list_runs(self, workflow_id: str | None = None) -> list[WorkflowRun]:
-        if workflow_id:
-            return [r for r in self._runs.values() if r.workflow_id == workflow_id]
-        return list(self._runs.values())
+        if not self.store:
+            if workflow_id:
+                return [r for r in self._runs.values() if r.workflow_id == workflow_id]
+            return list(self._runs.values())
+        try:
+            rows = self.store.list_workflow_runs(workflow_id)
+        except Exception:
+            logger.exception("list workflow runs failed, fallback to memory")
+            if workflow_id:
+                return [r for r in self._runs.values() if r.workflow_id == workflow_id]
+            return list(self._runs.values())
+        results: list[WorkflowRun] = []
+        for r in rows:
+            rid = r.get("id", "")
+            run = self._restore_run(rid)
+            if run is not None:
+                results.append(run)
+        return results

@@ -280,6 +280,7 @@ class DaemonServer:
                 if self._runtime
                 else None,
                 orchestrator=self._get_orchestrator(),
+                store=self.store,
             )
             logger.info("WorkflowEngine created")
         return self._workflow_engine
