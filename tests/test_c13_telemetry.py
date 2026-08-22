@@ -226,7 +226,7 @@ class TestOTLPExport:
 
 class TestTelemetryExportRPC:
     async def _rpc(self, daemon, method, params=None):
-        reader, writer = await asyncio.open_unix_connection(daemon._socket_path,
+        reader, writer = await asyncio.open_unix_connection(daemon.socket_path,
                                                             limit=2**20)
         req = {"jsonrpc": "2.0", "id": 1, "method": method}
         if params:
@@ -240,8 +240,14 @@ class TestTelemetryExportRPC:
 
     @pytest.fixture
     async def daemon(self, tmp_path):
+        import os
+        import tempfile
+
         from agent_runtime.daemon_server import DaemonServer
-        sock = str(tmp_path / "d.sock")
+        # AF_UNIX path limit ~108 bytes on Linux. CI tmp_path is deep, so put
+        # the socket under /tmp with a short name; store stays in tmp_path.
+        sock_dir = tempfile.mkdtemp(prefix="c13_", dir="/tmp")
+        sock = os.path.join(sock_dir, "d.sock")
         d = DaemonServer(socket_path=sock, ws_port=0, cluster_port=0,
                          http_port=0, store_path=str(tmp_path / "s.db"))
         await d.start()
@@ -249,6 +255,9 @@ class TestTelemetryExportRPC:
         d._gateway._default_model = ""
         yield d
         await d.stop()
+        if os.path.exists(sock):
+            os.unlink(sock)
+        os.rmdir(sock_dir)
 
     async def test_export_rpc_passes_push_false(self, daemon):
         resp = await self._rpc(daemon, "telemetry.export",
