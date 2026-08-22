@@ -699,17 +699,14 @@ class AgentRuntime:
                 current_node_id = next_id or ""
 
             elif node.type == "parallel":
-                yield AgentEvent(
-                    type=AgentEventType.NODE_START,
-                    content=f"Parallel fan-out from {current_node_id}",
-                    node_id=current_node_id,
-                )
-                outgoing = graph.get_outgoing_edges(current_node_id)
-                if outgoing:
-                    next_id = outgoing[0].target_id
-                    current_node_id = next_id or ""
-                else:
-                    current_node_id = ""
+                async for ev in self._execute_parallel_node(
+                    ctx, node, graph, current_node_id, stream=stream
+                ):
+                    yield ev
+                    if ev.type == AgentEventType.ERROR:
+                        return
+                next_id = ev.metadata.get("next_id", "") if ev.metadata else ""
+                current_node_id = next_id
 
             elif node.type == "end":
                 yield AgentEvent(type=AgentEventType.END, content="Graph execution complete")
@@ -2080,6 +2077,245 @@ class AgentRuntime:
             content=f"Error handler completed after {attempt} attempt(s)",
             node_id=node.label,
         )
+
+    async def _execute_parallel_node(
+        self,
+        ctx: AgentContext,
+        node: NodeConfig,
+        graph: AgentGraph,
+        current_node_id: str,
+        stream: bool = False,
+    ) -> AsyncIterator[AgentEvent]:
+        # C5: parallel 图节点真 fan-out/gather。所有出边 = N 条并行分支,
+        # 每分支独立 sub-runtime 跑从分支 target 起到汇聚点的子图,
+        # asyncio.gather 并发, 结果按边序合并进父 ctx。
+        yield AgentEvent(
+            type=AgentEventType.START,
+            content=f"Parallel fan-out from {current_node_id}",
+            node_id=current_node_id,
+        )
+
+        outgoing = graph.get_outgoing_edges(current_node_id)
+        if not outgoing:
+            logger.warning("parallel node %s has no outgoing edges", current_node_id)
+            yield AgentEvent(
+                type=AgentEventType.RESULT,
+                content="parallel: no branches",
+                node_id=current_node_id,
+                metadata={"next_id": ""},
+            )
+            return
+
+        # plan_mode 激活: 只读探查, 不 fan-out 写副作用, 回退首边。
+        if self.plan_mode:
+            first_target = outgoing[0].target_id
+            logger.info(
+                "parallel node %s plan_mode active, fallback first edge -> %s",
+                current_node_id,
+                first_target,
+            )
+            yield AgentEvent(
+                type=AgentEventType.RESULT,
+                content=f"parallel: plan_mode sequential fallback to {first_target}",
+                node_id=current_node_id,
+                metadata={"next_id": first_target},
+            )
+            return
+
+        # 单出边: 无 fan-out 必要, 直接走首边 (零行为变化)。
+        if len(outgoing) == 1:
+            only_target = outgoing[0].target_id
+            yield AgentEvent(
+                type=AgentEventType.RESULT,
+                content=f"parallel: single branch to {only_target}",
+                node_id=current_node_id,
+                metadata={"next_id": only_target},
+            )
+            return
+
+        # 找汇聚点 (fan-in target): 各分支 target 出发的可达节点集合的交集中,
+        # 距离 parallel 节点最近的公共后继。若全分支共享同一后继即汇聚点;
+        # 找不到则各分支跑到各自 end, 无显式汇聚。
+        merge_node_id = self._find_merge_node(graph, outgoing)
+        logger.info(
+            "parallel node %s branches=%d merge=%s",
+            current_node_id,
+            len(outgoing),
+            merge_node_id or "(none)",
+        )
+
+        branch_targets = [e.target_id for e in outgoing]
+
+        async def run_branch(
+            branch_idx: int, branch_target: str, edge_label: str
+        ) -> tuple[int, str, list[AgentEvent], str]:
+            # 构建分支子图: 从 branch_target 可达且不含 merge_node 的节点。
+            sub_graph = self._build_branch_subgraph(
+                graph, branch_target, merge_node_id, current_node_id
+            )
+            if sub_graph is None:
+                return (
+                    branch_idx,
+                    edge_label,
+                    [],
+                    f"Error: branch {branch_idx} subgraph build failed",
+                )
+
+            sub_runtime = AgentRuntime(
+                tool_registry=self.tools,
+                max_iterations=self.max_iterations,
+                variables=VariableManager(),
+                llm_gateway=self.llm_gateway,
+            )
+            sub_ctx = AgentContext()
+            sub_ctx.metadata["parallel_branch"] = edge_label or f"branch_{branch_idx}"
+            branch_events: list[AgentEvent] = []
+            async for event in sub_runtime.execute_graph(sub_graph, "", sub_ctx):
+                branch_events.append(event)
+
+            # 提取分支最终输出 (最后一条 assistant content 或 THINK 事件)。
+            branch_output = ""
+            for ev in reversed(branch_events):
+                if ev.type == AgentEventType.THINK and ev.content:
+                    branch_output = ev.content
+                    break
+            if not branch_output:
+                for msg in reversed(sub_ctx.messages):
+                    if isinstance(msg, dict) and msg.get("role") == "assistant":
+                        branch_output = msg.get("content", "")
+                        break
+            logger.info(
+                "parallel branch %d (%s) done, output_len=%d events=%d",
+                branch_idx,
+                edge_label or f"branch_{branch_idx}",
+                len(branch_output),
+                len(branch_events),
+            )
+            return branch_idx, edge_label, branch_events, branch_output
+
+        tasks = [
+            run_branch(i, tgt, e.label) for i, (e, tgt) in enumerate(zip(outgoing, branch_targets))
+        ]
+        results = await asyncio.gather(*tasks)
+
+        # 按边序 yield 各分支事件 (带 [parallel:label] 标签)。
+        merged_outputs: list[str] = []
+        for branch_idx, edge_label, branch_events, branch_output in sorted(
+            results, key=lambda r: r[0]
+        ):
+            tag = edge_label or f"branch_{branch_idx}"
+            for ev in branch_events:
+                if ev.type in (AgentEventType.START, AgentEventType.END):
+                    continue
+                yield AgentEvent(
+                    type=ev.type,
+                    content=f"[parallel:{tag}] {ev.content}",
+                    name=ev.name,
+                    args=ev.args,
+                    node_id=ev.node_id,
+                    metadata=ev.metadata,
+                )
+            if branch_output:
+                merged_outputs.append(f"[{tag}]\n{branch_output}")
+
+        # 合并: 各分支输出拼接进父 ctx 作为 assistant message。
+        if merged_outputs:
+            merged_text = "\n\n".join(merged_outputs)
+            ctx.add_message("assistant", merged_text)
+            logger.info(
+                "parallel node %s merged %d branches, merged_len=%d",
+                current_node_id,
+                len(merged_outputs),
+                len(merged_text),
+            )
+
+        yield AgentEvent(
+            type=AgentEventType.RESULT,
+            content=f"Parallel fan-out complete: {len(results)} branches merged",
+            node_id=current_node_id,
+            metadata={"next_id": merge_node_id or ""},
+        )
+
+    def _find_merge_node(self, graph: AgentGraph, outgoing: list) -> str:
+        # 找 fan-in 汇聚点: 各分支 target 可达集合 (不含自身) 的公共节点中,
+        # 选所有分支都可达的那个。多候选时取分支0 可达序中首个公共点。
+        if len(outgoing) < 2:
+            return ""
+
+        def reachable_from(start_id: str) -> tuple[set[str], list[str]]:
+            # 返回 (可达集合, BFS 发现序列表) — 列表保证确定性遍历。
+            visited: set[str] = set()
+            order: list[str] = []
+            queue = [start_id]
+            while queue:
+                cur = queue.pop(0)
+                if cur in visited:
+                    continue
+                visited.add(cur)
+                order.append(cur)
+                for e in graph.get_outgoing_edges(cur):
+                    queue.append(e.target_id)
+            return visited, order
+
+        branch_targets = [e.target_id for e in outgoing]
+        reachable_sets = [reachable_from(t)[0] for t in branch_targets]
+        # 公共可达 = 所有分支都能到达的节点。
+        common = reachable_sets[0]
+        for s in reachable_sets[1:]:
+            common = common & s
+        # 排除分支 target 自身 (汇聚点应在分支之后)。
+        common = common - set(branch_targets)
+        if not common:
+            return ""
+        # 取分支0 BFS 发现序中首个公共节点 (最近汇聚点, 确定性)。
+        _, order = reachable_from(branch_targets[0])
+        for nid in order:
+            if nid in common:
+                return nid
+        return ""
+
+    def _build_branch_subgraph(
+        self,
+        graph: AgentGraph,
+        branch_target: str,
+        merge_node_id: str,
+        parallel_node_id: str,
+    ) -> AgentGraph | None:
+        # 构建分支子图: 从 branch_target 起可达、不含 merge_node / parallel_node
+        # 的节点子集; start_node_id = branch_target; end 节点复用 graph 的 end
+        # (若无 merge_node 则分支跑到原 end)。
+        if branch_target not in graph.nodes:
+            return None
+
+        excluded = {merge_node_id, parallel_node_id} if merge_node_id else {parallel_node_id}
+
+        # BFS 收集分支可达节点 (遇 merge_node 不越过)。
+        branch_nodes: set[str] = set()
+        queue = [branch_target]
+        while queue:
+            cur = queue.pop(0)
+            if cur in branch_nodes or cur in excluded:
+                continue
+            branch_nodes.add(cur)
+            for e in graph.get_outgoing_edges(cur):
+                if e.target_id not in excluded:
+                    queue.append(e.target_id)
+
+        if not branch_nodes:
+            return None
+
+        sub = AgentGraph(
+            name=f"{graph.name}:branch:{branch_target}",
+            start_node_id=branch_target,
+        )
+        # 复制分支节点; 分支起点若原为 start 类型则保持, 否则不改类型。
+        for nid in branch_nodes:
+            sub.add_node(nid, graph.nodes[nid])
+        # 复制分支内的边 (源+目标都在分支节点集, 且不指向 merge_node)。
+        for e in graph.edges:
+            if e.source_id in branch_nodes and e.target_id in branch_nodes:
+                sub.add_edge(e.source_id, e.target_id, e.label)
+        return sub
 
     async def _execute_sub_graph(
         self,

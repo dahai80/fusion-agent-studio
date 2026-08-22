@@ -120,6 +120,25 @@ class AgentStore:
                 created_at REAL NOT NULL,
                 updated_at REAL NOT NULL
             );
+
+            CREATE TABLE IF NOT EXISTS workflows (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                data TEXT NOT NULL,
+                created_at REAL NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS workflow_runs (
+                id TEXT PRIMARY KEY,
+                workflow_id TEXT NOT NULL,
+                data TEXT NOT NULL,
+                status TEXT DEFAULT 'pending',
+                created_at REAL NOT NULL,
+                updated_at REAL NOT NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_workflow_runs_wf
+                ON workflow_runs(workflow_id, created_at DESC);
         """)
         conn.commit()
 
@@ -379,6 +398,95 @@ class AgentStore:
         with self._cursor() as conn:
             cursor = conn.execute(
                 "DELETE FROM chat_sessions WHERE id = ?", (session_id,)
+            )
+        return cursor.rowcount > 0
+
+    # ── Workflow CRUD (C5: 工作流持久化) ──
+
+    def save_workflow(self, workflow_id: str, name: str, data: dict) -> None:
+        now = time.time()
+        with self._cursor() as conn:
+            conn.execute(
+                """INSERT INTO workflows (id, name, data, created_at)
+                   VALUES (?, ?, ?, ?)
+                   ON CONFLICT(id) DO UPDATE SET
+                       name=excluded.name,
+                       data=excluded.data""",
+                (workflow_id, name, json.dumps(data, ensure_ascii=False), now),
+            )
+
+    def load_workflow(self, workflow_id: str) -> dict[str, Any] | None:
+        with self._cursor() as conn:
+            row = conn.execute(
+                "SELECT data FROM workflows WHERE id = ?", (workflow_id,)
+            ).fetchone()
+        if row is None:
+            return None
+        return json.loads(row["data"])
+
+    def list_workflows(self) -> list[dict[str, Any]]:
+        with self._cursor() as conn:
+            rows = conn.execute(
+                "SELECT id, name, created_at FROM workflows ORDER BY created_at DESC"
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def delete_workflow(self, workflow_id: str) -> bool:
+        with self._cursor() as conn:
+            cursor = conn.execute(
+                "DELETE FROM workflows WHERE id = ?", (workflow_id,)
+            )
+        return cursor.rowcount > 0
+
+    def save_workflow_run(self, run_id: str, workflow_id: str, data: dict) -> None:
+        now = time.time()
+        status = data.get("status", "pending")
+        with self._cursor() as conn:
+            conn.execute(
+                """INSERT INTO workflow_runs (id, workflow_id, data, status, created_at, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?)
+                   ON CONFLICT(id) DO UPDATE SET
+                       data=excluded.data,
+                       status=excluded.status,
+                       updated_at=excluded.updated_at""",
+                (
+                    run_id,
+                    workflow_id,
+                    json.dumps(data, ensure_ascii=False),
+                    status,
+                    now,
+                    now,
+                ),
+            )
+
+    def load_workflow_run(self, run_id: str) -> dict[str, Any] | None:
+        with self._cursor() as conn:
+            row = conn.execute(
+                "SELECT data FROM workflow_runs WHERE id = ?", (run_id,)
+            ).fetchone()
+        if row is None:
+            return None
+        return json.loads(row["data"])
+
+    def list_workflow_runs(self, workflow_id: str | None = None) -> list[dict[str, Any]]:
+        with self._cursor() as conn:
+            if workflow_id:
+                rows = conn.execute(
+                    "SELECT id, workflow_id, status, created_at, updated_at "
+                    "FROM workflow_runs WHERE workflow_id = ? ORDER BY created_at DESC",
+                    (workflow_id,),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT id, workflow_id, status, created_at, updated_at "
+                    "FROM workflow_runs ORDER BY created_at DESC"
+                ).fetchall()
+        return [dict(r) for r in rows]
+
+    def delete_workflow_run(self, run_id: str) -> bool:
+        with self._cursor() as conn:
+            cursor = conn.execute(
+                "DELETE FROM workflow_runs WHERE id = ?", (run_id,)
             )
         return cursor.rowcount > 0
 
