@@ -100,9 +100,7 @@ class ModelStats:
 
 
 class _ModelCircuitBreaker:
-    def __init__(
-        self, threshold: int = CIRCUIT_THRESHOLD, reset_time: float = CIRCUIT_RESET_TIME
-    ):
+    def __init__(self, threshold: int = CIRCUIT_THRESHOLD, reset_time: float = CIRCUIT_RESET_TIME):
         self.threshold = threshold
         self.reset_time = reset_time
         self._failures: dict[str, int] = {}
@@ -291,9 +289,7 @@ class LLMGateway:
                 and (not exclude or m.name not in exclude)
             ]
         if not candidates:
-            if self._default_model and (
-                not exclude or self._default_model not in exclude
-            ):
+            if self._default_model and (not exclude or self._default_model not in exclude):
                 if not exclude:
                     logger.info(
                         "No registered models, falling back to default_model=%s",
@@ -315,21 +311,15 @@ class LLMGateway:
             return None
         candidates.sort(key=lambda m: (-m.priority, m.name))
         selected = candidates[0]
-        logger.debug(
-            "Routed to model %s (priority=%d)", selected.name, selected.priority
-        )
+        logger.debug("Routed to model %s (priority=%d)", selected.name, selected.priority)
         return selected
 
-    def get_fallback_chain(
-        self, capability: str = "", min_context: int = 0
-    ) -> list[ModelConfig]:
+    def get_fallback_chain(self, capability: str = "", min_context: int = 0) -> list[ModelConfig]:
         chain = []
         exclude = set()
         max_chain = max(len(self._models), 1) + 1
         while len(chain) < max_chain:
-            model = self.route(
-                capability=capability, min_context=min_context, exclude=exclude
-            )
+            model = self.route(capability=capability, min_context=min_context, exclude=exclude)
             if not model:
                 break
             chain.append(model)
@@ -439,9 +429,7 @@ class LLMGateway:
                     return result
                 except Exception as fb_exc:
                     self._record_failure(fallback.name, time.time() - fb_start)
-                    logger.warning(
-                        "Fallback model %s also failed: %s", fallback.name, fb_exc
-                    )
+                    logger.warning("Fallback model %s also failed: %s", fallback.name, fb_exc)
 
             if self._default_client:
                 logger.info("All models failed, falling back to default client")
@@ -498,9 +486,7 @@ class LLMGateway:
                     return result
                 except Exception as fb_exc:
                     self._record_failure(fallback.name, time.time() - fb_start)
-                    logger.warning(
-                        "Fallback model %s also failed: %s", fallback.name, fb_exc
-                    )
+                    logger.warning("Fallback model %s also failed: %s", fallback.name, fb_exc)
             return {"error": str(exc), "model": target.name}
 
     def embed(self, text: str, model: str = "") -> list[float]:
@@ -540,9 +526,7 @@ class LLMGateway:
 
         if self._default_client:
             try:
-                results = await self._default_client.embeddings(
-                    model=target_name, input=text
-                )
+                results = await self._default_client.embeddings(model=target_name, input=text)
                 if results and results[0]:
                     logger.info("Real embedding returned, dims=%d", len(results[0]))
                     return results[0]
@@ -586,12 +570,9 @@ class LLMGateway:
         """
         if not model_id:
             return False
-        if not self._default_client or not hasattr(
-            self._default_client, "unload_model"
-        ):
+        if not self._default_client or not hasattr(self._default_client, "unload_model"):
             logger.debug(
-                "unload_model skipped: no default client with unload_model, "
-                "model=%s",
+                "unload_model skipped: no default client with unload_model, model=%s",
                 model_id,
             )
             return False
@@ -672,9 +653,7 @@ class LLMGateway:
             async for chunk in stream_iter:
                 elapsed = asyncio.get_event_loop().time() - start
                 if elapsed > timeout:
-                    logger.warning(
-                        "chat_stream exceeded timeout %.0fs, aborting", timeout
-                    )
+                    logger.warning("chat_stream exceeded timeout %.0fs, aborting", timeout)
                     yield {
                         "delta_content": "",
                         "delta_tool_calls": [],
@@ -696,9 +675,7 @@ class LLMGateway:
                 "error": str(exc),
             }
 
-    def _resolve_target(
-        self, model: str = "", capability: str = ""
-    ) -> ModelConfig | None:
+    def _resolve_target(self, model: str = "", capability: str = "") -> ModelConfig | None:
         """Resolve which model config to use for a request."""
         if model and model in self._models:
             config = self._models[model]
@@ -718,18 +695,19 @@ class LLMGateway:
         """Call a model via HTTP — async version returning GatewayResponse."""
         logger.info("Calling model %s at %s", config.name, config.base_url)
 
+        # C1: tool_choice 从 kwargs 提取, 显式转发到 client.chat (client 无显式形参,
+        # 走 payload.update(kwargs) 兜底)。
+        tool_choice = kwargs.pop("tool_choice", None)
+
         if self._default_client and config.provider == "local":
             try:
                 resp = await self._default_client.chat(
                     model=config.name,
                     messages=messages,
                     tools=tools,
-                    temperature=temperature
-                    if temperature is not None
-                    else config.temperature,
-                    max_tokens=max_tokens
-                    if max_tokens is not None
-                    else config.max_tokens,
+                    temperature=temperature if temperature is not None else config.temperature,
+                    max_tokens=max_tokens if max_tokens is not None else config.max_tokens,
+                    tool_choice=tool_choice,
                 )
                 return GatewayResponse(
                     content=resp.content,
@@ -739,9 +717,7 @@ class LLMGateway:
                     model=config.name,
                 )
             except Exception as exc:
-                logger.warning(
-                    "Default client call failed for %s: %s", config.name, exc
-                )
+                logger.warning("Default client call failed for %s: %s", config.name, exc)
                 # issue #170: gateway client 失败 (502/路由 cloud 错) 时,
                 # 直连 fusion-mlx 11434 兜底, 不再空输出.
                 if self._mlx_direct_client is not None:
@@ -753,9 +729,8 @@ class LLMGateway:
                             temperature=temperature
                             if temperature is not None
                             else config.temperature,
-                            max_tokens=max_tokens
-                            if max_tokens is not None
-                            else config.max_tokens,
+                            max_tokens=max_tokens if max_tokens is not None else config.max_tokens,
+                            tool_choice=tool_choice,
                         )
                         logger.info(
                             "MLX direct fallback ok for %s (gateway had failed)",
@@ -780,17 +755,14 @@ class LLMGateway:
         try:
             from server.fusion_mlx_client import FusionMLXClient
 
-            client = FusionMLXClient(
-                base_url=config.base_url, api_key=config.api_key or None
-            )
+            client = FusionMLXClient(base_url=config.base_url, api_key=config.api_key or None)
             response = await client.chat(
                 messages=messages,
                 model=config.name,
                 tools=tools,
                 max_tokens=max_tokens if max_tokens is not None else config.max_tokens,
-                temperature=temperature
-                if temperature is not None
-                else config.temperature,
+                temperature=temperature if temperature is not None else config.temperature,
+                tool_choice=tool_choice,
             )
             return GatewayResponse(
                 content=response.content,
@@ -823,6 +795,8 @@ class LLMGateway:
                 finish_reason="error",
                 usage={"error": "No default client"},
             )
+        # C1: tool_choice 提取转发。
+        tool_choice = kwargs.pop("tool_choice", None)
         try:
             resolved_model = self._default_model if model in ("", "default") else model
             resp = await self._default_client.chat(
@@ -831,6 +805,7 @@ class LLMGateway:
                 tools=tools,
                 temperature=temperature if temperature is not None else 0.7,
                 max_tokens=max_tokens if max_tokens is not None else 4096,
+                tool_choice=tool_choice,
             )
             return GatewayResponse(
                 content=resp.content,
@@ -859,9 +834,7 @@ class LLMGateway:
         try:
             from server.fusion_mlx_client import FusionMLXClient
 
-            client = FusionMLXClient(
-                base_url=config.base_url, api_key=config.api_key or None
-            )
+            client = FusionMLXClient(base_url=config.base_url, api_key=config.api_key or None)
             response = client.chat(
                 messages=messages,
                 model=config.name,

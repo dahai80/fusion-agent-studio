@@ -255,6 +255,10 @@ python my_agent.py
 - ✅ **Planner node in-graph block** — a `planner` node with `tool_params={"await_approval": True}` blocks execution via an `asyncio.Future` keyed by `plan_id`, emitting `PLAN_APPROVAL` events (`pending_approval` → `approved`/`rejected`). RPC `planner.approve_plan` / `planner.reject_plan` resolve the in-graph future in addition to the `PlannerEngine` status flag (solves the two-`PlannerEngine`-instance problem — dispatcher's vs node's).
 - Events: `PLAN_MODE_EXIT`, `PLAN_APPROVAL`. Tool count: 37.
 
+### Parallel Tool Calls + tool_choice (C1)
+- ✅ **`tool_choice` passthrough (end-to-end)** — `NodeConfig.tool_choice` (string, empty = omitted) accepts OpenAI values: `"auto"` | `"none"` | `"required"` | a JSON-encoded `{"type":"function","function":{"name":"…"}}`. The runtime threads it through all 3 LLM call sites (stream, non-stream, self-repair retry) → `LLMGateway.chat`/`chat_stream` (`**kwargs`) → `_call_model_async`/`_call_default_client` → `FusionMLXClient.chat`/`chat_stream` → HTTP payload (`payload.update(kwargs)`). Verified the value lands in the POST body.
+- ✅ **`parallel_tool_calls` (asyncio.gather)** — `NodeConfig.parallel_tool_calls: bool` (default `False`, zero behavior change). When `True` and `plan_mode` is off and **no control-flow tool** is present, the LLM's batch of tool calls executes concurrently via `asyncio.gather` (results yielded in input order — deterministic). Control-flow tools (`__sub_graph__`, `register_tool`, `unregister_tool`, `exit_plan_mode`) and `plan_mode`-active runs fall back to the existing sequential loop (sequential side-effects + gating required). Default `False` → no regression.
+
 ### Integration
 - ✅ **fusion-mlx** — Apple Silicon optimized model serving
 - ✅ **OpenAI-compatible API** — Works with any OpenAI-compatible backend

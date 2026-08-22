@@ -54,6 +54,10 @@ class NodeConfig:
     disable_tools: bool = False
     # Effort level for reasoning models
     effort: str = ""
+    # C1: tool_choice — OpenAI值 "auto"|"none"|"required" 或 dict {"type":"function","function":{"name":...}}。空=不传。
+    tool_choice: str = ""
+    # C1: parallel_tool_calls — True时多工具 asyncio.gather 并发 (控制流工具仍顺序)。
+    parallel_tool_calls: bool = False
     # Agent loop: ""=off (graph-reentry), "agent"=内生多轮工具回灌
     loop_mode: str = ""
     max_loop_iterations: int = 0
@@ -78,6 +82,8 @@ class NodeConfig:
             "allow_dynamic_tools": self.allow_dynamic_tools,
             "disable_tools": self.disable_tools,
             "effort": self.effort,
+            "tool_choice": self.tool_choice,
+            "parallel_tool_calls": self.parallel_tool_calls,
             "loop_mode": self.loop_mode,
             "max_loop_iterations": self.max_loop_iterations,
             "stop_sequences": self.stop_sequences,
@@ -180,7 +186,9 @@ class AgentGraph:
         logger.warning(
             "No matching edge label for condition_result=%r from node %s, "
             "falling back to first edge %s",
-            condition_result, current_id, edges[0].target_id,
+            condition_result,
+            current_id,
+            edges[0].target_id,
         )
         return edges[0].target_id
 

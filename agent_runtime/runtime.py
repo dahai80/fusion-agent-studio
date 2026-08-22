@@ -134,9 +134,7 @@ class ConditionEngine:
 
         return "false"
 
-    def _resolve_value(
-        self, name: str, ctx: AgentContext, variables: VariableManager
-    ) -> Any:
+    def _resolve_value(self, name: str, ctx: AgentContext, variables: VariableManager) -> Any:
         if name == "iteration":
             return ctx.iteration_count
         if name == "token_count":
@@ -351,7 +349,10 @@ class AgentRuntime:
         )
         logger.debug(
             "trajectory trace=%s session=%s graph=%s stream=%s",
-            trace_id, ctx.session_id, graph.name, stream,
+            trace_id,
+            ctx.session_id,
+            graph.name,
+            stream,
         )
         status = "completed"
         try:
@@ -362,9 +363,7 @@ class AgentRuntime:
                 if event.type == AgentEventType.ERROR:
                     status = "error"
                 if event.type == AgentEventType.START:
-                    writer.record_iteration(
-                        ctx.session_id, getattr(ctx, "iteration_count", 0)
-                    )
+                    writer.record_iteration(ctx.session_id, getattr(ctx, "iteration_count", 0))
                 yield event
         except Exception:
             status = "error"
@@ -430,9 +429,7 @@ class AgentRuntime:
         )
 
         if self.memory_engine and initial_input:
-            mem_ctx = await asyncio.to_thread(
-                self.memory_engine.recall_relevant, initial_input, 5
-            )
+            mem_ctx = await asyncio.to_thread(self.memory_engine.recall_relevant, initial_input, 5)
             if mem_ctx:
                 ctx.add_message("system", f"[Relevant memory]: {mem_ctx}")
                 logger.info("Auto-loaded memory for input")
@@ -469,9 +466,7 @@ class AgentRuntime:
             ctx.current_node_id = current_node_id
 
             if self.debugger:
-                await self.debugger.check_pause(
-                    current_node_id, self.variables.to_dict()
-                )
+                await self.debugger.check_pause(current_node_id, self.variables.to_dict())
 
             if node.type == "start":
                 next_id = graph.get_next_node(current_node_id)
@@ -497,8 +492,7 @@ class AgentRuntime:
                     # Proactive context pruning at 70% budget
                     if (
                         token_budget.max_tokens > 0
-                        and token_budget.spent_tokens
-                        >= int(token_budget.max_tokens * 0.7)
+                        and token_budget.spent_tokens >= int(token_budget.max_tokens * 0.7)
                         and self.compactor
                     ):
                         if not getattr(ctx, "_pruning_done", False):
@@ -506,10 +500,8 @@ class AgentRuntime:
                             artifact_tokens = 0
                             if self.artifact_manager:
                                 try:
-                                    budget_info = (
-                                        self.artifact_manager.get_context_budget(
-                                            agent_id=getattr(ctx, "agent_id", "")
-                                        )
+                                    budget_info = self.artifact_manager.get_context_budget(
+                                        agent_id=getattr(ctx, "agent_id", "")
                                     )
                                     artifact_tokens = budget_info.get("total_tokens", 0)
                                 except (ValueError, TypeError, RuntimeError, OSError):
@@ -578,9 +570,7 @@ class AgentRuntime:
                                         "level": level,
                                     },
                                 )
-                                ctx.messages = self.compactor.compact(
-                                    ctx.messages, level
-                                )
+                                ctx.messages = self.compactor.compact(ctx.messages, level)
                                 logger.info(
                                     "compaction applied level=%s before=%d after=%d node=%s",
                                     level,
@@ -659,8 +649,7 @@ class AgentRuntime:
                 event = self._execute_condition_node(ctx, node)
                 yield event
                 current_node_id = (
-                    graph.get_next_node(current_node_id, condition_result=event.content)
-                    or ""
+                    graph.get_next_node(current_node_id, condition_result=event.content) or ""
                 )
 
             elif node.type == "loop":
@@ -723,9 +712,7 @@ class AgentRuntime:
                     current_node_id = ""
 
             elif node.type == "end":
-                yield AgentEvent(
-                    type=AgentEventType.END, content="Graph execution complete"
-                )
+                yield AgentEvent(type=AgentEventType.END, content="Graph execution complete")
                 ctx.finished_at = time.time()
                 await self._auto_store_memory(ctx, graph)
                 # Issue #175: lifecycle hook — session end (clean completion).
@@ -752,11 +739,11 @@ class AgentRuntime:
     @staticmethod
     def _detect_unclosed_artifacts(content: str) -> list[str]:
         opens = re.findall(r'<artifact[^>]*\bid=["\']([^"\']+)["\']', content)
-        closes = re.findall(r'</artifact>', content)
+        closes = re.findall(r"</artifact>", content)
         if len(opens) > len(closes):
-            return opens[len(closes):]
-        tag_opens = len(re.findall(r'<artifact-ref[^>]*>', content))
-        tag_closes = len(re.findall(r'</artifact-ref>', content))
+            return opens[len(closes) :]
+        tag_opens = len(re.findall(r"<artifact-ref[^>]*>", content))
+        tag_closes = len(re.findall(r"</artifact-ref>", content))
         if tag_opens > tag_closes:
             return re.findall(r'<artifact-ref[^>]*\bid=["\']([^"\']+)["\']', content)[tag_closes:]
         return []
@@ -788,9 +775,7 @@ class AgentRuntime:
                     "tool_call_chain_count": self._tool_call_chain_count,
                 },
             )
-            logger.debug(
-                "Checkpoint saved: graph=%s node=%s", graph.name, ctx.current_node_id
-            )
+            logger.debug("Checkpoint saved: graph=%s node=%s", graph.name, ctx.current_node_id)
         except Exception as e:
             logger.warning("Checkpoint save failed: %s", e)
 
@@ -808,9 +793,7 @@ class AgentRuntime:
             )
             return
 
-        checkpoint = self.store.load_latest_checkpoint(
-            graph_id=graph.name, session_id=session_id
-        )
+        checkpoint = self.store.load_latest_checkpoint(graph_id=graph.name, session_id=session_id)
         if not checkpoint:
             yield AgentEvent(
                 type=AgentEventType.ERROR,
@@ -881,9 +864,7 @@ class AgentRuntime:
             template_name = self._extract_template_name(node_prompt)
             if template_name:
                 try:
-                    node_prompt = self.templates.render(
-                        template_name, **self.variables.to_dict()
-                    )
+                    node_prompt = self.templates.render(template_name, **self.variables.to_dict())
                 except KeyError:
                     pass
             node_prompt = self.variables.interpolate(node_prompt)
@@ -893,9 +874,7 @@ class AgentRuntime:
             # WF-1: anti-forgetting turn counter
             ctx.artifact_turn_count += 1
             if ctx.artifact_turn_count % 5 == 0 and ctx.artifact_turn_count > 0:
-                summary = self.artifact_manager.get_active_artifacts_context(
-                    ctx.agent_id, limit=10
-                )
+                summary = self.artifact_manager.get_active_artifacts_context(ctx.agent_id, limit=10)
                 if summary:
                     ctx.add_message(
                         "system",
@@ -908,11 +887,9 @@ class AgentRuntime:
                     )
 
             context_window = getattr(self, "_context_window_override", 32768)
-            artifact_result = (
-                self.artifact_manager.get_active_artifacts_context_budget_aware(
-                    ctx.agent_id,
-                    context_window=context_window,
-                )
+            artifact_result = self.artifact_manager.get_active_artifacts_context_budget_aware(
+                ctx.agent_id,
+                context_window=context_window,
             )
             artifact_ctx = artifact_result.get("context_text", "")
             if artifact_ctx:
@@ -933,6 +910,7 @@ class AgentRuntime:
             if artifact_mode != "none":
                 try:
                     from .artifact_tools import ARTIFACT_SYSTEM_PROMPT
+
                     artifact_count = artifact_result.get("artifact_count", 0)
                     rendered = self.templates.render(
                         "artifact-long-text",
@@ -946,7 +924,8 @@ class AgentRuntime:
                         messages.insert(0, {"role": "system", "content": rendered})
                     logger.info(
                         "AS-8 artifact-aware prompt injected: artifacts=%d mode=%s",
-                        artifact_count, artifact_mode,
+                        artifact_count,
+                        artifact_mode,
                     )
                 except (KeyError, ValueError) as e:
                     logger.warning("artifact-long-text template render failed: %s", e)
@@ -980,9 +959,7 @@ class AgentRuntime:
                         metadata={
                             "artifact_mode": artifact_mode,
                             "compact_level": compact_level,
-                            "artifact_utilization": artifact_result.get(
-                                "utilization", 0.0
-                            ),
+                            "artifact_utilization": artifact_result.get("utilization", 0.0),
                         },
                     )
 
@@ -998,9 +975,7 @@ class AgentRuntime:
             if messages and messages[0].get("role") == "system":
                 messages[0]["content"] += artifact_system_suffix
             else:
-                messages.insert(
-                    0, {"role": "system", "content": artifact_system_suffix.strip()}
-                )
+                messages.insert(0, {"role": "system", "content": artifact_system_suffix.strip()})
 
         messages.extend(ctx.messages)
 
@@ -1012,9 +987,7 @@ class AgentRuntime:
                 if messages and messages[0].get("role") == "system":
                     messages[0]["content"] += "\n\n" + schema_instruction
                 else:
-                    messages.insert(
-                        0, {"role": "system", "content": schema_instruction}
-                    )
+                    messages.insert(0, {"role": "system", "content": schema_instruction})
 
         if self.safety_gateway:
             safety_result = self.safety_gateway.evaluate_action(
@@ -1022,10 +995,7 @@ class AgentRuntime:
                 content=str(messages[-1]) if messages else "",
                 context=f"model={model} node={node.label}",
             )
-            if (
-                safety_result.action.value == "block"
-                and not safety_result.requires_approval
-            ):
+            if safety_result.action.value == "block" and not safety_result.requires_approval:
                 ctx.error = f"SafetyGateway blocked LLM call: {safety_result.reason}"
                 yield AgentEvent(
                     type=AgentEventType.SAFETY_APPROVAL,
@@ -1067,6 +1037,7 @@ class AgentRuntime:
                     max_tokens=node.max_tokens,
                     temperature=node.temperature,
                     effort=effort or None,
+                    tool_choice=node.tool_choice or None,
                 ):
                     delta_content = chunk.get("delta_content", "")
                     delta_tool_calls = chunk.get("delta_tool_calls")
@@ -1105,9 +1076,7 @@ class AgentRuntime:
                             resp_model = chunk["model"]
 
                 content = "".join(content_parts)
-                tool_calls = (
-                    list(current_tool_calls.values()) if current_tool_calls else []
-                )
+                tool_calls = list(current_tool_calls.values()) if current_tool_calls else []
                 for tc in tool_calls:
                     args_str = tc.get("function", {}).get("arguments", "")
                     if args_str:
@@ -1154,6 +1123,7 @@ class AgentRuntime:
                         max_tokens=node.max_tokens,
                         temperature=node.temperature,
                         effort=effort or None,
+                        tool_choice=node.tool_choice or None,
                     ),
                     timeout=120.0,
                 )
@@ -1176,13 +1146,9 @@ class AgentRuntime:
                     content = json.dumps(extracted, ensure_ascii=False)
                     self.variables.set("structured_output", extracted)
                 else:
-                    logger.warning(
-                        "Structured output schema validation failed: %s", errors
-                    )
+                    logger.warning("Structured output schema validation failed: %s", errors)
             else:
-                logger.warning(
-                    "Structured output: could not extract JSON from LLM response"
-                )
+                logger.warning("Structured output: could not extract JSON from LLM response")
 
         ctx.add_message("assistant", content, tool_calls=tool_calls or None)
 
@@ -1199,7 +1165,8 @@ class AgentRuntime:
                     )
                 logger.warning(
                     "WF-2 truncation detected: unclosed_artifacts=%s breakpoint='%s'",
-                    unclosed, bp[:80],
+                    unclosed,
+                    bp[:80],
                 )
 
         if usage.get("prompt_tokens") or usage.get("completion_tokens"):
@@ -1228,151 +1195,204 @@ class AgentRuntime:
 
             tool_errors: list[str] = []
 
-            for tc in tool_calls:
-                try:
-                    func_name = tc["function"]["name"]
-                    func_args = json.loads(tc["function"]["arguments"])
-                except (KeyError, json.JSONDecodeError) as e:
-                    ctx.error = f"Invalid tool call: {e}"
-                    yield AgentEvent(type=AgentEventType.ERROR, content=str(e))
-                    return
+            # C1 parallel_tool_calls: 预解析 + 控制流工具检测。
+            # 并行仅当 parallel_tool_calls=True 且 plan_mode 关 (敏感门禁需顺序)
+            # 且无控制流工具 (__sub_graph__/register_tool/unregister_tool/exit_plan_mode)。
+            # 混合或门禁态 -> 回退现有顺序循环 (向后兼容, 零风险)。
+            _control_flow_tools = {
+                "__sub_graph__",
+                "register_tool",
+                "unregister_tool",
+                "exit_plan_mode",
+            }
+            can_parallel = bool(node.parallel_tool_calls) and not self.plan_mode
+            parsed_calls: list[tuple[str, dict, str]] = []
+            if can_parallel:
+                for tc in tool_calls:
+                    try:
+                        fn = tc["function"]["name"]
+                        fa = json.loads(tc["function"]["arguments"])
+                    except (KeyError, json.JSONDecodeError) as e:
+                        ctx.error = f"Invalid tool call: {e}"
+                        yield AgentEvent(type=AgentEventType.ERROR, content=str(e))
+                        return
+                    if fn in _control_flow_tools:
+                        can_parallel = False
+                        break
+                    parsed_calls.append((fn, fa, tc.get("id", "")))
 
-                # C6 plan-as-mode: gate write tools during read-only explore.
-                # exit_plan_mode is the transition primitive (handled below).
-                if (
-                    self.plan_mode
-                    and func_name != "exit_plan_mode"
-                    and func_name not in self._plan_readonly_tools
-                ):
-                    result = (
-                        f"Blocked: plan_mode is active (read-only explore). "
-                        f"Tool '{func_name}' writes state. Present your plan, "
-                        f"then call exit_plan_mode to transition to execution."
-                    )
-                    logger.info(
-                        "plan_mode blocked write tool=%s node=%s",
-                        func_name, node.label,
-                    )
-                    ctx.add_message("tool", result, tool_call_id=tc.get("id", ""))
+            if can_parallel and parsed_calls:
+                # 并行路径: 先发所有 TOOL_CALL, gather 执行, 按输入序发 TOOL_RESULT。
+                for fn, fa, _tcid in parsed_calls:
                     yield AgentEvent(
-                        type=AgentEventType.TOOL_RESULT,
-                        content=result,
-                        name=func_name,
-                        node_id=node.label,
-                        metadata={"plan_mode_blocked": True},
-                    )
-                    continue
-
-                if func_name == "__sub_graph__":
-                    async for event in self._execute_sub_graph(ctx, func_args, node):
-                        yield event
-                    continue
-
-                if func_name == "register_tool":
-                    result = self._dynamic_register_tool(func_args)
-                    ctx.add_message("tool", result, tool_call_id=tc.get("id", ""))
-                    yield AgentEvent(
-                        type=AgentEventType.TOOL_RESULT,
-                        content=result,
-                        name=func_name,
+                        type=AgentEventType.TOOL_CALL,
+                        name=fn,
+                        args=fa,
                         node_id=node.label,
                     )
-                    continue
-
-                if func_name == "unregister_tool":
-                    result = self._dynamic_unregister_tool(func_args)
-                    ctx.add_message("tool", result, tool_call_id=tc.get("id", ""))
-                    yield AgentEvent(
-                        type=AgentEventType.TOOL_RESULT,
-                        content=result,
-                        name=func_name,
-                        node_id=node.label,
-                    )
-                    continue
-
-                yield AgentEvent(
-                    type=AgentEventType.TOOL_CALL,
-                    name=func_name,
-                    args=func_args,
-                    node_id=node.label,
+                results = await asyncio.gather(
+                    *(self._exec_parallel_tool(node, fn, fa) for fn, fa, _tcid in parsed_calls)
                 )
-
-                pre = await self._fire_tool_hooks("PRE_TOOL_USE", func_name, func_args)
-                if pre is not None and pre.decision == "block":
-                    result = f"Blocked by hook: {pre.reason or 'pre_tool_use'}"
-                    logger.info(
-                        "tool blocked by hook tool=%s reason=%s", func_name, pre.reason
-                    )
-                    ctx.add_message("tool", result, tool_call_id=tc.get("id", ""))
+                for (fn, fa, tcid), res in zip(parsed_calls, results):
+                    result_str, is_error = res
+                    ctx.add_message("tool", result_str, tool_call_id=tcid)
+                    ctx.messages[-1]["_node_id"] = node.label
+                    post_event = "POST_TOOL_USE_FAILURE" if is_error else "POST_TOOL_USE"
+                    await self._fire_tool_hooks(post_event, fn, fa, result_str)
                     yield AgentEvent(
                         type=AgentEventType.TOOL_RESULT,
-                        content=result,
-                        name=func_name,
+                        content=result_str,
+                        name=fn,
                         node_id=node.label,
                     )
-                    continue
+                    if is_error:
+                        tool_errors.append(f"{fn}: {result_str}")
+            else:
+                for tc in tool_calls:
+                    try:
+                        func_name = tc["function"]["name"]
+                        func_args = json.loads(tc["function"]["arguments"])
+                    except (KeyError, json.JSONDecodeError) as e:
+                        ctx.error = f"Invalid tool call: {e}"
+                        yield AgentEvent(type=AgentEventType.ERROR, content=str(e))
+                        return
 
-                try:
-                    tool = self.tools.get(func_name)
-                    if tool is None:
-                        raise KeyError(func_name)
-                    validated_args = self._validate_tool_args(tool, func_args)
-                    validated_args = self._merge_tool_config_defaults(
-                        func_name, validated_args
-                    )
-                    result = await tool.execute(**validated_args)
-                except KeyError:
-                    result = f"Error: Tool '{func_name}' not found"
-                except Exception as e:
-                    result = f"Error: {e}"
+                    # C6 plan-as-mode: gate write tools during read-only explore.
+                    # exit_plan_mode is the transition primitive (handled below).
+                    if (
+                        self.plan_mode
+                        and func_name != "exit_plan_mode"
+                        and func_name not in self._plan_readonly_tools
+                    ):
+                        result = (
+                            f"Blocked: plan_mode is active (read-only explore). "
+                            f"Tool '{func_name}' writes state. Present your plan, "
+                            f"then call exit_plan_mode to transition to execution."
+                        )
+                        logger.info(
+                            "plan_mode blocked write tool=%s node=%s",
+                            func_name,
+                            node.label,
+                        )
+                        ctx.add_message("tool", result, tool_call_id=tc.get("id", ""))
+                        yield AgentEvent(
+                            type=AgentEventType.TOOL_RESULT,
+                            content=result,
+                            name=func_name,
+                            node_id=node.label,
+                            metadata={"plan_mode_blocked": True},
+                        )
+                        continue
 
-                # C6: detect exit_plan_mode sentinel -> flip plan_mode off.
-                # The tool returns the sentinel prefix + plan content; we strip
-                # the sentinel so the stored message is the clean plan text.
-                if (
-                    func_name == "exit_plan_mode"
-                    and isinstance(result, str)
-                    and result.startswith(EXIT_PLAN_MODE_SENTINEL)
-                ):
-                    plan_text = result[len(EXIT_PLAN_MODE_SENTINEL):]
-                    self.plan_mode = False
-                    result = f"Plan approved. Transitioning to execution.\n{plan_text}"
-                    logger.info(
-                        "exit_plan_mode: plan_mode->False node=%s plan_len=%d",
-                        node.label, len(plan_text),
+                    if func_name == "__sub_graph__":
+                        async for event in self._execute_sub_graph(ctx, func_args, node):
+                            yield event
+                        continue
+
+                    if func_name == "register_tool":
+                        result = self._dynamic_register_tool(func_args)
+                        ctx.add_message("tool", result, tool_call_id=tc.get("id", ""))
+                        yield AgentEvent(
+                            type=AgentEventType.TOOL_RESULT,
+                            content=result,
+                            name=func_name,
+                            node_id=node.label,
+                        )
+                        continue
+
+                    if func_name == "unregister_tool":
+                        result = self._dynamic_unregister_tool(func_args)
+                        ctx.add_message("tool", result, tool_call_id=tc.get("id", ""))
+                        yield AgentEvent(
+                            type=AgentEventType.TOOL_RESULT,
+                            content=result,
+                            name=func_name,
+                            node_id=node.label,
+                        )
+                        continue
+
+                    yield AgentEvent(
+                        type=AgentEventType.TOOL_CALL,
+                        name=func_name,
+                        args=func_args,
+                        node_id=node.label,
                     )
+
+                    pre = await self._fire_tool_hooks("PRE_TOOL_USE", func_name, func_args)
+                    if pre is not None and pre.decision == "block":
+                        result = f"Blocked by hook: {pre.reason or 'pre_tool_use'}"
+                        logger.info(
+                            "tool blocked by hook tool=%s reason=%s",
+                            func_name,
+                            pre.reason,
+                        )
+                        ctx.add_message("tool", result, tool_call_id=tc.get("id", ""))
+                        yield AgentEvent(
+                            type=AgentEventType.TOOL_RESULT,
+                            content=result,
+                            name=func_name,
+                            node_id=node.label,
+                        )
+                        continue
+
+                    try:
+                        tool = self.tools.get(func_name)
+                        if tool is None:
+                            raise KeyError(func_name)
+                        validated_args = self._validate_tool_args(tool, func_args)
+                        validated_args = self._merge_tool_config_defaults(func_name, validated_args)
+                        result = await tool.execute(**validated_args)
+                    except KeyError:
+                        result = f"Error: Tool '{func_name}' not found"
+                    except Exception as e:
+                        result = f"Error: {e}"
+
+                    # C6: detect exit_plan_mode sentinel -> flip plan_mode off.
+                    # The tool returns the sentinel prefix + plan content; we strip
+                    # the sentinel so the stored message is the clean plan text.
+                    if (
+                        func_name == "exit_plan_mode"
+                        and isinstance(result, str)
+                        and result.startswith(EXIT_PLAN_MODE_SENTINEL)
+                    ):
+                        plan_text = result[len(EXIT_PLAN_MODE_SENTINEL) :]
+                        self.plan_mode = False
+                        result = f"Plan approved. Transitioning to execution.\n{plan_text}"
+                        logger.info(
+                            "exit_plan_mode: plan_mode->False node=%s plan_len=%d",
+                            node.label,
+                            len(plan_text),
+                        )
+                        ctx.add_message("tool", result, tool_call_id=tc.get("id", ""))
+                        ctx.messages[-1]["_node_id"] = node.label
+                        yield AgentEvent(
+                            type=AgentEventType.PLAN_MODE_EXIT,
+                            content=plan_text,
+                            name="exit_plan_mode",
+                            node_id=node.label,
+                            metadata={"plan_mode": False},
+                        )
+                        continue
+
                     ctx.add_message("tool", result, tool_call_id=tc.get("id", ""))
                     ctx.messages[-1]["_node_id"] = node.label
-                    yield AgentEvent(
-                        type=AgentEventType.PLAN_MODE_EXIT,
-                        content=plan_text,
-                        name="exit_plan_mode",
-                        node_id=node.label,
-                        metadata={"plan_mode": False},
+
+                    post_event = (
+                        "POST_TOOL_USE_FAILURE"
+                        if str(result).startswith("Error:")
+                        else "POST_TOOL_USE"
                     )
-                    continue
+                    await self._fire_tool_hooks(post_event, func_name, func_args, str(result))
 
-                ctx.add_message("tool", result, tool_call_id=tc.get("id", ""))
-                ctx.messages[-1]["_node_id"] = node.label
+                    yield AgentEvent(
+                        type=AgentEventType.TOOL_RESULT,
+                        content=str(result),
+                        name=func_name,
+                        node_id=node.label,
+                    )
 
-                post_event = (
-                    "POST_TOOL_USE_FAILURE"
-                    if str(result).startswith("Error:")
-                    else "POST_TOOL_USE"
-                )
-                await self._fire_tool_hooks(
-                    post_event, func_name, func_args, str(result)
-                )
-
-                yield AgentEvent(
-                    type=AgentEventType.TOOL_RESULT,
-                    content=str(result),
-                    name=func_name,
-                    node_id=node.label,
-                )
-
-                if str(result).startswith("Error:"):
-                    tool_errors.append(f"{func_name}: {result}")
+                    if str(result).startswith("Error:"):
+                        tool_errors.append(f"{func_name}: {result}")
 
             if tool_errors and node.retry_on_error and node.max_retries > 0:
                 max_retries = min(node.max_retries, 5)
@@ -1400,14 +1420,14 @@ class AgentRuntime:
                     try:
                         gw_resp = await asyncio.wait_for(
                             self.llm_gateway.chat(
-                                messages=messages
-                                + ctx.messages[-_MAX_RETRY_CONTEXT_MESSAGES:],
+                                messages=messages + ctx.messages[-_MAX_RETRY_CONTEXT_MESSAGES:],
                                 model=model,
                                 capability=node.tool_params.get("capability", ""),
                                 tools=tools_schema if tools_schema else None,
                                 max_tokens=node.max_tokens,
                                 temperature=node.temperature,
                                 effort=node.effort or None,
+                                tool_choice=node.tool_choice or None,
                             ),
                             timeout=120.0,
                         )
@@ -1421,9 +1441,7 @@ class AgentRuntime:
 
                     retry_content = gw_resp.content
                     retry_tool_calls = gw_resp.tool_calls or []
-                    ctx.add_message(
-                        "assistant", retry_content, tool_calls=retry_tool_calls or None
-                    )
+                    ctx.add_message("assistant", retry_content, tool_calls=retry_tool_calls or None)
 
                     if not retry_tool_calls:
                         yield AgentEvent(
@@ -1475,6 +1493,33 @@ class AgentRuntime:
                         )
                         break
 
+    async def _exec_parallel_tool(
+        self, node: NodeConfig, func_name: str, func_args: dict
+    ) -> tuple[str, bool]:
+        # C1 并行工具执行: 验参 + 配置默认 + execute, 返回 (result_str, is_error)。
+        # pre_tool_use hook 在并行路径不阻 (hook 需顺序副作用); 控制流工具已排除。
+        try:
+            tool = self.tools.get(func_name)
+            if tool is None:
+                raise KeyError(func_name)
+            validated_args = self._validate_tool_args(tool, func_args)
+            validated_args = self._merge_tool_config_defaults(func_name, validated_args)
+            result = await tool.execute(**validated_args)
+        except KeyError:
+            result = f"Error: Tool '{func_name}' not found"
+        except Exception as e:
+            result = f"Error: {e}"
+        result_str = str(result)
+        is_error = result_str.startswith("Error:")
+        if is_error:
+            logger.warning(
+                "parallel tool error tool=%s node=%s err=%s",
+                func_name,
+                node.label,
+                result_str[:120],
+            )
+        return result_str, is_error
+
     async def _fire_tool_hooks(
         self, event: str, tool_name: str, args: dict, result: str | None = None
     ):
@@ -1486,9 +1531,7 @@ class AgentRuntime:
         try:
             return await self.hooks.fire(event, payload, tool_name=tool_name)
         except Exception as e:
-            logger.warning(
-                "hook fire error event=%s tool=%s err=%s", event, tool_name, e
-            )
+            logger.warning("hook fire error event=%s tool=%s err=%s", event, tool_name, e)
             return None
 
     def _validate_tool_args(self, tool: "BaseTool", args: dict) -> dict:
@@ -1510,9 +1553,7 @@ class AgentRuntime:
                     validated[key] = float(value)
                 except (ValueError, TypeError):
                     validated[key] = value
-                    logger.warning(
-                        "Tool '%s': could not coerce arg '%s' to number", tool.name, key
-                    )
+                    logger.warning("Tool '%s': could not coerce arg '%s' to number", tool.name, key)
             elif expected_type == "integer" and not isinstance(value, int):
                 try:
                     validated[key] = int(value)
@@ -1529,15 +1570,10 @@ class AgentRuntime:
             else:
                 validated[key] = value
         for req_key in (
-            tool.openai_schema()
-            .get("function", {})
-            .get("parameters", {})
-            .get("required", [])
+            tool.openai_schema().get("function", {}).get("parameters", {}).get("required", [])
         ):
             if req_key not in validated:
-                logger.warning(
-                    "Tool '%s': missing required arg '%s'", tool.name, req_key
-                )
+                logger.warning("Tool '%s': missing required arg '%s'", tool.name, req_key)
         return validated
 
     @staticmethod
@@ -1845,7 +1881,8 @@ class AgentRuntime:
             )
             logger.info(
                 "plan_mode blocked tool-node tool=%s node=%s",
-                node.tool_name, node.label,
+                node.tool_name,
+                node.label,
             )
             yield AgentEvent(
                 type=AgentEventType.ERROR,
@@ -1861,10 +1898,7 @@ class AgentRuntime:
                 content=f"{node.tool_name}({params})",
                 context=f"tool={node.tool_name} node={node.label}",
             )
-            if (
-                safety_result.action.value == "block"
-                and not safety_result.requires_approval
-            ):
+            if safety_result.action.value == "block" and not safety_result.requires_approval:
                 ctx.error = f"SafetyGateway blocked tool call: {safety_result.reason}"
                 yield AgentEvent(
                     type=AgentEventType.SAFETY_APPROVAL,
@@ -1940,9 +1974,7 @@ class AgentRuntime:
             else:
                 self.variables.set(target_var, result)
 
-    def _execute_condition_node(
-        self, ctx: AgentContext, node: NodeConfig
-    ) -> AgentEvent:
+    def _execute_condition_node(self, ctx: AgentContext, node: NodeConfig) -> AgentEvent:
         """Evaluate a condition node using the condition engine."""
         expr = self.variables.interpolate(node.condition_expr)
         try:
@@ -2041,9 +2073,7 @@ class AgentRuntime:
 
             if not ctx.error:
                 break
-            logger.warning(
-                "Retry %d/%d still has error: %s", attempt, max_retries, ctx.error
-            )
+            logger.warning("Retry %d/%d still has error: %s", attempt, max_retries, ctx.error)
 
         yield AgentEvent(
             type=AgentEventType.TOOL_RESULT,
@@ -2063,17 +2093,13 @@ class AgentRuntime:
         output_mapping = params.get("output_mapping", {})
 
         if not graph_json:
-            yield AgentEvent(
-                type=AgentEventType.ERROR, content="Sub-graph: no graph_json provided"
-            )
+            yield AgentEvent(type=AgentEventType.ERROR, content="Sub-graph: no graph_json provided")
             return
 
         try:
             sub_graph = AgentGraph.from_json(graph_json)
         except Exception as e:
-            yield AgentEvent(
-                type=AgentEventType.ERROR, content=f"Sub-graph parse error: {e}"
-            )
+            yield AgentEvent(type=AgentEventType.ERROR, content=f"Sub-graph parse error: {e}")
             return
 
         sub_input = ""
@@ -2143,9 +2169,7 @@ class AgentRuntime:
         try:
             from .rag_pipeline import RAGConfig, RAGPipeline
         except ImportError:
-            yield AgentEvent(
-                type=AgentEventType.ERROR, content="RAG pipeline not available"
-            )
+            yield AgentEvent(type=AgentEventType.ERROR, content="RAG pipeline not available")
             return
 
         query = ""
@@ -2181,9 +2205,7 @@ class AgentRuntime:
         if hasattr(self, "_knowledge_engine") and self._knowledge_engine:
             knowledge_engine = self._knowledge_engine
 
-        pipeline = RAGPipeline(
-            knowledge_engine=knowledge_engine, gateway=self.llm_gateway
-        )
+        pipeline = RAGPipeline(knowledge_engine=knowledge_engine, gateway=self.llm_gateway)
 
         try:
             rag_result = pipeline.retrieve(query, config=rag_config)
@@ -2192,13 +2214,17 @@ class AgentRuntime:
             rag_result = None
 
         if rag_result and rag_result.context_text:
-            context_block = f"\n\n[Retrieved Context]\n{rag_result.context_text}\n[/Retrieved Context]\n\n"
+            context_block = (
+                f"\n\n[Retrieved Context]\n{rag_result.context_text}\n[/Retrieved Context]\n\n"
+            )
             node_prompt = node.system_prompt or system_prompt or ""
             if node_prompt:
                 node_prompt = self.variables.interpolate(node_prompt)
                 node_prompt += context_block
             else:
-                node_prompt = f"Use the following context to answer the user's question.{context_block}"
+                node_prompt = (
+                    f"Use the following context to answer the user's question.{context_block}"
+                )
 
             augmented_node = NodeConfig(
                 type="llm",
@@ -2252,9 +2278,7 @@ class AgentRuntime:
         try:
             from .planner import PlannerEngine
         except ImportError:
-            yield AgentEvent(
-                type=AgentEventType.ERROR, content="Planner engine not available"
-            )
+            yield AgentEvent(type=AgentEventType.ERROR, content="Planner engine not available")
             return
 
         task = ""
@@ -2322,7 +2346,9 @@ class AgentRuntime:
             self._plan_futures[plan.id] = future
             logger.info(
                 "planner node %s blocking for approval plan_id=%s timeout=%.0fs",
-                node.label, plan.id, timeout,
+                node.label,
+                plan.id,
+                timeout,
             )
             yield AgentEvent(
                 type=AgentEventType.PLAN_APPROVAL,
@@ -2383,9 +2409,7 @@ class AgentRuntime:
         try:
             from .verifier import VerificationEngine
         except ImportError:
-            yield AgentEvent(
-                type=AgentEventType.ERROR, content="Verification engine not available"
-            )
+            yield AgentEvent(type=AgentEventType.ERROR, content="Verification engine not available")
             return
 
         task = node.tool_params.get("task", "")
@@ -2438,9 +2462,7 @@ class AgentRuntime:
     async def _auto_store_memory(self, ctx: AgentContext, graph: AgentGraph) -> None:
         if not self.memory_engine:
             return
-        user_msgs = [
-            m.get("content", "") for m in ctx.messages if m.get("role") == "user"
-        ]
+        user_msgs = [m.get("content", "") for m in ctx.messages if m.get("role") == "user"]
         assistant_msgs = [
             m.get("content", "") for m in ctx.messages if m.get("role") == "assistant"
         ]
@@ -2464,11 +2486,7 @@ class AgentRuntime:
         logger.info("Auto-stored execution result to memory (scope=%s)", scope)
 
     def set_knowledge_engine(self, engine: Any) -> None:
-        if (
-            hasattr(engine, "embedding_fn")
-            and engine.embedding_fn is None
-            and self.llm_gateway
-        ):
+        if hasattr(engine, "embedding_fn") and engine.embedding_fn is None and self.llm_gateway:
             import asyncio
             import concurrent.futures
 
@@ -2476,9 +2494,7 @@ class AgentRuntime:
                 try:
                     asyncio.get_running_loop()
                     with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-                        return pool.submit(
-                            asyncio.run, self.llm_gateway.aembed(text)
-                        ).result()
+                        return pool.submit(asyncio.run, self.llm_gateway.aembed(text)).result()
                 except RuntimeError:
                     return asyncio.run(self.llm_gateway.aembed(text))
 
