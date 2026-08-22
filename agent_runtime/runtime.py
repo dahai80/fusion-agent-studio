@@ -212,6 +212,7 @@ class AgentRuntime:
         auto_checkpoint: bool = False,
         memory_engine: "MemoryEngine | None" = None,
         artifact_manager: Any = None,
+        telemetry_engine: Any = None,
     ):
         self.mlx = mlx_client
         self.tools = tool_registry
@@ -226,6 +227,9 @@ class AgentRuntime:
         self.auto_checkpoint = auto_checkpoint
         self.memory_engine = memory_engine
         self.artifact_manager = artifact_manager
+        # C13: 结构化遥测引擎 (span/counter/latency). 运行时插桩
+        # graph.execute/llm.call/tool.call span, end_span 增计数+延迟.
+        self.telemetry_engine = telemetry_engine
         self.compactor = None
         self.hooks = None
         self._tool_call_chain_count = 0
@@ -354,6 +358,17 @@ class AgentRuntime:
             graph.name,
             stream,
         )
+        # C13: 结构化遥测 — graph.execute span. trace_id 复用 trajectory 关联.
+        tele_span = None
+        if self.telemetry_engine is not None:
+            try:
+                tele_span = self.telemetry_engine.start_span(
+                    "graph.execute",
+                    trace_id=trace_id,
+                    attributes={"graph_name": graph.name, "stream": stream},
+                )
+            except Exception as e:
+                logger.warning("telemetry start_span graph.execute failed: %s", e)
         status = "completed"
         try:
             async for event in self._execute_graph_inner(
@@ -381,6 +396,11 @@ class AgentRuntime:
                 writer.flush(ctx_ref.session_id, status=status)
             except (OSError, ValueError, TypeError) as e:
                 logger.warning("trajectory flush failed: %s", e)
+            if tele_span is not None and self.telemetry_engine is not None:
+                try:
+                    self.telemetry_engine.end_span(tele_span.span_id, status=status)
+                except Exception as e:
+                    logger.warning("telemetry end_span graph.execute failed: %s", e)
 
     async def _execute_graph_inner(
         self,
@@ -1018,6 +1038,17 @@ class AgentRuntime:
         capability = node.tool_params.get("capability", "")
         effort = node.effort or ""
 
+        # C13: llm.call span — 跨流/非流路径, end 时带 prompt/completion_tokens.
+        llm_span = None
+        if self.telemetry_engine is not None:
+            try:
+                llm_span = self.telemetry_engine.start_span(
+                    "llm.call",
+                    attributes={"model": model, "node": node.label, "stream": stream},
+                )
+            except Exception as e:
+                logger.warning("telemetry start_span llm.call failed: %s", e)
+        llm_status = "ok"
         try:
             if stream:
                 content_parts: list[str] = []
@@ -1132,8 +1163,21 @@ class AgentRuntime:
                 resp_model = gw_resp.model or model
         except Exception as e:
             ctx.error = f"LLM call failed: {e}"
+            llm_status = "error"
             yield AgentEvent(type=AgentEventType.ERROR, content=str(e))
             return
+
+        # C13: end llm.call span — 计数+延迟+token 用量入属性.
+        if llm_span is not None and self.telemetry_engine is not None:
+            try:
+                if isinstance(usage, dict):
+                    llm_span.attributes["prompt_tokens"] = usage.get("prompt_tokens", 0)
+                    llm_span.attributes["completion_tokens"] = usage.get(
+                        "completion_tokens", 0
+                    )
+                self.telemetry_engine.end_span(llm_span.span_id, status=llm_status)
+            except Exception as e:
+                logger.warning("telemetry end_span llm.call failed: %s", e)
 
         if schema_validator and content:
             extracted = schema_validator.extract_from_text(content)
@@ -1332,17 +1376,43 @@ class AgentRuntime:
                         )
                         continue
 
+                    # C13: tool.call span — 计数+延迟. 在 try 之前初始化,
+                    # KeyError(tool 不存在)在 start_span 之前抛出时 except 仍安全.
+                    tool_span = None
                     try:
                         tool = self.tools.get(func_name)
                         if tool is None:
                             raise KeyError(func_name)
                         validated_args = self._validate_tool_args(tool, func_args)
                         validated_args = self._merge_tool_config_defaults(func_name, validated_args)
+                        if self.telemetry_engine is not None:
+                            try:
+                                tool_span = self.telemetry_engine.start_span(
+                                    "tool.call",
+                                    attributes={"tool": func_name, "node": node.label},
+                                )
+                            except Exception as e:
+                                logger.warning("telemetry start_span tool.call failed: %s", e)
                         result = await tool.execute(**validated_args)
+                        if tool_span is not None and self.telemetry_engine is not None:
+                            try:
+                                self.telemetry_engine.end_span(tool_span.span_id, status="ok")
+                            except Exception as e:
+                                logger.warning("telemetry end_span tool.call failed: %s", e)
                     except KeyError:
                         result = f"Error: Tool '{func_name}' not found"
+                        if tool_span is not None and self.telemetry_engine is not None:
+                            try:
+                                self.telemetry_engine.end_span(tool_span.span_id, status="error")
+                            except Exception as e:
+                                logger.warning("telemetry end_span tool.call failed: %s", e)
                     except Exception as e:
                         result = f"Error: {e}"
+                        if tool_span is not None and self.telemetry_engine is not None:
+                            try:
+                                self.telemetry_engine.end_span(tool_span.span_id, status="error")
+                            except Exception as e:
+                                logger.warning("telemetry end_span tool.call failed: %s", e)
 
                     # C6: detect exit_plan_mode sentinel -> flip plan_mode off.
                     # The tool returns the sentinel prefix + plan content; we strip

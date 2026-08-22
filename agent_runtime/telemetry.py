@@ -193,7 +193,7 @@ class TelemetryEngine:
         spans.sort(key=lambda s: s.get("start_time", 0), reverse=True)
         return spans[:limit]
 
-    def export(self, fmt: str = "json") -> str:
+    def export(self, fmt: str = "json", push: bool = False) -> str:
         if fmt == "json":
             data = {
                 "config": self.config.to_dict(),
@@ -218,9 +218,15 @@ class TelemetryEngine:
                         "scopeSpans": [{"spans": scope_spans}],
                     }
                 )
-            return json.dumps(
+            payload = json.dumps(
                 {"resourceSpans": resource_spans}, indent=2, ensure_ascii=False
             )
+            # C13: endpoint 非空时 HTTP POST resourceSpans 到 OTLP HTTP JSON
+            # receiver (标准 /v1/traces OTLP/HTTP). 无 opentelemetry-sdk 依赖,
+            # 兼容 Jaeger/Tempo/OTel-collector HTTP JSON 入口.
+            if push and self.config.endpoint:
+                self._push_otlp(payload)
+            return payload
         elif fmt == "console":
             lines = ["=== Telemetry Export ==="]
             for span in self._spans.values():
@@ -233,6 +239,32 @@ class TelemetryEngine:
         else:
             logger.warning("Unknown export format '%s', falling back to json", fmt)
             return self.export("json")
+
+    def _push_otlp(self, payload: str) -> None:
+        # C13: POST OTLP/HTTP JSON 到 collector. 同步 urllib 避免新依赖;
+        # 失败仅日志不抛 (遥测不阻塞主路径).
+        import urllib.error
+        import urllib.request
+
+        endpoint = self.config.endpoint
+        headers = {"Content-Type": "application/json"}
+        headers.update(self.config.headers)
+        req = urllib.request.Request(
+            endpoint,
+            data=payload.encode("utf-8"),
+            headers=headers,
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                logger.info(
+                    "OTLP export to %s -> HTTP %d (bytes=%d)",
+                    endpoint,
+                    resp.status,
+                    len(payload),
+                )
+        except (urllib.error.URLError, OSError, TimeoutError) as e:
+            logger.warning("OTLP export to %s failed: %s", endpoint, e)
 
     def metrics(self) -> dict:
         avg_latencies = {}

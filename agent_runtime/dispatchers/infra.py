@@ -80,9 +80,10 @@ class InfraDispatcher(SubDispatcher):
     async def _handle_telemetry_export(self, params: dict) -> dict:
         engine = self._daemon._get_telemetry_engine()
         fmt = params.get("format", "json")
-        data = engine.export(fmt)
-        logger.info("telemetry.export: format=%s size=%d", fmt, len(data))
-        return {"format": fmt, "data": data}
+        push = bool(params.get("push", False))
+        data = engine.export(fmt, push=push)
+        logger.info("telemetry.export: format=%s push=%s size=%d", fmt, push, len(data))
+        return {"format": fmt, "push": push, "data": data}
 
     async def _handle_telemetry_list_spans(self, params: dict) -> dict:
         engine = self._daemon._get_telemetry_engine()
