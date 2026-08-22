@@ -39,6 +39,31 @@ SKILLS_DIR = "skills"
 WORKSPACE_DIR = "workspace"
 SOURCES_FILE = "sources.json"
 
+# C16: 全局 agents 根目录 (~/.fusion-agent-studio/agents). 与 DaemonServer._agent_dir 同.
+AGENTS_ROOT = Path.home() / ".fusion-agent-studio" / "agents"
+
+
+def resolve_soul_prompt(agent_id: str, fallback: str = "") -> str:
+    """C16: 统一 soul.md 加载 — 各执行路径 (chat/workflow/session/langgraph) 共用.
+
+    给定 agent_id, 加载 ~/.fusion-agent-studio/agents/<agent_id>/.fusion-agent/soul.md
+    (soul.md 优先, 空则回退 manifest.system_prompt). agent_id 空或包不存在 -> fallback.
+    返回解析后的 system_prompt (永不抛异常, 缺失即 fallback).
+    """
+    if not agent_id:
+        return fallback
+    agent_dir = AGENTS_ROOT / agent_id
+    try:
+        pkg = AgentPackage(agent_dir)
+        if pkg.exists:
+            prompt = pkg.get_system_prompt()
+            if prompt:
+                logger.info("resolve_soul_prompt: loaded soul for agent=%s", agent_id)
+                return prompt
+    except Exception as e:
+        logger.warning("resolve_soul_prompt: failed for agent=%s: %s", agent_id, e)
+    return fallback
+
 
 @dataclass
 class AgentManifest:

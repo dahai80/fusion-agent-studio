@@ -33,6 +33,30 @@ _MAX_ENTRIES_BEFORE_SUMMARY = 200
 _SUMMARY_BATCH_SIZE = 50
 _TIME_WINDOW_SECONDS = 3600  # 1-hour chunks for compression grouping
 
+# C16: 记忆语义类型分类 (对齐 Claude 记忆分类法).
+# user=身份偏好, feedback=用户纠正/确认的工作方式, project=进行中工作目标约束,
+# reference=外部资源指针. 默认 project (auto-store 多为执行上下文).
+DEFAULT_MEMORY_TYPE = "project"
+VALID_MEMORY_TYPES = {"user", "feedback", "project", "reference"}
+
+# C16: 自动分类启发式关键词 (lowercased 子串匹配). 命中即归类, 无命中 -> project.
+# 顺序: user 优先于 feedback — "i prefer X" 是身份偏好(user)而非工作方式纠正(feedback),
+# 避免裸 "prefer" 抢先命中 feedback. reference (URL/票据) 与前两者正交故置末.
+_TYPE_KEYWORDS = (
+    ("user", ("i am", "i'm", "my role", "i use", "i work", "i prefer", "expertise")),
+    ("feedback", ("prefer", "don't", "always use", "never use", "should", "rule:", "why:", "how to apply")),
+    ("reference", ("http://", "https://", "url:", "dashboard", "ticket", "doc at", "see ")),
+)
+
+
+def classify_memory_type(content: str) -> str:
+    # C16: 按内容关键词启发式归类. 无命中默认 project.
+    text = (content or "").lower()
+    for mem_type, keywords in _TYPE_KEYWORDS:
+        if any(kw in text for kw in keywords):
+            return mem_type
+    return DEFAULT_MEMORY_TYPE
+
 
 @dataclass
 class MemoryTier:
@@ -91,12 +115,16 @@ class MemoryEntry:
     created_at: float = 0.0
     metadata: dict[str, Any] = field(default_factory=dict)
     tier: str = "short_term"
+    # C16: 语义记忆类型 (user/feedback/project/reference).
+    memory_type: str = DEFAULT_MEMORY_TYPE
 
     def __post_init__(self):
         if not self.id:
             self.id = uuid.uuid4().hex[:16]
         if not self.created_at:
             self.created_at = time.time()
+        if not self.memory_type or self.memory_type not in VALID_MEMORY_TYPES:
+            self.memory_type = DEFAULT_MEMORY_TYPE
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -108,6 +136,7 @@ class MemoryEntry:
             "created_at": self.created_at,
             "metadata": self.metadata,
             "tier": self.tier,
+            "memory_type": self.memory_type,
         }
 
     @classmethod
@@ -121,6 +150,7 @@ class MemoryEntry:
             created_at=data.get("created_at", 0.0),
             metadata=data.get("metadata", {}),
             tier=data.get("tier", "short_term"),
+            memory_type=data.get("memory_type", DEFAULT_MEMORY_TYPE),
         )
 
 
@@ -170,7 +200,8 @@ class MemoryEngine:
                 created_at REAL NOT NULL,
                 metadata TEXT DEFAULT '{}',
                 is_summary INTEGER DEFAULT 0,
-                tier TEXT NOT NULL DEFAULT 'short_term'
+                tier TEXT NOT NULL DEFAULT 'short_term',
+                memory_type TEXT NOT NULL DEFAULT 'project'
             )
         """)
         c.execute("""
@@ -205,6 +236,12 @@ class MemoryEngine:
         """)
         self.conn.commit()
         self._migrate_add_tier_column(c)
+        self._migrate_add_memory_type_column(c)
+        self.conn.commit()
+        # C16: memory_type 索引须在迁移加列之后建 — 老库无此列时先建索引会 OperationalError.
+        c.execute("""
+            CREATE INDEX IF NOT EXISTS idx_memories_type ON memories(memory_type)
+        """)
         self.conn.commit()
         logger.info("Memory engine initialized at %s", self.db_path)
 
@@ -220,6 +257,16 @@ class MemoryEngine:
                 UPDATE memories SET tier = 'long_term'
                 WHERE is_summary = 1 OR importance < 7
             """)
+
+    def _migrate_add_memory_type_column(self, c: sqlite3.Cursor) -> None:
+        # C16: 老库无 memory_type 列 -> 加列, 旧条目归 project 默认.
+        try:
+            c.execute("SELECT memory_type FROM memories LIMIT 1")
+        except sqlite3.OperationalError:
+            logger.info("Migrating memories table: adding memory_type column")
+            c.execute(
+                "ALTER TABLE memories ADD COLUMN memory_type TEXT NOT NULL DEFAULT 'project'"
+            )
 
     def _assign_tier(self, importance: int, is_summary: bool = False) -> str:
         if is_summary:
@@ -241,8 +288,11 @@ class MemoryEngine:
         metadata: dict[str, Any] | None = None,
         tier: str = "",
         is_summary: bool = False,
+        memory_type: str = "",
     ) -> str:
         tier = tier or self._assign_tier(importance, is_summary=is_summary)
+        if not memory_type or memory_type not in VALID_MEMORY_TYPES:
+            memory_type = DEFAULT_MEMORY_TYPE
         entry = MemoryEntry(
             content=content,
             scope=scope,
@@ -250,13 +300,14 @@ class MemoryEngine:
             importance=importance,
             metadata=metadata or {},
             tier=tier,
+            memory_type=memory_type,
         )
         summary_flag = 1 if is_summary else 0
         with self._write_lock:
             c = self.conn.cursor()
             c.execute(
-                "INSERT INTO memories (id, content, scope, tags, importance, created_at, metadata, tier, is_summary) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO memories (id, content, scope, tags, importance, created_at, metadata, tier, is_summary, memory_type) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     entry.id,
                     entry.content,
@@ -267,14 +318,16 @@ class MemoryEngine:
                     json.dumps(entry.metadata, ensure_ascii=False),
                     entry.tier,
                     summary_flag,
+                    entry.memory_type,
                 ),
             )
             self.conn.commit()
             logger.debug(
-                "Stored memory %s in scope '%s' tier '%s' summary=%s",
+                "Stored memory %s in scope '%s' tier '%s' type '%s' summary=%s",
                 entry.id,
                 scope,
                 tier,
+                entry.memory_type,
                 is_summary,
             )
 
@@ -288,9 +341,12 @@ class MemoryEngine:
         limit: int = 10,
         min_importance: int = 0,
         tier: str = "",
+        memory_type: str = "",
     ) -> list[MemoryEntry]:
         if not query.strip():
-            return self.list_recent(scope=scope, limit=limit, tier=tier)
+            return self.list_recent(
+                scope=scope, limit=limit, tier=tier, memory_type=memory_type
+            )
 
         c = self.conn.cursor()
 
@@ -313,6 +369,10 @@ class MemoryEngine:
             conditions.append("m.tier = ?")
             params.append(tier)
 
+        if memory_type:
+            conditions.append("m.memory_type = ?")
+            params.append(memory_type)
+
         where = " AND ".join(conditions)
         sql = (
             f"SELECT m.* FROM memories m "
@@ -331,6 +391,7 @@ class MemoryEngine:
         limit: int = 20,
         min_importance: int = 0,
         tier: str = "",
+        memory_type: str = "",
     ) -> list[MemoryEntry]:
         c = self.conn.cursor()
         conditions = []
@@ -346,6 +407,10 @@ class MemoryEngine:
         if tier:
             conditions.append("tier = ?")
             params.append(tier)
+
+        if memory_type:
+            conditions.append("memory_type = ?")
+            params.append(memory_type)
 
         where = " AND ".join(conditions)
         sql = f"SELECT * FROM memories WHERE {where} ORDER BY created_at DESC LIMIT ?"
@@ -377,7 +442,7 @@ class MemoryEngine:
         logger.info("Deleted %d memories in scope '%s'", count, scope)
         return count
 
-    def count(self, scope: str = "", tier: str = "") -> int:
+    def count(self, scope: str = "", tier: str = "", memory_type: str = "") -> int:
         c = self.conn.cursor()
         conditions = []
         params: list[Any] = []
@@ -387,6 +452,9 @@ class MemoryEngine:
         if tier:
             conditions.append("tier = ?")
             params.append(tier)
+        if memory_type:
+            conditions.append("memory_type = ?")
+            params.append(memory_type)
         if conditions:
             where = " AND ".join(conditions)
             sql = f"SELECT COUNT(*) FROM memories WHERE {where}"
@@ -795,6 +863,8 @@ class MemoryEngine:
             except (json.JSONDecodeError, TypeError):
                 metadata = {}
         tier = row["tier"] if "tier" in row.keys() else "short_term"
+        keys = row.keys()
+        memory_type = row["memory_type"] if "memory_type" in keys else DEFAULT_MEMORY_TYPE
         return MemoryEntry(
             id=row["id"],
             content=row["content"],
@@ -804,10 +874,19 @@ class MemoryEngine:
             created_at=row["created_at"],
             metadata=metadata,
             tier=tier,
+            memory_type=memory_type,
         )
 
-    def recall_relevant(self, query: str, limit: int = 5, scope: str = "") -> str:
-        entries = self.recall(query=query, scope=scope, limit=limit, min_importance=5)
+    def recall_relevant(
+        self, query: str, limit: int = 5, scope: str = "", memory_type: str = ""
+    ) -> str:
+        entries = self.recall(
+            query=query,
+            scope=scope,
+            limit=limit,
+            min_importance=5,
+            memory_type=memory_type,
+        )
         if not entries:
             return ""
         parts = []
