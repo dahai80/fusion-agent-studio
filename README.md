@@ -221,7 +221,7 @@ python my_agent.py
 |----------|-------|
 | **File** | `file_read`, `file_write`, `file_edit` (in-place old→new), `file_delete`, `file_list`, `file_grep` (recursive content search), `file_glob` (recursive pattern find) |
 | **Terminal** | `terminal` (shell execution) |
-| **Git** | `git` (status, log, diff, commit, branch, pull) |
+| **Git** | `git` (status, log, diff, commit, branch, pull, push, fetch, checkout, merge, rebase, reset, stash, show) |
 | **Text** | `text_process`, `text_search` |
 | **HTTP** | `http_request` (GET/POST/PUT/DELETE/PATCH) |
 | **Code** | `code_execute` (subprocess sandbox), `code_sandbox` (sandbox-exec isolation + AST check, 8 languages) |
@@ -273,6 +273,10 @@ python my_agent.py
 - ✅ **Runtime span instrumentation** — `TelemetryEngine` had complete span/counter/latency structures but the runtime never called `start_span`/`end_span` (all dashboard metrics stayed zero — dead code). Now wired on 3 hot paths in `AgentRuntime`: `graph.execute` (wraps `_run_with_trajectory`, reuses trajectory `trace_id` for correlation), `llm.call` (attributes `prompt_tokens`/`completion_tokens` from `usage`; error status on LLM failure), `tool.call` (around `tool.execute`, ok/error status). All span calls are `try/except` log-only — telemetry never blocks the main path.
 - ✅ **OTLP/HTTP JSON export** — `export(fmt="otlp", push=True)` POSTs `resourceSpans` JSON to `config.endpoint` via stdlib `urllib` (**no `opentelemetry-sdk` dependency**), 5s timeout, failures log-only. Compatible with Jaeger/Tempo/OTel-collector HTTP-JSON ingesters. `telemetry.export` RPC passes the `push` param through (returns `{format, push, data}`).
 - Tests: `tests/test_c13_telemetry.py` (13) — instrumentation fires on all 3 paths (counters non-zero after a graph run), token recording, latency, error status, no-engine no-crash, OTLP payload + push mock + failure log-only, `telemetry.export`/`telemetry.metrics` RPC.
+
+### GitTool Extended Actions (C15)
+- ✅ **14 git actions** — `GitTool` (`tools/git_tools.py`) extended from 6 (`status, log, diff, commit, branch, pull`) to **14**: added `push`, `fetch`, `checkout` (`-b` via `create_new`), `merge`, `rebase`, `reset` (`soft`/`mixed`/`hard` modes), `stash` (save / `pop`), `show`. All reuse the async `_git_cmd` subprocess helper (30s timeout, STDERR merged). Write actions (`push`/`merge`/`rebase`/`reset`) already covered by `SafetyGateway` L3 policies (`git_push`/`git_*`). Unified params: `branch`, `remote` (default `origin`), `target` (commit/ref), `mode`, `create_new`, `pop`. (Audit's "no file delete" gap was already closed in an earlier release via `FileDeleteTool`.)
+- Tests: `tests/test_c15_git_tools.py` (15) — each new action exercised in a real temp git repo (local bare remote for `push`/`fetch`; branch + commit + merge/rebase; `reset` keeps changes staged on `soft`); invalid-mode + requires-branch guards; enum registered in default registry; existing actions still pass.
 
 ### Integration
 - ✅ **fusion-mlx** — Apple Silicon optimized model serving
