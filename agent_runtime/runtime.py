@@ -658,6 +658,8 @@ class AgentRuntime:
             elif node.type == "tool":
                 async for event in self._execute_tool_node(ctx, node, graph):
                     yield event
+                    if event.type == AgentEventType.ERROR:
+                        return
 
                 if self.auto_checkpoint:
                     await self._save_checkpoint(ctx, graph)
@@ -2000,16 +2002,64 @@ class AgentRuntime:
         ctx.add_message("tool", str(result), tool_call_id=f"tool_{node.tool_name}")
         ctx.messages[-1]["_node_id"] = node.label
 
-        output_mapping = node.tool_params.get("output_mapping", {})
-        if output_mapping:
-            self._apply_tool_output_mapping(output_mapping, result, node.label)
-
         yield AgentEvent(
             type=AgentEventType.TOOL_RESULT,
             content=str(result),
             name=node.tool_name,
             node_id=node.label,
         )
+
+        # #202: direct tool node error detection. Matches the LLM-driven tool
+        # path's "Error:" prefix convention (line ~1461) AND the common tool
+        # pattern of returning json.dumps({"error": ...}). When the graph opts
+        # in via stop_on_tool_error, a tool error stops the cascade: set
+        # ctx.error, emit a tagged ERROR event, and return BEFORE applying
+        # output_mapping — so a downstream gate can't misread a stray value
+        # (e.g. missing key -> None -> "false" -> wrong branch). Default off
+        # keeps existing error-as-result behavior for graphs that handle it.
+        is_tool_error = False
+        error_detail = ""
+        if isinstance(result, str):
+            if result.startswith("Error:"):
+                is_tool_error = True
+                error_detail = result
+            else:
+                stripped = result.strip()
+                if stripped.startswith("{"):
+                    try:
+                        parsed = json.loads(stripped)
+                        if isinstance(parsed, dict) and "error" in parsed:
+                            is_tool_error = True
+                            error_detail = json.dumps(
+                                parsed, ensure_ascii=False
+                            )
+                    except (ValueError, TypeError):
+                        pass
+        if is_tool_error and getattr(graph, "stop_on_tool_error", False):
+            ctx.error = f"Tool '{node.tool_name}' (node '{node.label}') failed: {error_detail}"
+            logger.warning(
+                "tool node error stops cascade (stop_on_tool_error=True) "
+                "tool=%s node=%s error=%s",
+                node.tool_name,
+                node.label,
+                error_detail[:200],
+            )
+            yield AgentEvent(
+                type=AgentEventType.ERROR,
+                content=ctx.error,
+                name=node.tool_name,
+                node_id=node.label,
+                metadata={
+                    "tool_error": True,
+                    "tool": node.tool_name,
+                    "node": node.label,
+                },
+            )
+            return
+
+        output_mapping = node.tool_params.get("output_mapping", {})
+        if output_mapping:
+            self._apply_tool_output_mapping(output_mapping, result, node.label)
 
     def _apply_tool_output_mapping(
         self, output_mapping: dict, result: Any, node_label: str

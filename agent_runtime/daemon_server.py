@@ -1179,6 +1179,7 @@ class DaemonServer:
                     exc,
                 )
         events = []
+        tool_errors: list[str] = []
 
         # #141 priority-4: 关联 task 时, 执行前置 running.
         artifact_ids: list[str] = []
@@ -1203,8 +1204,16 @@ class DaemonServer:
                 aid = self._extract_artifact_id(ev_dict.get("content", ""))
                 if aid:
                     artifact_ids.append(aid)
+            # #202: count tool errors emitted by stop_on_tool_error cascade stop.
+            if (
+                ev_dict.get("type") == "error"
+                and ev_dict.get("metadata", {}).get("tool_error")
+            ):
+                tool_errors.append(
+                    f"{ev_dict.get('name','?')}: {ev_dict.get('content','')[:200]}"
+                )
 
-        logger.info("Graph %s executed: %d events", graph_id, len(events))
+        logger.info("Graph %s executed: %d events tool_errors=%d", graph_id, len(events), len(tool_errors))
 
         # #141 priority-4: 关联 task 时, 回写 artifact_ids + 完成状态 + last_result.
         if task_id:
@@ -1236,6 +1245,7 @@ class DaemonServer:
             "status": "completed",
             "task_id": task_id,
             "artifact_ids": artifact_ids,
+            "tool_errors": tool_errors,
         }
 
     def _extract_artifact_id(self, content: str) -> str:
@@ -1571,6 +1581,8 @@ class DaemonServer:
         return {
             "status": result.get("status", ""),
             "events": len(result.get("events", [])),
+            "tool_errors": len(result.get("tool_errors", [])),
+            "tool_error_details": result.get("tool_errors", [])[:5],
         }
 
     async def _handle_tool_dynamic_register(self, params: dict) -> dict:

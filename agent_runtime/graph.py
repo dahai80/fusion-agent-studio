@@ -139,6 +139,15 @@ class AgentGraph:
     # C6 plan-as-mode: when True the graph runs in read-only explore phase;
     # write tools are gated off until exit_plan_mode flips the runtime flag.
     plan_mode: bool = False
+    # #202: when True a direct tool node returning an error result (raises,
+    # "Error:" prefix, or {"error": ...} JSON) stops the DAG cascade — sets
+    # ctx.error + yields an ERROR event + returns, instead of applying
+    # output_mapping and continuing to downstream nodes as a normal result.
+    # Default False preserves existing "error-as-result, cascade continues"
+    # behavior so existing graphs are unaffected; opt-in for pipelines that
+    # must fail loud (e.g. cron-driven production graphs whose silent
+    # partial-success is indistinguishable from real success).
+    stop_on_tool_error: bool = False
 
     def __post_init__(self):
         if not self.id:
@@ -246,6 +255,7 @@ class AgentGraph:
             "version": self.version,
             "agent_id": self.agent_id,
             "plan_mode": self.plan_mode,
+            "stop_on_tool_error": self.stop_on_tool_error,
         }
 
     def to_json(self, indent: int = 2) -> str:
@@ -281,6 +291,7 @@ class AgentGraph:
             version=data.get("version", "1.0"),
             agent_id=data.get("agent_id", ""),
             plan_mode=data.get("plan_mode", False),
+            stop_on_tool_error=data.get("stop_on_tool_error", False),
         )
 
     @classmethod
