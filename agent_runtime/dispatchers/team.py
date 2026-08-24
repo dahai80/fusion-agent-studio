@@ -215,7 +215,8 @@ class TeamDispatcher(SubDispatcher):
         self._server = await asyncio.start_unix_server(
             self._handle_client, path=self._daemon.socket_path
         )
-        os.chmod(self._daemon.socket_path, 0o666)
+        # #209: 0o666→0o600 同 UID 限流, 与 daemon_server.start() 对齐.
+        os.chmod(self._daemon.socket_path, 0o600)
 
         self._daemon._ws_server = None
         if self._daemon.ws_port:

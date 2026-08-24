@@ -44,6 +44,50 @@ SOCKET_PATH = "/tmp/fusion-studio.sock"
 WS_PORT = 11435
 WS_MAGIC = "258EAFA5-E914-47DA-95CA-5AB5DC65B283"
 
+# #209: peer credential constants (macOS LOCAL_PEERCRED).
+_SOL_LOCAL = 0
+_LOCAL_PEERCRED = 0x001
+
+
+def _verify_peer_uid(writer: asyncio.StreamWriter) -> bool:
+    # #209: accept 后校验对端 UID, 拒绝非同 UID 连接. 防 0o666 socket 被本机
+    # 低权限进程连入伪造 JSON-RPC. macOS 用 LOCAL_PEERCRED (SOL_LOCAL) 取
+    # xucred{uid, pid, euid}; Linux 可扩展 SO_PEERCRED. 取不到 (非 UDS / 旧
+    # 内核) 时 fail-open 返回 True 以兼容测试, 但生产 UDS 路径必能取到.
+    sock = writer.get_extra_info("socket")
+    if sock is None:
+        logger.warning("#209 peer-uid check: no socket, fail-open (test path)")
+        return True
+    try:
+        cred = sock.getsockopt(_SOL_LOCAL, _LOCAL_PEERCRED, struct.calcsize("iII"))
+        _, uid, _ = struct.unpack("iII", cred)
+        if uid != os.getuid():
+            logger.warning("#209 rejected non-owner UID %d on socket (owner %d)", uid, os.getuid())
+            return False
+        return True
+    except (OSError, AttributeError) as e:
+        # 非 macOS / 内核不支持 LOCAL_PEERCRED — fail-open 兼容, 但 socket 已
+        # 0o600 + 私有目录双重限流, 非同 UID 本就连不上.
+        logger.warning("#209 peer-uid getsockopt failed (%s), fail-open", e)
+        return True
+
+
+def _resolve_socket_path(default: str = SOCKET_PATH) -> str:
+    # #209: env FUSION_SOCKET_DIR opt-in 私有目录. 设了则用 <dir>/fusion-studio.sock
+    # 且目录 0700 (根治 /tmp TOC-TOU). 不设则保留 /tmp/fusion-studio.sock 默认
+    # 兼容下游 (fusion-cli 等), 仅靠 0o600 + UID 校验加固. 非破坏性.
+    socket_dir = os.environ.get("FUSION_SOCKET_DIR", "").strip()
+    if not socket_dir:
+        return default
+    socket_dir = os.path.expanduser(socket_dir)
+    os.makedirs(socket_dir, mode=0o700, exist_ok=True)
+    # makedirs 后再显式 chmod 防 umask 放宽.
+    try:
+        os.chmod(socket_dir, 0o700)
+    except OSError:
+        pass
+    return os.path.join(socket_dir, "fusion-studio.sock")
+
 
 async def _ws_read_frame(reader: asyncio.StreamReader) -> str | None:
     header = await reader.readexactly(2)
@@ -92,13 +136,15 @@ MLX_BASE_URL = os.environ.get(
 class DaemonServer:
     def __init__(
         self,
-        socket_path: str = SOCKET_PATH,
+        socket_path: str = "",
         ws_port: int = WS_PORT,
         cluster_port: int = 11457,
         http_port: int = 11455,
         store_path: str = "",
     ):
-        self.socket_path = socket_path
+        # #209: 空则走 env 感知解析 (FUSION_SOCKET_DIR 私有目录 opt-in), 否则
+        # 默认 /tmp/fusion-studio.sock 向后兼容. 显式传值 (测试临时 socket) 不改.
+        self.socket_path = socket_path or _resolve_socket_path()
         self.ws_port = ws_port
         self.cluster_port = cluster_port
         self.http_port = http_port
@@ -383,7 +429,9 @@ class DaemonServer:
         self._server = await asyncio.start_unix_server(
             self._handle_client, path=self.socket_path
         )
-        os.chmod(self.socket_path, 0o666)
+        # #209: 0o666→0o600. 同 UID (fusion-cli/cron) 仍可连, 低权限恶意进程被挡.
+        # 私有目录 (FUSION_SOCKET_DIR) 时目录已 0o700, 双重限流.
+        os.chmod(self.socket_path, 0o600)
 
         self._ws_server = None
         if self.ws_port:
@@ -520,6 +568,16 @@ class DaemonServer:
         self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter
     ) -> None:
         peer = writer.get_extra_info("peername")
+        # #209: 拒绝非同 UID 连接 (0o666 时代遗留防御; 现 0o600 + 私有目录已限,
+        # 此为纵深防御, 防 socket 权限被误放宽或 /tmp 竞态 bind).
+        if not _verify_peer_uid(writer):
+            logger.warning("#209 closing non-owner connection: %s", peer)
+            writer.close()
+            try:
+                await writer.wait_closed()
+            except Exception:
+                pass
+            return
         logger.info("Client connected: %s", peer)
         buf = b""
 
@@ -2349,7 +2407,9 @@ class DaemonServer:
     # ── LangGraph handlers (#35) ──
 
 
-def run_daemon(socket_path: str = SOCKET_PATH):
+def run_daemon(socket_path: str = ""):
+    # #209: 空 → DaemonServer.__init__ 走 _resolve_socket_path (FUSION_SOCKET_DIR
+    # opt-in 私有目录, 否则 /tmp/fusion-studio.sock 默认). 显式传值 (测试) 不改.
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
