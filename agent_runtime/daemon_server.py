@@ -1142,21 +1142,27 @@ class DaemonServer:
         # #215: 内容 schema 校验. 默认软校验 (只 log, 不拒); strict_validate=true 拒硬错.
         # 硬错 = 结构错 + tool_name 不在 registry + condition_expr 无法解析.
         # warning: = output_mapping/tool_params 未知 key (动态输出/config 注入合法).
+        # 性能: 默认路径不加载 registry (create_default_registry 56 工具 ~140ms,
+        # 套件内每 daemon 重建叠加负载致 planner RPC 5s 超时 flaky). 仅 strict_validate
+        # 需 tool_name/condition_expr 硬校验时才加载. 软路径 validate(None) 只查结构,
+        # 与 runtime 执行前结构校验一致, 不丢真错 (硬错仍会在执行前结构校验拦截).
+        strict = bool(params.get("strict_validate"))
         try:
-            issues = graph.validate(self._get_tool_registry())
+            issues = graph.validate(self._get_tool_registry() if strict else None)
         except Exception as exc:
             issues = [f"warning: validate crashed: {exc}"]
         hard_errors = [e for e in issues if not e.startswith("warning:")]
         warnings = [e for e in issues if e.startswith("warning:")]
         if issues:
             logger.info(
-                "graph.create %s validate: %d errors, %d warnings: %s",
+                "graph.create %s validate(strict=%s): %d errors, %d warnings: %s",
                 graph.id,
+                strict,
                 len(hard_errors),
                 len(warnings),
                 issues,
             )
-        if params.get("strict_validate") and hard_errors:
+        if strict and hard_errors:
             raise ValueError(
                 f"Graph validation failed (strict_validate): {hard_errors}"
             )
