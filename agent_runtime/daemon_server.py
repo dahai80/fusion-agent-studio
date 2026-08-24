@@ -1027,6 +1027,7 @@ class DaemonServer:
             graph = AgentGraph(name=name or "Untitled")
             graph.description = description
             graph.agent_id = params.get("agent_id", "")
+            graph.stop_on_tool_error = bool(params.get("stop_on_tool_error", False))
 
             nodes_data = params.get("nodes", [])
             for n in nodes_data:
@@ -1079,6 +1080,7 @@ class DaemonServer:
             "start_node_id": graph.start_node_id,
             "version": graph.version,
             "agent_id": graph.agent_id,
+            "stop_on_tool_error": graph.stop_on_tool_error,
         }
 
     async def _handle_graph_delete(self, params: dict) -> dict:
@@ -1271,6 +1273,8 @@ class DaemonServer:
             graph.name = params["name"]
         if "description" in params:
             graph.description = params["description"]
+        if "stop_on_tool_error" in params:
+            graph.stop_on_tool_error = bool(params["stop_on_tool_error"])
 
         nodes_data = params.get("nodes")
         if nodes_data is not None:
@@ -1309,6 +1313,7 @@ class DaemonServer:
             "description": graph.description,
             "nodes": {nid: n.to_dict() for nid, n in graph.nodes.items()},
             "edges": [e.to_dict() for e in graph.edges],
+            "stop_on_tool_error": graph.stop_on_tool_error,
         }
 
     def _get_tool_registry(self):
