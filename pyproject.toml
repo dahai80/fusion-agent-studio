@@ -1,6 +1,6 @@
 [project]
 name = "fusion-agent-studio"
-version = "0.3.39"
+version = "0.3.40"
 description = "Fusion-MLX Agent Studio — Local Agent Development Platform for Apple Silicon"
 requires-python = ">=3.11"
 dependencies = [
