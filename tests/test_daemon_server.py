@@ -177,6 +177,45 @@ class TestDaemonGraphCRUD:
         assert get_resp["result"]["agent_id"] == "c65efddbe8c5"
 
     @pytest.mark.asyncio
+    async def test_graph_stop_on_tool_error_persisted(self, daemon):
+        # #202: stop_on_tool_error 经 nodes/edges 分支 create→get→update 往返不丢.
+        create_resp = await _rpc_call(
+            daemon.socket_path,
+            "graph.create",
+            {
+                "name": "StopOnErr",
+                "nodes": [
+                    {"id": "start", "type": "start"},
+                    {"id": "end", "type": "end"},
+                ],
+                "edges": [{"source_id": "start", "target_id": "end"}],
+                "stop_on_tool_error": True,
+            },
+        )
+        graph_id = create_resp["result"]["graph_id"]
+        get_resp = await _rpc_call(
+            daemon.socket_path, "graph.get", {"graph_id": graph_id}
+        )
+        assert get_resp["result"]["stop_on_tool_error"] is True
+        # update 不传 flag 应回退保持原值 (load→save 保留), 返回字段含 flag.
+        upd_resp = await _rpc_call(
+            daemon.socket_path,
+            "graph.update",
+            {"graph_id": graph_id, "name": "StopOnErr2"},
+        )
+        assert upd_resp["result"]["stop_on_tool_error"] is True
+        # 显式关 flag 后 get 应回 False.
+        await _rpc_call(
+            daemon.socket_path,
+            "graph.update",
+            {"graph_id": graph_id, "stop_on_tool_error": False},
+        )
+        get2 = await _rpc_call(
+            daemon.socket_path, "graph.get", {"graph_id": graph_id}
+        )
+        assert get2["result"]["stop_on_tool_error"] is False
+
+    @pytest.mark.asyncio
     async def test_graph_delete(self, daemon):
         create_resp = await _rpc_call(
             daemon.socket_path,
