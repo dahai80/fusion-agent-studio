@@ -160,6 +160,13 @@ class ConditionEngine:
             return variables.get(var_name, 0)
         if raw.startswith('"') or raw.startswith("'"):
             return raw[1:-1]
+        # #212: bool 字面量归一 (大小写不敏感) -> Python bool, 否则裸 "true" 串
+        # 与工具输出的 Python bool 比较永远判假.
+        low = raw.lower()
+        if low == "true":
+            return True
+        if low == "false":
+            return False
         try:
             return int(raw)
         except ValueError:
@@ -170,7 +177,43 @@ class ConditionEngine:
             pass
         return raw
 
+    @staticmethod
+    def _coerce_pair(left: Any, right: Any) -> tuple[Any, Any]:
+        # #212: 跨类型比较归一. 工具输出 Python bool/int, condition 字面量可能
+        # 是 "true"/"5" 字符串 -> 严格相等永远假. 归一两边同类型再比.
+        # bool 先于 int (bool 是 int 子类), 避免被 int 分支吞掉.
+        if isinstance(left, bool) or isinstance(right, bool):
+            if isinstance(left, bool) and isinstance(right, bool):
+                return left, right
+            if isinstance(left, bool) and isinstance(right, str):
+                rl = right.strip().lower()
+                if rl == "true":
+                    return left, True
+                if rl == "false":
+                    return left, False
+            if isinstance(right, bool) and isinstance(left, str):
+                ll = left.strip().lower()
+                if ll == "true":
+                    return True, right
+                if ll == "false":
+                    return False, right
+            return left, right
+        # 数字串 vs 数字: "5" == 5, "5" >= 3
+        if isinstance(left, (int, float)) and isinstance(right, str):
+            try:
+                return left, float(right) if "." in right else int(right)
+            except ValueError:
+                return left, right
+        if isinstance(right, (int, float)) and isinstance(left, str):
+            try:
+                return float(left) if "." in left else int(left), right
+            except ValueError:
+                return left, right
+        return left, right
+
     def _compare(self, left: Any, op: str, right: Any) -> str:
+        # #212: 先归一再比, 避免跨类型严格相等静默判假.
+        left, right = self._coerce_pair(left, right)
         try:
             if op == "==":
                 return "true" if left == right else "false"
