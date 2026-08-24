@@ -165,6 +165,11 @@ class DaemonServer:
         self._code_tasks: dict[str, dict] = {}
         self._server: asyncio.Server | None = None
         self._running = False
+        # #214: graph.execute 并发节流 opt-in. env FUSION_GRAPH_CONCURRENCY=N
+        # 限制同时执行 graph 数 (GPU 任务建议 N=1). 空/0 = 不限流 (向后兼容).
+        # 超限请求排队等待, 不拒. Semaphore 在 start() 的 event loop 内创建.
+        self._graph_concurrency_limit = 0
+        self._graph_semaphore: asyncio.Semaphore | None = None
         self._planner = None
         self._memory = None
         self._safety = None
@@ -425,6 +430,21 @@ class DaemonServer:
     async def start(self) -> None:
         if os.path.exists(self.socket_path):
             os.unlink(self.socket_path)
+
+        # #214: 在 event loop 内创建 Semaphore (需 running loop). 默认不限流.
+        try:
+            limit = int(os.environ.get("FUSION_GRAPH_CONCURRENCY", "0") or "0")
+        except ValueError:
+            limit = 0
+        self._graph_concurrency_limit = max(0, limit)
+        if self._graph_concurrency_limit > 0:
+            self._graph_semaphore = asyncio.Semaphore(self._graph_concurrency_limit)
+            logger.info(
+                "graph.execute concurrency throttle: max %d concurrent",
+                self._graph_concurrency_limit,
+            )
+        else:
+            self._graph_semaphore = None
 
         self._server = await asyncio.start_unix_server(
             self._handle_client, path=self.socket_path
@@ -1111,6 +1131,35 @@ class DaemonServer:
                         label=e.get("label", e.get("condition", "")),
                     )
 
+        # #213: stable_id opt-in — 按 name+内容 hash 复用既有 graph_id (upsert 语义).
+        # 下游 cron/缓存绑定旧 id, 同内容 sync 重建拿新 uuid 会失效. 默认关 (uuid 不变).
+        if params.get("stable_id"):
+            graph.id = graph.stable_id()
+            existing = self.store.load_graph(graph.id)
+            logger.info(
+                "graph.create stable_id=%s (existing=%s)", graph.id, bool(existing)
+            )
+        # #215: 内容 schema 校验. 默认软校验 (只 log, 不拒); strict_validate=true 拒硬错.
+        # 硬错 = 结构错 + tool_name 不在 registry + condition_expr 无法解析.
+        # warning: = output_mapping/tool_params 未知 key (动态输出/config 注入合法).
+        try:
+            issues = graph.validate(self._get_tool_registry())
+        except Exception as exc:
+            issues = [f"warning: validate crashed: {exc}"]
+        hard_errors = [e for e in issues if not e.startswith("warning:")]
+        warnings = [e for e in issues if e.startswith("warning:")]
+        if issues:
+            logger.info(
+                "graph.create %s validate: %d errors, %d warnings: %s",
+                graph.id,
+                len(hard_errors),
+                len(warnings),
+                issues,
+            )
+        if params.get("strict_validate") and hard_errors:
+            raise ValueError(
+                f"Graph validation failed (strict_validate): {hard_errors}"
+            )
         self.store.save_graph(graph)
         logger.info("Created graph %s: %s", graph.id, graph.name)
 
@@ -1121,6 +1170,8 @@ class DaemonServer:
             "nodes": {nid: n.to_dict() for nid, n in graph.nodes.items()},
             "edges": [e.to_dict() for e in graph.edges],
             "created_at": time.time(),
+            "validation_errors": hard_errors,
+            "validation_warnings": warnings,
         }
 
     async def _handle_graph_get(self, params: dict) -> dict:
@@ -1251,27 +1302,37 @@ class DaemonServer:
             except Exception as exc:
                 logger.warning("graph.execute %s set task %s running failed: %s", graph_id, task_id, exc)
 
-        async for event in rt.execute_graph(graph, input_text):
-            ev_dict = (
-                event.to_dict() if hasattr(event, "to_dict") else {"type": str(event)}
-            )
-            events.append(ev_dict)
-            # 收集 artifact_create 工具产物 id, 执行后回写 task.artifact_ids.
-            if (
-                ev_dict.get("type") == "tool_result"
-                and ev_dict.get("name") == "artifact_create"
-            ):
-                aid = self._extract_artifact_id(ev_dict.get("content", ""))
-                if aid:
-                    artifact_ids.append(aid)
-            # #202: count tool errors emitted by stop_on_tool_error cascade stop.
-            if (
-                ev_dict.get("type") == "error"
-                and ev_dict.get("metadata", {}).get("tool_error")
-            ):
-                tool_errors.append(
-                    f"{ev_dict.get('name','?')}: {ev_dict.get('content','')[:200]}"
+        # #214: 并发节流. 有 Semaphore 时 acquire 再执行, 超限排队等待 (不拒).
+        # 无 Semaphore (默认) 直接执行, 行为不变.
+        async def _run_stream():
+            async for event in rt.execute_graph(graph, input_text):
+                ev_dict = (
+                    event.to_dict() if hasattr(event, "to_dict") else {"type": str(event)}
                 )
+                events.append(ev_dict)
+                # 收集 artifact_create 工具产物 id, 执行后回写 task.artifact_ids.
+                if (
+                    ev_dict.get("type") == "tool_result"
+                    and ev_dict.get("name") == "artifact_create"
+                ):
+                    aid = self._extract_artifact_id(ev_dict.get("content", ""))
+                    if aid:
+                        artifact_ids.append(aid)
+                # #202: count tool errors emitted by stop_on_tool_error cascade stop.
+                if (
+                    ev_dict.get("type") == "error"
+                    and ev_dict.get("metadata", {}).get("tool_error")
+                ):
+                    tool_errors.append(
+                        f"{ev_dict.get('name','?')}: {ev_dict.get('content','')[:200]}"
+                    )
+
+        if self._graph_semaphore is not None:
+            async with self._graph_semaphore:
+                logger.info("graph.execute %s acquired concurrency slot", graph_id)
+                await _run_stream()
+        else:
+            await _run_stream()
 
         logger.info("Graph %s executed: %d events tool_errors=%d", graph_id, len(events), len(tool_errors))
 
