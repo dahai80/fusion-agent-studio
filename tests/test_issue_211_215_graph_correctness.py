@@ -248,6 +248,9 @@ class TestIssue215ValidateContentSchema:
         assert any("nonexistent_tool_xyz" in e for e in hard)
 
     def test_condition_expr_unparseable_is_error(self):
+        from tools import create_default_registry
+
+        registry = create_default_registry()
         g = AgentGraph(name="x")
         g.add_node("n1", NodeConfig(type="start"))
         g.add_node(
@@ -257,18 +260,21 @@ class TestIssue215ValidateContentSchema:
         g.add_node("n3", NodeConfig(type="end"))
         g.add_edge("n1", "n2", label="true")
         g.add_edge("n2", "n3")
-        errors = g.validate()
+        errors = g.validate(registry)
         hard = [e for e in errors if not e.startswith("warning:")]
         assert any("unparseable" in e for e in hard)
 
     def test_valid_condition_expr_no_error(self):
+        from tools import create_default_registry
+
+        registry = create_default_registry()
         g = AgentGraph(name="x")
         g.add_node("n1", NodeConfig(type="start"))
         g.add_node("n2", NodeConfig(type="condition", condition_expr="iteration >= 5"))
         g.add_node("n3", NodeConfig(type="end"))
         g.add_edge("n1", "n2", label="true")
         g.add_edge("n2", "n3")
-        errors = g.validate()
+        errors = g.validate(registry)
         hard = [e for e in errors if not e.startswith("warning:")]
         assert not hard
 

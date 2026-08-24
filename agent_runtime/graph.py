@@ -264,8 +264,9 @@ class AgentGraph:
                     errors.append(
                         f"Node '{nid}' tool_name '{node.tool_name}' not in registry"
                     )
-            # condition_expr 预解析 (语法错 create 时报)
-            if node.type == "condition" and node.condition_expr:
+            # condition_expr 预解析 (语法错 create 时报). 需 registry — 属内容 schema,
+            # 无 registry (runtime 执行前结构校验) 不查, 否则误杀合法条件节点的异常路径.
+            if node.type == "condition" and node.condition_expr and tool_registry is not None:
                 expr = node.condition_expr.strip()
                 low = expr.lower()
                 is_lit = low in ("true", "false")
