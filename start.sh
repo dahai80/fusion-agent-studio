@@ -1,6 +1,7 @@
 #!/bin/bash
 # fusion-agent-studio lifecycle manager (start|stop|restart|status)
-# Owns /tmp/fusion-studio.sock - central JSON-RPC router for the Fusion ecosystem.
+# Owns the central JSON-RPC router socket (default /tmp/fusion-studio.sock, or
+# $FUSION_SOCKET_DIR/fusion-studio.sock private dir #209) for the Fusion ecosystem.
 # Callers: fusion-studio UpstreamServiceManager (auto-start on launch + manual start).
 # Affected API: start.sh start|stop|restart|status; status exits 0 if running, 1 if not.
 # Data schemas: PID file .fusion-agent-studio.pid; logs/stdout.log + logs/stderr.log.
@@ -12,7 +13,18 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
 VENV="${SCRIPT_DIR}/.venv"
-SOCKET="${FUSION_STUDIO_SOCKET:-/tmp/fusion-studio.sock}"
+# #209: socket 路径解析. 优先级: FUSION_STUDIO_SOCKET (完整路径) > FUSION_SOCKET_DIR
+# (私有目录, 0700, 防 /tmp TOC-TOU) > 默认 /tmp/fusion-studio.sock. daemon 端
+# _resolve_socket_path 读同两 env, 双方须一致.
+if [[ -n "${FUSION_STUDIO_SOCKET:-}" ]]; then
+    SOCKET="${FUSION_STUDIO_SOCKET}"
+elif [[ -n "${FUSION_SOCKET_DIR:-}" ]]; then
+    mkdir -p "${FUSION_SOCKET_DIR}"
+    chmod 700 "${FUSION_SOCKET_DIR}"
+    SOCKET="${FUSION_SOCKET_DIR%/}/fusion-studio.sock"
+else
+    SOCKET="/tmp/fusion-studio.sock"
+fi
 PID_FILE="${SCRIPT_DIR}/.fusion-agent-studio.pid"
 LOG_DIR="${SCRIPT_DIR}/logs"
 STDOUT_LOG="${LOG_DIR}/stdout.log"
