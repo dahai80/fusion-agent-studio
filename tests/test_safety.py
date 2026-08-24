@@ -14,6 +14,7 @@ from agent_runtime.safety import (
     CAT_KNOWLEDGE_SEARCH,
     CAT_NETWORK_ACCESS,
     CAT_SHELL_EXEC,
+    CAT_TOOL_CALL,
     DiffPreviewRequest,
     SafetyAction,
     SafetyGateway,
@@ -411,6 +412,24 @@ class TestSafetyGatewayEvaluateAction:
         v = gw.evaluate_action("unknown_category", "content")
         assert v.action == SafetyAction.BLOCK
         assert v.metadata.get("policy_missing") is True
+
+    def test_tool_call_category_has_policy(self):
+        gw = SafetyGateway(level=SafetyLevel.L1)
+        v = gw.evaluate_action(CAT_TOOL_CALL, "mlx_script({})", "context")
+        assert v.metadata.get("policy_missing") is not True
+        assert v.action == SafetyAction.ALLOW
+        assert v.requires_approval is False
+
+    def test_tool_call_auto_approves_at_l2(self):
+        gw = SafetyGateway(level=SafetyLevel.L2)
+        v = gw.evaluate_action(CAT_TOOL_CALL, "publish_scheduler({})")
+        assert v.action == SafetyAction.ALLOW
+        assert v.requires_approval is False
+
+    def test_tool_call_content_check_still_blocks_dangerous(self):
+        gw = SafetyGateway(level=SafetyLevel.L3)
+        v = gw.evaluate_action(CAT_TOOL_CALL, "rm -rf /")
+        assert v.action == SafetyAction.BLOCK
 
     def test_content_check_blocks_even_in_l1_category(self):
         gw = SafetyGateway(level=SafetyLevel.L3)

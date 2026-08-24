@@ -45,6 +45,7 @@ CAT_SHELL_EXEC = "shell_exec"
 CAT_GIT_PUSH = "git_push"
 CAT_DATABASE_WRITE = "database_write"
 CAT_NETWORK_ACCESS = "network_access"
+CAT_TOOL_CALL = "tool_call"
 
 
 @dataclass
@@ -249,6 +250,12 @@ _DEFAULT_POLICIES = [
         default_level=SafetyLevel.L2,
         requires_diff=False,
         description="Network access requires preview",
+    ),
+    SafetyPolicy(
+        category=CAT_TOOL_CALL,
+        default_level=SafetyLevel.L1,
+        requires_diff=False,
+        description="Direct tool-node execution in graphs, auto-approved (content check still applies)",
     ),
 ]
 
