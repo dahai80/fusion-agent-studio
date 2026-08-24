@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import uuid
 from dataclasses import dataclass, field
-from typing import Literal
+from typing import Any, Literal
 
 logger = logging.getLogger(__name__)
 
@@ -208,8 +209,26 @@ class AgentGraph:
                 return node.model
         return ""
 
-    def validate(self) -> list[str]:
-        """Validate the graph structure. Returns list of errors."""
+    def stable_id(self) -> str:
+        # #213: 按 name + 内容 hash 生成稳定 graph_id.
+        # 下游 cron/缓存/GUI 绑定 graph_id 跨 sync/重启稳定, 无需每次回填.
+        # hash 输入 = name + 规范化节点/边 JSON (sort_keys 稳定序).
+        canonical = json.dumps(
+            {
+                "name": self.name,
+                "nodes": {nid: n.to_dict() for nid, n in self.nodes.items()},
+                "edges": [e.to_dict() for e in self.edges],
+                "start_node_id": self.start_node_id,
+            },
+            sort_keys=True,
+            ensure_ascii=False,
+        )
+        return hashlib.md5(canonical.encode("utf-8")).hexdigest()[:16]
+
+    def validate(self, tool_registry: Any = None) -> list[str]:
+        # #215: 校验结构 + (可选) 内容 schema. 传 tool_registry 则查 tool_name 注册,
+        # 预解析 condition_expr, 提示 output_mapping/tool_params 未知 key (warning).
+        # 不传 registry 则仅结构校验, 保持向后兼容. error=硬错, "warning:"=软提示.
         errors = []
         if not self.start_node_id:
             errors.append("Graph has no start node")
@@ -229,6 +248,53 @@ class AgentGraph:
             for nid in self.nodes:
                 if nid not in reachable and nid != self.start_node_id:
                     errors.append(f"Node '{nid}' is unreachable from start")
+        # #215: 内容 schema 校验 (需 tool_registry, 否则跳过 tool_name/tool_params).
+        import re as _re
+
+        comp_pat = _re.compile(r"(\w+)\s*(>=|<=|!=|==|>|<)\s*(.+)")
+        in_pat = _re.compile(r'["\'](.+?)["\']\s+in\s+(\w+)')
+        known_tool_names: set[str] = set()
+        if tool_registry is not None:
+            for t in tool_registry.list_tools():
+                known_tool_names.add(t.get("name", ""))
+        for nid, node in self.nodes.items():
+            # tool_name ∈ registry (拼写/注册错 create 时即报)
+            if node.type == "tool" and node.tool_name:
+                if tool_registry is not None and node.tool_name not in known_tool_names:
+                    errors.append(
+                        f"Node '{nid}' tool_name '{node.tool_name}' not in registry"
+                    )
+            # condition_expr 预解析 (语法错 create 时报)
+            if node.type == "condition" and node.condition_expr:
+                expr = node.condition_expr.strip()
+                low = expr.lower()
+                is_lit = low in ("true", "false")
+                is_ctx = low in ("has_tool_calls", "has_error", "has_result")
+                is_comp = bool(comp_pat.match(expr))
+                is_in = bool(in_pat.match(expr))
+                is_not = low.startswith("not ")
+                is_or = bool(_re.search(r"\bor\b", low))
+                is_and = bool(_re.search(r"\band\b", low))
+                if not (is_lit or is_ctx or is_comp or is_in or is_not or is_or or is_and):
+                    errors.append(
+                        f"Node '{nid}' condition_expr unparseable: {expr[:60]!r}"
+                    )
+            # tool_params 未知 key warning (output_mapping 是约定 key, 跳过)
+            if node.type == "tool" and node.tool_name and tool_registry is not None:
+                tool = tool_registry.get(node.tool_name) if node.tool_name in known_tool_names else None
+                if tool is not None:
+                    schema_params = set()
+                    for p in getattr(tool, "parameters", []) or []:
+                        schema_params.add(p.get("name", ""))
+                    schema_params.discard("")
+                    for key in node.tool_params:
+                        if key == "output_mapping":
+                            continue
+                        if schema_params and key not in schema_params:
+                            errors.append(
+                                f"warning: Node '{nid}' tool_params key '{key}' "
+                                f"not in tool '{node.tool_name}' schema"
+                            )
         return errors
 
     def _reachable_nodes(self) -> set[str]:
