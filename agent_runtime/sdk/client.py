@@ -7,16 +7,26 @@ logger = logging.getLogger(__name__)
 
 
 class AgentClient:
-    def __init__(self, socket_path: str = ""):
+    def __init__(self, socket_path: str = "", default_timeout: float | None = None):
         if not socket_path:
             import os
 
             socket_path = os.path.expanduser("~/.fusion-agent-studio/daemon.sock")
         self.socket_path = socket_path
+        # #207: per-call timeout fallback. None keeps legacy hang-forever so
+        # existing callers (cron handler 调 daemon 内部直调不经此 client)不变.
+        # CLI/cron-触发脚本传 default_timeout=120 或 per-call timeout 防 daemon
+        # hung 时 readline 永久 await 挂死进程.
+        self.default_timeout = default_timeout
         self._request_id = 0
         logger.info("AgentClient init, socket=%s", socket_path)
 
-    async def call(self, method: str, params: dict | None = None) -> dict:
+    async def call(
+        self,
+        method: str,
+        params: dict | None = None,
+        timeout: float | None = None,
+    ) -> dict:
         self._request_id += 1
         request = {
             "jsonrpc": "2.0",
@@ -24,7 +34,11 @@ class AgentClient:
             "method": method,
             "params": params or {},
         }
-        logger.debug("RPC call: %s", method)
+        # per-call timeout 优先, 否则回退 __init__ default_timeout, 均空则永久等待(向后兼容).
+        effective_timeout = timeout if timeout is not None else self.default_timeout
+        logger.debug("RPC call: %s (timeout=%s)", method, effective_timeout)
+
+        import asyncio
 
         try:
             reader, writer = await self._connect()
@@ -32,7 +46,12 @@ class AgentClient:
             writer.write(data.encode())
             await writer.drain()
 
-            response_data = await reader.readline()
+            # #207: wait_for 包 readline. daemon 接请求但不回 (事件循环卡死 /
+            # graph 长任务 / handler 内死等) 时 readline 永久 await, 调用方挂死.
+            if effective_timeout is not None:
+                response_data = await asyncio.wait_for(reader.readline(), timeout=effective_timeout)
+            else:
+                response_data = await reader.readline()
             writer.close()
             try:
                 await writer.wait_closed()
@@ -53,7 +72,16 @@ class AgentClient:
 
             return response.get("result", {})
 
-        except ConnectionRefusedError:
+        except asyncio.TimeoutError:
+            logger.error(
+                "RPC %s timeout after %ss (daemon hung or no response)",
+                method,
+                effective_timeout,
+            )
+            return {"error": f"rpc timeout {effective_timeout}s for {method}"}
+        except (ConnectionRefusedError, FileNotFoundError):
+            # ConnectionRefused: socket 存在但 daemon 未监听; FileNotFoundError:
+            # socket 文件不存在 (daemon 从未起/已清理). 统一友好消息.
             logger.error("Daemon not running at %s", self.socket_path)
             return {"error": f"Daemon not running at {self.socket_path}"}
         except Exception as e:
