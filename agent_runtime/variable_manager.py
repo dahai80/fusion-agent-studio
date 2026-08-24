@@ -62,11 +62,22 @@ class VariableManager:
         return current
 
     def interpolate(self, template: str) -> str:
-        """Replace {{ variable.name }} placeholders with actual values."""
+        """Replace {{ variable.name }} placeholders with actual values.
+
+        #211: 复杂类型 (dict/list/bool/None) 产合法 JSON 串, 非 Python repr.
+        str(dict) = 单引号 repr, 下游 json.loads 崩; json.dumps 双引号合法.
+        标量 (str/int/float) 保持 str() 原样, 避免字符串被多余引号包裹.
+        """
 
         def replacer(match):
             var_name = match.group(1).strip()
             value = self.get(var_name, "")
+            if isinstance(value, (dict, list, tuple)):
+                return json.dumps(value, ensure_ascii=False)
+            if value is None:
+                return "null"
+            if isinstance(value, bool):
+                return "true" if value else "false"
             return str(value)
 
         return re.sub(r"\{\{(.+?)\}\}", replacer, template)
