@@ -170,6 +170,15 @@ MLX_BASE_URL = os.environ.get(
 )
 
 
+def _resolve_mlx_base_url() -> str:
+    # 审计 E-18: MLX_BASE_URL 模块级常量 import 时冻结, 改 env 后需重启 daemon.
+    # 运行时热切 gateway 走此函数 (每次读 env), 不再依赖冻结常量.
+    port = os.environ.get("FUSION_MLX_PORT", str(_MLX_PORT_DEFAULT))
+    return os.environ.get(
+        "FUSION_GATEWAY_URL", f"http://127.0.0.1:{port}/v1"
+    )
+
+
 class DaemonServer:
     def __init__(
         self,
@@ -205,6 +214,17 @@ class DaemonServer:
         self._mlx_start_lock = asyncio.Lock()
         self._active_executions: dict[str, asyncio.Task] = {}
         self._code_tasks: dict[str, dict] = {}
+        # 审计 E-13: _code_tasks 原无 TTL/无 LRU/无显式删除, 长跑 daemon (launchd
+        # 保活) 下线性膨胀至 OOM. 加 TTL 清理 (默认 1h, FUSION_CODE_TASK_TTL 秒)
+        # + 容量上限 (默认 1000, FUSION_CODE_TASK_MAX). 完成态任务过期自动删.
+        def _envint(name: str, default: int) -> int:
+            raw = os.environ.get(name, "").strip()
+            try:
+                return int(raw) if raw else default
+            except ValueError:
+                return default
+        self._code_tasks_ttl = _envint("FUSION_CODE_TASK_TTL", 3600)
+        self._code_tasks_max = _envint("FUSION_CODE_TASK_MAX", 1000)
         self._server: asyncio.Server | None = None
         self._running = False
         # #214: graph.execute 并发节流 opt-in. env FUSION_GRAPH_CONCURRENCY=N
@@ -254,6 +274,38 @@ class DaemonServer:
         raise AttributeError(
             f"'{type(self).__name__}' object has no attribute '{name}'"
         )
+
+    def _reap_code_tasks(self) -> None:
+        # 审计 E-13: 清理过期/超容的 _code_tasks. 完成态 (completed/cancelled/
+        # failed) 超 TTL 删; 超容量上限删最旧. 在途 (running/pending) 不删.
+        # 调用方: submit 前扫一次 + status/tasks 读时扫一次, 摊销 O(n).
+        if not self._code_tasks:
+            return
+        now = time.time()
+        ttl = self._code_tasks_ttl
+        reapable = []
+        for tid, t in self._code_tasks.items():
+            if t.get("status") in ("running", "pending"):
+                continue
+            created = t.get("created_at") or 0
+            if ttl > 0 and (now - created) > ttl:
+                reapable.append(tid)
+        for tid in reapable:
+            self._code_tasks.pop(tid, None)
+        if reapable:
+            logger.info("E-13 reaped %d expired code_tasks", len(reapable))
+        # 容量上限: 超限删最旧完成态.
+        if len(self._code_tasks) > self._code_tasks_max:
+            done = sorted(
+                ((t.get("created_at") or 0, tid) for tid, t in self._code_tasks.items()
+                 if t.get("status") not in ("running", "pending")),
+                key=lambda x: x[0],
+            )
+            excess = len(self._code_tasks) - self._code_tasks_max
+            for _, tid in done[:excess]:
+                self._code_tasks.pop(tid, None)
+            if done[:excess]:
+                logger.info("E-13 evicted %d over-capacity code_tasks", len(done[:excess]))
 
     def _get_runtime(self) -> AgentRuntime:
         if self._runtime is None:
@@ -599,6 +651,23 @@ class DaemonServer:
         for task in self._active_executions.values():
             if not task.done():
                 task.cancel()
+        # 审计 E-15: stop() 原取消后立即 store.close(), 在途 graph 的
+        # save_checkpoint/save_session 写被打断 -> 半截事务. drain 等待在途执行
+        # 收尾 (带超时, 防卡死), 再关 store. _active_executions 经 E-14 真实注册.
+        if self._active_executions:
+            pending = [t for t in self._active_executions.values() if not t.done()]
+            if pending:
+                logger.info("E-15 draining %d in-flight graph executions", len(pending))
+                try:
+                    await asyncio.wait_for(
+                        asyncio.gather(*pending, return_exceptions=True),
+                        timeout=10.0,
+                    )
+                except asyncio.TimeoutError:
+                    logger.warning(
+                        "E-15 drain timed out after 10s, %d executions still running",
+                        sum(1 for t in pending if not t.done()),
+                    )
         if hasattr(self, "_cron_manager") and self._cron_manager:
             self._cron_manager.close()
         if hasattr(self, "_vector_strategy") and self._vector_strategy:
@@ -744,8 +813,11 @@ class DaemonServer:
             logger.exception("Handler error for %s", method)
             return self._error_response(msg_id, -32000, str(e))
 
-    def _get_handler(self, method: str):
-        core = {
+    def _core_handlers(self) -> dict:
+        # 审计 E-17: 核心 RPC handler dict 原两处重复 (_get_handler +
+        # _handle_rpc_discover), 新增 RPC 漏改一处则该传输路径 404. 单真相源,
+        # 两调用方共用, 杜绝漂移.
+        return {
             "budget.set": self._handle_budget_set,
             "budget.status": self._handle_budget_status,
             "context.compact": self._handle_context_compact,
@@ -757,6 +829,7 @@ class DaemonServer:
             "graph.delete": self._handle_graph_delete,
             "graph.purge_test": self._handle_graph_purge_test,
             "graph.execute": self._handle_graph_execute,
+            "graph.resume": self._handle_graph_resume,
             "graph.get": self._handle_graph_get,
             "graph.list": self._handle_graph_list,
             "graph.update": self._handle_graph_update,
@@ -768,6 +841,7 @@ class DaemonServer:
             "mlx.status": self._handle_mlx_status,
             "mlx.stop": self._handle_mlx_stop,
             "mlx.switch_model_mid_turn": self._handle_mlx_switch_model_mid_turn,
+            "gateway.reconfigure": self._handle_gateway_reconfigure,
             "hardware.metrics": self._handle_hardware_metrics,
             "ping": self._handle_ping,
             "daemon.ping": self._handle_daemon_ping,
@@ -792,7 +866,9 @@ class DaemonServer:
             "tool.list": self._handle_tool_list,
             "tool.set_timeout": self._handle_tool_set_timeout,
         }
-        handler = core.get(method)
+
+    def _get_handler(self, method: str):
+        handler = self._core_handlers().get(method)
         if handler:
             return handler
         for sd in self._sub_dispatchers:
@@ -913,54 +989,7 @@ class DaemonServer:
 
     async def _handle_rpc_discover(self, params: dict) -> dict:
         methods = {}
-        core = {
-            "budget.set": self._handle_budget_set,
-            "budget.status": self._handle_budget_status,
-            "context.compact": self._handle_context_compact,
-            "context.usage": self._handle_context_usage,
-            "env.health_check": self._handle_env_health_check,
-            "env.repair": self._handle_env_repair,
-            "env.repair_all": self._handle_env_repair_all,
-            "graph.create": self._handle_graph_create,
-            "graph.delete": self._handle_graph_delete,
-            "graph.purge_test": self._handle_graph_purge_test,
-            "graph.execute": self._handle_graph_execute,
-            "graph.get": self._handle_graph_get,
-            "graph.list": self._handle_graph_list,
-            "graph.update": self._handle_graph_update,
-            "mlx.health": self._handle_mlx_health,
-            "mlx.infer": self._handle_mlx_infer,
-            "mlx.restart": self._handle_mlx_restart,
-            "mlx.set_model": self._handle_mlx_set_model,
-            "mlx.start": self._handle_mlx_start,
-            "mlx.status": self._handle_mlx_status,
-            "mlx.stop": self._handle_mlx_stop,
-            "mlx.switch_model_mid_turn": self._handle_mlx_switch_model_mid_turn,
-            "hardware.metrics": self._handle_hardware_metrics,
-            "ping": self._handle_ping,
-            "daemon.ping": self._handle_daemon_ping,
-            "daemon.status": self._handle_daemon_status,
-            "daemon.shutdown": self._handle_daemon_shutdown,
-            "rpc.discover": self._handle_rpc_discover,
-            "session.attach": self._handle_session_attach,
-            "session.background_kill": self._handle_session_background_kill,
-            "session.background_list": self._handle_session_background_list,
-            "session.detach": self._handle_session_detach,
-            "session.fork": self._handle_session_fork,
-            "session.get_accessibility": self._handle_session_get_accessibility,
-            "session.list": self._handle_session_list,
-            "session.set_accessibility": self._handle_session_set_accessibility,
-            "tool.background_status": self._handle_tool_background_status,
-            "tool.dynamic_register": self._handle_tool_dynamic_register,
-            "tool.dynamic_unregister": self._handle_tool_dynamic_unregister,
-            "tool.register_python": self._handle_tool_register_python,
-            "tool.get": self._handle_tool_get,
-            "tool.get_schema": self._handle_tool_get_schema,
-            "tool.list": self._handle_tool_list,
-            "tool.set_timeout": self._handle_tool_set_timeout,
-            "tool.call": self._handle_tool_call,
-        }
-        methods.update(core)
+        methods.update(self._core_handlers())  # E-17: 单真相源, 不再重复 dict
         for sd in self._sub_dispatchers:
             methods.update(sd.get_handlers())
         return {"methods": sorted(methods.keys()), "count": len(methods)}
@@ -1339,120 +1368,164 @@ class DaemonServer:
             raise ValueError(f"Graph not found: {graph_id}")
 
         rt = self._get_runtime()
-        initial_vars = params.get("variables", {})
-        if isinstance(initial_vars, dict):
-            for k, v in initial_vars.items():
-                rt.variables.set(str(k), v)
-            logger.info(
-                "graph.execute %s pre-set %d variables: %s",
-                graph_id,
-                len(initial_vars),
-                list(initial_vars.keys()),
-            )
-        # 声明工具配置注入 (#125/#131): agent_id 优先取 params, 回退 graph 元数据.
-        # graph 内嵌 agent_id 让 CLI/GUI 等任意调用方零改动触发注入.
-        agent_id = params.get("agent_id", "") or getattr(graph, "agent_id", "")
-        if agent_id:
-            try:
-                from .agent_definition import AgentDefinition
-
-                defn_path = os.path.join(
-                    str(self._agent_dir(agent_id)), "definition.json"
-                )
-                if os.path.exists(defn_path):
-                    with open(defn_path) as f:
-                        definition = AgentDefinition.from_dict(json.load(f))
-                    rt.set_tool_configs(definition)
-                    logger.info(
-                        "graph.execute %s loaded tool configs from agent %s",
-                        graph_id,
-                        agent_id,
-                    )
-            except Exception as exc:
-                logger.warning(
-                    "graph.execute %s load tool configs failed: %s",
+        # 审计 E-14: 注册当前 task 到 _active_executions, 让 daemon.status 报真实
+        # 活跃数 + stop() 可取消/等待. graph.execute 在调用方 RPC task 内同步跑,
+        # 旧版从不注册 -> status 恒 0 + stop 啥也不停. try/finally 保证注销.
+        exec_key = f"{graph_id}:{task_id or session_id or id(rt)}"
+        self._active_executions[exec_key] = asyncio.current_task()
+        try:
+            initial_vars = params.get("variables", {})
+            if isinstance(initial_vars, dict):
+                for k, v in initial_vars.items():
+                    rt.variables.set(str(k), v)
+                logger.info(
+                    "graph.execute %s pre-set %d variables: %s",
                     graph_id,
-                    exc,
+                    len(initial_vars),
+                    list(initial_vars.keys()),
                 )
-        events = []
-        tool_errors: list[str] = []
+            # 声明工具配置注入 (#125/#131): agent_id 优先取 params, 回退 graph 元数据.
+            # graph 内嵌 agent_id 让 CLI/GUI 等任意调用方零改动触发注入.
+            agent_id = params.get("agent_id", "") or getattr(graph, "agent_id", "")
+            if agent_id:
+                try:
+                    from .agent_definition import AgentDefinition
 
-        # #141 priority-4: 关联 task 时, 执行前置 running.
-        artifact_ids: list[str] = []
-        if task_id:
-            try:
-                ts = self._get_task_store()
-                ts.update_status(task_id, "running")
-                logger.info("graph.execute %s linked task %s -> running", graph_id, task_id)
-            except Exception as exc:
-                logger.warning("graph.execute %s set task %s running failed: %s", graph_id, task_id, exc)
+                    defn_path = os.path.join(
+                        str(self._agent_dir(agent_id)), "definition.json"
+                    )
+                    if os.path.exists(defn_path):
+                        with open(defn_path) as f:
+                            definition = AgentDefinition.from_dict(json.load(f))
+                        rt.set_tool_configs(definition)
+                        logger.info(
+                            "graph.execute %s loaded tool configs from agent %s",
+                            graph_id,
+                            agent_id,
+                        )
+                except Exception as exc:
+                    logger.warning(
+                        "graph.execute %s load tool configs failed: %s",
+                        graph_id,
+                        exc,
+                    )
+            events = []
+            tool_errors: list[str] = []
 
-        # #214: 并发节流. 有 Semaphore 时 acquire 再执行, 超限排队等待 (不拒).
-        # 无 Semaphore (默认) 直接执行, 行为不变.
-        async def _run_stream():
-            async for event in rt.execute_graph(graph, input_text):
+            # #141 priority-4: 关联 task 时, 执行前置 running.
+            artifact_ids: list[str] = []
+            if task_id:
+                try:
+                    ts = self._get_task_store()
+                    ts.update_status(task_id, "running")
+                    logger.info("graph.execute %s linked task %s -> running", graph_id, task_id)
+                except Exception as exc:
+                    logger.warning("graph.execute %s set task %s running failed: %s", graph_id, task_id, exc)
+
+            # #214: 并发节流. 有 Semaphore 时 acquire 再执行, 超限排队等待 (不拒).
+            # 无 Semaphore (默认) 直接执行, 行为不变.
+            async def _run_stream():
+                async for event in rt.execute_graph(graph, input_text):
+                    ev_dict = (
+                        event.to_dict() if hasattr(event, "to_dict") else {"type": str(event)}
+                    )
+                    events.append(ev_dict)
+                    # 收集 artifact_create 工具产物 id, 执行后回写 task.artifact_ids.
+                    if (
+                        ev_dict.get("type") == "tool_result"
+                        and ev_dict.get("name") == "artifact_create"
+                    ):
+                        aid = self._extract_artifact_id(ev_dict.get("content", ""))
+                        if aid:
+                            artifact_ids.append(aid)
+                    # #202: count tool errors emitted by stop_on_tool_error cascade stop.
+                    if (
+                        ev_dict.get("type") == "error"
+                        and ev_dict.get("metadata", {}).get("tool_error")
+                    ):
+                        tool_errors.append(
+                            f"{ev_dict.get('name','?')}: {ev_dict.get('content','')[:200]}"
+                        )
+
+            if self._graph_semaphore is not None:
+                async with self._graph_semaphore:
+                    logger.info("graph.execute %s acquired concurrency slot", graph_id)
+                    await _run_stream()
+            else:
+                await _run_stream()
+
+            logger.info("Graph %s executed: %d events tool_errors=%d", graph_id, len(events), len(tool_errors))
+
+            # #141 priority-4: 关联 task 时, 回写 artifact_ids + 完成状态 + last_result.
+            if task_id:
+                try:
+                    ts = self._get_task_store()
+                    if artifact_ids:
+                        ts.add_artifacts(task_id, artifact_ids)
+                    ts.update_status(
+                        task_id,
+                        "completed",
+                        last_result={
+                            "session_id": session_id or f"sess-{int(time.time())}",
+                            "events": len(events),
+                            "artifact_ids": artifact_ids,
+                        },
+                    )
+                    logger.info(
+                        "graph.execute %s linked task %s -> completed, artifacts=%s",
+                        graph_id,
+                        task_id,
+                        artifact_ids,
+                    )
+                except Exception as exc:
+                    logger.warning("graph.execute %s writeback task %s failed: %s", graph_id, task_id, exc)
+
+            return {
+                "session_id": session_id or f"sess-{int(time.time())}",
+                "events": events,
+                "status": "completed",
+                "task_id": task_id,
+                "artifact_ids": artifact_ids,
+                "tool_errors": tool_errors,
+            }
+        finally:
+            # 审计 E-14: 注销活跃执行, 无论成功/异常/取消.
+            self._active_executions.pop(exec_key, None)
+
+    async def _handle_graph_resume(self, params: dict) -> dict:
+        # 审计 E-20: 闭合 checkpoint 读路径. 旧版只写不读 (write-only stage),
+        # resume_from_checkpoint 存在但无 RPC 暴露 + 签名错致 TypeError.
+        graph_id = params.get("graph_id", "")
+        session_id = params.get("session_id", "")
+        stream = bool(params.get("stream", False))
+        if not graph_id or not session_id:
+            return {"error": "graph_id and session_id are required"}
+        graph = self.store.load_graph(graph_id)
+        if graph is None:
+            raise ValueError(f"Graph not found: {graph_id}")
+        rt = self._get_runtime()
+        exec_key = f"resume:{graph_id}:{session_id}"
+        self._active_executions[exec_key] = asyncio.current_task()
+        try:
+            events = []
+            async for event in rt.resume_from_checkpoint(
+                graph, session_id, stream=stream
+            ):
                 ev_dict = (
                     event.to_dict() if hasattr(event, "to_dict") else {"type": str(event)}
                 )
                 events.append(ev_dict)
-                # 收集 artifact_create 工具产物 id, 执行后回写 task.artifact_ids.
-                if (
-                    ev_dict.get("type") == "tool_result"
-                    and ev_dict.get("name") == "artifact_create"
-                ):
-                    aid = self._extract_artifact_id(ev_dict.get("content", ""))
-                    if aid:
-                        artifact_ids.append(aid)
-                # #202: count tool errors emitted by stop_on_tool_error cascade stop.
-                if (
-                    ev_dict.get("type") == "error"
-                    and ev_dict.get("metadata", {}).get("tool_error")
-                ):
-                    tool_errors.append(
-                        f"{ev_dict.get('name','?')}: {ev_dict.get('content','')[:200]}"
-                    )
-
-        if self._graph_semaphore is not None:
-            async with self._graph_semaphore:
-                logger.info("graph.execute %s acquired concurrency slot", graph_id)
-                await _run_stream()
-        else:
-            await _run_stream()
-
-        logger.info("Graph %s executed: %d events tool_errors=%d", graph_id, len(events), len(tool_errors))
-
-        # #141 priority-4: 关联 task 时, 回写 artifact_ids + 完成状态 + last_result.
-        if task_id:
-            try:
-                ts = self._get_task_store()
-                if artifact_ids:
-                    ts.add_artifacts(task_id, artifact_ids)
-                ts.update_status(
-                    task_id,
-                    "completed",
-                    last_result={
-                        "session_id": session_id or f"sess-{int(time.time())}",
-                        "events": len(events),
-                        "artifact_ids": artifact_ids,
-                    },
-                )
-                logger.info(
-                    "graph.execute %s linked task %s -> completed, artifacts=%s",
-                    graph_id,
-                    task_id,
-                    artifact_ids,
-                )
-            except Exception as exc:
-                logger.warning("graph.execute %s writeback task %s failed: %s", graph_id, task_id, exc)
-
-        return {
-            "session_id": session_id or f"sess-{int(time.time())}",
-            "events": events,
-            "status": "completed",
-            "task_id": task_id,
-            "artifact_ids": artifact_ids,
-            "tool_errors": tool_errors,
-        }
+            logger.info(
+                "graph.resume %s session=%s events=%d", graph_id, session_id, len(events)
+            )
+            return {
+                "graph_id": graph_id,
+                "session_id": session_id,
+                "events": events,
+                "status": "completed",
+            }
+        finally:
+            self._active_executions.pop(exec_key, None)
 
     def _extract_artifact_id(self, content: str) -> str:
         # #141 priority-4: 从 artifact_create 工具结果 JSON 提取 artifact_id.
@@ -2285,13 +2358,15 @@ class DaemonServer:
     def _attach_mlx_client(self) -> None:
         from server.fusion_mlx_client import FusionMLXClient
 
+        # 审计 E-18: 用运行时解析函数替代冻结常量, 支持 env 热切后重 attach.
+        base_url = _resolve_mlx_base_url()
         api_key = self._resolve_mlx_api_key_for_attach()
-        client = FusionMLXClient(base_url=MLX_BASE_URL, api_key=api_key)
+        client = FusionMLXClient(base_url=base_url, api_key=api_key)
         self._gateway.set_default_client(client)
         loaded = self._discover_mlx_model_id(api_key)
         if loaded:
             self._gateway._default_model = loaded
-            self._gateway.register_default_local(name=loaded, base_url=MLX_BASE_URL)
+            self._gateway.register_default_local(name=loaded, base_url=base_url)
         # issue #170: gateway 路径转发上游失败 (502) 时, 直连 fusion-mlx 11434 兜底.
         # 直连路径 _default_client 已指 11434, 无需重复.
         if self._is_gateway_path():
@@ -2382,6 +2457,11 @@ class DaemonServer:
         ]
         for path in candidates:
             try:
+                # 审计 E-22: 静态凭据存储, 读时顺手收紧文件权限到 0o600 (umask 可能留 644).
+                try:
+                    os.chmod(path, 0o600)
+                except OSError:
+                    pass
                 with open(path) as f:
                     data = json.load(f)
                 # 实际密钥存放在嵌套的 auth.api_key (顶层 api_key 通常为空)
@@ -2514,6 +2594,27 @@ class DaemonServer:
             return {"switched": True, "model": model}
         except Exception as e:
             return {"switched": False, "error": str(e)}
+
+    async def _handle_gateway_reconfigure(self, params: dict) -> dict:
+        # 审计 E-18: MLX_BASE_URL import 时冻结, gateway 切换需重启 daemon.
+        # 此 RPC 热切: 接收 base_url (可选, 缺省读 env FUSION_GATEWAY_URL/FUSION_MLX_PORT)
+        # + 重建 default/direct client + 重新发现 model, 无需重启.
+        base_url = (params.get("base_url") or "").strip()
+        if base_url:
+            os.environ["FUSION_GATEWAY_URL"] = base_url
+        try:
+            self._attach_mlx_client()
+            new_url = getattr(self._gateway._default_client, "base_url", "?")
+            logger.info("gateway reconfigured: base_url=%s", new_url)
+            return {
+                "reconfigured": True,
+                "base_url": new_url,
+                "default_model": self._gateway._default_model or "",
+                "gateway_path": self._is_gateway_path(),
+            }
+        except Exception as e:
+            logger.error("gateway.reconfigure failed: %s", e)
+            return {"reconfigured": False, "error": str(e)}
 
     async def _handle_session_set_accessibility(self, params: dict) -> dict:
         if not hasattr(self, "_accessibility"):

@@ -150,6 +150,15 @@ class AgentStore:
                 ON workflow_runs(workflow_id, created_at DESC);
         """)
         conn.commit()
+        # 审计 E-20: checkpoints 缺 graph_id/state_json 列, save/load 签名不匹配致
+        # 写静默失败 + resume 报 "No checkpoint found". 补列 (IF NOT EXISTS 模式不
+        # 改老表, 需 ALTER). 用 PRAGMA table_info 探列存在再 ALTER, 避重复报错.
+        cols = {row[1] for row in conn.execute("PRAGMA table_info(checkpoints)")}
+        if "graph_id" not in cols:
+            conn.execute("ALTER TABLE checkpoints ADD COLUMN graph_id TEXT DEFAULT ''")
+        if "state_json" not in cols:
+            conn.execute("ALTER TABLE checkpoints ADD COLUMN state_json TEXT DEFAULT '{}'")
+        conn.commit()
 
     # ── Graph CRUD ──
 
@@ -281,37 +290,68 @@ class AgentStore:
     # ── Checkpoint Management ──
 
     def save_checkpoint(
-        self, session_id: str, context: AgentContext, current_node_id: str
+        self,
+        graph_id: str = "",
+        session_id: str = "",
+        node_id: str = "",
+        state: dict | None = None,
     ) -> int:
-        """Save an execution checkpoint. Returns checkpoint ID."""
+        # 审计 E-20: 签名对齐 runtime._save_checkpoint 调用 (graph_id/session_id/
+        # node_id/state). state 含 messages/iteration_count/variables/工具链计数.
+        # context_json 保留兼容老读路径, 写 state_json 为 resume 真真源.
+        # 兼容老签名 save_checkpoint(session_id, context, current_node_id):
+        # ctx 落到 session_id 形参槽, 检测后回填. state 取 ctx.to_dict()
+        # 保 from_dict 完整往返 (session_id/agent_id/metadata 等).
+        if isinstance(session_id, AgentContext):
+            ctx = session_id
+            session_id = ctx.session_id
+            state = ctx.to_dict()
+            node_id = node_id or ctx.current_node_id or ""
+            graph_id = graph_id or ""
+        state = state or {}
+        iteration = int(state.get("iteration_count", 0))
         with self._cursor() as conn:
             cursor = conn.execute(
-                """INSERT INTO checkpoints (session_id, context_json, current_node_id, iteration_count, created_at)
-                   VALUES (?, ?, ?, ?, ?)""",
+                """INSERT INTO checkpoints
+                   (session_id, graph_id, context_json, state_json,
+                    current_node_id, iteration_count, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
                 (
                     session_id,
-                    json.dumps(context.to_dict()),
-                    current_node_id,
-                    context.iteration_count,
+                    graph_id,
+                    json.dumps(state),
+                    json.dumps(state),
+                    node_id,
+                    iteration,
                     time.time(),
                 ),
             )
         return cursor.lastrowid or 0
 
-    def load_latest_checkpoint(self, session_id: str) -> Checkpoint | None:
-        """Load the most recent checkpoint for a session."""
+    def load_latest_checkpoint(
+        self, session_id: str = "", graph_id: str = ""
+    ) -> Checkpoint | None:
+        # 审计 E-20: 支持 graph_id 过滤; 老表无 graph_id 列时退化为 session-only.
         with self._cursor() as conn:
-            row = conn.execute(
-                """SELECT * FROM checkpoints
-                   WHERE session_id = ?
-                   ORDER BY created_at DESC LIMIT 1""",
-                (session_id,),
-            ).fetchone()
+            if graph_id:
+                row = conn.execute(
+                    """SELECT * FROM checkpoints
+                       WHERE session_id = ? AND graph_id = ?
+                       ORDER BY created_at DESC LIMIT 1""",
+                    (session_id, graph_id),
+                ).fetchone()
+            else:
+                row = conn.execute(
+                    """SELECT * FROM checkpoints
+                       WHERE session_id = ?
+                       ORDER BY created_at DESC LIMIT 1""",
+                    (session_id,),
+                ).fetchone()
         if row is None:
             return None
         return Checkpoint(
             session_id=row["session_id"],
-            graph_id="",
+            graph_id=row["graph_id"] if "graph_id" in row.keys() else "",
             context_json=row["context_json"],
             current_node_id=row["current_node_id"],
             iteration_count=row["iteration_count"],

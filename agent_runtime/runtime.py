@@ -906,10 +906,15 @@ class AgentRuntime:
             return
 
         ctx = AgentContext(session_id=session_id)
-        state = checkpoint.get("state", {})
+        # 审计 E-20: Checkpoint 是 dataclass 非 dict, 用属性 + 解析 state_json.
+        raw_state = checkpoint.context_json or "{}"
+        try:
+            state = json.loads(raw_state) if raw_state else {}
+        except (json.JSONDecodeError, TypeError):
+            state = {}
         ctx.messages = state.get("messages", [])
         ctx.iteration_count = state.get("iteration_count", 0)
-        ctx.current_node_id = checkpoint.get("node_id", graph.start_node_id)
+        ctx.current_node_id = checkpoint.current_node_id or graph.start_node_id
         self._tool_call_chain_count = state.get("tool_call_chain_count", 0)
 
         saved_vars = state.get("variables", {})
@@ -926,7 +931,7 @@ class AgentRuntime:
         yield AgentEvent(
             type=AgentEventType.CHECKPOINT,
             content=f"Resumed from checkpoint at node '{ctx.current_node_id}'",
-            metadata={"checkpoint": checkpoint},
+            metadata={"checkpoint": checkpoint.to_dict()},
         )
 
         exec_fn = self.execute_graph_stream if stream else self.execute_graph

@@ -533,6 +533,10 @@ class ChatEngine:
                 resp = await self.runtime.llm_gateway.chat(
                     messages=history, model="default"
                 )
+                # 审计 E-12: gateway finish_reason=="error" 哨兵 content="" 不代表成功.
+                if getattr(resp, "finish_reason", "") == "error":
+                    err = (getattr(resp, "usage", None) or {}).get("error", "gateway error")
+                    raise RuntimeError(f"LLM gateway error: {err}")
                 if resp.content:
                     yield ChatEvent(type=ChatEventType.TOKEN, content=resp.content)
         except Exception as e:

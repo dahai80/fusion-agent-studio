@@ -94,6 +94,11 @@ class ApiKeyManager:
 
     def _load_index(self) -> None:
         if self.index_path.exists():
+            # 审计 E-22: 老文件可能 umask 644 组可读, 加载时强制收紧到 0o600.
+            try:
+                os.chmod(self.index_path, 0o600)
+            except OSError as exc:
+                logger.warning("Could not tighten apikeys index perms: %s", exc)
             try:
                 with open(self.index_path, "r", encoding="utf-8") as f:
                     data = json.load(f)
@@ -109,14 +114,16 @@ class ApiKeyManager:
         if self._keys:
             return
         logger.info("No API keys found, creating bootstrap key")
-        result = self.create(
+        self.create(
             name="bootstrap",
             permissions=["agent:execute", "apikey:manage", "admin"],
         )
+        # 审计 E-22: 不把明文 key (含前缀片段) 写进磁盘日志. daemon 日志持久化,
+        # 记完整 key/prefix = 静态泄露面. 仅记载体标识 (fk-***), 完整 key 经
+        # create RPC 返回给调用方一次性保存.
         logger.warning(
-            "Bootstrap API key created (one-time): %s  — save this now, "
-            "it will not be shown again",
-            result.get("key", ""),
+            "Bootstrap API key created (one-time), prefix=fk-*** — full key returned "
+            "via create RPC, save it now; it will not be shown again",
         )
 
     def _persist_index(self) -> None:

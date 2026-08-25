@@ -700,6 +700,10 @@ class WorkflowEngine:
                 response = await self.llm_gateway.chat(
                     messages=messages, temperature=0.3, max_tokens=2048
                 )
+                # 审计 E-12: gateway finish_reason=="error" 哨兵 content="" 不代表成功.
+                if getattr(response, "finish_reason", "") == "error":
+                    err = (getattr(response, "usage", None) or {}).get("error", "gateway error")
+                    raise RuntimeError(f"LLM gateway error: {err}")
                 content = ""
                 if hasattr(response, "content"):
                     content = response.content or ""

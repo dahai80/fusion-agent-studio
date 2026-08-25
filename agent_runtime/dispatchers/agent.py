@@ -823,6 +823,7 @@ class AgentDispatcher(SubDispatcher):
             "error": None,
             "created_at": __import__("time").time(),
         }
+        self._daemon._reap_code_tasks()  # E-13: 提交前清理过期/超容
         self._daemon._code_tasks[task_id] = task
         logger.info("agent.submit_code_task: task=%s agent=%s", task_id, agent_id)
 
@@ -919,6 +920,7 @@ class AgentDispatcher(SubDispatcher):
     async def _handle_agent_tasks(self, params: dict) -> dict:
         agent_id = params.get("agent_id")
         status_filter = params.get("status")
+        self._daemon._reap_code_tasks()  # E-13: 读时清理过期/超容
         tasks = list(self._daemon._code_tasks.values())
         if agent_id:
             tasks = [t for t in tasks if t["agent_id"] == agent_id]
