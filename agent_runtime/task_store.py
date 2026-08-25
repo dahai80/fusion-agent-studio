@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import logging
 import sqlite3
+import threading
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -149,6 +150,9 @@ class TaskStore:
         self._tasks: dict[str, Task] = {}
         self._db_path = db_path
         self._conn: sqlite3.Connection | None = None
+        # 审计 A-6/R-1/3M-1/3M-3: 跨线程共享单连接无锁无 WAL 致写竞态 + _id_seq 非线程安全.
+        # Lock 串行化所有 DB 操作与 _id_seq 自增; WAL 让读不堵写; busy_timeout 等锁.
+        self._write_lock = threading.RLock()
         # 自增序号, 配合毫秒时间戳生成唯一 task_id, 避免同毫秒并发提交撞 id.
         self._id_seq = 0
         if db_path:
@@ -161,6 +165,9 @@ class TaskStore:
         path = Path(db_path)
         path.parent.mkdir(parents=True, exist_ok=True)
         self._conn = sqlite3.connect(str(path), check_same_thread=False)
+        self._conn.execute("PRAGMA journal_mode=WAL")
+        self._conn.execute("PRAGMA synchronous=NORMAL")
+        self._conn.execute("PRAGMA busy_timeout=5000")
         self._conn.execute(
             """
             CREATE TABLE IF NOT EXISTS tasks (
@@ -208,62 +215,62 @@ class TaskStore:
     def _load_tasks(self) -> None:
         if not self._conn:
             return
-        rows = self._conn.execute(
-            "SELECT " + ", ".join(_TASK_COLUMNS) + " FROM tasks"
-        ).fetchall()
-        for row in rows:
-            task = Task.from_row(row)
-            self._tasks[task.task_id] = task
+        with self._write_lock:
+            rows = self._conn.execute(
+                "SELECT " + ", ".join(_TASK_COLUMNS) + " FROM tasks"
+            ).fetchall()
+            for row in rows:
+                task = Task.from_row(row)
+                self._tasks[task.task_id] = task
         logger.info("Loaded %d tasks from DB", len(self._tasks))
 
     def _save_task(self, task: Task) -> None:
         if not self._conn:
             return
-        self._conn.execute(
-            """INSERT OR REPLACE INTO tasks
-               (task_id, title, description, agent_id, graph_id, trigger,
-                cron_expression, run_at, cron_job_id, input, status, priority,
-                project_id, artifact_ids, last_result, last_error, retry_count, max_retries,
-                created_at, updated_at, last_run_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (
-                task.task_id,
-                task.title,
-                task.description,
-                task.agent_id,
-                task.graph_id,
-                task.trigger,
-                task.cron_expression,
-                task.run_at,
-                task.cron_job_id,
-                task.input,
-                task.status,
-                task.priority,
-                task.project_id,
-                json.dumps(task.artifact_ids, ensure_ascii=False),
-                json.dumps(task.last_result, ensure_ascii=False),
-                task.last_error,
-                task.retry_count,
-                task.max_retries,
-                task.created_at,
-                task.updated_at,
-                task.last_run_at,
-            ),
-        )
-        self._conn.commit()
+        with self._write_lock:
+            self._conn.execute(
+                """INSERT OR REPLACE INTO tasks
+                   (task_id, title, description, agent_id, graph_id, trigger,
+                    cron_expression, run_at, cron_job_id, input, status, priority,
+                    project_id, artifact_ids, last_result, last_error, retry_count, max_retries,
+                    created_at, updated_at, last_run_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    task.task_id,
+                    task.title,
+                    task.description,
+                    task.agent_id,
+                    task.graph_id,
+                    task.trigger,
+                    task.cron_expression,
+                    task.run_at,
+                    task.cron_job_id,
+                    task.input,
+                    task.status,
+                    task.priority,
+                    task.project_id,
+                    json.dumps(task.artifact_ids, ensure_ascii=False),
+                    json.dumps(task.last_result, ensure_ascii=False),
+                    task.last_error,
+                    task.retry_count,
+                    task.max_retries,
+                    task.created_at,
+                    task.updated_at,
+                    task.last_run_at,
+                ),
+            )
+            self._conn.commit()
 
     def _delete_task(self, task_id: str) -> None:
         if not self._conn:
             return
-        self._conn.execute("DELETE FROM tasks WHERE task_id = ?", (task_id,))
-        self._conn.commit()
+        with self._write_lock:
+            self._conn.execute("DELETE FROM tasks WHERE task_id = ?", (task_id,))
+            self._conn.commit()
 
     def submit(self, task: Task) -> Task:
         # 新建/覆盖提交. 自动补 task_id/时间戳; trigger/status 走校验回退默认.
         # task_id 用 毫秒+自增序号 避免同毫秒并发提交撞 id (INSERT OR REPLACE 会覆盖).
-        if not task.task_id:
-            self._id_seq += 1
-            task.task_id = f"task_{int(time.time() * 1000)}_{self._id_seq}"
         if not task.created_at:
             task.created_at = time.time()
         task.updated_at = time.time()
@@ -272,8 +279,13 @@ class TaskStore:
             task.trigger = TRIGGER_IMMEDIATE
         if task.status not in _VALID_STATUSES:
             task.status = TASK_STATUS_PENDING
-        self._tasks[task.task_id] = task
-        self._save_task(task)
+        # 审计 P0: _id_seq 自增 + dict 写 + _save_task 必须原子, 否则并发提交撞 id 覆盖.
+        with self._write_lock:
+            if not task.task_id:
+                self._id_seq += 1
+                task.task_id = f"task_{int(time.time() * 1000)}_{self._id_seq}"
+            self._tasks[task.task_id] = task
+            self._save_task(task)
         logger.info(
             "Task submitted: %s trigger=%s graph=%s status=%s",
             task.task_id, task.trigger, task.graph_id, task.status,

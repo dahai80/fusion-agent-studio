@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 
 from .base import BaseTool
 
@@ -93,7 +94,19 @@ class CodeSandboxTool(BaseTool):
         code = kwargs.get("code", "")
         language = kwargs.get("language", "python")
         timeout = int(kwargs.get("timeout", 30))
-        use_sandbox = kwargs.get("use_sandbox", True)
+        # 审计 E-10/P0-6: `use_sandbox` 原 kwargs.get 透传 -> LLM 可传
+        # use_sandbox=False 绕 sandbox-exec, 退回裸 bash/python 全 FS+网络访问
+        # 无 AST 检查 (非 Python 本就无 AST). 服务端强制 True, 忽略 LLM 参数.
+        # FUSION_CODE_NOSANDBOX=1 仅受控环境 opt-out (与 A-3 灾难黑名单同模式).
+        requested = kwargs.get("use_sandbox", True)
+        if requested is False:
+            logger.warning(
+                "code_sandbox: LLM requested use_sandbox=False — ignored (E-10 server-enforce)"
+            )
+        allow_nosandbox = os.environ.get(
+            "FUSION_CODE_NOSANDBOX", ""
+        ).strip().lower() in ("1", "true", "yes")
+        use_sandbox = False if allow_nosandbox else True
 
         if not code:
             return "Error: code is required"

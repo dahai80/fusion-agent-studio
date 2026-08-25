@@ -18,10 +18,23 @@ logger = logging.getLogger(__name__)
 _SYSTEM_PATH_PREFIXES = (
     "/etc/", "/System/", "/Library/", "/usr/", "/private/etc/",
     "/bin/", "/sbin/",
+    "/opt/", "/root/",
 )
-_CATASTROPHIC_PATH_PARTS = (
+# 审计 E-9: 原子串匹配 (`part in sparts`) 假阳性 — `.ssh-backup` 含 `.ssh` 被挡,
+# `credentials_backup` 含 `credentials` 被挡. 改路径分量精确匹配: 目录名精确相等
+# (.ssh/.aws/...), 文件名精确相等 (id_rsa/credentials/...). 消假阳性, 不漏真敏感.
+_CATASTROPHIC_DIR_PARTS = (
     ".ssh", ".aws", ".gnupg", ".config", ".kube",
+)
+_CATASTROPHIC_FILE_NAMES = (
     "id_rsa", "id_ed25519", "credentials", ".netrc",
+    "id_dsa", "id_ecdsa", ".env",
+)
+# 审计 E-9: ~/Library/LaunchAgents|LaunchDaemons 解析成 /Users/<u>/Library/...,
+# startswith("/Library/") 为 False -> 不挡 -> LaunchAgent 持久化可写.
+# 用分量名精确匹配 LaunchAgents/LaunchDaemons (不分系统/用户 Library, 均挡写).
+_CATASTROPHIC_PERSIST_DIRS = (
+    "LaunchAgents", "LaunchDaemons",
 )
 
 
@@ -42,10 +55,15 @@ def _is_write_blocked(filepath: Path) -> str | None:
         if spath.startswith(prefix):
             return f"system path blocked by default ({prefix}...): {filepath}"
     name = filepath.name
-    sparts = "/" + "/".join(filepath.parts[1:]) + "/"
-    for part in _CATASTROPHIC_PATH_PARTS:
-        if part in sparts or name == part:
+    parts = filepath.parts
+    # E-9: 分量精确匹配, 消子串假阳性.
+    for part in parts:
+        if part in _CATASTROPHIC_DIR_PARTS:
             return f"sensitive path blocked by default ({part}): {filepath}"
+        if part in _CATASTROPHIC_PERSIST_DIRS:
+            return f"persistence path blocked by default ({part}): {filepath}"
+    if name in _CATASTROPHIC_FILE_NAMES:
+        return f"sensitive path blocked by default ({name}): {filepath}"
     return None
 
 
@@ -79,6 +97,29 @@ class FileReadTool(BaseTool):
             return f"Error: File not found: {filepath}"
         if not filepath.is_file():
             return f"Error: Not a file: {filepath}"
+
+        # 审计 E-19/P0-4: file_read 原全量 read_text 进内存, 无上限 -> 读 10GB
+        # 日志撑爆 daemon + LLM context + checkpoint 序列化. 先 stat 预检大小,
+        # 超 max_bytes (默认 1MB, FUSION_FILE_MAX_BYTES 调) 拒绝, 避免读入.
+        # 命中仍部分返回: 仅读前 max_bytes 字节, 标 truncated.
+        try:
+            size = filepath.stat().st_size
+        except OSError as e:
+            return f"Error stat file: {e}"
+        max_bytes_env = os.environ.get("FUSION_FILE_MAX_BYTES", "").strip()
+        try:
+            max_bytes = int(max_bytes_env) if max_bytes_env else 1024 * 1024
+        except ValueError:
+            max_bytes = 1024 * 1024
+        if max_bytes > 0 and size > max_bytes:
+            logger.warning(
+                "file_read blocked large file path=%s size=%d max=%d",
+                filepath, size, max_bytes,
+            )
+            return (
+                f"Error: File too large ({size} bytes > max {max_bytes}). "
+                f"Set FUSION_FILE_MAX_BYTES higher, or read in chunks via terminal/grep."
+            )
 
         try:
             content = filepath.read_text(encoding=encoding)

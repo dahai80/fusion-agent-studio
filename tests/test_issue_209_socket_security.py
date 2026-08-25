@@ -141,6 +141,20 @@ class TestPeerUidCheck:
         assert _verify_peer_uid(_FakeWriter()) is False
 
     @pytest.mark.asyncio
+    async def test_getsockopt_failure_fails_closed(self):
+        # 审计 E-8: getsockopt 恒失败 (非支持平台 / 内核不提供 LOCAL_PEERCRED)
+        # 旧码 fail-open 放行所有连接. 现改 fail-closed: 拒连接而非放行.
+        class _BrokenSock:
+            def getsockopt(self, level, opt, buflen):
+                raise OSError("constant not supported on this platform")
+
+        class _FakeWriter:
+            def get_extra_info(self, name, default=None):
+                return _BrokenSock() if name == "socket" else default
+
+        assert _verify_peer_uid(_FakeWriter()) is False
+
+    @pytest.mark.asyncio
     async def test_handle_client_closes_on_rejected_uid(self, daemon, socket_path, monkeypatch):
         # #209: when _verify_peer_uid denies a connection, _handle_client must
         # close the writer and return WITHOUT dispatching. daemon stays up and a

@@ -176,6 +176,10 @@ class CronManager:
         self._task: asyncio.Task | None = None
         self._db_path = db_path
         self._conn = None
+        # 审计 A-6/R-7/3M-3: cron _save_job/_save_execution/_delete_job 跨线程(to_thread)+事件循环线程
+        # 共享单连接无锁无 WAL. RLock 串行化所有 DB 操作; WAL 让读不堵写; busy_timeout 等锁.
+        import threading
+        self._write_lock = threading.RLock()
         self._default_handler: Callable | None = default_handler
         if db_path:
             self._init_db(db_path)
@@ -185,6 +189,9 @@ class CronManager:
         import sqlite3
 
         self._conn = sqlite3.connect(db_path, check_same_thread=False)
+        self._conn.execute("PRAGMA journal_mode=WAL")
+        self._conn.execute("PRAGMA synchronous=NORMAL")
+        self._conn.execute("PRAGMA busy_timeout=5000")
         self._conn.execute("""
             CREATE TABLE IF NOT EXISTS cron_jobs (
                 id TEXT PRIMARY KEY,
@@ -226,81 +233,85 @@ class CronManager:
     def _load_jobs(self) -> None:
         if not self._conn:
             return
-        rows = self._conn.execute("SELECT * FROM cron_jobs").fetchall()
-        for row in rows:
-            job = CronJob(
-                id=row[0],
-                name=row[1],
-                expression=row[2],
-                graph_id=row[3],
-                enabled=bool(row[4]),
-                last_run=row[5],
-                next_run=row[6],
-                created_at=row[7],
-                input_data=row[8],
-                max_retries=row[9],
-                retry_count=row[10],
-                one_shot=bool(row[11]) if len(row) > 11 else False,
-            )
-            self._jobs[job.id] = job
+        with self._write_lock:
+            rows = self._conn.execute("SELECT * FROM cron_jobs").fetchall()
+            for row in rows:
+                job = CronJob(
+                    id=row[0],
+                    name=row[1],
+                    expression=row[2],
+                    graph_id=row[3],
+                    enabled=bool(row[4]),
+                    last_run=row[5],
+                    next_run=row[6],
+                    created_at=row[7],
+                    input_data=row[8],
+                    max_retries=row[9],
+                    retry_count=row[10],
+                    one_shot=bool(row[11]) if len(row) > 11 else False,
+                )
+                self._jobs[job.id] = job
         logger.info("Loaded %d cron jobs from DB", len(self._jobs))
 
     def _save_job(self, job: CronJob) -> None:
         if not self._conn:
             return
-        self._conn.execute(
-            """INSERT OR REPLACE INTO cron_jobs
-               (id, name, expression, graph_id, enabled, last_run, next_run, created_at, input_data, max_retries, retry_count, one_shot)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (
-                job.id,
-                job.name,
-                job.expression,
-                job.graph_id,
-                int(job.enabled),
-                job.last_run,
-                job.next_run,
-                job.created_at,
-                job.input_data,
-                job.max_retries,
-                job.retry_count,
-                int(job.one_shot),
-            ),
-        )
-        self._conn.commit()
+        with self._write_lock:
+            self._conn.execute(
+                """INSERT OR REPLACE INTO cron_jobs
+                   (id, name, expression, graph_id, enabled, last_run, next_run, created_at, input_data, max_retries, retry_count, one_shot)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    job.id,
+                    job.name,
+                    job.expression,
+                    job.graph_id,
+                    int(job.enabled),
+                    job.last_run,
+                    job.next_run,
+                    job.created_at,
+                    job.input_data,
+                    job.max_retries,
+                    job.retry_count,
+                    int(job.one_shot),
+                ),
+            )
+            self._conn.commit()
 
     def _delete_job(self, job_id: str) -> None:
         if not self._conn:
             return
-        self._conn.execute("DELETE FROM cron_jobs WHERE id = ?", (job_id,))
-        self._conn.commit()
+        with self._write_lock:
+            self._conn.execute("DELETE FROM cron_jobs WHERE id = ?", (job_id,))
+            self._conn.commit()
 
     EXECUTION_TTL_SECONDS = 7 * 24 * 3600
 
     def _save_execution(self, exe: CronExecution) -> None:
         if not self._conn:
             return
-        self._conn.execute(
-            """INSERT OR REPLACE INTO cron_executions
-               (id, job_id, started_at, finished_at, status, error, result_preview)
-               VALUES (?, ?, ?, ?, ?, ?, ?)""",
-            (
-                exe.id,
-                exe.job_id,
-                exe.started_at,
-                exe.finished_at,
-                exe.status,
-                exe.error,
-                exe.result_preview,
-            ),
-        )
-        cutoff = time.time() - self.EXECUTION_TTL_SECONDS
-        result = self._conn.execute(
-            "DELETE FROM cron_executions WHERE started_at < ?", (cutoff,)
-        )
-        if result.rowcount:
-            logger.info("Cleaned up %d expired cron execution records", result.rowcount)
-        self._conn.commit()
+        with self._write_lock:
+            self._conn.execute(
+                """INSERT OR REPLACE INTO cron_executions
+                   (id, job_id, started_at, finished_at, status, error, result_preview)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    exe.id,
+                    exe.job_id,
+                    exe.started_at,
+                    exe.finished_at,
+                    exe.status,
+                    exe.error,
+                    exe.result_preview,
+                ),
+            )
+            cutoff = time.time() - self.EXECUTION_TTL_SECONDS
+            result = self._conn.execute(
+                "DELETE FROM cron_executions WHERE started_at < ?", (cutoff,)
+            )
+            if result.rowcount:
+                logger.info("Cleaned up %d expired cron execution records", result.rowcount)
+            self._conn.commit()
 
     def register(self, job: CronJob, handler: Callable | None = None) -> None:
         job.next_run = self._compute_next_run(job.expression)
@@ -388,16 +399,17 @@ class CronManager:
     def list_executions(self, job_id: str = "", limit: int = 20) -> list[dict]:
         if not self._conn:
             return []
-        if job_id:
-            rows = self._conn.execute(
-                "SELECT * FROM cron_executions WHERE job_id = ? ORDER BY started_at DESC LIMIT ?",
-                (job_id, limit),
-            ).fetchall()
-        else:
-            rows = self._conn.execute(
-                "SELECT * FROM cron_executions ORDER BY started_at DESC LIMIT ?",
-                (limit,),
-            ).fetchall()
+        with self._write_lock:
+            if job_id:
+                rows = self._conn.execute(
+                    "SELECT * FROM cron_executions WHERE job_id = ? ORDER BY started_at DESC LIMIT ?",
+                    (job_id, limit),
+                ).fetchall()
+            else:
+                rows = self._conn.execute(
+                    "SELECT * FROM cron_executions ORDER BY started_at DESC LIMIT ?",
+                    (limit,),
+                ).fetchall()
         results = []
         for row in rows:
             results.append(

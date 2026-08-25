@@ -44,32 +44,53 @@ SOCKET_PATH = "/tmp/fusion-studio.sock"
 WS_PORT = 11435
 WS_MAGIC = "258EAFA5-E914-47DA-95CA-5AB5DC65B283"
 
-# #209: peer credential constants (macOS LOCAL_PEERCRED).
+# #209: peer credential constants. macOS LOCAL_PEERCRED (SOL_LOCAL=0).
+# 审计 E-8: Linux 用错常量 getsockopt 恒失败 -> 旧代码 fail-open 放行所有连接.
+# 补 Linux SO_PEERCRED (SOL_SOCKET=1, opt=17) 正确常量, 异常改 fail-closed.
 _SOL_LOCAL = 0
 _LOCAL_PEERCRED = 0x001
+_SOL_SOCKET = 1
+_SO_PEERCRED = 17
 
 
 def _verify_peer_uid(writer: asyncio.StreamWriter) -> bool:
-    # #209: accept 后校验对端 UID, 拒绝非同 UID 连接. 防 0o666 socket 被本机
+    # #209: accept 后校验对端 UID, 拒绝非同 UID 连接. 防 0o600 socket 被本机
     # 低权限进程连入伪造 JSON-RPC. macOS 用 LOCAL_PEERCRED (SOL_LOCAL) 取
-    # xucred{uid, pid, euid}; Linux 可扩展 SO_PEERCRED. 取不到 (非 UDS / 旧
-    # 内核) 时 fail-open 返回 True 以兼容测试, 但生产 UDS 路径必能取到.
+    # xucred{uid,pid,euid}; Linux 用 SO_PEERCRED (SOL_SOCKET) 取 ucred{pid,uid,gid}.
+    # 取不到 socket (非 UDS) 时 fail-open 兼容测试路径; getsockopt 失败 (内核
+    # 不支持 / 平台常量错) 改 fail-closed (审计 E-8): 拒连接而非放行, 避免
+    # 非支持平台恒失败致安全门形同虚设.
     sock = writer.get_extra_info("socket")
     if sock is None:
         logger.warning("#209 peer-uid check: no socket, fail-open (test path)")
         return True
+    uid = _peer_uid_from_socket(sock)
+    if uid is None:
+        # getsockopt 失败: 无法确认对端 UID -> fail-closed 拒绝 (审计 E-8).
+        logger.warning("#209 peer-uid getsockopt failed, fail-closed (reject)")
+        return False
+    if uid != os.getuid():
+        logger.warning("#209 rejected non-owner UID %d on socket (owner %d)", uid, os.getuid())
+        return False
+    return True
+
+
+def _peer_uid_from_socket(sock) -> int | None:
+    # 取对端 UID, macOS 先试 LOCAL_PEERCRED, 失败回退 Linux SO_PEERCRED.
+    # 任一成功返 UID; 都失败返 None (调用方 fail-closed). 非抛异常, 区分
+    # "取到非同 UID" (返 int) 与 "取不到" (返 None) 两态.
     try:
         cred = sock.getsockopt(_SOL_LOCAL, _LOCAL_PEERCRED, struct.calcsize("iII"))
         _, uid, _ = struct.unpack("iII", cred)
-        if uid != os.getuid():
-            logger.warning("#209 rejected non-owner UID %d on socket (owner %d)", uid, os.getuid())
-            return False
-        return True
-    except (OSError, AttributeError) as e:
-        # 非 macOS / 内核不支持 LOCAL_PEERCRED — fail-open 兼容, 但 socket 已
-        # 0o600 + 私有目录双重限流, 非同 UID 本就连不上.
-        logger.warning("#209 peer-uid getsockopt failed (%s), fail-open", e)
-        return True
+        return uid
+    except (OSError, AttributeError):
+        pass
+    try:
+        cred = sock.getsockopt(_SOL_SOCKET, _SO_PEERCRED, struct.calcsize("iII"))
+        _, uid, _ = struct.unpack("iII", cred)
+        return uid
+    except (OSError, AttributeError):
+        return None
 
 
 def _resolve_socket_path(default: str = SOCKET_PATH) -> str:
