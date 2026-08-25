@@ -85,11 +85,36 @@ async def test_matcher_filters():
 
 async def test_command_hook_approves():
     eng = HookEngine()
-    cmd = 'echo {"decision":"approve"}'
+    # 审计 D-7: POST_TOOL_USE 现 fail-closed, hook 输出必须是合法 JSON.
+    # 单引号包双引号 JSON, shlex.split 保留内层引号 -> echo 输出合法 JSON.
+    cmd = "echo '{\"decision\":\"approve\"}'"
     eng.register(
         HookConfig(event="POST_TOOL_USE", type="command", command=cmd, timeout=5.0)
     )
     res = await eng.fire("POST_TOOL_USE", {"tool_name": "x"}, tool_name="x")
+    assert res.decision == "approve"
+
+
+async def test_command_hook_fail_closed_on_non_json():
+    # 审计 D-7: 安全门 hook 输出畸形应 fail-closed (block), 非静默放行.
+    eng = HookEngine()
+    cmd = "echo not-json"
+    eng.register(
+        HookConfig(event="PRE_TOOL_USE", type="command", command=cmd, timeout=5.0)
+    )
+    res = await eng.fire("PRE_TOOL_USE", {"tool_name": "x"}, tool_name="x")
+    assert res.decision == "block"
+    assert "non-JSON" in res.reason
+
+
+async def test_command_hook_fail_open_non_safety_event():
+    # 审计 D-7: 非安全门事件 (SESSION_*) 维持 fail-open approve.
+    eng = HookEngine()
+    cmd = "echo not-json"
+    eng.register(
+        HookConfig(event="SESSION_START", type="command", command=cmd, timeout=5.0)
+    )
+    res = await eng.fire("SESSION_START", {})
     assert res.decision == "approve"
 
 

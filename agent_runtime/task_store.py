@@ -61,7 +61,6 @@ class Task:
     input: str = ""
     status: str = TASK_STATUS_PENDING
     priority: int = 0
-    session_id: str = ""
     project_id: str = ""
     artifact_ids: list[str] = field(default_factory=list)
     last_result: dict[str, Any] = field(default_factory=dict)
@@ -86,7 +85,6 @@ class Task:
             "input": self.input,
             "status": self.status,
             "priority": self.priority,
-            "session_id": self.session_id,
             "project_id": self.project_id,
             "artifact_ids": list(self.artifact_ids),
             "last_result": dict(self.last_result),
@@ -107,7 +105,9 @@ class Task:
                 artifact_ids = json.loads(row[13])
                 if not isinstance(artifact_ids, list):
                     artifact_ids = []
-            except Exception:
+            except Exception as e:
+                # 审计 L-3: 静默吞 JSON 解析错 -> 空列表, 调试无法定位坏数据.
+                logger.warning("task_store.from_row: bad artifact_ids JSON (task=%s): %s", row[0], e)
                 artifact_ids = []
         last_result = {}
         if row[14]:
@@ -115,7 +115,8 @@ class Task:
                 decoded = json.loads(row[14])
                 if isinstance(decoded, dict):
                     last_result = decoded
-            except Exception:
+            except Exception as e:
+                logger.warning("task_store.from_row: bad last_result JSON (task=%s): %s", row[0], e)
                 last_result = {}
         return cls(
             task_id=row[0],

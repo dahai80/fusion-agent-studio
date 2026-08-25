@@ -1,7 +1,22 @@
 """Database tools — SQLite and PostgreSQL query execution."""
 from __future__ import annotations
 
+import logging
+import os
+
 from .base import BaseTool
+
+logger = logging.getLogger(__name__)
+
+# 审计 A-3: 仅读 SQL 关键字. secure-by-default: 默认只允许读, 写操作
+# (INSERT/UPDATE/DELETE/DROP/ALTER/CREATE/ATTACH/PRAGMA write) 需 env
+# FUSION_DB_ALLOW_WRITE=1 显式 opt-in, 否则拒绝 — 避免 LLM 经此工具
+# 落盘任意文件 (ATTACH/CREATE) 或破坏库 (DROP/DELETE).
+_READ_ONLY_PREFIXES = ("SELECT", "PRAGMA", "EXPLAIN", "WITH")
+_WRITE_PREFIXES = (
+    "INSERT", "UPDATE", "DELETE", "DROP", "ALTER", "CREATE",
+    "ATTACH", "DETACH", "REPLACE", "TRUNCATE", "REINDEX", "VACUUM",
+)
 
 
 class SqliteQueryTool(BaseTool):
@@ -23,12 +38,34 @@ class SqliteQueryTool(BaseTool):
         if not query:
             return "Error: query is required"
         query_upper = query.strip().upper()
+        # ATTACH 'file:' 可越权读任意文件, 一律挡 (即使开了 write 也不放行 ATTACH).
+        if query_upper.startswith("ATTACH"):
+            logger.warning("sqlite_query blocked ATTACH (file exfil vector) db=%s", db_path)
+            return "Error: ATTACH is blocked (file exfiltration vector)"
+        is_write = query_upper.startswith(_WRITE_PREFIXES)
+        if is_write:
+            allow_write = os.environ.get("FUSION_DB_ALLOW_WRITE", "").strip().lower() in ("1", "true", "yes")
+            if not allow_write:
+                logger.warning(
+                    "sqlite_query blocked write (secure-by-default) db=%s prefix=%s",
+                    db_path,
+                    query_upper.split()[0] if query_upper.split() else "?",
+                )
+                return (
+                    "Error: write queries are blocked by default "
+                    "(set FUSION_DB_ALLOW_WRITE=1 to allow INSERT/UPDATE/DELETE/DROP/...)"
+                )
+            logger.info("sqlite_query write allowed (FUSION_DB_ALLOW_WRITE=1) db=%s", db_path)
+        else:
+            if not query_upper.startswith(_READ_ONLY_PREFIXES):
+                logger.warning("sqlite_query blocked unknown statement db=%s prefix=%s", db_path, query_upper[:20])
+                return "Error: only read queries allowed by default (SELECT/PRAGMA/EXPLAIN/WITH)"
         try:
             conn = sqlite3.connect(db_path)
             conn.row_factory = sqlite3.Row
             cur = conn.cursor()
             cur.execute(query)
-            if query_upper.startswith("SELECT") or query_upper.startswith("PRAGMA"):
+            if not is_write and (query_upper.startswith("SELECT") or query_upper.startswith("PRAGMA") or query_upper.startswith("WITH")):
                 rows = cur.fetchmany(max_rows)
                 if not rows:
                     return "Query returned no rows"

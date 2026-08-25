@@ -225,6 +225,14 @@ class AgentGraph:
         )
         return hashlib.md5(canonical.encode("utf-8")).hexdigest()[:16]
 
+    # 审计 L-1: runtime 支持的合法 node.type 集合 (与 runtime.py dispatch
+    # 的 elif 分支一一对应). validate() 据此拒绝未知类型, 避免未知类型节点
+    # 进入图后在 runtime 静默空转至 max_iterations.
+    _VALID_NODE_TYPES = frozenset({
+        "start", "llm", "tool", "condition", "loop", "error_handler",
+        "rag", "planner", "verify", "parallel", "end",
+    })
+
     def validate(self, tool_registry: Any = None) -> list[str]:
         # #215: 校验结构 + (可选) 内容 schema. 传 tool_registry 则查 tool_name 注册,
         # 预解析 condition_expr, 提示 output_mapping/tool_params 未知 key (warning).
@@ -258,6 +266,13 @@ class AgentGraph:
             for t in tool_registry.list_tools():
                 known_tool_names.add(t.get("name", ""))
         for nid, node in self.nodes.items():
+            # 审计 L-1: node.type 必须是 runtime 认识的合法类型, 否则
+            # runtime dispatch 无匹配分支静默空转. create 时即硬错.
+            if node.type not in self._VALID_NODE_TYPES:
+                errors.append(
+                    f"Node '{nid}' has unknown type '{node.type}'; "
+                    f"expected one of: {', '.join(sorted(self._VALID_NODE_TYPES))}"
+                )
             # tool_name ∈ registry (拼写/注册错 create 时即报)
             if node.type == "tool" and node.tool_name:
                 if tool_registry is not None and node.tool_name not in known_tool_names:

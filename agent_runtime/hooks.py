@@ -152,16 +152,47 @@ class HookEngine:
             stderr=asyncio.subprocess.PIPE,
         )
         stdin_data = json.dumps(payload).encode()
+        # 审计 D-7: 安全门 fail-closed. PRE_TOOL_USE / POST_TOOL_USE 是工具执行
+        # 安全门, hook 超时或输出畸形时不应静默放行 (原默认 approve), 否则安全
+        # hook 崩溃即变 no-op. 改为 fail-closed: block + 留日志. 其余事件
+        # (SESSION_*/STOP/...) 维持 fail-open approve, 因其非安全门.
+        fail_closed = hook.event in (
+            HookEvent.PRE_TOOL_USE.value,
+            HookEvent.POST_TOOL_USE.value,
+        )
         try:
             stdout, _ = await asyncio.wait_for(
                 proc.communicate(stdin_data), timeout=hook.timeout
             )
         except asyncio.TimeoutError:
-            logger.warning("hook command timed out cmd=%s", hook.command)
+            logger.warning(
+                "hook command timed out cmd=%s event=%s fail_closed=%s",
+                hook.command,
+                hook.event,
+                fail_closed,
+            )
+            if fail_closed:
+                return HookResult(
+                    continue_loop=False,
+                    decision="block",
+                    reason=f"hook timed out after {hook.timeout}s (fail-closed)",
+                )
             return HookResult()
         try:
             data = json.loads(stdout.decode())
-        except Exception:
+        except Exception as e:
+            logger.warning(
+                "hook %s returned non-JSON output, fail_closed=%s err=%s",
+                hook.command,
+                fail_closed,
+                e,
+            )
+            if fail_closed:
+                return HookResult(
+                    continue_loop=False,
+                    decision="block",
+                    reason="hook returned non-JSON output (fail-closed)",
+                )
             return HookResult()
         return self._coerce(data)
 

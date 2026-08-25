@@ -89,6 +89,22 @@ def _resolve_socket_path(default: str = SOCKET_PATH) -> str:
     return os.path.join(socket_dir, "fusion-studio.sock")
 
 
+def _ws_enabled() -> bool:
+    # 审计 D-1: WS TCP 11435 默认关闭. 原 WS 无鉴权不校验 peer-UID, 任意本机
+    # 进程可经 chat.stream 接管完整 agent 循环 (RCE). 默认关, 显式 env
+    # FUSION_ENABLE_WS=1 才起. 起时必须同时设 FUSION_WS_TOKEN 共享密钥,
+    # 客户端首帧须携带 Sec-WebSocket-Protocol 头带 token, 否则握手拒.
+    return os.environ.get("FUSION_ENABLE_WS", "").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+    )
+
+
+def _ws_token() -> str:
+    return os.environ.get("FUSION_WS_TOKEN", "").strip()
+
+
 async def _ws_read_frame(reader: asyncio.StreamReader) -> str | None:
     header = await reader.readexactly(2)
     opcode = header[0] & 0x0F
@@ -161,6 +177,11 @@ class DaemonServer:
         self._gateway = LLMGateway()
         self._runtime: AgentRuntime | None = None
         self._mlx_process: subprocess.Popen | None = None
+        # 审计 P-2: MLX start/stop 并发锁. _handle_mlx_start 是 async 且
+        # check-then-act (先查端口空再 Popen), 两个并发 start 请求 (如 RPC
+        # + cron 同时触发) 都过 already_running 检查后各自 Popen, 端口冲突/
+        # 双进程. 用锁串行化 start/stop/restart 生命周期操作.
+        self._mlx_start_lock = asyncio.Lock()
         self._active_executions: dict[str, asyncio.Task] = {}
         self._code_tasks: dict[str, dict] = {}
         self._server: asyncio.Server | None = None
@@ -454,10 +475,17 @@ class DaemonServer:
         os.chmod(self.socket_path, 0o600)
 
         self._ws_server = None
-        if self.ws_port:
-            self._ws_server = await asyncio.start_server(
-                self._handle_ws_client, "127.0.0.1", self.ws_port
-            )
+        if self.ws_port and _ws_enabled():
+            if not _ws_token():
+                logger.warning(
+                    "WS enabled (FUSION_ENABLE_WS=1) but FUSION_WS_TOKEN unset; "
+                    "skipping WS server start — token required for D-1 auth"
+                )
+            else:
+                self._ws_server = await asyncio.start_server(
+                    self._handle_ws_client, "127.0.0.1", self.ws_port
+                )
+                logger.info("WS server started on 127.0.0.1:%d (token-gated)", self.ws_port)
 
         self._cluster_task: asyncio.Task | None = None
         if self.cluster_port:
@@ -563,7 +591,32 @@ class DaemonServer:
         if self._cluster_task and not self._cluster_task.done():
             self._cluster_task.cancel()
         if self._mlx_process and self._mlx_process.poll() is None:
-            self._mlx_process.terminate()
+            # 审计 P-1: MLX 子进程停机原仅 terminate() 后立即置 None, 不等
+            # 进程真正退出 — SIGTERM 后进程仍在收尾, daemon 已认定其停止,
+            # 端口/内存残留致下次 start 误判已在运行. 补 wait+超时+SIGKILL
+            # 兜底, 与 start 的生命周期对齐 (start 起进程等就绪, stop 等退出).
+            proc = self._mlx_process
+            try:
+                proc.terminate()
+                logger.info("MLX subprocess terminate signaled pid=%s", proc.pid)
+                try:
+                    proc.wait(timeout=10)
+                    logger.info("MLX subprocess exited cleanly pid=%s", proc.pid)
+                except subprocess.TimeoutExpired:
+                    logger.warning(
+                        "MLX subprocess did not exit in 10s after SIGTERM, "
+                        "escalating to SIGKILL pid=%s",
+                        proc.pid,
+                    )
+                    proc.kill()
+                    try:
+                        proc.wait(timeout=5)
+                    except subprocess.TimeoutExpired:
+                        logger.error(
+                            "MLX subprocess still alive after SIGKILL pid=%s", proc.pid
+                        )
+            except Exception as e:
+                logger.warning("MLX subprocess stop error pid=%s err=%s", getattr(proc, "pid", "?"), e)
             self._mlx_process = None
         if os.path.exists(self.socket_path):
             os.unlink(self.socket_path)
@@ -908,65 +961,70 @@ class DaemonServer:
             return {"status": "error", "message": str(e)}
 
     async def _handle_mlx_start(self, params: dict) -> dict:
-        model = params.get("model", "")
-        if self._mlx_process and self._mlx_process.poll() is None:
-            return {"status": "already_running", "port": MLX_PORT}
+        async with self._mlx_start_lock:
+            model = params.get("model", "")
+            if self._mlx_process and self._mlx_process.poll() is None:
+                return {"status": "already_running", "port": MLX_PORT}
 
-        # 复用已在运行的 fusion-mlx (如 fusion-studio start.sh 启动的)，
-        # 避免在已占用端口上再起子进程导致冲突 (bug1 联动)
-        if await self._check_mlx_health():
-            self._attach_mlx_client()
-            logger.info("Reusing already-running fusion-mlx on port %d", MLX_PORT)
-            return {
-                "status": "already_running",
-                "port": MLX_PORT,
-                "model": model,
-                "external": True,
-            }
+            # 复用已在运行的 fusion-mlx (如 fusion-studio start.sh 启动的)，
+            # 避免在已占用端口上再起子进程导致冲突 (bug1 联动)
+            if await self._check_mlx_health():
+                self._attach_mlx_client()
+                logger.info("Reusing already-running fusion-mlx on port %d", MLX_PORT)
+                return {
+                    "status": "already_running",
+                    "port": MLX_PORT,
+                    "model": model,
+                    "external": True,
+                }
 
-        cmd = [sys.executable, "-m", "fusion_mlx", "serve", "--port", str(MLX_PORT)]
-        if model:
-            cmd.append(model)
+            cmd = [sys.executable, "-m", "fusion_mlx", "serve", "--port", str(MLX_PORT)]
+            if model:
+                cmd.append(model)
 
-        logger.info("Starting fusion-mlx: %s", " ".join(cmd))
-        try:
-            self._mlx_process = subprocess.Popen(
-                cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                env={**os.environ, "PYTHONUNBUFFERED": "1"},
-            )
-        except FileNotFoundError:
-            return {"status": "error", "message": "fusion-mlx not found"}
+            logger.info("Starting fusion-mlx: %s", " ".join(cmd))
+            try:
+                self._mlx_process = subprocess.Popen(
+                    cmd,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    env={**os.environ, "PYTHONUNBUFFERED": "1"},
+                )
+            except FileNotFoundError:
+                return {"status": "error", "message": "fusion-mlx not found"}
 
-        healthy = await self._wait_mlx_healthy(timeout=30.0)
-        if healthy:
-            self._attach_mlx_client()
-            return {"status": "started", "port": MLX_PORT, "model": model}
-        else:
-            return {
-                "status": "error",
-                "message": "fusion-mlx failed to start within 30s",
-            }
+            healthy = await self._wait_mlx_healthy(timeout=30.0)
+            if healthy:
+                self._attach_mlx_client()
+                return {"status": "started", "port": MLX_PORT, "model": model}
+            else:
+                return {
+                    "status": "error",
+                    "message": "fusion-mlx failed to start within 30s",
+                }
 
     async def _handle_mlx_stop(self, params: dict) -> dict:
-        if not self._mlx_process or self._mlx_process.poll() is not None:
+        async with self._mlx_start_lock:
+            if not self._mlx_process or self._mlx_process.poll() is not None:
+                self._mlx_process = None
+                return {"status": "already_stopped"}
+
+            self._mlx_process.terminate()
+            try:
+                self._mlx_process.wait(timeout=10.0)
+            except subprocess.TimeoutExpired:
+                self._mlx_process.kill()
+                self._mlx_process.wait(timeout=5.0)
+
             self._mlx_process = None
-            return {"status": "already_stopped"}
-
-        self._mlx_process.terminate()
-        try:
-            self._mlx_process.wait(timeout=10.0)
-        except subprocess.TimeoutExpired:
-            self._mlx_process.kill()
-            self._mlx_process.wait(timeout=5.0)
-
-        self._mlx_process = None
-        self._detach_mlx_client()
-        logger.info("fusion-mlx stopped")
-        return {"status": "stopped"}
+            self._detach_mlx_client()
+            logger.info("fusion-mlx stopped")
+            return {"status": "stopped"}
 
     async def _handle_mlx_restart(self, params: dict) -> dict:
+        # restart = stop + start. 两步各自 acquire 锁 (start/stop 内部已
+        # 带 async with), 这里不再外层加锁 — 否则 async with 内再调同样
+        # acquire 的 _handle_mlx_start 会死锁 (asyncio.Lock 非重入).
         await self._handle_mlx_stop(params)
         return await self._handle_mlx_start(params)
 
@@ -2048,9 +2106,23 @@ class DaemonServer:
                     if line == b"\r\n" or line == b"\n":
                         break
                 ws_key = ""
+                ws_proto = ""
                 for h in remaining_headers.decode("utf-8", errors="replace").split("\r\n"):
                     if h.lower().startswith("sec-websocket-key:"):
                         ws_key = h.split(":", 1)[1].strip()
+                    elif h.lower().startswith("sec-websocket-protocol:"):
+                        ws_proto = h.split(":", 1)[1].strip()
+                # 审计 D-1: token 鉴权. 客户端须在 Sec-WebSocket-Protocol 携带
+                # FUSION_WS_TOKEN (形如 "Bearer <token>"). 不匹配则拒握手.
+                token = _ws_token()
+                if token and ws_proto != f"Bearer {token}":
+                    logger.warning(
+                        "WS handshake rejected: bad/missing token from %s", peer
+                    )
+                    writer.write(b"HTTP/1.1 401 Unauthorized\r\n\r\n")
+                    await writer.drain()
+                    writer.close()
+                    return
                 if ws_key:
                     accept = base64.b64encode(
                         hashlib.sha1((ws_key + WS_MAGIC).encode()).digest()
@@ -2158,7 +2230,10 @@ class DaemonServer:
             async with httpx.AsyncClient(timeout=2.0) as client:
                 resp = await client.get(f"{MLX_BASE_URL}/models", headers=headers)
                 return resp.status_code == 200
-        except Exception:
+        except Exception as e:
+            # 审计 M-2: 健康检查所有失败 (401/拒连/DNS/超时) 统一 return False,
+            # 运维分不清"服务器宕"vs"密钥轮换"vs"网络分区". debug 级记原因可诊断.
+            logger.debug("MLX health check failed (%s): %s", type(e).__name__, e)
             return False
 
     async def _list_mlx_models(self) -> list[dict[str, Any]]:
@@ -2172,7 +2247,10 @@ class DaemonServer:
                 resp.raise_for_status()
                 data = resp.json()
                 return data.get("data", [])
-        except Exception:
+        except Exception as e:
+            # 审计 M-2: 列模型失败 (401 鉴权轮换/500/响应畸形) -> [] 与"MLX 运行
+            # 但无模型加载"不可区分. warning 级记原因.
+            logger.warning("MLX list models failed (%s): %s", type(e).__name__, e)
             return []
 
     async def _wait_mlx_healthy(self, timeout: float = 30.0) -> bool:
@@ -2475,8 +2553,13 @@ class DaemonServer:
                 perms = defn_data.get("permissions", {})
                 if perms:
                     return perms
-            except Exception:
-                pass
+            except Exception as e:
+                # 审计 L-4: definition.json 损坏静默降级派生默认权限 = 完整性失败,
+                # 运维无信号. 记 warning 让权限漂移可诊断 (考虑后续直接 raise).
+                logger.warning(
+                    "agent %s definition.json corrupt, falling back to derived default perms: %s",
+                    agent_id, e,
+                )
         return {
             "readKnowledge": bool(manifest.knowledge_base_ids),
             "writeKnowledge": False,

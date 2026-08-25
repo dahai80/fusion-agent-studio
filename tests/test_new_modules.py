@@ -240,6 +240,13 @@ class TestAgentTemplates:
 
 
 class TestAPIServer:
+    @pytest.fixture(autouse=True)
+    def _no_auth_for_unit_tests(self, monkeypatch):
+        # 审计 D-6: 变更端点配置了 api-key 则强制鉴权. 单元测试验 HTTP 行为
+        # 不应依赖宿主机 ~/.fusion-agent-studio 是否真有 key — 统一置为本地
+        # 受信模式 (无 key). 鉴权本身由专用测试覆盖.
+        monkeypatch.setattr("agent_runtime.api_server._auth_configured", lambda: False)
+
     @pytest.fixture
     def client(self):
         from httpx import ASGITransport, AsyncClient

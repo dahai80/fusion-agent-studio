@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import sys
 
 from .base import BaseTool
 
@@ -23,26 +22,32 @@ class CodeExecuteTool(BaseTool):
         timeout = int(kwargs.get("timeout", 10))
         if not code:
             return "Error: code is required"
-        # Run in a subprocess for sandbox isolation
+        # 审计 A-3: 原实现裸 exec() 子进程有完整 FS/net/proc 访问 = 未沙箱.
+        # 统一走 CodeSandbox (macOS sandbox-exec profile + Python AST 安全
+        # 检查), 与 CodeSandboxTool 同一隔离层, 消除"危险的那套被默认用".
+        # use_sandbox 默认 True; 非 macOS 自动降级但仍过 AST 检查.
         try:
-            proc = await asyncio.create_subprocess_exec(
-                sys.executable, "-c",
-                f"import sys; sys.stdout.write(''); exec({code!r})",
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
-            output = stdout.decode("utf-8", errors="replace").strip()
-            if stderr:
-                err = stderr.decode("utf-8", errors="replace").strip()
-                if err:
-                    output = f"{output}\n[STDERR]\n{err}" if output else err
-            return output if output else "(no output)"
+            from agent_runtime.code_sandbox import CodeSandbox
+            sandbox = CodeSandbox(timeout=timeout, use_sandbox=True)
+            logger.info("code_execute: rerouted to CodeSandbox timeout=%s", timeout)
+            result = await asyncio.to_thread(sandbox.execute, code, "python")
         except asyncio.TimeoutError:
-            proc.kill() if proc.returncode is None else None
             return f"Error: Code execution timed out after {timeout}s"
         except Exception as e:
             return f"Error: {type(e).__name__}: {e}"
+        if result.timed_out:
+            return f"Error: Code execution timed out after {timeout}s (exec_id={result.execution_id})"
+        if not result.success:
+            err = result.stderr.strip() if result.stderr else f"exit code {result.exit_code}"
+            return f"Error: {err} (exec_id={result.execution_id})"
+        output = result.stdout.strip()
+        if result.stderr.strip():
+            output = f"{output}\n[STDERR]\n{result.stderr.strip()}" if output else result.stderr.strip()
+        logger.info(
+            "code_execute: exit=%d exec_id=%s stdout=%d bytes",
+            result.exit_code, result.execution_id, len(result.stdout),
+        )
+        return output if output else f"(no output, exec_id={result.execution_id})"
 
 
 class CodeSandboxTool(BaseTool):

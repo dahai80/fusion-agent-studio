@@ -3,12 +3,50 @@
 from __future__ import annotations
 
 import logging
+import os
 import re
 from pathlib import Path
 
 from .base import BaseTool
 
 logger = logging.getLogger(__name__)
+
+# 审计 A-3: 写 sink (file_write/edit/delete) 默认挡破坏性系统路径, 避免 LLM
+# 经 file 工具覆写/删除 ssh 密钥 / 系统配置 / 凭证目录. 读 sink 不挡 (terminal
+# 本就能读, 读非破坏). env FUSION_FILE_ALLOW_SYSTEM=1 显式放开 (受控场景).
+# 可选白名单根目录 env FUSION_FILE_ROOTS (冒号分隔), 设了则写仅限这些根内.
+_SYSTEM_PATH_PREFIXES = (
+    "/etc/", "/System/", "/Library/", "/usr/", "/private/etc/",
+    "/bin/", "/sbin/",
+)
+_CATASTROPHIC_PATH_PARTS = (
+    ".ssh", ".aws", ".gnupg", ".config", ".kube",
+    "id_rsa", "id_ed25519", "credentials", ".netrc",
+)
+
+
+def _is_write_blocked(filepath: Path) -> str | None:
+    # 返回拦截原因 str, None=放行.
+    roots_env = os.environ.get("FUSION_FILE_ROOTS", "").strip()
+    if roots_env:
+        allowed_roots = [Path(r).expanduser().resolve() for r in roots_env.split(":") if r.strip()]
+        if allowed_roots and not any(
+            str(filepath) == str(r) or str(filepath).startswith(str(r) + os.sep) for r in allowed_roots
+        ):
+            return f"path outside FUSION_FILE_ROOTS allowlist: {filepath}"
+    allow_system = os.environ.get("FUSION_FILE_ALLOW_SYSTEM", "").strip().lower() in ("1", "true", "yes")
+    if allow_system:
+        return None
+    spath = str(filepath)
+    for prefix in _SYSTEM_PATH_PREFIXES:
+        if spath.startswith(prefix):
+            return f"system path blocked by default ({prefix}...): {filepath}"
+    name = filepath.name
+    sparts = "/" + "/".join(filepath.parts[1:]) + "/"
+    for part in _CATASTROPHIC_PATH_PARTS:
+        if part in sparts or name == part:
+            return f"sensitive path blocked by default ({part}): {filepath}"
+    return None
 
 
 class FileReadTool(BaseTool):
@@ -89,6 +127,11 @@ class FileWriteTool(BaseTool):
             return "Error: path is required"
 
         filepath = Path(path).expanduser().resolve()
+
+        blocked = _is_write_blocked(filepath)
+        if blocked:
+            logger.warning("file_write blocked: %s", blocked)
+            return f"Error: {blocked} (set FUSION_FILE_ALLOW_SYSTEM=1 to allow)"
 
         try:
             filepath.parent.mkdir(parents=True, exist_ok=True)
@@ -220,6 +263,11 @@ class FileEditTool(BaseTool):
 
         filepath = Path(path).expanduser().resolve()
 
+        blocked = _is_write_blocked(filepath)
+        if blocked:
+            logger.warning("file_edit blocked: %s", blocked)
+            return f"Error: {blocked} (set FUSION_FILE_ALLOW_SYSTEM=1 to allow)"
+
         if not filepath.exists():
             return f"Error: File not found: {filepath}"
         if not filepath.is_file():
@@ -283,6 +331,11 @@ class FileDeleteTool(BaseTool):
             return "Error: path is required"
 
         filepath = Path(path).expanduser().resolve()
+
+        blocked = _is_write_blocked(filepath)
+        if blocked:
+            logger.warning("file_delete blocked: %s", blocked)
+            return f"Error: {blocked} (set FUSION_FILE_ALLOW_SYSTEM=1 to allow)"
 
         if not filepath.exists():
             return f"Error: File not found: {filepath}"

@@ -295,7 +295,10 @@ class TestSqliteQueryTool:
         assert "Error" in result
 
     @pytest.mark.asyncio
-    async def test_create_table(self):
+    async def test_create_table(self, monkeypatch):
+        # 审计 A-3: db 工具默认只读挡写. 此测工具写入路径, 需显式开 FUSION_DB_ALLOW_WRITE.
+        # 安全门 (默认挡写/挡 ATTACH) 由 test_audit_0825_fixes 覆盖.
+        monkeypatch.setenv("FUSION_DB_ALLOW_WRITE", "1")
         tool = SqliteQueryTool()
         result = await tool.execute(
             database=":memory:", query="CREATE TABLE test (id INT, name TEXT)"

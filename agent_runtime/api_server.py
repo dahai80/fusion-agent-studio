@@ -13,13 +13,14 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import time
 import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
+from fastapi import Depends, FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
@@ -41,14 +42,32 @@ async def lifespan(application: FastAPI):
     logger.info("Fusion Agent Studio API shutting down")
 
 
+def _resolve_cors_origins() -> list[str]:
+    # 审计 D-6: 默认仅 localhost origin, 防 CSWSH/CSRF 从浏览器跨源打 daemon.
+    # env FUSION_API_CORS_ORIGINS=a,b 显式扩展.
+    env_origins = os.environ.get("FUSION_API_CORS_ORIGINS", "").strip()
+    if env_origins:
+        return [o.strip() for o in env_origins.split(",") if o.strip()]
+    return [
+        "http://127.0.0.1",
+        "http://localhost",
+        "http://127.0.0.1:11455",
+        "http://localhost:11455",
+    ]
+
+
 app = FastAPI(title="Fusion Agent Studio API", version="0.3.27", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    # 审计 D-6: CORS 收紧. 原 allow_origins=["*"]+allow_credentials=True 是
+    # 反模式, 任意网页 JS 可向 127.0.0.1:11455 发简单请求触发图执行 (RCE).
+    # 默认仅允许 localhost origin; FUSION_API_CORS_ORIGINS 可配多源 (逗号分隔).
+    # 不再 allow_credentials=True (本地 daemon 无需凭据跨源).
+    allow_origins=_resolve_cors_origins(),
+    allow_credentials=False,
+    allow_methods=["GET", "POST", "PATCH", "DELETE", "PUT", "OPTIONS"],
+    allow_headers=["x-api-key", "content-type", "authorization"],
 )
 
 
@@ -261,6 +280,22 @@ async def _require_auth(request: Request) -> dict:
     return result
 
 
+def _auth_configured() -> bool:
+    # 审计 D-6: 若已配置任意 api-key, 则所有变更端点强制鉴权 (生产模式).
+    # 未配置任何 key 时为本地受信模式, 放行 (向后兼容下游 fusion-studio/cli).
+    from agent_runtime.apikey_manager import ApiKeyManager
+
+    mgr = ApiKeyManager(Path.home() / ".fusion-agent-studio")
+    return bool(mgr.list_keys())
+
+
+async def _require_auth_if_configured(request: Request) -> dict | None:
+    # 审计 D-6: 配置了 api-key 则变更端点必须鉴权; 否则本地受信放行.
+    if not _auth_configured():
+        return None
+    return await _require_auth(request)
+
+
 @app.get("/health")
 async def health():
     return {"status": "ok", "version": "0.3.0", "persistence": "sqlite"}
@@ -322,7 +357,7 @@ async def get_dashboard(request: Request):
 # ── Graph endpoints ──
 
 
-@app.post("/v1/graphs", response_model=GraphResponse)
+@app.post("/v1/graphs", response_model=GraphResponse, dependencies=[Depends(_require_auth_if_configured)])
 async def v1_create_graph(req: GraphCreateRequest):
     from agent_runtime.graph import AgentGraph
 
@@ -384,7 +419,7 @@ async def v1_get_graph(graph_id: str):
     )
 
 
-@app.delete("/v1/graphs/{graph_id}")
+@app.delete("/v1/graphs/{graph_id}", dependencies=[Depends(_require_auth_if_configured)])
 async def v1_delete_graph(graph_id: str):
     deleted = _get_store().delete_graph(graph_id)
     if not deleted:
@@ -393,7 +428,7 @@ async def v1_delete_graph(graph_id: str):
     return {"deleted": True}
 
 
-@app.post("/v1/graphs/{graph_id}/execute", response_model=ExecutionResponse)
+@app.post("/v1/graphs/{graph_id}/execute", response_model=ExecutionResponse, dependencies=[Depends(_require_auth_if_configured)])
 async def v1_execute_graph(graph_id: str, req: GraphExecuteRequest):
     graph = _get_store().load_graph(graph_id)
     if graph is None:
@@ -502,7 +537,7 @@ async def v1_get_agent_preview(agent_id: str):
     return {"preview": preview}
 
 
-@app.post("/v1/agents/{agent_id}/test")
+@app.post("/v1/agents/{agent_id}/test", dependencies=[Depends(_require_auth_if_configured)])
 async def v1_test_agent(
     agent_id: str, project_id: str = "", kb_id: str = "", message: str = "hello"
 ):
@@ -526,7 +561,7 @@ async def v1_test_agent(
     }
 
 
-@app.post("/v1/agents/{agent_id}/duplicate")
+@app.post("/v1/agents/{agent_id}/duplicate", dependencies=[Depends(_require_auth_if_configured)])
 async def v1_duplicate_agent(agent_id: str):
     agents_index = _load_agents_index()
     meta = agents_index.get(agent_id)
@@ -551,7 +586,7 @@ async def v1_duplicate_agent(agent_id: str):
         raise_api_error(ErrorCode.INTERNAL_ERROR, detail=str(exc))
 
 
-@app.post("/v1/agents/{agent_id}/snapshot")
+@app.post("/v1/agents/{agent_id}/snapshot", dependencies=[Depends(_require_auth_if_configured)])
 async def v1_snapshot_agent(agent_id: str, label: str = ""):
     agents_index = _load_agents_index()
     meta = agents_index.get(agent_id)
@@ -584,7 +619,7 @@ async def v1_list_agent_versions(agent_id: str, page: int = 1, limit: int = 20):
     return _paginate(items, page, limit)
 
 
-@app.post("/v1/agents/{agent_id}/versions/{version_id}/restore")
+@app.post("/v1/agents/{agent_id}/versions/{version_id}/restore", dependencies=[Depends(_require_auth_if_configured)])
 async def v1_restore_agent_version(agent_id: str, version_id: str):
     vs = _get_version_store()
     snapshot = vs.restore_version(agent_id, version_id)
@@ -605,7 +640,7 @@ async def v1_restore_agent_version(agent_id: str, version_id: str):
 # ── Knowledge Base endpoints ──
 
 
-@app.post("/v1/knowledge-bases")
+@app.post("/v1/knowledge-bases", dependencies=[Depends(_require_auth_if_configured)])
 async def v1_create_kb(request: Request):
     body = await request.json()
     name = body.get("name", "")
@@ -654,7 +689,7 @@ async def v1_get_kb(kb_id: str):
     return {"knowledge_base": kb.to_dict()}
 
 
-@app.patch("/v1/knowledge-bases/{kb_id}")
+@app.patch("/v1/knowledge-bases/{kb_id}", dependencies=[Depends(_require_auth_if_configured)])
 async def v1_update_kb(kb_id: str, request: Request):
     body = await request.json()
     mgr = _get_kb_manager()
@@ -665,7 +700,7 @@ async def v1_update_kb(kb_id: str, request: Request):
     return {"knowledge_base": kb.to_dict()}
 
 
-@app.delete("/v1/knowledge-bases/{kb_id}")
+@app.delete("/v1/knowledge-bases/{kb_id}", dependencies=[Depends(_require_auth_if_configured)])
 async def v1_delete_kb(kb_id: str):
     mgr = _get_kb_manager()
     deleted = mgr.delete_kb(kb_id)
@@ -681,7 +716,7 @@ async def v1_delete_kb(kb_id: str):
     return {"deleted": True}
 
 
-@app.post("/v1/knowledge-bases/{kb_id}/files")
+@app.post("/v1/knowledge-bases/{kb_id}/files", dependencies=[Depends(_require_auth_if_configured)])
 async def v1_upload_kb_file(kb_id: str, request: Request):
     mgr = _get_kb_manager()
     content_type = request.headers.get("content-type", "")
@@ -728,7 +763,7 @@ async def v1_list_kb_files(kb_id: str):
     return {"files": [f.to_dict() for f in files]}
 
 
-@app.delete("/v1/knowledge-bases/{kb_id}/files/{file_id}")
+@app.delete("/v1/knowledge-bases/{kb_id}/files/{file_id}", dependencies=[Depends(_require_auth_if_configured)])
 async def v1_delete_kb_file(kb_id: str, file_id: str):
     mgr = _get_kb_manager()
     deleted = mgr.delete_file(kb_id, file_id)
@@ -737,7 +772,7 @@ async def v1_delete_kb_file(kb_id: str, file_id: str):
     return {"deleted": True}
 
 
-@app.post("/v1/agents/{agent_id}/bind-kb")
+@app.post("/v1/agents/{agent_id}/bind-kb", dependencies=[Depends(_require_auth_if_configured)])
 async def v1_bind_agent_kb(agent_id: str, request: Request):
     try:
         body = await request.json()
@@ -754,7 +789,7 @@ async def v1_bind_agent_kb(agent_id: str, request: Request):
     return {"bound": True, "agent_id": agent_id, "kb_id": kb_id}
 
 
-@app.post("/v1/agents/{agent_id}/unbind-kb")
+@app.post("/v1/agents/{agent_id}/unbind-kb", dependencies=[Depends(_require_auth_if_configured)])
 async def v1_unbind_agent_kb(agent_id: str, request: Request):
     body = await request.json()
     kb_id = body.get("kb_id", "")
@@ -774,7 +809,7 @@ async def v1_unbind_agent_kb(agent_id: str, request: Request):
 # User instruction: "fusion-rag 已经完成issue和pr，可以开展相关的工作落地"
 
 
-@app.post("/v1/knowledge-bases/{kb_id}/search")
+@app.post("/v1/knowledge-bases/{kb_id}/search", dependencies=[Depends(_require_auth_if_configured)])
 async def v1_search_kb(kb_id: str, request: Request):
     body = await request.json()
     query = body.get("query", "")
@@ -806,7 +841,7 @@ async def v1_search_kb(kb_id: str, request: Request):
     return result
 
 
-@app.post("/v1/knowledge-bases/{kb_id}/ask")
+@app.post("/v1/knowledge-bases/{kb_id}/ask", dependencies=[Depends(_require_auth_if_configured)])
 async def v1_ask_kb(kb_id: str, request: Request):
     body = await request.json()
     question = body.get("question", "")
@@ -829,7 +864,7 @@ async def v1_ask_kb(kb_id: str, request: Request):
     return result
 
 
-@app.post("/v1/knowledge-bases/{kb_id}/scan")
+@app.post("/v1/knowledge-bases/{kb_id}/scan", dependencies=[Depends(_require_auth_if_configured)])
 async def v1_scan_kb(kb_id: str, request: Request):
     body = await request.json()
     path = body.get("path", "")
@@ -1026,7 +1061,7 @@ async def v1_delete_connector(connector_id: str, request: Request):
 # ── Legacy endpoints (no /v1 prefix, for backward compat) ──
 
 
-@app.post("/graphs", response_model=GraphResponse)
+@app.post("/graphs", response_model=GraphResponse, dependencies=[Depends(_require_auth_if_configured)])
 async def create_graph(req: GraphCreateRequest):
     return await v1_create_graph(req)
 
@@ -1054,12 +1089,12 @@ async def get_graph(graph_id: str):
     return await v1_get_graph(graph_id)
 
 
-@app.delete("/graphs/{graph_id}")
+@app.delete("/graphs/{graph_id}", dependencies=[Depends(_require_auth_if_configured)])
 async def delete_graph(graph_id: str):
     return await v1_delete_graph(graph_id)
 
 
-@app.post("/graphs/{graph_id}/execute", response_model=ExecutionResponse)
+@app.post("/graphs/{graph_id}/execute", response_model=ExecutionResponse, dependencies=[Depends(_require_auth_if_configured)])
 async def execute_graph(graph_id: str, req: GraphExecuteRequest):
     return await v1_execute_graph(graph_id, req)
 
@@ -1172,7 +1207,7 @@ async def get_agent_preview(agent_id: str):
     return await v1_get_agent_preview(agent_id)
 
 
-@app.post("/agents/{agent_id}/test")
+@app.post("/agents/{agent_id}/test", dependencies=[Depends(_require_auth_if_configured)])
 async def test_agent_with_project(
     agent_id: str, project_id: str = "", kb_id: str = "", message: str = "hello"
 ):
@@ -1220,7 +1255,7 @@ async def api_v1_get_agent_preview(agent_id: str):
     return await v1_get_agent_preview(agent_id)
 
 
-@app.post("/api/v1/agents/{agent_id}/test")
+@app.post("/api/v1/agents/{agent_id}/test", dependencies=[Depends(_require_auth_if_configured)])
 async def api_v1_test_agent(
     agent_id: str, project_id: str = "", kb_id: str = "", message: str = "hello"
 ):
