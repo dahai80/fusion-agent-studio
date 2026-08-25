@@ -283,6 +283,15 @@ python my_agent.py
 - ✅ **14 git actions** — `GitTool` (`tools/git_tools.py`) extended from 6 (`status, log, diff, commit, branch, pull`) to **14**: added `push`, `fetch`, `checkout` (`-b` via `create_new`), `merge`, `rebase`, `reset` (`soft`/`mixed`/`hard` modes), `stash` (save / `pop`), `show`. All reuse the async `_git_cmd` subprocess helper (30s timeout, STDERR merged). Write actions (`push`/`merge`/`rebase`/`reset`) already covered by `SafetyGateway` L3 policies (`git_push`/`git_*`). Unified params: `branch`, `remote` (default `origin`), `target` (commit/ref), `mode`, `create_new`, `pop`. (Audit's "no file delete" gap was already closed in an earlier release via `FileDeleteTool`.)
 - Tests: `tests/test_c15_git_tools.py` (15) — each new action exercised in a real temp git repo (local bare remote for `push`/`fetch`; branch + commit + merge/rebase; `reset` keeps changes staged on `soft`); invalid-mode + requires-branch guards; enum registered in default registry; existing actions still pass.
 
+### Audit 0825 Hardening (v0.3.45) — P0-P3 全量修复
+- ✅ **P0 fatal (D-1..D-7)** — WebSocket default-off + token auth; LLM path `evaluate_action` safety gate; sub-runtime inherits `safety_gateway`/`plan_mode`; self-repair path gated; `register_tool`/`unregister_tool` removed from readonly set; HTTP graph-execute auth + CORS tightened (default localhost origin, no `allow_origins=*`+credentials); PRE_TOOL_USE/POST_TOOL_USE hooks fail-closed (timeout/non-JSON block, other events fail-open).
+- ✅ **A-3 tool sink hardening** — secure-by-default + env opt-out across 5 sinks: terminal catastrophic-denylist (`rm -rf /`, `mkfs`...; `FUSION_TERMINAL_UNRESTRICTED=1`), db read-only-by-default + ATTACH always blocked (`FUSION_DB_ALLOW_WRITE=1`), file write-blocks system/sensitive paths (`.ssh`/`.aws`/`/etc`...; `FUSION_FILE_ALLOW_SYSTEM=1`, `FUSION_FILE_ROOTS` allowlist), `code_execute` rerouted from bare `exec()` to `CodeSandbox` (macOS sandbox-exec + AST checks), plugin auto-load opt-in (`FUSION_PLUGINS_ENABLE=1`).
+- ✅ **A-2 memory source labeling** — LLM-sourced content never classified `user` type (reserved for human input); reclassified user→project, tagged `source=llm`, injection-suspect detection.
+- ✅ **L-1/L-2** — `AgentGraph.validate()` rejects unknown `node.type`; LLM path honors `stop_on_tool_error`.
+- ✅ **P-1/P-2/P-3/P-4** — MLX stop lifecycle correct sequence; MLX start locked; `chat_stream` closes stream on timeout; `TrajectoryWriter` eviction cap (256) for abandoned SSE sessions.
+- ✅ **L-3/L-4/M-1/M-2/M-3** — silent JSON-swallow logging; dead `Task.session_id` field deleted; MLX list/health logging; checkpointer log escalation after 3 consecutive fails.
+- Tests: `tests/test_audit_0825_fixes.py` (21) + `tests/test_hooks.py` D-7 fail-closed/fail-open.
+
 ### Integration
 - ✅ **fusion-mlx** — Apple Silicon optimized model serving
 - ✅ **OpenAI-compatible API** — Works with any OpenAI-compatible backend
@@ -428,7 +437,7 @@ python -c "from tools.plugin_manager import PluginManager; from tools.registry i
 ```
 
 ### Test Stats
-- **2121 tests**, 0 failures
+- **2144 tests**, 0 failures
 - **94%+ statement coverage**
 - **Python 3.11+** compatible
 - **16 business scenario integration tests** covering: agent lifecycle (create→configure→execute→delete), skill management, soul management, marketplace (publish→search→install), memory (store→recall→delete), safety (check→evaluate→policy), planner, deploy export/import, templates, graph CRUD, agent filtering, env health, RAG, ping
