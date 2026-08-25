@@ -398,6 +398,11 @@ class PlannerEngine:
                 self.gateway.chat(messages=messages, capability="chat"),
                 timeout=120.0,
             )
+            # 审计 E-12: gateway 返回 finish_reason=="error" 哨兵时 content="" 不代表成功.
+            if getattr(resp, "finish_reason", "") == "error":
+                err = (resp.usage or {}).get("error", "gateway error")
+                logger.warning("LLM gateway error in planner: %s, falling back to stub", err)
+                return self._generate_steps_stub(task, context, files)
             content = resp.content
             if not content:
                 logger.warning("LLM returned empty content, falling back to stub")
