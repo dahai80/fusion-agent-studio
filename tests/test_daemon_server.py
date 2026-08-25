@@ -349,6 +349,27 @@ class TestDaemonEnvCheck:
         assert "checks" in result
         assert result["checks"]["python"]["ok"] is True
 
+    @pytest.mark.asyncio
+    async def test_env_repair_returns_structured_not_implemented(self, daemon):
+        # #217: env.repair must distinguish "not implemented" from "tried & failed".
+        resp = await _rpc_call(
+            daemon.socket_path, "env.repair", {"item_id": "mlx_server"}
+        )
+        result = resp["result"]
+        assert result["status"] == "not_implemented"
+        assert result["implemented"] is False
+        assert result["repaired"] is False  # backward-compat field kept
+        assert result["item_id"] == "mlx_server"
+
+    @pytest.mark.asyncio
+    async def test_env_repair_all_returns_structured_not_implemented(self, daemon):
+        # #217: env.repair_all same structured not_implemented contract.
+        resp = await _rpc_call(daemon.socket_path, "env.repair_all", {})
+        result = resp["result"]
+        assert result["status"] == "not_implemented"
+        assert result["implemented"] is False
+        assert result["repaired"] == []  # backward-compat field kept
+
 
 class TestDaemonProtocol:
     @pytest.mark.asyncio

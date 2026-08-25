@@ -1584,12 +1584,26 @@ class DaemonServer:
 
     async def _handle_env_repair(self, params: dict) -> dict:
         item_id = params.get("item_id", "")
-        logger.info("Repair requested for: %s", item_id)
-        return {"repaired": False, "message": f"Repair not implemented for: {item_id}"}
+        logger.info("Repair requested for: %s (not_implemented)", item_id)
+        # #217: 返回结构化 not_implemented 状态, 让前端区分
+        # "环境真的修不了" vs "功能未实现", 不再混淆.
+        # repaired=False 保留向后兼容; status/implemented 为新增明确字段.
+        return {
+            "repaired": False,
+            "status": "not_implemented",
+            "implemented": False,
+            "item_id": item_id,
+            "message": f"Repair not implemented for: {item_id}",
+        }
 
     async def _handle_env_repair_all(self, params: dict) -> dict:
-        logger.info("Repair all requested")
-        return {"repaired": [], "message": "Repair all not yet implemented"}
+        logger.info("Repair all requested (not_implemented)")
+        return {
+            "repaired": [],
+            "status": "not_implemented",
+            "implemented": False,
+            "message": "Repair all not yet implemented",
+        }
 
     # ── Lazy engine accessors ──
 
