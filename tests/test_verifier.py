@@ -248,5 +248,6 @@ class TestVerifyNodeInRuntime:
         async for _ in runtime.execute_graph(graph, context=ctx):
             pass
 
-        assert runtime.variables.get("verify_passed") is False
-        assert runtime.variables.get("verify_score") == 0.4
+        # 审计 A-1: verify 结果写 ctx.variables (per-exec), 不回流 singleton.
+        assert ctx.variables.get("verify_passed") is False
+        assert ctx.variables.get("verify_score") == 0.4
