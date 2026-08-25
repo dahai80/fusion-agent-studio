@@ -57,6 +57,11 @@ async def daemon_stub(socket_path, store_db):
     await d.start()
     d._gateway._default_client = None
     d._gateway._default_model = ""
+    # 启动时 _attach_mlx_client 若探测到运行中的 fusion-mlx 会 register_model,
+    # 使 route() 返回真实 model → chat/chat_stream 连真实服务 (本地 launchd-MLX
+    # 在跑时 stream 测试挂起等 chunk). 清空 _models → route 返 None → stub 路径
+    # 立即返错, 测试不依赖外部 MLX, 本地+CI 一致.
+    d._gateway._models.clear()
     yield d
     await d.stop()
 

@@ -77,6 +77,10 @@ async def daemon_stub(socket_path, store_db):
     await d.start()
     d._gateway._default_client = None
     d._gateway._default_model = ""
+    # 清空 _models: _attach_mlx_client 启动探测到运行中 fusion-mlx 会
+    # register_model, 使 route() 返真实 model 连外部服务 (本地 launchd-MLX
+    # 在跑时偶发连真实 LLM). 清空 → route 返 None → stub 路径确定性.
+    d._gateway._models.clear()
     d._planner = None
     d._rag = None
     yield d

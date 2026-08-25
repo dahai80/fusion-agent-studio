@@ -46,6 +46,7 @@ CAT_GIT_PUSH = "git_push"
 CAT_DATABASE_WRITE = "database_write"
 CAT_NETWORK_ACCESS = "network_access"
 CAT_TOOL_CALL = "tool_call"
+CAT_LLM_CALL = "llm_call"
 
 
 @dataclass
@@ -256,6 +257,12 @@ _DEFAULT_POLICIES = [
         default_level=SafetyLevel.L1,
         requires_diff=False,
         description="Direct tool-node execution in graphs, auto-approved (content check still applies)",
+    ),
+    SafetyPolicy(
+        category=CAT_LLM_CALL,
+        default_level=SafetyLevel.L1,
+        requires_diff=False,
+        description="LLM node calls, auto-approved (content check still applies)",
     ),
 ]
 

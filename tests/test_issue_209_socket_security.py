@@ -98,8 +98,15 @@ class TestPeerUidCheck:
     @pytest.mark.asyncio
     async def test_same_uid_peer_accepted(self, socket_path):
         # Live UDS: a real same-uid connection must pass the credential check.
+        async def _close(r, w):
+            w.close()
+            try:
+                await w.wait_closed()
+            except Exception:
+                pass
+
         server = await asyncio.start_unix_server(
-            lambda r, w: None, path=socket_path
+            _close, path=socket_path
         )
         try:
             _, writer = await asyncio.open_unix_connection(socket_path)
