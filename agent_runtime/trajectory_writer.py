@@ -74,6 +74,11 @@ class TrajectoryRecord:
 
 
 class TrajectoryWriter:
+    # 审计 P-4: _records 上限. 被放弃会话 (SSE 早断, finally 不执行, flush 不调)
+    # 的 TrajectoryRecord 永留至 daemon 生命期 = 静默内存泄漏. 超 cap 淘汰最老
+    # 未 flush 记录并记日志 (不落盘, 因无法判定其状态完整性; 仅防内存无界增长).
+    _MAX_RECORDS = 256
+
     def __init__(self, output_dir: Path | str | None = None):
         self.output_dir = Path(output_dir) if output_dir else TRAJECTORY_DIR
         self.output_dir.mkdir(parents=True, exist_ok=True)
@@ -96,11 +101,28 @@ class TrajectoryWriter:
             max_iterations=max_iterations,
         )
         self._records[session_id] = record
+        self._evict_if_needed()
         logger.debug(
             "Trajectory started: trace=%s session=%s graph=%s",
             record.trace_id, session_id, graph_name,
         )
         return record.trace_id
+
+    def _evict_if_needed(self) -> None:
+        # 超上限淘汰最老 (按 started_at 升序) 的未 flush 记录, 防内存无界增长.
+        if len(self._records) <= self._MAX_RECORDS:
+            return
+        oldest = sorted(
+            self._records.items(), key=lambda kv: kv[1].started_at
+        )
+        evict_count = len(self._records) - self._MAX_RECORDS
+        for sid, rec in oldest[:evict_count]:
+            self._records.pop(sid, None)
+            logger.warning(
+                "TrajectoryWriter evicted abandoned record (session=%s trace=%s "
+                "events=%d) — flush never called (SSE early-cancel?), capping memory",
+                sid, rec.trace_id, len(rec.events),
+            )
 
     def record_event(self, session_id: str, event: dict) -> None:
         record = self._records.get(session_id)

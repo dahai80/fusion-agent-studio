@@ -276,6 +276,9 @@ class AgentRuntime:
         self.compactor = None
         self.hooks = None
         self._tool_call_chain_count = 0
+        # 审计 M-3: 连续 checkpoint 失败计数, 超阈值升级 error (恢复特性静默失效,
+        # 用户以为有 checkpoint 可恢复, 实际全程 save 都在失败).
+        self._checkpoint_fail_count = 0
         self._safety_futures: dict[str, asyncio.Future[bool]] = {}
         self._safety_timeout: float = 60.0
         self.tool_configs: dict[str, dict[str, Any]] = {}
@@ -294,9 +297,10 @@ class AgentRuntime:
             "text_search",
             "text_process",
             "exit_plan_mode",
-            "register_tool",
-            "unregister_tool",
         }
+        # 审计 D-5: register_tool/unregister_tool 是写操作 (注册工具 + 经
+        # tool.register_python RPC 可 exec 源码), 不属于只读探索. 已移出
+        # _plan_readonly_tools, plan_mode 只读期一并被挡, 与其他写工具一致.
         # Issue #149: optional per-node model unload to lower peak memory on
         # multi-model workflow chains. Default OFF to preserve model reuse
         # across consecutive same-model nodes. Env:
@@ -785,6 +789,19 @@ class AgentRuntime:
                 )
                 return
 
+            else:
+                # 审计 L-1: 未知 node.type 原本无 else 分支 — 不匹配任何
+                # elif 时静默跳过, current_node_id 不更新, while 循环空转
+                # 至 max_iterations 才报错, 既浪费又误导 (报 "max iterations"
+                # 而非 "unknown node type"). 现显式报错并终止.
+                ctx.error = (
+                    f"Unknown node type '{node.type}' on node '{node.label}' "
+                    f"(id={current_node_id})"
+                )
+                logger.error("unknown node type=%s node=%s id=%s", node.type, node.label, current_node_id)
+                yield AgentEvent(type=AgentEventType.ERROR, content=ctx.error, node_id=node.label)
+                return
+
         if ctx.is_max_iterations_reached():
             ctx.error = "Max iterations exceeded"
             yield AgentEvent(type=AgentEventType.ERROR, content=ctx.error)
@@ -838,8 +855,18 @@ class AgentRuntime:
                 },
             )
             logger.debug("Checkpoint saved: graph=%s node=%s", graph.name, ctx.current_node_id)
+            self._checkpoint_fail_count = 0
         except Exception as e:
-            logger.warning("Checkpoint save failed: %s", e)
+            self._checkpoint_fail_count += 1
+            # 审计 M-3: 持续失败 (DB 满/锁/schema 不匹配) 仅 warning 但执行照常,
+            # 之后 resume 报 "No checkpoint found" 用户无信号. 连续 3 次升级 error.
+            if self._checkpoint_fail_count >= 3:
+                logger.error(
+                    "Checkpoint save failed %d consecutive times (resume will not work): %s",
+                    self._checkpoint_fail_count, e,
+                )
+            else:
+                logger.warning("Checkpoint save failed (%d): %s", self._checkpoint_fail_count, e)
 
     async def resume_from_checkpoint(
         self,
@@ -1421,6 +1448,54 @@ class AgentRuntime:
                         )
                         continue
 
+                    # 审计 D-2: LLM function-call 路径补 safety gate. 原仅
+                    # tool-node 路径 (2008) 过 evaluate_action, LLM 直接
+                    # 调工具完全绕过 SafetyGateway L3 内容检查 — LLM 可在
+                    # 单轮内串 shell/网络/写入. 在此与 tool-node 路径对齐:
+                    # category=tool_call, block/approval/approved 三态一致.
+                    if self.safety_gateway:
+                        safety_result = self.safety_gateway.evaluate_action(
+                            category="tool_call",
+                            content=f"{func_name}({func_args})",
+                            context=f"tool={func_name} node={node.label} path=llm_func_call",
+                        )
+                        if safety_result.action.value == "block" and not safety_result.requires_approval:
+                            result = f"SafetyGateway blocked tool call: {safety_result.reason}"
+                            logger.warning(
+                                "safety blocked llm_func_call tool=%s node=%s reason=%s",
+                                func_name,
+                                node.label,
+                                safety_result.reason,
+                            )
+                            ctx.add_message("tool", result, tool_call_id=tc.get("id", ""))
+                            yield AgentEvent(
+                                type=AgentEventType.SAFETY_APPROVAL,
+                                content=safety_result.reason,
+                                metadata={"action": "blocked", "category": "tool_call"},
+                                node_id=node.label,
+                            )
+                            yield AgentEvent(
+                                type=AgentEventType.TOOL_RESULT,
+                                content=result,
+                                name=func_name,
+                                node_id=node.label,
+                            )
+                            continue
+                        if safety_result.requires_approval:
+                            async for evt in self._await_safety_approval(
+                                ctx, safety_result, "tool_call", node.label
+                            ):
+                                yield evt
+                                if evt.type == AgentEventType.ERROR:
+                                    break
+                        else:
+                            yield AgentEvent(
+                                type=AgentEventType.SAFETY_APPROVAL,
+                                content=safety_result.reason or "approved",
+                                metadata={"action": "approved", "category": "tool_call"},
+                                node_id=node.label,
+                            )
+
                     # C13: tool.call span — 计数+延迟. 在 try 之前初始化,
                     # KeyError(tool 不存在)在 start_span 之前抛出时 except 仍安全.
                     tool_span = None
@@ -1506,6 +1581,30 @@ class AgentRuntime:
                     if str(result).startswith("Error:"):
                         tool_errors.append(f"{func_name}: {result}")
 
+            # 审计 L-2: LLM function-call 路径 stop_on_tool_error. 直接 tool
+            # 节点路径 (2082) 在工具出错且 graph.stop_on_tool_error=True 时
+            # set ctx.error + 发 ERROR + return 停级联; 但本 LLM 路径只把
+            # 错误塞进 tool_errors 然后继续走 retry_on_error, 从不尊重
+            # stop_on_tool_error — 节点级开关在 LLM 驱动路径静默失效.
+            if tool_errors and getattr(graph, "stop_on_tool_error", False):
+                ctx.error = (
+                    f"Tool errors in LLM node '{node.label}': "
+                    + "; ".join(tool_errors)
+                )
+                logger.warning(
+                    "llm_func_call errors stop cascade (stop_on_tool_error=True) "
+                    "node=%s errors=%s",
+                    node.label,
+                    "; ".join(tool_errors)[:200],
+                )
+                yield AgentEvent(
+                    type=AgentEventType.ERROR,
+                    content=ctx.error,
+                    node_id=node.label,
+                    metadata={"tool_error": True, "node": node.label},
+                )
+                return
+
             if tool_errors and node.retry_on_error and node.max_retries > 0:
                 max_retries = min(node.max_retries, 5)
                 for retry_count in range(1, max_retries + 1):
@@ -1528,6 +1627,41 @@ class AgentRuntime:
                         + "\n\nPlease try again with corrected arguments or a different approach."
                     )
                     ctx.add_message("system", retry_prompt)
+
+                    # 审计 D-4: self-repair 路径的 LLM 调用原本完全脱离
+                    # safety_gateway — 主 LLM 节点路径 (1055) 过
+                    # category=llm_call, 自愈重试却裸调 gateway, L3 内容
+                    # 检查在此静默失效. 补 gate, 与主路径一致.
+                    if self.safety_gateway:
+                        safety_result = self.safety_gateway.evaluate_action(
+                            category="llm_call",
+                            content=retry_prompt,
+                            context=f"model={model} node={node.label} path=self_repair",
+                        )
+                        if safety_result.action.value == "block" and not safety_result.requires_approval:
+                            ctx.error = f"SafetyGateway blocked self-repair LLM call: {safety_result.reason}"
+                            yield AgentEvent(
+                                type=AgentEventType.SAFETY_APPROVAL,
+                                content=safety_result.reason,
+                                metadata={"action": "blocked", "category": "llm_call", "path": "self_repair"},
+                                node_id=node.label,
+                            )
+                            yield AgentEvent(type=AgentEventType.ERROR, content=ctx.error, node_id=node.label)
+                            return
+                        if safety_result.requires_approval:
+                            async for evt in self._await_safety_approval(
+                                ctx, safety_result, "llm_call", node.label
+                            ):
+                                yield evt
+                                if evt.type == AgentEventType.ERROR:
+                                    return
+                        else:
+                            yield AgentEvent(
+                                type=AgentEventType.SAFETY_APPROVAL,
+                                content=safety_result.reason or "approved",
+                                metadata={"action": "approved", "category": "llm_call", "path": "self_repair"},
+                                node_id=node.label,
+                            )
 
                     try:
                         gw_resp = await asyncio.wait_for(
@@ -1578,6 +1712,78 @@ class AgentRuntime:
                             args=fa,
                             node_id=node.label,
                         )
+                        # 审计 D-4: self-repair 重试的工具执行原本完全绕过
+                        # plan_mode 门禁与 safety_gateway L3 — 主 LLM 路径
+                        # 的 plan_mode 块 (1350) 与 D-2 的 tool_call gate 在
+                        # 此都不生效. 补齐: plan_mode 只读期挡写工具, L3
+                        # 内容检查走 tool_call category.
+                        if (
+                            self.plan_mode
+                            and fn != "exit_plan_mode"
+                            and fn not in self._plan_readonly_tools
+                        ):
+                            r = (
+                                "Blocked: plan_mode active (read-only explore). "
+                                "Tool writes state; call exit_plan_mode first."
+                            )
+                            logger.info(
+                                "plan_mode blocked self-repair tool=%s node=%s",
+                                fn,
+                                node.label,
+                            )
+                            ctx.add_message("tool", r, tool_call_id=tc.get("id", ""))
+                            yield AgentEvent(
+                                type=AgentEventType.TOOL_RESULT,
+                                content=r,
+                                name=fn,
+                                node_id=node.label,
+                                metadata={"plan_mode_blocked": True},
+                            )
+                            tool_errors.append(f"{fn}: {r}")
+                            continue
+                        if self.safety_gateway:
+                            sr = self.safety_gateway.evaluate_action(
+                                category="tool_call",
+                                content=f"{fn}({fa})",
+                                context=f"tool={fn} node={node.label} path=self_repair",
+                            )
+                            if sr.action.value == "block" and not sr.requires_approval:
+                                r = f"SafetyGateway blocked tool call: {sr.reason}"
+                                logger.warning(
+                                    "safety blocked self_repair tool=%s node=%s reason=%s",
+                                    fn,
+                                    node.label,
+                                    sr.reason,
+                                )
+                                ctx.add_message("tool", r, tool_call_id=tc.get("id", ""))
+                                yield AgentEvent(
+                                    type=AgentEventType.SAFETY_APPROVAL,
+                                    content=sr.reason,
+                                    metadata={"action": "blocked", "category": "tool_call", "path": "self_repair"},
+                                    node_id=node.label,
+                                )
+                                yield AgentEvent(
+                                    type=AgentEventType.TOOL_RESULT,
+                                    content=r,
+                                    name=fn,
+                                    node_id=node.label,
+                                )
+                                tool_errors.append(f"{fn}: {r}")
+                                continue
+                            if sr.requires_approval:
+                                async for evt in self._await_safety_approval(
+                                    ctx, sr, "tool_call", node.label
+                                ):
+                                    yield evt
+                                    if evt.type == AgentEventType.ERROR:
+                                        return
+                            else:
+                                yield AgentEvent(
+                                    type=AgentEventType.SAFETY_APPROVAL,
+                                    content=sr.reason or "approved",
+                                    metadata={"action": "approved", "category": "tool_call", "path": "self_repair"},
+                                    node_id=node.label,
+                                )
                         try:
                             t = self.tools.get(fn)
                             if t is None:
@@ -2329,7 +2535,14 @@ class AgentRuntime:
                 max_iterations=self.max_iterations,
                 variables=VariableManager(),
                 llm_gateway=self.llm_gateway,
+                safety_gateway=self.safety_gateway,
+                store=self.store,
+                memory_engine=self.memory_engine,
+                telemetry_engine=self.telemetry_engine,
             )
+            # 审计 D-3: sub-runtime 继承父 runtime 的 plan_mode, 否则
+            # 父处于只读探索期时并行分支仍可调写工具绕过门禁.
+            sub_runtime.plan_mode = self.plan_mode
             sub_ctx = AgentContext()
             sub_ctx.metadata["parallel_branch"] = edge_label or f"branch_{branch_idx}"
             branch_events: list[AgentEvent] = []
@@ -2517,7 +2730,16 @@ class AgentRuntime:
             max_iterations=self.max_iterations,
             variables=sub_vars,
             llm_gateway=self.llm_gateway,
+            safety_gateway=self.safety_gateway,
+            store=self.store,
+            memory_engine=self.memory_engine,
+            telemetry_engine=self.telemetry_engine,
         )
+        # 审计 D-3: sub-runtime 继承父 runtime 的 safety_gateway / store /
+        # memory_engine / plan_mode, 否则子图执行完全脱离安全网 (无 L3
+        # 内容检查 + 无只读探索门禁 + 无持久化/记忆), 父图授权的安全策略
+        # 在子图里静默失效.
+        sub_runtime.plan_mode = self.plan_mode
 
         sub_ctx = AgentContext()
         # Issue #175: lifecycle hook — sub-agent start.
@@ -2871,10 +3093,25 @@ class AgentRuntime:
         last_assistant = assistant_msgs[-1] if assistant_msgs else ""
         scope = f"graph:{graph.name}"
         content = f"Q: {last_user[:200]} A: {last_assistant[:500]}"
-        # C16: 自动存储按内容启发式归类 user/feedback/project/reference.
+        # 审计 A-2: LLM assistant 输出是不可信源, 不可归 "user" 类型 (该类型
+        # 保留给真人输入, 高优先级 recall). _auto_store_memory 含 assistant 文本,
+        # 若 classify 命中 "i am/i prefer" 归 user = 延迟注入毒化未来会话. 强制
+        # 降级: 命中 user 则改 project, 标 source="llm" 低信任, 记注入嫌疑模式.
         from .memory_engine import classify_memory_type
 
         mem_type = classify_memory_type(content)
+        llm_sourced = bool(last_assistant)
+        if llm_sourced and mem_type == "user":
+            mem_type = "project"
+            logger.info(
+                "auto-store: LLM-sourced content reclassified user->project "
+                "(user type reserved for human input, A-2 injection hardening)"
+            )
+        # 简易注入嫌疑检测: assistant 文本含指令性 "ignore previous"/"system:" 等
+        llm_injection_suspect = llm_sourced and any(
+            pat in last_assistant.lower()
+            for pat in ("ignore previous", "ignore all", "system:", "disregard", "you are now")
+        )
         await asyncio.to_thread(
             self.memory_engine.store,
             content=content,
@@ -2885,11 +3122,14 @@ class AgentRuntime:
                 "graph_id": graph.id,
                 "error": ctx.error,
                 "iterations": ctx.iteration_count,
+                "source": "llm" if llm_sourced else "user",
+                "injection_suspect": llm_injection_suspect,
             },
             memory_type=mem_type,
         )
         logger.info(
-            "Auto-stored execution result to memory (scope=%s type=%s)", scope, mem_type
+            "Auto-stored execution result to memory (scope=%s type=%s source=%s)",
+            scope, mem_type, "llm" if llm_sourced else "user",
         )
 
     def set_knowledge_engine(self, engine: Any) -> None:

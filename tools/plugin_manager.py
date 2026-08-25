@@ -54,6 +54,7 @@ class PluginManager:
             if spec is None or spec.loader is None:
                 return None
             mod = importlib.util.module_from_spec(spec)
+            logger.info("loading plugin (exec_module) name=%s path=%s", name, plugin_path)
             spec.loader.exec_module(mod)
             # Find BaseTool subclasses in the module
             for attr_name in dir(mod):
@@ -73,6 +74,17 @@ class PluginManager:
 
     def load_all(self) -> list[BaseTool]:
         """Load all plugins from the plugin directory."""
+        # 审计 A-3: 自动扫描加载未签名 .py 文件 exec_module = 进程内全权限.
+        # secure-by-default: daemon 启动时自动加载需显式 env FUSION_PLUGINS_ENABLE=1.
+        # 单个 load_plugin(name) 仍可经 RPC 显式调用 (用户主动指定, 非自动执行).
+        import os
+        if os.environ.get("FUSION_PLUGINS_ENABLE", "").strip().lower() not in ("1", "true", "yes"):
+            logger.info(
+                "plugin auto-load disabled (secure-by-default); "
+                "set FUSION_PLUGINS_ENABLE=1 to load plugins from %s",
+                self.plugin_dir,
+            )
+            return []
         tools = []
         for plugin in self.discover():
             tool = self.load_plugin(plugin["name"])

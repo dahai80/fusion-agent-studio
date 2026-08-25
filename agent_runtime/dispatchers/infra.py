@@ -237,7 +237,6 @@ class InfraDispatcher(SubDispatcher):
             input=params.get("input", ""),
             status=params.get("status", "pending"),
             priority=int(params.get("priority", 0) or 0),
-            session_id=params.get("session_id", ""),
             project_id=params.get("project_id", ""),
             max_retries=int(params.get("max_retries", 0) or 0),
         )
