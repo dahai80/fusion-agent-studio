@@ -11,18 +11,31 @@ from .base import BaseTool
 
 logger = logging.getLogger(__name__)
 
-# 审计 A-3: 终端 sink 灾难性命令黑名单. terminal 工具本就是任意 shell 执行
+# 审计 A-3/E-1: 终端 sink 灾难性命令黑名单. terminal 工具本就是任意 shell 执行
 # (其用途即此), 不做白名单 (会破坏向后兼容 + 用例), 但挡掉不可逆的破坏性
-# 模式: rm -rf / (根删除)、mkfs (格式化)、dd 到块设备 (覆盘)、shutdown/
-# reboot (停机)、> /dev/sda (裸写盘). env FUSION_TERMINAL_UNRESTRICTED=1
-# 可完全放开 (如受控 CI 场景). 默认即灾难防线, 每条命令留日志.
+# 模式: rm -rf (根/家目录/环境变量展开)、mkfs (格式化)、dd 到块设备 (含裸盘
+# rdisk)、shutdown/reboot/halt/poweroff/init 0/kill init、裸写盘 (> >> tee).
+# env FUSION_TERMINAL_UNRESTRICTED=1 可完全放开 (如受控 CI 场景). 默认即灾难
+# 防线, 每条命令留日志.
+# E-1: 原黑名单子串正则漏 `rm -rf ~`/`rm -rf $HOME`/`rm -rf /Users/*`/
+# `dd of=/dev/rdisk0`/`init 0`/`kill -9 1`/`osascript shut down`/`tee /dev/sda`.
+# 补全这些已知绕过路径.
 _CATASTROPHIC_PATTERNS = [
-    re.compile(r"\brm\s+-[a-zA-Z]*r[a-zA-Z]*f?\b.*\s/\s*($|\b|;)"),
-    re.compile(r"\brm\s+-rf\s+/(\s|$|;)"),
+    # rm 带 -r (递归) 标志 + 目标是根树 (以 / 开头: / /usr /opt /var ...)
+    # 或家目录展开 (~ / $HOME / $USERPROFILE) / /Users/*. 这些是递归删系统树
+    # 或用户家, 不可逆. 注: 仅挡递归 rm, 单文件 rm 不挡 (rm file.txt 正常).
+    re.compile(r"\brm\s+(-[a-zA-Z]*r[a-zA-Z]*\s+)+(/[^\s]*|~[^\s]*|\\?\$HOME|\\?\$USERPROFILE)", re.IGNORECASE),
     re.compile(r"\bmkfs\b"),
-    re.compile(r"\bdd\b.*\bof=/dev/(sd|nvme|disk|hd)"),
-    re.compile(r">\s*/dev/(sd|nvme|disk|hd)"),
+    # dd 写块设备: 含裸盘 rdisk + 相对穿越.
+    re.compile(r"\bdd\b.*\bof=/dev/(r?)(sd|nvme|disk|hd)"),
+    # 裸写盘: > >> tee.
+    re.compile(r"(>>?)\s*/dev/(r?)(sd|nvme|disk|hd)"),
+    re.compile(r"\btee\s+/dev/(r?)(sd|nvme|disk|hd)"),
+    # 停机: shutdown/reboot/halt/poweroff/init 0/kill init/osascript shut down.
     re.compile(r"\b(shutdown|reboot|halt|poweroff)\b"),
+    re.compile(r"\binit\s+0\b"),
+    re.compile(r"\bkill\s+(-9\s+)?1\b"),
+    re.compile(r"osascript.*shut\s*down"),
 ]
 
 

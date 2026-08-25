@@ -272,3 +272,58 @@ class TestParallelToolCalls:
         assert "slept:ok2" in results
         # file_write succeeds (mock) -> all 3 non-error.
         assert len(results) == 3
+
+    @pytest.mark.asyncio
+    async def test_e3_parallel_safety_blocks_dangerous_content(self):
+        # 审计 E-3/P0-3: parallel_tool_calls=True 旧路径绕过 SafetyGateway.
+        # 一工具 args 含 `rm -rf /` (L3 BLOCK 内容模式), 并行路径必须 block 它
+        # 而非执行. 另一安全工具仍应完成 (block 只挡危险那个).
+        from agent_runtime.safety import SafetyGateway, SafetyLevel
+
+        resp = _llm_response(
+            tool_calls=[
+                _tc("sleep", {"seconds": 0.01, "tag": "safe"}),
+                _tc("file_write", {"path": "/x", "content": "rm -rf /"}),
+            ]
+        )
+        client = ToolCallClient([resp, _llm_response(content="done")])
+        gw = LLMGateway()
+        gw.set_default_client(client)
+        gw.register_model(ModelConfig(name="test-model", provider="local", context_length=4096))
+        rt = AgentRuntime(
+            llm_gateway=gw,
+            tool_registry=_make_registry(),
+            safety_gateway=SafetyGateway(level=SafetyLevel.L3),
+        )
+        g = _graph(parallel=True, loop=True)
+        events = await _collect(rt, g, "run")
+        results = [e.content for e in events if e.type == AgentEventType.TOOL_RESULT]
+        assert "slept:safe" in results, "safe tool must still run"
+        blocked = [r for r in results if "SafetyGateway blocked" in r]
+        assert blocked, "dangerous parallel tool must be blocked, got: %s" % results
+
+    @pytest.mark.asyncio
+    async def test_e3_parallel_safety_safe_tools_run_unblocked(self):
+        # 审计 E-3: 无危险内容的并行工具仍正常执行 (SafetyGateway 内容放行).
+        from agent_runtime.safety import SafetyGateway, SafetyLevel
+
+        resp = _llm_response(
+            tool_calls=[
+                _tc("sleep", {"seconds": 0.01, "tag": "a"}),
+                _tc("file_write", {"path": "/tmp/x", "content": "hello"}),
+            ]
+        )
+        client = ToolCallClient([resp, _llm_response(content="done")])
+        gw = LLMGateway()
+        gw.set_default_client(client)
+        gw.register_model(ModelConfig(name="test-model", provider="local", context_length=4096))
+        rt = AgentRuntime(
+            llm_gateway=gw,
+            tool_registry=_make_registry(),
+            safety_gateway=SafetyGateway(level=SafetyLevel.L3),
+        )
+        g = _graph(parallel=True, loop=True)
+        events = await _collect(rt, g, "run")
+        results = [e.content for e in events if e.type == AgentEventType.TOOL_RESULT]
+        assert "slept:a" in results
+        assert "Wrote /tmp/x" in results

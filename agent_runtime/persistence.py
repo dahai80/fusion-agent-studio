@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import sqlite3
+import threading
 import time
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -54,24 +55,32 @@ class AgentStore:
         self.db_path = Path(db_path)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._conn: sqlite3.Connection | None = None
+        # 审计 A-6/R-7/3M-3: store/trigger/task 写经 asyncio.to_thread 跨线程共享单连接,
+        # 无锁无 WAL 致写竞态腐. RLock 串行化所有连接操作, WAL 让读不堵写, busy_timeout
+        # 等锁而非立即 SQLITE_BUSY 失败.
+        self._write_lock = threading.RLock()
         self._init_db()
 
     def _get_conn(self) -> sqlite3.Connection:
         if self._conn is None:
             self._conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
             self._conn.row_factory = sqlite3.Row
+            self._conn.execute("PRAGMA journal_mode=WAL")
+            self._conn.execute("PRAGMA synchronous=NORMAL")
+            self._conn.execute("PRAGMA busy_timeout=5000")
         return self._conn
 
     @contextmanager
     def _cursor(self):
-        """Context manager for safe SQLite operations with auto-commit."""
+        """Context manager for safe SQLite operations with auto-commit. Lock-serialized."""
         conn = self._get_conn()
-        try:
-            yield conn
-            conn.commit()
-        except Exception:
-            conn.rollback()
-            raise
+        with self._write_lock:
+            try:
+                yield conn
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
 
     def _init_db(self) -> None:
         conn = self._get_conn()

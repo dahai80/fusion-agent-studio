@@ -8,14 +8,26 @@ from .base import BaseTool
 
 logger = logging.getLogger(__name__)
 
-# 审计 A-3: 仅读 SQL 关键字. secure-by-default: 默认只允许读, 写操作
+# 审计 A-3/E-2: 仅读 SQL 关键字. secure-by-default: 默认只允许读, 写操作
 # (INSERT/UPDATE/DELETE/DROP/ALTER/CREATE/ATTACH/PRAGMA write) 需 env
 # FUSION_DB_ALLOW_WRITE=1 显式 opt-in, 否则拒绝 — 避免 LLM 经此工具
 # 落盘任意文件 (ATTACH/CREATE) 或破坏库 (DROP/DELETE).
+# E-2: PRAGMA 归只读时, `PRAGMA journal_mode=OFF`/`writable_schema=1` 等破坏性
+# PRAGMA 绕过写门. 用 _WRITE_PRAGMAS 显式列破坏性 PRAGMA, 走写门校验.
 _READ_ONLY_PREFIXES = ("SELECT", "PRAGMA", "EXPLAIN", "WITH")
 _WRITE_PREFIXES = (
     "INSERT", "UPDATE", "DELETE", "DROP", "ALTER", "CREATE",
     "ATTACH", "DETACH", "REPLACE", "TRUNCATE", "REINDEX", "VACUUM",
+)
+# 破坏性 PRAGMA: 改持久状态 (journal/sync/schema/foreign_keys/wal), 崩溃致腐或
+# 开 schema 表重写攻击路径. 形如 `PRAGMA journal_mode=OFF` / `PRAGMA writable_schema=1`.
+_WRITE_PRAGMAS = (
+    "JOURNAL_MODE", "SYNCHRONOUS", "WAL_AUTOCHECKPOINT", "WAL_CHECKPOINT",
+    "WRITABLE_SCHEMA", "FOREIGN_KEYS", "IGNORE_CHECK_CONSTRAINTS",
+    "AUTO_VACUUM", "SECURE_DELETE", "INTEGRITY_CHECK", "QUICK_CHECK",
+    "OPTIMIZE", "SHRINK_MEMORY", "TEMP_STORE", "DEFAULT_CACHE_SIZE",
+    "CACHE_SIZE", "PAGE_SIZE", "ENCODING", "USER_VERSION",
+    "APPLICATION_ID", "CELL_SIZE_CHECK", "CHECKPOINT_FULLFSYNC",
 )
 
 
@@ -42,7 +54,15 @@ class SqliteQueryTool(BaseTool):
         if query_upper.startswith("ATTACH"):
             logger.warning("sqlite_query blocked ATTACH (file exfil vector) db=%s", db_path)
             return "Error: ATTACH is blocked (file exfiltration vector)"
-        is_write = query_upper.startswith(_WRITE_PREFIXES)
+        # E-2: PRAGMA 写检测. `PRAGMA journal_mode=OFF` 形如 name=value 是写;
+        # 名在 _WRITE_PRAGMAS (改持久状态) 也是写, 即使无 `=` (如 PRAGMA WAL_CHECKPOINT).
+        is_pragma_write = False
+        if query_upper.startswith("PRAGMA"):
+            pragma_body = query_upper[len("PRAGMA"):].strip()
+            pragma_name = pragma_body.split("(", 1)[0].split("=", 1)[0].strip().split()[0] if pragma_body else ""
+            if "=" in pragma_body or pragma_name in _WRITE_PRAGMAS:
+                is_pragma_write = True
+        is_write = query_upper.startswith(_WRITE_PREFIXES) or is_pragma_write
         if is_write:
             allow_write = os.environ.get("FUSION_DB_ALLOW_WRITE", "").strip().lower() in ("1", "true", "yes")
             if not allow_write:

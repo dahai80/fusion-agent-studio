@@ -12,6 +12,7 @@ import logging
 import math
 import os
 import sqlite3
+import threading
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -92,6 +93,9 @@ class KnowledgeEngine:
         self.embedding_dim = embedding_dim
         self.embedding_fn = embedding_fn
         self._vec_available = False
+        # 审计 A-6/3M-3: 跨线程共享单连接无锁 (仅 WAL 无锁仍竞态).
+        # RLock 串行化所有连接操作 (reentrant: _search_hybrid 调 _search_fts/_search_vector).
+        self._write_lock = threading.RLock()
         Path(db_path).parent.mkdir(parents=True, exist_ok=True)
         self._conn = self._open_db()
         self._init_schema()
@@ -106,6 +110,7 @@ class KnowledgeEngine:
         conn = sqlite3.connect(self.db_path, check_same_thread=False)
         conn.execute("PRAGMA journal_mode=WAL")
         conn.execute("PRAGMA synchronous=NORMAL")
+        conn.execute("PRAGMA busy_timeout=5000")
         try:
             conn.enable_load_extension(True)
             import sqlite_vec
@@ -121,31 +126,32 @@ class KnowledgeEngine:
         return conn
 
     def _init_schema(self):
-        self._conn.execute("""
-            CREATE TABLE IF NOT EXISTS knowledge_entries (
-                id TEXT PRIMARY KEY,
-                content TEXT NOT NULL,
-                scope TEXT NOT NULL DEFAULT 'default',
-                embedding BLOB,
-                metadata TEXT NOT NULL DEFAULT '{}',
-                created_at REAL NOT NULL,
-                updated_at REAL NOT NULL
-            )
-        """)
-        self._conn.execute("""
-            CREATE INDEX IF NOT EXISTS idx_entries_scope ON knowledge_entries(scope)
-        """)
-        try:
+        with self._write_lock:
             self._conn.execute("""
-                CREATE VIRTUAL TABLE IF NOT EXISTS knowledge_fts USING fts5(
-                    id UNINDEXED, content, scope,
-                    content='knowledge_entries',
-                    content_rowid='rowid'
+                CREATE TABLE IF NOT EXISTS knowledge_entries (
+                    id TEXT PRIMARY KEY,
+                    content TEXT NOT NULL,
+                    scope TEXT NOT NULL DEFAULT 'default',
+                    embedding BLOB,
+                    metadata TEXT NOT NULL DEFAULT '{}',
+                    created_at REAL NOT NULL,
+                    updated_at REAL NOT NULL
                 )
             """)
-        except sqlite3.OperationalError:
-            logger.debug("FTS5 table already exists")
-        self._conn.commit()
+            self._conn.execute("""
+                CREATE INDEX IF NOT EXISTS idx_entries_scope ON knowledge_entries(scope)
+            """)
+            try:
+                self._conn.execute("""
+                    CREATE VIRTUAL TABLE IF NOT EXISTS knowledge_fts USING fts5(
+                        id UNINDEXED, content, scope,
+                        content='knowledge_entries',
+                        content_rowid='rowid'
+                    )
+                """)
+            except sqlite3.OperationalError:
+                logger.debug("FTS5 table already exists")
+            self._conn.commit()
 
     def ingest(
         self,
@@ -163,40 +169,42 @@ class KnowledgeEngine:
             metadata=metadata or {},
         )
         emb_blob = self._encode_embedding(entry.embedding)
-        self._conn.execute(
-            "INSERT OR REPLACE INTO knowledge_entries (id, content, scope, embedding, metadata, created_at, updated_at) VALUES (?,?,?,?,?,?,?)",
-            (
-                entry.id,
-                entry.content,
-                entry.scope,
-                emb_blob,
-                json.dumps(entry.metadata),
-                entry.created_at,
-                entry.updated_at,
-            ),
-        )
-        try:
+        with self._write_lock:
             self._conn.execute(
-                "INSERT INTO knowledge_fts(rowid, id, content, scope) VALUES ((SELECT rowid FROM knowledge_entries WHERE id=?), ?, ?, ?)",
-                (entry.id, entry.id, entry.content, entry.scope),
+                "INSERT OR REPLACE INTO knowledge_entries (id, content, scope, embedding, metadata, created_at, updated_at) VALUES (?,?,?,?,?,?,?)",
+                (
+                    entry.id,
+                    entry.content,
+                    entry.scope,
+                    emb_blob,
+                    json.dumps(entry.metadata),
+                    entry.created_at,
+                    entry.updated_at,
+                ),
             )
-        except sqlite3.OperationalError:
-            logger.debug("FTS insert skipped for %s", entry.id)
-        self._conn.commit()
+            try:
+                self._conn.execute(
+                    "INSERT INTO knowledge_fts(rowid, id, content, scope) VALUES ((SELECT rowid FROM knowledge_entries WHERE id=?), ?, ?, ?)",
+                    (entry.id, entry.id, entry.content, entry.scope),
+                )
+            except sqlite3.OperationalError:
+                logger.debug("FTS insert skipped for %s", entry.id)
+            self._conn.commit()
         logger.info(
             "Ingested entry %s (scope=%s, %d chars)", entry.id, scope, len(content)
         )
         return entry
 
     def delete(self, entry_id: str) -> bool:
-        try:
-            self._conn.execute("DELETE FROM knowledge_fts WHERE id=?", (entry_id,))
-        except sqlite3.OperationalError:
-            pass
-        cursor = self._conn.execute(
-            "DELETE FROM knowledge_entries WHERE id=?", (entry_id,)
-        )
-        self._conn.commit()
+        with self._write_lock:
+            try:
+                self._conn.execute("DELETE FROM knowledge_fts WHERE id=?", (entry_id,))
+            except sqlite3.OperationalError:
+                pass
+            cursor = self._conn.execute(
+                "DELETE FROM knowledge_entries WHERE id=?", (entry_id,)
+            )
+            self._conn.commit()
         deleted = cursor.rowcount > 0
         if deleted:
             logger.info("Deleted entry %s", entry_id)
@@ -224,7 +232,8 @@ class KnowledgeEngine:
             params.append(scope)
         sql += " ORDER BY rank LIMIT ?"
         params.append(limit)
-        rows = self._conn.execute(sql, params).fetchall()
+        with self._write_lock:
+            rows = self._conn.execute(sql, params).fetchall()
         return [self._row_to_entry(r) for r in rows]
 
     def _search_vector(
@@ -247,7 +256,8 @@ class KnowledgeEngine:
             params.append(scope)
         sql += " ORDER BY distance ASC LIMIT ?"
         params.append(limit)
-        rows = self._conn.execute(sql, params).fetchall()
+        with self._write_lock:
+            rows = self._conn.execute(sql, params).fetchall()
         return [self._row_to_entry(r) for r in rows]
 
     def _search_hybrid(
@@ -271,10 +281,11 @@ class KnowledgeEngine:
         return [id_to_entry[eid] for eid in top_ids if eid in id_to_entry]
 
     def get(self, entry_id: str) -> KnowledgeEntry | None:
-        row = self._conn.execute(
-            "SELECT id, content, scope, metadata, created_at, updated_at FROM knowledge_entries WHERE id=?",
-            (entry_id,),
-        ).fetchone()
+        with self._write_lock:
+            row = self._conn.execute(
+                "SELECT id, content, scope, metadata, created_at, updated_at FROM knowledge_entries WHERE id=?",
+                (entry_id,),
+            ).fetchone()
         if not row:
             return None
         return self._row_to_entry(row)
@@ -287,18 +298,20 @@ class KnowledgeEngine:
             params.append(scope)
         sql += " ORDER BY updated_at DESC LIMIT ?"
         params.append(limit)
-        rows = self._conn.execute(sql, params).fetchall()
+        with self._write_lock:
+            rows = self._conn.execute(sql, params).fetchall()
         return [self._row_to_entry(r) for r in rows]
 
     def count(self, scope: str = "") -> int:
-        if scope:
-            row = self._conn.execute(
-                "SELECT COUNT(*) FROM knowledge_entries WHERE scope=?", (scope,)
-            ).fetchone()
-        else:
-            row = self._conn.execute(
-                "SELECT COUNT(*) FROM knowledge_entries"
-            ).fetchone()
+        with self._write_lock:
+            if scope:
+                row = self._conn.execute(
+                    "SELECT COUNT(*) FROM knowledge_entries WHERE scope=?", (scope,)
+                ).fetchone()
+            else:
+                row = self._conn.execute(
+                    "SELECT COUNT(*) FROM knowledge_entries"
+                ).fetchone()
         return row[0] if row else 0
 
     def _row_to_entry(self, row: tuple) -> KnowledgeEntry:

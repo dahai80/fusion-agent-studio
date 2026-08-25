@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import sqlite3
+import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -98,10 +99,15 @@ class MetricsEngine:
         self.db_path = Path(db_path) if db_path else DEFAULT_DB_PATH
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._conn: sqlite3.Connection | None = None
+        # 审计 A-6: 跨线程共享单连接无锁无 WAL. RLock 串行化, WAL 让读不堵写, busy_timeout 等锁.
+        self._write_lock = threading.RLock()
         self._init_db()
 
     def _init_db(self):
         self._conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
+        self._conn.execute("PRAGMA journal_mode=WAL")
+        self._conn.execute("PRAGMA synchronous=NORMAL")
+        self._conn.execute("PRAGMA busy_timeout=5000")
         self._conn.execute("""
             CREATE TABLE IF NOT EXISTS inference_metrics (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -140,22 +146,23 @@ class MetricsEngine:
     def record_inference(self, metrics: InferenceMetrics) -> int:
         if not metrics.timestamp:
             metrics.timestamp = time.time()
-        cur = self._conn.execute(
-            """
-            INSERT INTO inference_metrics (model, tokens_in, tokens_out, latency_ms, vram_mb, throughput_tps, timestamp)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-        """,
-            (
-                metrics.model,
-                metrics.tokens_in,
-                metrics.tokens_out,
-                metrics.latency_ms,
-                metrics.vram_mb,
-                metrics.throughput_tps,
-                metrics.timestamp,
-            ),
-        )
-        self._conn.commit()
+        with self._write_lock:
+            cur = self._conn.execute(
+                """
+                INSERT INTO inference_metrics (model, tokens_in, tokens_out, latency_ms, vram_mb, throughput_tps, timestamp)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+                (
+                    metrics.model,
+                    metrics.tokens_in,
+                    metrics.tokens_out,
+                    metrics.latency_ms,
+                    metrics.vram_mb,
+                    metrics.throughput_tps,
+                    metrics.timestamp,
+                ),
+            )
+            self._conn.commit()
         logger.debug(
             "Recorded inference: model=%s latency=%.1fms",
             metrics.model,
@@ -166,25 +173,26 @@ class MetricsEngine:
     def record_session(self, record: SessionRecord) -> int:
         if not record.timestamp:
             record.timestamp = time.time()
-        cur = self._conn.execute(
-            """
-            INSERT INTO session_records (session_id, graph_id, status, input_text, output_text,
-                                         duration_ms, node_count, error, timestamp)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """,
-            (
-                record.session_id,
-                record.graph_id,
-                record.status,
-                record.input_text,
-                record.output_text,
-                record.duration_ms,
-                record.node_count,
-                record.error,
-                record.timestamp,
-            ),
-        )
-        self._conn.commit()
+        with self._write_lock:
+            cur = self._conn.execute(
+                """
+                INSERT INTO session_records (session_id, graph_id, status, input_text, output_text,
+                                             duration_ms, node_count, error, timestamp)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+                (
+                    record.session_id,
+                    record.graph_id,
+                    record.status,
+                    record.input_text,
+                    record.output_text,
+                    record.duration_ms,
+                    record.node_count,
+                    record.error,
+                    record.timestamp,
+                ),
+            )
+            self._conn.commit()
         logger.debug("Recorded session: %s status=%s", record.session_id, record.status)
         return cur.lastrowid
 
@@ -202,7 +210,8 @@ class MetricsEngine:
         query += " ORDER BY timestamp DESC LIMIT ?"
         params.append(limit)
 
-        rows = self._conn.execute(query, params).fetchall()
+        with self._write_lock:
+            rows = self._conn.execute(query, params).fetchall()
         return [
             InferenceMetrics(
                 **dict(
@@ -237,7 +246,8 @@ class MetricsEngine:
         query += " ORDER BY timestamp DESC LIMIT ?"
         params.append(limit)
 
-        rows = self._conn.execute(query, params).fetchall()
+        with self._write_lock:
+            rows = self._conn.execute(query, params).fetchall()
         return [
             SessionRecord(
                 **dict(
@@ -267,21 +277,21 @@ class MetricsEngine:
             where += " AND timestamp >= ?"
             params.append(since)
 
-        inf_row = self._conn.execute(
-            f"SELECT COUNT(*), AVG(latency_ms), AVG(throughput_tps), SUM(tokens_in), SUM(tokens_out), MAX(vram_mb) FROM inference_metrics {where}",
-            params,
-        ).fetchone()
-
         sess_where = "WHERE 1=1"
         sess_params: list[Any] = []
         if since:
             sess_where += " AND timestamp >= ?"
             sess_params.append(since)
 
-        sess_row = self._conn.execute(
-            f"SELECT COUNT(*), SUM(CASE WHEN status='completed' THEN 1 ELSE 0 END) FROM session_records {sess_where}",
-            sess_params,
-        ).fetchone()
+        with self._write_lock:
+            inf_row = self._conn.execute(
+                f"SELECT COUNT(*), AVG(latency_ms), AVG(throughput_tps), SUM(tokens_in), SUM(tokens_out), MAX(vram_mb) FROM inference_metrics {where}",
+                params,
+            ).fetchone()
+            sess_row = self._conn.execute(
+                f"SELECT COUNT(*), SUM(CASE WHEN status='completed' THEN 1 ELSE 0 END) FROM session_records {sess_where}",
+                sess_params,
+            ).fetchone()
 
         total_inf = inf_row[0] or 0
         total_sess = sess_row[0] or 0
