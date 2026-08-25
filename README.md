@@ -428,7 +428,7 @@ python -c "from tools.plugin_manager import PluginManager; from tools.registry i
 ```
 
 ### Test Stats
-- **2119 tests**, 0 failures
+- **2121 tests**, 0 failures
 - **94%+ statement coverage**
 - **Python 3.11+** compatible
 - **16 business scenario integration tests** covering: agent lifecycle (create→configure→execute→delete), skill management, soul management, marketplace (publish→search→install), memory (store→recall→delete), safety (check→evaluate→policy), planner, deploy export/import, templates, graph CRUD, agent filtering, env health, RAG, ping
