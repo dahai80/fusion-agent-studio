@@ -664,9 +664,11 @@ class TestToolOutputMapping:
         graph.add_edge("start", "t")
         graph.add_edge("t", "end")
         runtime = AgentRuntime(mlx_client, registry)
-        async for _ in runtime.execute_graph(graph, "go"):
+        ctx = AgentContext()
+        async for _ in runtime.execute_graph(graph, "go", context=ctx):
             pass
-        assert runtime.variables.get("video_path") == "/tmp/video.mp4"
+        # 审计 A-1: output_mapping 写 ctx.variables (per-exec), 不回流 singleton.
+        assert ctx.variables.get("video_path") == "/tmp/video.mp4"
 
     @pytest.mark.asyncio
     async def test_json_key_mapping(self, mlx_client):
@@ -692,10 +694,12 @@ class TestToolOutputMapping:
         graph.add_edge("start", "t")
         graph.add_edge("t", "end")
         runtime = AgentRuntime(mlx_client, registry)
-        async for _ in runtime.execute_graph(graph, "go"):
+        ctx = AgentContext()
+        async for _ in runtime.execute_graph(graph, "go", context=ctx):
             pass
-        assert runtime.variables.get("image_paths") == ["/tmp/a.png", "/tmp/b.png"]
-        assert runtime.variables.get("desc") == "hi"
+        # 审计 A-1: output_mapping 写 ctx.variables (per-exec), 不回流 singleton.
+        assert ctx.variables.get("image_paths") == ["/tmp/a.png", "/tmp/b.png"]
+        assert ctx.variables.get("desc") == "hi"
 
     @pytest.mark.asyncio
     async def test_no_mapping_backward_compat(self, mlx_client):
@@ -737,10 +741,12 @@ class TestToolOutputMapping:
         graph.add_edge("start", "t")
         graph.add_edge("t", "end")
         runtime = AgentRuntime(mlx_client, registry)
-        async for _ in runtime.execute_graph(graph, "go"):
+        ctx = AgentContext()
+        async for _ in runtime.execute_graph(graph, "go", context=ctx):
             pass
+        # 审计 A-1: output_mapping 写 ctx.variables (per-exec), 不回流 singleton.
         # 非 JSON -> 回退整值
-        assert runtime.variables.get("out") == "/tmp/video.mp4"
+        assert ctx.variables.get("out") == "/tmp/video.mp4"
 
 
 class TestLLMNodeDisableTools:

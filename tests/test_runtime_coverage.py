@@ -700,8 +700,9 @@ class TestExecuteLlmNodeToolCallChainLimit:
             [("start", "llm"), ("llm", "end")],
         )
         runtime = _make_runtime(mlx, tools)
-        runtime._tool_call_chain_count = _MAX_TOOL_CALL_CHAIN
+        # 审计 A-1: tool_call_chain_count per-exec -> ctx, 不读 singleton.
         ctx = AgentContext()
+        ctx.tool_call_chain_count = _MAX_TOOL_CALL_CHAIN
         node = g.get_node("llm")
         events = []
         async for ev in runtime._execute_llm_node(
@@ -980,7 +981,8 @@ class TestExecuteLoopNodeFull:
         runtime.variables.set("lc", 0)
         event = runtime._execute_loop_node(ctx, g.get_node("loop"), g)
         assert event.content == "loop_continue"
-        assert runtime.variables.get("lc") == 1
+        # 审计 A-1: loop var 写 ctx.variables (per-exec), 不回流 singleton.
+        assert ctx.variables.get("lc") == 1
 
     async def test_loop_exit_when_max_reached(self):
         ctx = AgentContext()

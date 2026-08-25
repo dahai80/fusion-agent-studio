@@ -6,6 +6,7 @@ import time
 import uuid
 from dataclasses import dataclass, field
 from enum import Enum
+from typing import Any
 
 
 class AgentEventType(str, Enum):
@@ -92,6 +93,15 @@ class AgentContext:
     started_at: float = 0.0
     finished_at: float = 0.0
     error: str = ""
+    # 审计 A-1 Tier2: per-exec 状态迁出 singleton. 并发执行互不踩.
+    # C6 plan-as-mode: read-only explore 门禁, per-exec.
+    plan_mode: bool = False
+    # 连续 tool_call 链深度计数 (防 LLM 无限 tool 自调), per-exec.
+    tool_call_chain_count: int = 0
+    # 审计 A-2/A-1 Tier3: per-exec 变量空间. 顶层 exec 从 runtime seed
+    # 快照 copy (隔离不共享), 子 runtime 再 copy (已有 sub_vars 模式).
+    # 持 VariableManager 实例 (非裸 dict), 保留 interpolate/nested/coerce.
+    variables: Any = None
 
     def __post_init__(self):
         if not self.session_id:
@@ -141,6 +151,14 @@ class AgentContext:
         }
 
     def to_dict(self) -> dict:
+        # 审计 A-1 Tier3: variables 序列化取 to_dict 快照 (VariableManager).
+        var_snapshot = {}
+        vm = self.variables
+        if vm is not None and hasattr(vm, "to_dict"):
+            try:
+                var_snapshot = vm.to_dict()
+            except Exception:
+                var_snapshot = {}
         return {
             "agent_id": self.agent_id,
             "session_id": self.session_id,
@@ -154,12 +172,15 @@ class AgentContext:
             "started_at": self.started_at,
             "finished_at": self.finished_at,
             "error": self.error,
+            "plan_mode": self.plan_mode,
+            "tool_call_chain_count": self.tool_call_chain_count,
+            "variables": var_snapshot,
         }
 
     @classmethod
     def from_dict(cls, data: dict) -> AgentContext:
         events = [AgentEvent.from_dict(e) for e in data.get("events", [])]
-        return cls(
+        ctx = cls(
             agent_id=data.get("agent_id", ""),
             session_id=data.get("session_id", ""),
             messages=data.get("messages", []),
@@ -172,4 +193,18 @@ class AgentContext:
             started_at=data.get("started_at", 0.0),
             finished_at=data.get("finished_at", 0.0),
             error=data.get("error", ""),
+            plan_mode=data.get("plan_mode", False),
+            tool_call_chain_count=data.get("tool_call_chain_count", 0),
         )
+        # 审计 A-1 Tier3: 反序列化重建 VariableManager, 载入快照.
+        var_snapshot = data.get("variables", {})
+        if var_snapshot:
+            try:
+                from .variable_manager import VariableManager
+
+                vm = VariableManager()
+                vm.load_from(var_snapshot if isinstance(var_snapshot, dict) else {})
+                ctx.variables = vm
+            except Exception:
+                pass
+        return ctx
