@@ -197,10 +197,38 @@ class TrajectoryWriter:
                 "Trajectory flushed: %s (%d events, %d tool_calls)",
                 fpath.name, len(record.events), len(record.tool_calls),
             )
+            # 审计 P1-13/3M-1: flush 后按文件数轮转. 原每会话写一个 JSON 永不删,
+            # 长跑积累 GB 级轨迹. 超 max (默认 1000, FUSION_TRAJECTORY_MAX_FILES
+            # 调) 删最旧 N 个.
+            self._rotate_files()
             return str(fpath)
         except OSError as e:
             logger.error("Failed to flush trajectory %s: %s", fpath, e)
             return None
+
+    def _rotate_files(self) -> None:
+        # 审计 P1-13/3M-1: 轨迹文件按数轮转, 删最旧.
+        import os as _os
+
+        try:
+            max_files = int(_os.environ.get("FUSION_TRAJECTORY_MAX_FILES", "1000"))
+        except ValueError:
+            max_files = 1000
+        if max_files <= 0:
+            return
+        try:
+            files = sorted(self.output_dir.glob("*.json"), key=lambda p: p.stat().st_mtime)
+        except OSError:
+            return
+        overflow = len(files) - max_files
+        if overflow <= 0:
+            return
+        for old in files[:overflow]:
+            try:
+                old.unlink()
+            except OSError:
+                pass
+        logger.info("Trajectory rotated: removed %d old files (max=%d)", overflow, max_files)
 
     def list_trajectories(self, limit: int = 50) -> list[dict]:
         files = sorted(self.output_dir.glob("*.json"), reverse=True)

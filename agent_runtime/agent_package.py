@@ -95,6 +95,8 @@ class AgentManifest:
     top_p: float = 1.0
     context_window: int = 32768
     rate_limit_qps: int = 0
+    # 审计 P1-18: per-agent max_iterations. 0=用 runtime 默认 (25), 正数覆盖.
+    max_iterations: int = 0
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -124,6 +126,7 @@ class AgentManifest:
             "top_p": self.top_p,
             "context_window": self.context_window,
             "rate_limit_qps": self.rate_limit_qps,
+            "max_iterations": self.max_iterations,
         }
 
     @classmethod
@@ -155,6 +158,7 @@ class AgentManifest:
             top_p=data.get("top_p", 1.0),
             context_window=data.get("context_window", 32768),
             rate_limit_qps=data.get("rate_limit_qps", 0),
+            max_iterations=data.get("max_iterations", 0),
         )
 
 

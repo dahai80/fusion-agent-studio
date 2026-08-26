@@ -2,11 +2,32 @@
 
 from __future__ import annotations
 
+import logging
+import os
 import time
 import uuid
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
+
+logger = logging.getLogger(__name__)
+
+
+def _context_max_messages() -> int:
+    # 审计 P1-11/A-8: 上下文消息软上限. 默认 0=不限 (向后兼容本地短会话).
+    # 设 FUSION_CONTEXT_MAX_MESSAGES 正数则裁剪最旧非 system 消息, 防 OOM.
+    try:
+        return max(0, int(os.environ.get("FUSION_CONTEXT_MAX_MESSAGES", "0")))
+    except ValueError:
+        return 0
+
+
+def _context_max_events() -> int:
+    # 审计 P1-11/A-8: 事件缓冲软上限. 默认 0=不限.
+    try:
+        return max(0, int(os.environ.get("FUSION_CONTEXT_MAX_EVENTS", "0")))
+    except ValueError:
+        return 0
 
 
 class AgentEventType(str, Enum):
@@ -130,9 +151,26 @@ class AgentContext:
         if usage:
             msg["usage"] = usage
         self.messages.append(msg)
+        # 审计 P1-11/A-8: 消息软上限. 超限裁剪最旧非 system 消息 (保留 system
+        # 上下文), 防长会话无界增长 OOM. 默认 0=不限.
+        cap = _context_max_messages()
+        if cap > 0 and len(self.messages) > cap:
+            kept = [m for m in self.messages if isinstance(m, dict) and m.get("role") == "system"]
+            non_sys = [m for m in self.messages if not (isinstance(m, dict) and m.get("role") == "system")]
+            overflow = len(non_sys) - max(0, cap - len(kept))
+            if overflow > 0:
+                trimmed = non_sys[overflow:]
+                self.messages = kept + trimmed
+                logger.info("context messages trimmed: dropped %d oldest (cap=%d)", overflow, cap)
 
     def add_event(self, event: AgentEvent) -> None:
         self.events.append(event)
+        # 审计 P1-11/A-8: 事件缓冲软上限. 超限丢弃最旧, 防 telemetry/事件无界累积.
+        cap = _context_max_events()
+        if cap > 0 and len(self.events) > cap:
+            overflow = len(self.events) - cap
+            self.events = self.events[overflow:]
+            logger.debug("context events trimmed: dropped %d oldest (cap=%d)", overflow, cap)
 
     def is_complete(self) -> bool:
         return bool(self.finished_at) or bool(self.error)

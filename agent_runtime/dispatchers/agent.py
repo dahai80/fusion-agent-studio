@@ -281,9 +281,12 @@ class AgentDispatcher(SubDispatcher):
         if "safety_level" in config:
             manifest.safety_level = config["safety_level"]
         # C12: SDK 程序化配置扩展字段. context_window 入 manifest;
-        # max_iterations 是 runtime 层 (执行时从 agent 配置读, 非 manifest 持久化).
+        # 审计 P1-18: max_iterations 入 manifest 持久化 (原注释说 runtime 层读但
+        # 从未持久化也从未读, dead config). agent.execute 执行时透传到 execute_graph.
         if "context_window" in config:
             manifest.context_window = int(config["context_window"])
+        if "max_iterations" in config:
+            manifest.max_iterations = int(config["max_iterations"])
 
         pkg.save_manifest(manifest)
 
@@ -354,9 +357,13 @@ class AgentDispatcher(SubDispatcher):
         self._daemon.store.save_graph(graph)
         rt = self._daemon._get_runtime()
 
+        # 审计 P1-18: 透传 per-agent max_iterations (manifest 持久化值).
+        # 0=用 runtime 默认 (25), 正数覆盖.
+        agent_max_iter = manifest.max_iterations if manifest.max_iterations else None
+
         events = []
         try:
-            async for event in rt.execute_graph(graph, input_text):
+            async for event in rt.execute_graph(graph, input_text, max_iterations=agent_max_iter):
                 ev_dict = event.to_dict() if hasattr(event, "to_dict") else {"type": str(event)}
                 events.append(ev_dict)
         except Exception as e:
@@ -1163,6 +1170,9 @@ class AgentDispatcher(SubDispatcher):
         self._daemon.store.save_graph(graph)
         rt = self._daemon._get_runtime()
 
+        # 审计 P1-18: 透传 per-agent max_iterations (与 agent.execute 一致).
+        agent_max_iter = manifest.max_iterations if manifest.max_iterations else None
+
         events = []
         execution_id = f"exec-{int(time.time())}-{agent_id}"
         tool_calls_log = []
@@ -1170,7 +1180,7 @@ class AgentDispatcher(SubDispatcher):
         total_input_tokens = 0
         total_output_tokens = 0
         try:
-            async for event in rt.execute_graph_stream(graph, input_text):
+            async for event in rt.execute_graph_stream(graph, input_text, max_iterations=agent_max_iter):
                 ev_dict = event.to_dict() if hasattr(event, "to_dict") else {"type": str(event)}
                 events.append(ev_dict)
                 ev_type = ev_dict.get("type", "")

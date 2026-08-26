@@ -10,6 +10,42 @@ logger = logging.getLogger(__name__)
 
 
 class TrainerDispatcher(SubDispatcher):
+    def __init__(self, daemon):
+        super().__init__(daemon)
+        # 审计 P1-22/NEW-2: 持 training task 引用防 GC 静默取消 + done_callback
+        # 兜底 mark failed (CancelledError / _task 体外异常). key=run_id.
+        self._training_tasks: dict[str, asyncio.Task] = {}
+
+    def _spawn_training_task(self, run_id: str, coro) -> None:
+        # 审计 P1-22/NEW-2: 原 asyncio.create_task() fire-and-forget — 无引用
+        # 可被 GC 静默取消, 异常吞没, run 状态恒 "running". 现持引用 + done_callback.
+        task = asyncio.create_task(coro)
+        self._training_tasks[run_id] = task
+
+        def _on_done(t: asyncio.Task) -> None:
+            self._training_tasks.pop(run_id, None)
+            if t.cancelled():
+                logger.warning("training run %s cancelled", run_id)
+                try:
+                    svc = self._daemon._training_service
+                    if svc is not None:
+                        svc.mark_run_cancelled(run_id)
+                except Exception:
+                    pass
+                return
+            exc = t.exception()
+            if exc is not None:
+                # _task 体已 try/except 记 _RUNS, 此为体外漏网 (如 coro 启动即崩).
+                logger.error("training run %s task-level exception: %s", run_id, exc)
+                try:
+                    svc = self._daemon._training_service
+                    if svc is not None:
+                        svc.mark_run_failed(run_id, str(exc))
+                except Exception:
+                    pass
+
+        task.add_done_callback(_on_done)
+
     def get_handlers(self) -> dict[str, Callable]:
         return {
             "trainer.trajectories.list": self._handle_trajectories_list,
@@ -61,7 +97,8 @@ class TrainerDispatcher(SubDispatcher):
         )
         if "error" in result:
             return self._err(result["error"])
-        asyncio.create_task(result["_task"]())
+        # 审计 P1-22/NEW-2: 持引用 + done_callback, 防 GC 静默取消/异常吞没.
+        self._spawn_training_task(result["run_id"], result["_task"]())
         logger.info("trainer.sft -> %s", result["run_id"])
         return self._ok(
             {"run_id": result["run_id"], "status": result["status"], "dataset": result["dataset"]}
@@ -83,7 +120,8 @@ class TrainerDispatcher(SubDispatcher):
         )
         if "error" in result:
             return self._err(result["error"])
-        asyncio.create_task(result["_task"]())
+        # 审计 P1-22/NEW-2: 持引用 + done_callback, 同 sft.
+        self._spawn_training_task(result["run_id"], result["_task"]())
         logger.info("trainer.rlsl method=%s -> %s", method, result["run_id"])
         return self._ok(
             {"run_id": result["run_id"], "status": result["status"], "dataset": result["dataset"]}

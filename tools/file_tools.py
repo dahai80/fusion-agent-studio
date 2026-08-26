@@ -38,6 +38,23 @@ _CATASTROPHIC_PERSIST_DIRS = (
 )
 
 
+def _check_file_size(filepath: Path) -> tuple[bool, int, int]:
+    # 审计 P1-12/E-19: file_edit/file_grep 复用 file_read 的大小预检.
+    # 返回 (ok, size, max_bytes). ok=False 表示超限应拒. 读 stat 不读内容.
+    try:
+        size = filepath.stat().st_size
+    except OSError:
+        return True, 0, 0
+    max_bytes_env = os.environ.get("FUSION_FILE_MAX_BYTES", "").strip()
+    try:
+        max_bytes = int(max_bytes_env) if max_bytes_env else 1024 * 1024
+    except ValueError:
+        max_bytes = 1024 * 1024
+    if max_bytes > 0 and size > max_bytes:
+        return False, size, max_bytes
+    return True, size, max_bytes
+
+
 def _is_write_blocked(filepath: Path) -> str | None:
     # 返回拦截原因 str, None=放行.
     roots_env = os.environ.get("FUSION_FILE_ROOTS", "").strip()
@@ -314,6 +331,16 @@ class FileEditTool(BaseTool):
         if not filepath.is_file():
             return f"Error: Not a file: {filepath}"
 
+        # 审计 P1-12/E-19: file_edit 原直接 read_text 无大小预检, 读 10GB 文件
+        # 撑爆内存. 复用 _check_file_size 预检 (默认 1MB, FUSION_FILE_MAX_BYTES 调).
+        ok, size, max_bytes = _check_file_size(filepath)
+        if not ok:
+            logger.warning("file_edit blocked large file path=%s size=%d max=%d", filepath, size, max_bytes)
+            return (
+                f"Error: File too large ({size} bytes > max {max_bytes}). "
+                f"Set FUSION_FILE_MAX_BYTES higher, or edit via terminal/sed."
+            )
+
         try:
             content = filepath.read_text(encoding=encoding)
             count = content.count(old_string)
@@ -475,6 +502,12 @@ class FileGrepTool(BaseTool):
                 if not file_path.is_file():
                     continue
                 if any(part.startswith(".") and part not in (".",) for part in file_path.relative_to(root).parts[:-1]):
+                    continue
+                # 审计 P1-12/E-19: rglob 逐文件 read_text 无大小预检, 遍历含大文件
+                # 目录撑爆内存. 超限跳过该文件 (grep 已对权限错误静默跳过, 一致).
+                g_ok, g_size, g_max = _check_file_size(file_path)
+                if not g_ok:
+                    logger.debug("file_grep skipped large file path=%s size=%d max=%d", file_path, g_size, g_max)
                     continue
                 try:
                     text = file_path.read_text(encoding="utf-8", errors="ignore")

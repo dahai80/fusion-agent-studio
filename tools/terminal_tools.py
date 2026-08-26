@@ -36,6 +36,11 @@ _CATASTROPHIC_PATTERNS = [
     re.compile(r"\binit\s+0\b"),
     re.compile(r"\bkill\s+(-9\s+)?1\b"),
     re.compile(r"osascript.*shut\s*down"),
+    # 审计 P1-23: 递归 chmod/chown 系统树 (不可逆权限/属主改写, 同 rm -r 根树).
+    re.compile(r"\bchmod\s+(-[a-zA-Z]*R[a-zA-Z]*\s+)+(/[^\s]*|~[^\s]*|\\?\$HOME)", re.IGNORECASE),
+    re.compile(r"\bchown\s+(-[a-zA-Z]*R[a-zA-Z]*\s+)+(/[^\s]*|~[^\s]*|\\?\$HOME)", re.IGNORECASE),
+    # fork 炸弹: :(){:|:&};: 典型形式.
+    re.compile(r":\(\)\s*\{\s*:\s*\|\s*:\s*&\s*\}\s*;\s*:"),
 ]
 
 
@@ -112,7 +117,11 @@ class TerminalTool(BaseTool):
             result = "".join(output_parts).strip()
 
             if proc.returncode != 0:
-                prefix = f"Command exited with code {proc.returncode}"
+                # 审计 P1-5/NEW-1: 非零退出加 "Error: " 前缀, 对齐 runtime 工具
+                # 错误检测 (result.startswith("Error:") → is_tool_error). 原返回
+                # "Command exited with code N" 不匹配 → stop_on_tool_error 对失败
+                # shell 永不触发, 错误被当正常结果继续级联.
+                prefix = f"Error: Command exited with code {proc.returncode}"
                 if result:
                     return f"{prefix}:\n{result}"
                 return prefix
