@@ -679,7 +679,10 @@ class AgentRuntime:
                                     "reason": "token_budget_pruning",
                                 },
                             )
-                            await self.compactor.compact(ctx.messages)
+                            # 审计修复: compact() 同步返回 list[dict] (compactor.py:74),
+                            # 不能 await (TypeError 'list' object can't be awaited), 且
+                            # 须赋回 ctx.messages (原丢弃结果致压缩未生效). 对齐 L742 用法.
+                            ctx.messages = self.compactor.compact(ctx.messages)
                             yield AgentEvent(
                                 type=AgentEventType.THINK,
                                 content="Context proactively pruned at 70% budget",
