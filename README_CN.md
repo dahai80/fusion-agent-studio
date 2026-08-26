@@ -6,10 +6,10 @@
 
 在 Mac 上运行、构建和编排 AI 智能体 — 无需云服务、无需 API 费用、数据不出设备。
 
-[![Version](https://img.shields.io/badge/v0.4.0-blue.svg)]()
+[![Version](https://img.shields.io/badge/v0.3.49-blue.svg)]()
 [![Python](https://img.shields.io/badge/Python-3.11+-3776AB.svg)](https://www.python.org/)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/Tests-1730-success.svg)](tests/)
+[![Tests](https://img.shields.io/badge/Tests-2246-success.svg)](tests/)
 
 **[English](README.md)** · [快速开始](#快速开始) · [架构](#架构) · [文档](docs/) · [示例](examples/)
 

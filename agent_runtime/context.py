@@ -127,6 +127,9 @@ class AgentContext:
     # rt.tool_configs (并发 agent X 配置覆盖 Y). runtime._merge_tool_config_defaults
     # 优先读 ctx.tool_configs, 无则回退 singleton.
     tool_configs: dict = field(default_factory=dict)
+    # 审计 P3-1: per-exec 连续 checkpoint 失败计数 (原 rt._checkpoint_fail_count
+    # singleton, 并发执行互踩致阈值误判). _save_checkpoint 读写 ctx 版本.
+    checkpoint_fail_count: int = 0
 
     def __post_init__(self):
         if not self.session_id:

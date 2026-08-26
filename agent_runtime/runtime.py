@@ -63,6 +63,17 @@ def _max_sub_graph_depth() -> int:
         return 8
 
 
+def _parallel_branch_concurrency() -> int:
+    # 审计 P3-3: 并行节点分支并发上限. 0 = 不限 (回退 gather 全并发).
+    # 默认 0 保持向后兼容; 生产设 FUSION_PARALLEL_BRANCH_CONCURRENCY=N 节流,
+    # 避免宽 fan-out 瞬时打爆 LLM/工具后端 (LLM 调用另由 P1-4 信号量兜底).
+    raw = os.environ.get("FUSION_PARALLEL_BRANCH_CONCURRENCY", "").strip()
+    try:
+        return max(0, int(raw))
+    except ValueError:
+        return 0
+
+
 class ConditionEngine:
     """Evaluates condition expressions against agent context.
 
@@ -286,9 +297,8 @@ class AgentRuntime:
         self.compactor = None
         self.hooks = None
         self._tool_call_chain_count = 0
-        # 审计 M-3: 连续 checkpoint 失败计数, 超阈值升级 error (恢复特性静默失效,
-        # 用户以为有 checkpoint 可恢复, 实际全程 save 都在失败).
-        self._checkpoint_fail_count = 0
+        # 审计 P3-1: 连续 checkpoint 失败计数迁 per-exec ctx.checkpoint_fail_count
+        # (原 singleton, 并发执行互踩致阈值误判). 见 _save_checkpoint.
         self._safety_futures: dict[str, asyncio.Future[bool]] = {}
         # 审计 P1-21/R-4: _safety_timeout 原硬编码 60.0, headless/CI 无人工审批
         # 必挂满 60s. 读 FUSION_SAFETY_TIMEOUT env (秒), 默认 60.
@@ -977,18 +987,19 @@ class AgentRuntime:
                 "Checkpoint saved: graph=%s node=%s pending_tools=%d",
                 graph.name, ctx.current_node_id, len(pending),
             )
-            self._checkpoint_fail_count = 0
+            ctx.checkpoint_fail_count = 0
         except Exception as e:
-            self._checkpoint_fail_count += 1
+            ctx.checkpoint_fail_count += 1
             # 审计 M-3: 持续失败 (DB 满/锁/schema 不匹配) 仅 warning 但执行照常,
             # 之后 resume 报 "No checkpoint found" 用户无信号. 连续 3 次升级 error.
-            if self._checkpoint_fail_count >= 3:
+            # 审计 P3-1: 计数迁 per-exec ctx, 并发执行各自累计不互踩.
+            if ctx.checkpoint_fail_count >= 3:
                 logger.error(
                     "Checkpoint save failed %d consecutive times (resume will not work): %s",
-                    self._checkpoint_fail_count, e,
+                    ctx.checkpoint_fail_count, e,
                 )
             else:
-                logger.warning("Checkpoint save failed (%d): %s", self._checkpoint_fail_count, e)
+                logger.warning("Checkpoint save failed (%d): %s", ctx.checkpoint_fail_count, e)
 
     async def resume_from_checkpoint(
         self,
@@ -2938,8 +2949,20 @@ class AgentRuntime:
             )
             return branch_idx, edge_label, branch_events, branch_output
 
+        # 审计 P3-3: 宽 fan-out 节流. FUSION_PARALLEL_BRANCH_CONCURRENCY=N 时用
+        # 信号量限并发分支数 (默认 0 不限, 由 P2-15 branch cap + P1-4 LLM 信号量兜底).
+        branch_limit = _parallel_branch_concurrency()
+        branch_sem = asyncio.Semaphore(branch_limit) if branch_limit > 0 else None
+
+        async def _throttled_branch(i, tgt, label):
+            if branch_sem is None:
+                return await run_branch(i, tgt, label)
+            async with branch_sem:
+                return await run_branch(i, tgt, label)
+
         tasks = [
-            run_branch(i, tgt, e.label) for i, (e, tgt) in enumerate(zip(outgoing, branch_targets))
+            _throttled_branch(i, tgt, e.label)
+            for i, (e, tgt) in enumerate(zip(outgoing, branch_targets))
         ]
         # 审计 P1-8/A-5: return_exceptions=True 防单分支异常 abort 整个并行节点
         # (原 gather 默认 raise 致其余分支结果全丢). 合并循环按序处理异常分支,
