@@ -1405,18 +1405,31 @@ class DaemonServer:
         self._active_executions[exec_key] = asyncio.current_task()
         try:
             initial_vars = params.get("variables", {})
+            # 审计 P0-1/P1-1/P1-2: 构建 per-exec ctx, 变量+工具配置进 ctx 隔离, 不写 singleton.
+            # 旧版 rt.variables.set 写 singleton VariableManager -> _seed_ctx_variables 快照
+            # 污染 singleton 进每个新 ctx -> 跨执行变量泄漏 (user A api_key 进 user B ctx).
+            # 旧版 rt.set_tool_configs 写 rt.tool_configs -> 并发 agent X 配置覆盖 Y.
+            # 旧版 execute_graph 不传 context= -> ctx.session_id 新 UUID, 与返回 session_id 不符
+            # -> task/trajectory/checkpoint 链错 id, resume 断裂.
+            from .context import AgentContext
+            from .variable_manager import VariableManager
+
+            agent_id = params.get("agent_id", "") or getattr(graph, "agent_id", "")
+            exec_ctx = AgentContext(session_id=session_id or "")
+            exec_ctx.agent_id = agent_id
             if isinstance(initial_vars, dict):
+                exec_ctx.variables = VariableManager()
                 for k, v in initial_vars.items():
-                    rt.variables.set(str(k), v)
+                    exec_ctx.variables.set(str(k), v)
                 logger.info(
-                    "graph.execute %s pre-set %d variables: %s",
+                    "graph.execute %s pre-set %d per-exec variables: %s",
                     graph_id,
                     len(initial_vars),
                     list(initial_vars.keys()),
                 )
             # 声明工具配置注入 (#125/#131): agent_id 优先取 params, 回退 graph 元数据.
             # graph 内嵌 agent_id 让 CLI/GUI 等任意调用方零改动触发注入.
-            agent_id = params.get("agent_id", "") or getattr(graph, "agent_id", "")
+            # 审计 P1-1: 构建到 ctx.tool_configs (隔离), 不调 rt.set_tool_configs (写 singleton).
             if agent_id:
                 try:
                     from .agent_definition import AgentDefinition
@@ -1427,11 +1440,12 @@ class DaemonServer:
                     if os.path.exists(defn_path):
                         with open(defn_path) as f:
                             definition = AgentDefinition.from_dict(json.load(f))
-                        rt.set_tool_configs(definition)
+                        exec_ctx.tool_configs = AgentRuntime.build_tool_configs(definition)
                         logger.info(
-                            "graph.execute %s loaded tool configs from agent %s",
+                            "graph.execute %s loaded tool configs from agent %s (%d)",
                             graph_id,
                             agent_id,
+                            len(exec_ctx.tool_configs),
                         )
                 except Exception as exc:
                     logger.warning(
@@ -1455,7 +1469,14 @@ class DaemonServer:
             # #214: 并发节流. 有 Semaphore 时 acquire 再执行, 超限排队等待 (不拒).
             # 无 Semaphore (默认) 直接执行, 行为不变.
             async def _run_stream():
-                async for event in rt.execute_graph(graph, input_text):
+                # 审计 P0-1/P1-2/P0-3: 传 per-exec ctx (变量+配置隔离+session_id 链对齐)
+                # + token_budget (预算控制接线, 旧版 11 处调用点全漏传=死代码).
+                async for event in rt.execute_graph(
+                    graph,
+                    input_text,
+                    context=exec_ctx,
+                    token_budget=getattr(self, "_token_budget", None),
+                ):
                     ev_dict = (
                         event.to_dict() if hasattr(event, "to_dict") else {"type": str(event)}
                     )
@@ -2206,6 +2227,11 @@ class DaemonServer:
         max_tokens = params.get("max_tokens", 0)
         budget = TokenBudget(max_tokens=max_tokens)
         self._token_budget = budget
+        # 审计 P0-3: 写入 runtime 实例默认预算, execute_graph 回退读取, 全调用点生效.
+        try:
+            self._get_runtime()._default_token_budget = budget
+        except Exception as exc:
+            logger.warning("budget.set write runtime default failed: %s", exc)
         logger.info("Token budget set: max_tokens=%d", max_tokens)
         return budget.status()
 

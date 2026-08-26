@@ -327,6 +327,11 @@ class AgentRuntime:
         self.unload_model_after_node = _env_flag(
             "FUSION_AGENT_UNLOAD_MODEL_AFTER_NODE", default=False
         )
+        # 审计 P0-3: token_budget dead-wire 根治. 所有 execute_graph 调用点不传
+        # token_budget -> 预算永不生效. 不在 11 处调用点散写 getattr, 改在
+        # runtime 实例存 _default_token_budget, execute_graph 未显式传时回退之.
+        # daemon budget.set 写此属性; 子 runtime 在 _execute_sub_graph 复制父值.
+        self._default_token_budget: TokenBudget | None = None
 
         if llm_gateway:
             self.llm_gateway = llm_gateway
@@ -350,6 +355,13 @@ class AgentRuntime:
     def set_tool_configs(self, definition: Any) -> None:
         # 声明式工具配置注入 (#125): 从 AgentDefinition.tools[].config 构建
         # tool_name -> config dict 映射, 工具执行时作为默认参数合并.
+        self.tool_configs = self.build_tool_configs(definition)
+        logger.info("set_tool_configs: %d tools with config", len(self.tool_configs))
+
+    @staticmethod
+    def build_tool_configs(definition: Any) -> dict[str, dict[str, Any]]:
+        # 审计 P0-1/P1-1: 提取 config 构建为静态方法, 供 daemon per-exec 注入 ctx
+        # 避免写 singleton rt.tool_configs (并发 agent X 配置覆盖 Y).
         configs: dict[str, dict[str, Any]] = {}
         tools = getattr(definition, "tools", None) or []
         for tc in tools:
@@ -357,12 +369,20 @@ class AgentRuntime:
             cfg = getattr(tc, "config", None) or {}
             if name and isinstance(cfg, dict) and cfg:
                 configs[name] = cfg
-        self.tool_configs = configs
-        logger.info("set_tool_configs: %d tools with config", len(configs))
+        return configs
 
-    def _merge_tool_config_defaults(self, tool_name: str, args: dict) -> dict:
+    def _merge_tool_config_defaults(
+        self, tool_name: str, args: dict, ctx: AgentContext | None = None
+    ) -> dict:
         # 把 manifest 声明的 tool.config 作为默认参数合并; 调用方显式传参优先.
-        cfg = self.tool_configs.get(tool_name)
+        # 审计 P0-1/P1-1: 优先读 per-exec ctx.tool_configs (隔离), 无则回退 singleton.
+        cfg = None
+        if ctx is not None:
+            per_exec = getattr(ctx, "tool_configs", None)
+            if per_exec:
+                cfg = per_exec.get(tool_name)
+        if cfg is None:
+            cfg = self.tool_configs.get(tool_name)
         if not cfg:
             return args
         merged = dict(cfg)
@@ -408,6 +428,10 @@ class AgentRuntime:
         token_budget: TokenBudget | None = None,
         stream: bool = False,
     ) -> AsyncIterator[AgentEvent]:
+        # 审计 P0-3: 调用点未传 token_budget 时回退 runtime 实例默认预算.
+        # 单点根治 dead-wire, 覆盖全部调用点 (daemon/api/orchestrator/sub-graph).
+        if token_budget is None:
+            token_budget = self._default_token_budget
         ctx = context or AgentContext()
         writer = get_trajectory_writer()
         trace_id = writer.start(
@@ -438,7 +462,7 @@ class AgentRuntime:
         status = "completed"
         try:
             async for event in self._execute_graph_inner(
-                graph, initial_input, context, token_budget, stream=stream
+                graph, initial_input, ctx, token_budget, stream=stream
             ):
                 writer.record_event(ctx.session_id, event.to_dict())
                 if event.type == AgentEventType.ERROR:
@@ -451,7 +475,10 @@ class AgentRuntime:
             raise
         finally:
             try:
-                ctx_ref = context or ctx
+                # 审计 P1-9/P0-1: 统一用 ctx (context or AgentContext()), 不再 context or ctx.
+                # 之前传 context 给 inner 致轨迹-ctx 与执行-ctx 是两个对象 (context=None 时双建),
+                # reaper/telemetry 用 ctx 而执行用另一 ctx, 状态断裂. 现统一.
+                ctx_ref = ctx
                 # 审计 A-1 Tier1: 清本 exec 残留 future (兜底异常路径).
                 try:
                     self._reap_exec_futures(ctx_ref.session_id)
@@ -1552,7 +1579,7 @@ class AgentRuntime:
                         if tool is None:
                             raise KeyError(func_name)
                         validated_args = self._validate_tool_args(tool, func_args)
-                        validated_args = self._merge_tool_config_defaults(func_name, validated_args)
+                        validated_args = self._merge_tool_config_defaults(func_name, validated_args, ctx)
                         if self.telemetry_engine is not None:
                             try:
                                 tool_span = self.telemetry_engine.start_span(
@@ -2388,7 +2415,7 @@ class AgentRuntime:
 
         try:
             tool = self.tools.get(node.tool_name)
-            params = self._merge_tool_config_defaults(node.tool_name, params)
+            params = self._merge_tool_config_defaults(node.tool_name, params, ctx)
             result = await tool.execute(**params)
         except KeyError:
             result = f"Error: Tool '{node.tool_name}' not found"
@@ -2696,6 +2723,8 @@ class AgentRuntime:
             sub_ctx = AgentContext()
             sub_ctx.plan_mode = ctx.plan_mode
             sub_ctx.metadata["parallel_branch"] = edge_label or f"branch_{branch_idx}"
+            # 审计 P0-3: 并行子 runtime 继承父默认预算 (父 _default_token_budget).
+            sub_runtime._default_token_budget = self._default_token_budget
             branch_events: list[AgentEvent] = []
             async for event in sub_runtime.execute_graph(sub_graph, "", sub_ctx):
                 branch_events.append(event)
@@ -2920,6 +2949,8 @@ class AgentRuntime:
         sub_ctx.plan_mode = ctx.plan_mode
         # 审计 E-16: 子 runtime 继承父深度 +1, 递归计数贯穿整条子图链.
         sub_runtime._sub_graph_depth = self._sub_graph_depth + 1
+        # 审计 P0-3: 子 runtime 继承父默认预算, 跨子图链 token 限额一致.
+        sub_runtime._default_token_budget = self._default_token_budget
 
         # Issue #175: lifecycle hook — sub-agent start.
         await self._fire_tool_hooks(

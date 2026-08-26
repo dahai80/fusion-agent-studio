@@ -20,7 +20,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
-from fastapi import Depends, FastAPI, Request, WebSocket, WebSocketDisconnect
+from fastapi import Depends, FastAPI, Query, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
@@ -294,6 +294,45 @@ async def _require_auth_if_configured(request: Request) -> dict | None:
     if not _auth_configured():
         return None
     return await _require_auth(request)
+
+
+def _validate_api_key_str(api_key: str) -> dict | None:
+    # 审计 P0-2: query-string 鉴权校验. WS/SSE 浏览器 EventSource 不能设自定义 header,
+    # 故走 ?api_key= query param. 复用 ApiKeyManager.validate.
+    # 返回 validate result dict (含 valid) 或 None (空 key).
+    if not api_key:
+        return None
+    from agent_runtime.apikey_manager import ApiKeyManager
+
+    mgr = ApiKeyManager(Path.home() / ".fusion-agent-studio")
+    result = mgr.validate(api_key)
+    return result
+
+
+def _require_auth_qs_or_raise(api_key: str = Query("")) -> dict | None:
+    # 审计 P0-2: SSE (GET) 用 FastAPI Depends, 校验 query-string api_key.
+    # 配置了 key 则必须有效; 否则本地受信放行. 校验失败抛 API_KEY_MISSING/INVALID.
+    if not _auth_configured():
+        return None
+    if not api_key:
+        raise_api_error(ErrorCode.API_KEY_MISSING)
+    result = _validate_api_key_str(api_key)
+    if result is None or not result.get("valid"):
+        raise_api_error(ErrorCode.API_KEY_INVALID)
+    return result
+
+
+def _ws_auth_ok(api_key: str) -> tuple[bool, str]:
+    # 审计 P0-2: WS 握手前校验 query-string api_key (accept 后无法干净抛 HTTP).
+    # 返回 (ok, reason). 配置了 key 则必须有效; 否则本地受信放行.
+    if not _auth_configured():
+        return True, ""
+    if not api_key:
+        return False, "api key required"
+    result = _validate_api_key_str(api_key)
+    if result is None or not result.get("valid"):
+        return False, "api key invalid"
+    return True, ""
 
 
 @app.get("/health")
@@ -1101,6 +1140,14 @@ async def execute_graph(graph_id: str, req: GraphExecuteRequest):
 
 @app.websocket("/ws/execute/{graph_id}")
 async def ws_execute(websocket: WebSocket, graph_id: str):
+    # 审计 P0-2: WS 握手前鉴权 (accept 后无法干净抛 HTTP 401).
+    # 浏览器不能设自定义 header, 故读 query-string ?api_key=.
+    ok, reason = _ws_auth_ok(websocket.query_params.get("api_key", ""))
+    if not ok:
+        await websocket.accept()
+        await websocket.close(code=4401, reason=reason)
+        logger.warning("WS execute rejected for graph %s: %s", graph_id, reason)
+        return
     await websocket.accept()
     logger.info("WebSocket connected for graph %s", graph_id)
     graph = _get_store().load_graph(graph_id)
@@ -1138,7 +1185,10 @@ async def ws_execute(websocket: WebSocket, graph_id: str):
             pass
 
 
-@app.get("/v1/graphs/{graph_id}/execute/stream")
+@app.get(
+    "/v1/graphs/{graph_id}/execute/stream",
+    dependencies=[Depends(_require_auth_qs_or_raise)],
+)
 async def v1_execute_graph_stream(graph_id: str, input: str = ""):
     """Server-Sent Events stream — pushes per-token TOKEN events as they arrive.
 

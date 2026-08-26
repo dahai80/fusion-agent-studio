@@ -90,6 +90,8 @@ def patched_api(tmp_path, monkeypatch):
     monkeypatch.setattr(api_server, "_store", store)
     monkeypatch.setattr(api_server, "_runtime", runtime)
     monkeypatch.setattr(api_server, "_daemon", None)
+    # 审计 P0-2: SSE/WS 现有鉴权门禁 (与 POST 一致). 单元测试本地受信, 关鉴权.
+    monkeypatch.setattr(api_server, "_auth_configured", lambda: False)
     return {"store": store, "runtime": runtime, "graph": graph}
 
 

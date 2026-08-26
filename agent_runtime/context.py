@@ -102,6 +102,10 @@ class AgentContext:
     # 快照 copy (隔离不共享), 子 runtime 再 copy (已有 sub_vars 模式).
     # 持 VariableManager 实例 (非裸 dict), 保留 interpolate/nested/coerce.
     variables: Any = None
+    # 审计 P0-1/P1-1: per-exec 工具配置. daemon 构建到 ctx 而非写 singleton
+    # rt.tool_configs (并发 agent X 配置覆盖 Y). runtime._merge_tool_config_defaults
+    # 优先读 ctx.tool_configs, 无则回退 singleton.
+    tool_configs: dict = field(default_factory=dict)
 
     def __post_init__(self):
         if not self.session_id:
