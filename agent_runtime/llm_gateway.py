@@ -194,7 +194,26 @@ class LLMGateway:
         # 直连 fusion-mlx (:11434) 的兜底 client, 避免空输出.
         self._mlx_direct_client: Any = None
         self._compactor = compactor
+        self._llm_concurrency_limit = self._parse_llm_concurrency()
+        self._llm_semaphore: asyncio.Semaphore | None = None
         logger.info("LLMGateway initialized (default_model=%s)", default_model)
+
+    @staticmethod
+    def _parse_llm_concurrency() -> int | None:
+        raw = os.environ.get("FUSION_LLM_CONCURRENCY", "8").strip()
+        try:
+            val = int(raw)
+        except ValueError:
+            logger.warning("FUSION_LLM_CONCURRENCY invalid '%s', fallback 8", raw)
+            return 8
+        return val if val > 0 else None
+
+    def _get_llm_semaphore(self) -> asyncio.Semaphore | None:
+        if self._llm_concurrency_limit is None:
+            return None
+        if self._llm_semaphore is None:
+            self._llm_semaphore = asyncio.Semaphore(self._llm_concurrency_limit)
+        return self._llm_semaphore
 
     def set_compactor(self, compactor) -> None:
         self._compactor = compactor
@@ -674,6 +693,7 @@ class LLMGateway:
                         "delta_content": chunk.delta_content,
                         "delta_tool_calls": chunk.delta_tool_calls,
                         "finish_reason": chunk.finish_reason,
+                        "usage": chunk.usage,
                     }
             finally:
                 # 兜底: 任何路径退出 (异常/正常) 都尝试关闭流, 防连接泄漏.
@@ -701,6 +721,32 @@ class LLMGateway:
         return self.route(capability=capability)
 
     async def _call_model_async(
+        self,
+        config: ModelConfig,
+        messages: list[dict],
+        tools: list[dict] | None = None,
+        temperature: float | None = None,
+        max_tokens: int | None = None,
+        **kwargs,
+    ) -> GatewayResponse:
+        """Call a model via HTTP — async version returning GatewayResponse.
+
+        R-9: 全局 LLM 并发信号量节流, 防止多 agent/多节点同时打爆上游.
+        """
+        sem = self._get_llm_semaphore()
+        if sem is None:
+            return await self._call_model_async_inner(
+                config, messages, tools, temperature, max_tokens, **kwargs
+            )
+        await sem.acquire()
+        try:
+            return await self._call_model_async_inner(
+                config, messages, tools, temperature, max_tokens, **kwargs
+            )
+        finally:
+            sem.release()
+
+    async def _call_model_async_inner(
         self,
         config: ModelConfig,
         messages: list[dict],
@@ -814,6 +860,10 @@ class LLMGateway:
             )
         # C1: tool_choice 提取转发。
         tool_choice = kwargs.pop("tool_choice", None)
+        # R-9: LLM 并发节流, 同 _call_model_async.
+        sem = self._get_llm_semaphore()
+        if sem is not None:
+            await sem.acquire()
         try:
             resolved_model = self._default_model if model in ("", "default") else model
             resp = await self._default_client.chat(
@@ -839,6 +889,9 @@ class LLMGateway:
                 finish_reason="error",
                 usage={"error": str(exc)},
             )
+        finally:
+            if sem is not None:
+                sem.release()
 
     def _call_model(
         self,

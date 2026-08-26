@@ -7,11 +7,36 @@ import hashlib
 import hmac
 import json
 import logging
+import os
 import time
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 from typing import Any, Callable
 
 logger = logging.getLogger(__name__)
+
+
+def _cron_job_timeout() -> float:
+    raw = os.environ.get("FUSION_CRON_JOB_TIMEOUT", "300").strip()
+    try:
+        val = float(raw)
+    except ValueError:
+        logger.warning("FUSION_CRON_JOB_TIMEOUT invalid '%s', fallback 300", raw)
+        return 300.0
+    return val
+
+
+def _cron_tz():
+    tz_name = os.environ.get("FUSION_CRON_TZ", "UTC").strip()
+    if not tz_name or tz_name.upper() == "UTC":
+        return timezone.utc
+    try:
+        from zoneinfo import ZoneInfo
+
+        return ZoneInfo(tz_name)
+    except Exception as e:
+        logger.warning("FUSION_CRON_TZ '%s' invalid (%s), fallback UTC", tz_name, e)
+        return timezone.utc
 
 
 @dataclass
@@ -445,55 +470,65 @@ class CronManager:
     async def _run_loop(self) -> None:
         while self._running:
             now = time.time()
+            due_jobs = []
             for job in list(self._jobs.values()):
                 if not job.enabled:
                     continue
                 if job.next_run > 0 and now >= job.next_run:
-                    exe = CronExecution(
-                        id=f"exe_{job.id}_{int(now)}",
-                        job_id=job.id,
-                        started_at=now,
-                    )
-                    handler = self._handlers.get(job.id) or self._default_handler
-                    if handler:
-                        try:
-                            result = await handler(job)
-                            exe.status = "success"
-                            exe.result_preview = str(result)[:200] if result else ""
-                            job.retry_count = 0
-                        except Exception as e:
-                            logger.error("Cron job %s failed: %s", job.id, e)
-                            exe.status = "failed"
-                            exe.error = str(e)[:500]
-                            if job.retry_count < job.max_retries:
-                                job.retry_count += 1
-                                logger.info(
-                                    "Cron job %s retry %d/%d",
-                                    job.id,
-                                    job.retry_count,
-                                    job.max_retries,
-                                )
-                            else:
-                                job.retry_count = 0
-                    else:
-                        exe.status = "no_handler"
-                    exe.finished_at = time.time()
-                    await asyncio.to_thread(self._save_execution, exe)
-                    job.last_run = now
-                    if job.one_shot:
-                        # #141 priority-3: 一次性任务触发后自动注销, 不再排下次.
-                        logger.info("One-shot cron job %s fired and auto-unregistered", job.id)
-                        self._jobs.pop(job.id, None)
-                        self._handlers.pop(job.id, None)
-                        await asyncio.to_thread(self._delete_job, job.id)
-                    else:
-                        job.next_run = self._compute_next_run(job.expression)
-                        await asyncio.to_thread(self._save_job, job)
+                    due_jobs.append(job)
+            if due_jobs:
+                tasks = [self._run_single_job(job) for job in due_jobs]
+                await asyncio.gather(*tasks, return_exceptions=True)
             await asyncio.sleep(15)
 
-    def _compute_next_run(self, expression: str) -> float:
-        from datetime import datetime, timedelta
+    async def _run_single_job(self, job: CronJob) -> None:
+        now = time.time()
+        exe = CronExecution(
+            id=f"exe_{job.id}_{int(now)}",
+            job_id=job.id,
+            started_at=now,
+        )
+        handler = self._handlers.get(job.id) or self._default_handler
+        timeout = _cron_job_timeout()
+        if handler:
+            try:
+                result = await asyncio.wait_for(handler(job), timeout=timeout or None)
+                exe.status = "success"
+                exe.result_preview = str(result)[:200] if result else ""
+                job.retry_count = 0
+            except asyncio.TimeoutError:
+                logger.warning("Cron job %s timed out after %.0fs", job.id, timeout)
+                exe.status = "failed"
+                exe.error = f"job timed out after {timeout:.0f}s"
+                self._handle_retry(job)
+            except Exception as e:
+                logger.error("Cron job %s failed: %s", job.id, e)
+                exe.status = "failed"
+                exe.error = str(e)[:500]
+                self._handle_retry(job)
+        else:
+            exe.status = "no_handler"
+        exe.finished_at = time.time()
+        await asyncio.to_thread(self._save_execution, exe)
+        job.last_run = now
+        if job.one_shot:
+            logger.info("One-shot cron job %s fired and auto-unregistered", job.id)
+            self._jobs.pop(job.id, None)
+            self._handlers.pop(job.id, None)
+            await asyncio.to_thread(self._delete_job, job.id)
+        else:
+            job.next_run = self._compute_next_run(job.expression)
+            await asyncio.to_thread(self._save_job, job)
 
+    def _handle_retry(self, job: CronJob) -> None:
+        if job.retry_count < job.max_retries:
+            job.retry_count += 1
+            logger.info("Cron job %s retry %d/%d", job.id, job.retry_count, job.max_retries)
+        else:
+            job.enabled = False
+            logger.warning("Cron job %s disabled after exhausting %d retries", job.id, job.max_retries)
+
+    def _compute_next_run(self, expression: str) -> float:
         parts = expression.strip().split()
         if len(parts) != 5:
             logger.warning("Invalid cron expression (need 5 fields): %r", expression)
@@ -502,7 +537,8 @@ class CronManager:
         try:
             minute_spec, hour_spec, dom_spec, month_spec, dow_spec = parts
             now = time.time()
-            current = datetime.fromtimestamp(now)
+            tz = _cron_tz()
+            current = datetime.fromtimestamp(now, tz=tz)
             candidate = current.replace(second=0, microsecond=0) + timedelta(minutes=1)
 
             max_iterations = 525600
