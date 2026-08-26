@@ -889,6 +889,7 @@ class DaemonServer:
             "mlx.reconnect": self._handle_mlx_reconnect,
             "mlx.set_model": self._handle_mlx_set_model,
             "mlx.start": self._handle_mlx_start,
+            "mlx.pool": self._handle_mlx_pool,
             "mlx.status": self._handle_mlx_status,
             "mlx.stop": self._handle_mlx_stop,
             "mlx.switch_model_mid_turn": self._handle_mlx_switch_model_mid_turn,
@@ -1168,12 +1169,24 @@ class DaemonServer:
         if running:
             models = await self._list_mlx_models()
 
+        # issue #225: 透出 fusion-mlx 推理池生命周期 (LRU last_used / loaded_at /
+        # pinned / 加载中 / 尺寸 / 内存水位). pool 字段仅 MLX 运行时填充,
+        # 取数失败不降级整体 status (审计 M-2: 与 health/list 失败一致, warning 记原因).
+        pool = await self._fetch_mlx_pool_state() if running else None
         return {
             "running": running,
             "port": MLX_PORT,
             "models": models,
             "pid": self._mlx_process.pid if running else None,
+            "pool": pool,
         }
+
+    async def _handle_mlx_pool(self, params: dict) -> dict:
+        # issue #225: 独立池状态 RPC, 客户端可单查池 (不经全量 status).
+        running = self._mlx_process is not None and self._mlx_process.poll() is None
+        if not running:
+            return {"running": False, "pool": None}
+        return {"running": True, "pool": await self._fetch_mlx_pool_state()}
 
     async def _handle_mlx_health(self, params: dict) -> dict:
         healthy = await self._check_mlx_health()
@@ -2461,6 +2474,136 @@ class DaemonServer:
             # 但无模型加载"不可区分. warning 级记原因.
             logger.warning("MLX list models failed (%s): %s", type(e).__name__, e)
             return []
+
+    def _resolve_mlx_server_root(self) -> str:
+        # issue #225: 池状态走 fusion-mlx /admin/api/models (非 /v1).
+        # /v1 经 gateway (:11432) 转发, /admin/* 仅 MLX server 本身暴露,
+        # 故池取数必须直连 MLX server root, 不经 gateway.
+        # 默认直连端口 11434 (与 issue #170 direct fallback 一致),
+        # FUSION_MLX_DIRECT_PORT 可显式覆盖 (非 11434 部署).
+        port = os.environ.get("FUSION_MLX_DIRECT_PORT", "11434")
+        return f"http://127.0.0.1:{port}"
+
+    async def _fetch_mlx_pool_state(self) -> dict | None:
+        # issue #225: 代理 fusion-mlx 推理池状态. 数据源:
+        #   /admin/api/models -> per-model loaded/last_access(LRU)/pinned/size/loading
+        #   /admin/api/stats  -> 内存水位 + per-model active/waiting 请求数
+        # 两端点均需 admin 鉴权 (loopback + MLX api_key, daemon 已持 _read_mlx_api_key).
+        # lease refcount (in_use) + TTL 配置上游未暴露, 待 fusion-mlx#647 落地后补.
+        import httpx
+
+        key = self._read_mlx_api_key()
+        headers = {"Authorization": f"Bearer {key}"} if key else {}
+        root = self._resolve_mlx_server_root()
+        try:
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                models_resp, stats_resp = await asyncio.gather(
+                    client.get(f"{root}/admin/api/models", headers=headers),
+                    client.get(f"{root}/admin/api/stats", headers=headers),
+                    return_exceptions=True,
+                )
+        except Exception as e:
+            logger.warning("mlx pool fetch failed (%s): %s", type(e).__name__, e)
+            return None
+
+        loaded: list[dict[str, Any]] = []
+        if not isinstance(models_resp, Exception) and models_resp.status_code == 200:
+            for m in models_resp.json().get("models", []):
+                loaded.append(
+                    {
+                        "id": m.get("id", ""),
+                        "loaded": m.get("loaded", False),
+                        "is_loading": m.get("is_loading", False),
+                        "loading_started_at": m.get("loading_started_at"),
+                        "last_used": m.get("last_access"),
+                        "pinned": m.get("pinned", False),
+                        "estimated_size": m.get("estimated_size", 0),
+                        "actual_size": m.get("actual_size") or 0,
+                        "engine_type": m.get("engine_type", ""),
+                        "model_type": m.get("model_type", ""),
+                    }
+                )
+        else:
+            err = (
+                f"{type(models_resp).__name__}:{models_resp}"
+                if isinstance(models_resp, Exception)
+                else f"status={models_resp.status_code}"
+            )
+            logger.warning("mlx pool /admin/api/models failed (%s)", err)
+
+        memory = {}
+        active_by_model: dict[str, dict[str, int]] = {}
+        if not isinstance(stats_resp, Exception) and stats_resp.status_code == 200:
+            stats = stats_resp.json()
+            am = stats.get("active_models") or {}
+            memory = {
+                "model_memory_used": am.get("model_memory_used", 0),
+                "model_memory_max": am.get("model_memory_max", 0),
+            }
+            pressure = am.get("memory_pressure") or {}
+            if pressure:
+                memory["pressure_level"] = pressure.get("pressure_level", "ok")
+                memory["current_bytes"] = pressure.get("current_bytes", 0)
+                memory["soft_bytes"] = pressure.get("soft_bytes", 0)
+                memory["hard_bytes"] = pressure.get("hard_bytes", 0)
+            for mi in am.get("models", []) or []:
+                mid = mi.get("id")
+                if mid:
+                    active_by_model[mid] = {
+                        "active_requests": mi.get("active_requests", 0),
+                        "waiting_requests": mi.get("waiting_requests", 0),
+                        "idle_seconds": mi.get("idle_seconds"),
+                        "ttl_remaining_seconds": mi.get("ttl_remaining_seconds"),
+                        "is_loading": mi.get("is_loading", False),
+                        "loading_elapsed_seconds": mi.get("loading_elapsed_seconds"),
+                        "loading_estimated_seconds": mi.get(
+                            "loading_estimated_seconds"
+                        ),
+                        "loading_remaining_seconds_estimate": mi.get(
+                            "loading_remaining_seconds_estimate"
+                        ),
+                        "prefilling": mi.get("prefilling", False),
+                        "generating": mi.get("generating", False),
+                    }
+        else:
+            err = (
+                f"{type(stats_resp).__name__}:{stats_resp}"
+                if isinstance(stats_resp, Exception)
+                else f"status={stats_resp.status_code}"
+            )
+            logger.warning("mlx pool /admin/api/stats failed (%s)", err)
+
+        # 合并 stats 的生命周期字段进 loaded 条目. stats /active_models 仅含
+        # loaded/loading 模型, 故未匹配的 registered-but-unloaded 条目保留 /admin/api/models 原值.
+        for entry in loaded:
+            extra = active_by_model.get(entry["id"])
+            if extra:
+                entry["active_requests"] = extra["active_requests"]
+                entry["waiting_requests"] = extra["waiting_requests"]
+                entry["idle_seconds"] = extra["idle_seconds"]
+                entry["ttl_remaining_seconds"] = extra["ttl_remaining_seconds"]
+                entry["loading_elapsed_seconds"] = extra["loading_elapsed_seconds"]
+                entry["loading_estimated_seconds"] = extra["loading_estimated_seconds"]
+                entry["loading_remaining_seconds_estimate"] = (
+                    extra["loading_remaining_seconds_estimate"]
+                )
+                entry["prefilling"] = extra["prefilling"]
+                entry["generating"] = extra["generating"]
+
+        logger.info(
+            "mlx pool: loaded=%d memory_used=%s pressure=%s",
+            len(loaded),
+            memory.get("model_memory_used"),
+            memory.get("pressure_level", "unknown"),
+        )
+        return {
+            "loaded": loaded,
+            "loaded_count": sum(1 for e in loaded if e["loaded"]),
+            "memory": memory,
+            # lease refcount (in_use) 上游未暴露, 占位待 fusion-mlx#647.
+            # TTL 已通过 stats ttl_remaining_seconds 暴露 (剩余秒数).
+            "pending_upstream": ["lease_refcount"],
+        }
 
     async def _wait_mlx_healthy(self, timeout: float = 30.0) -> bool:
         start = time.time()
