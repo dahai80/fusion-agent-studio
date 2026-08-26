@@ -38,6 +38,7 @@ class StreamChunk:
     delta_content: str = ""
     delta_tool_calls: list[dict] = field(default_factory=list)
     finish_reason: str | None = None
+    usage: dict | None = None
 
 
 @dataclass
@@ -236,6 +237,7 @@ class FusionMLXClient:
         if tools:
             payload["tools"] = tools
         payload.update(kwargs)
+        payload.setdefault("stream_options", {"include_usage": True})
 
         async with self.client.stream(
             "POST", "/chat/completions", json=payload
@@ -253,14 +255,17 @@ class FusionMLXClient:
                     logger.warning("Failed to parse SSE chunk: %s", data_str[:100])
                     continue
 
-                choice = data.get("choices", [{}])[0]
+                choices = data.get("choices") or [{}]
+                choice = choices[0]
                 delta = choice.get("delta", {})
                 finish_reason = choice.get("finish_reason")
+                usage = data.get("usage")
 
                 chunk = StreamChunk(
                     delta_content=delta.get("content", ""),
                     delta_tool_calls=delta.get("tool_calls", []),
                     finish_reason=finish_reason,
+                    usage=usage,
                 )
                 yield chunk
 

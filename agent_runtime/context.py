@@ -113,12 +113,18 @@ class AgentContext:
         content: str,
         tool_calls: list | None = None,
         tool_call_id: str = "",
+        usage: dict | None = None,
     ) -> None:
         msg = {"role": role, "content": content}
         if tool_calls:
             msg["tool_calls"] = tool_calls
         if tool_call_id:
             msg["tool_call_id"] = tool_call_id
+        # R-10: 透传 usage 到 message, token_usage() 聚合据此填 token_budget.
+        # 原流式 chunk.get("usage") 恒假 (gateway 不转发) + add_message 不收 usage
+        # -> 流式/非流式 token_budget.record_usage 恒读空. 现两路径都传 usage.
+        if usage:
+            msg["usage"] = usage
         self.messages.append(msg)
 
     def add_event(self, event: AgentEvent) -> None:

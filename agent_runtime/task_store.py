@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import sqlite3
 import threading
 import time
@@ -16,6 +17,19 @@ from pathlib import Path
 from typing import Any
 
 logger = logging.getLogger(__name__)
+
+
+def _task_ttl() -> float:
+    raw = os.environ.get("FUSION_TASK_TTL", str(30 * 24 * 3600)).strip()
+    try:
+        return float(raw)
+    except ValueError:
+        logger.warning("FUSION_TASK_TTL invalid '%s', fallback 30d", raw)
+        return float(30 * 24 * 3600)
+
+
+def _lazy_load_enabled() -> bool:
+    return os.environ.get("FUSION_TASK_LAZY_LOAD", "").strip().lower() in ("1", "true", "yes")
 
 # Task 状态机: pending(已提交待触发) -> running(执行中) -> completed/failed/canceled
 TASK_STATUS_PENDING = "pending"
@@ -155,11 +169,17 @@ class TaskStore:
         self._write_lock = threading.RLock()
         # 自增序号, 配合毫秒时间戳生成唯一 task_id, 避免同毫秒并发提交撞 id.
         self._id_seq = 0
+        self._lazy_load = _lazy_load_enabled()
         if db_path:
             self._init_db(db_path)
-            self._load_tasks()
-            # 载入已有任务后, 序号至少覆盖现有数量, 防止新 id 撞上老 id.
-            self._id_seq = len(self._tasks)
+            if self._lazy_load:
+                with self._write_lock:
+                    cnt = self._conn.execute("SELECT COUNT(*) FROM tasks").fetchone()[0]
+                self._id_seq = cnt
+                logger.info("TaskStore lazy-load enabled, %d tasks on disk (not preloaded)", cnt)
+            else:
+                self._load_tasks()
+                self._id_seq = len(self._tasks)
 
     def _init_db(self, db_path: str) -> None:
         path = Path(db_path)
@@ -268,6 +288,34 @@ class TaskStore:
             self._conn.execute("DELETE FROM tasks WHERE task_id = ?", (task_id,))
             self._conn.commit()
 
+    def reap_expired(self) -> int:
+        if not self._conn:
+            return 0
+        ttl = _task_ttl()
+        if ttl <= 0:
+            return 0
+        now = time.time()
+        cutoff = now - ttl
+        done_statuses = (TASK_STATUS_COMPLETED, TASK_STATUS_FAILED, TASK_STATUS_CANCELED)
+        placeholders = ",".join("?" for _ in done_statuses)
+        with self._write_lock:
+            rows = self._conn.execute(
+                f"SELECT task_id FROM tasks WHERE status IN ({placeholders}) "
+                f"AND created_at > 0 AND created_at < ?",
+                (*done_statuses, cutoff),
+            ).fetchall()
+            if not rows:
+                return 0
+            ids = [r[0] for r in rows]
+            self._conn.executemany(
+                "DELETE FROM tasks WHERE task_id = ?", [(tid,) for tid in ids]
+            )
+            self._conn.commit()
+            for tid in ids:
+                self._tasks.pop(tid, None)
+        logger.info("reaped %d expired tasks (ttl=%.0fs)", len(ids), ttl)
+        return len(ids)
+
     def submit(self, task: Task) -> Task:
         # 新建/覆盖提交. 自动补 task_id/时间戳; trigger/status 走校验回退默认.
         # task_id 用 毫秒+自增序号 避免同毫秒并发提交撞 id (INSERT OR REPLACE 会覆盖).
@@ -280,6 +328,7 @@ class TaskStore:
         if task.status not in _VALID_STATUSES:
             task.status = TASK_STATUS_PENDING
         # 审计 P0: _id_seq 自增 + dict 写 + _save_task 必须原子, 否则并发提交撞 id 覆盖.
+        self.reap_expired()
         with self._write_lock:
             if not task.task_id:
                 self._id_seq += 1
@@ -293,7 +342,21 @@ class TaskStore:
         return task
 
     def get(self, task_id: str) -> Task | None:
-        return self._tasks.get(task_id)
+        task = self._tasks.get(task_id)
+        if task is not None:
+            return task
+        if not self._lazy_load or not self._conn:
+            return None
+        with self._write_lock:
+            row = self._conn.execute(
+                "SELECT " + ", ".join(_TASK_COLUMNS) + " FROM tasks WHERE task_id = ?",
+                (task_id,),
+            ).fetchone()
+        if not row:
+            return None
+        task = Task.from_row(row)
+        self._tasks[task.task_id] = task
+        return task
 
     def list(
         self,
@@ -302,6 +365,9 @@ class TaskStore:
         project_id: str = "",
         limit: int = 100,
     ) -> list[dict]:
+        self.reap_expired()
+        if self._lazy_load and self._conn:
+            return self._list_from_db(status, agent_id, project_id, limit)
         tasks = list(self._tasks.values())
         if status:
             tasks = [t for t in tasks if t.status == status]
@@ -313,6 +379,37 @@ class TaskStore:
         if limit > 0:
             tasks = tasks[:limit]
         return [t.to_dict() for t in tasks]
+
+    def _list_from_db(
+        self,
+        status: str,
+        agent_id: str,
+        project_id: str,
+        limit: int,
+    ) -> list[dict]:
+        clauses = []
+        params: list[Any] = []
+        if status:
+            clauses.append("status = ?")
+            params.append(status)
+        if agent_id:
+            clauses.append("agent_id = ?")
+            params.append(agent_id)
+        if project_id:
+            clauses.append("project_id = ?")
+            params.append(project_id)
+        where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
+        sql = (
+            "SELECT " + ", ".join(_TASK_COLUMNS)
+            + " FROM tasks" + where
+            + " ORDER BY priority DESC, created_at DESC"
+        )
+        if limit > 0:
+            sql += " LIMIT ?"
+            params.append(limit)
+        with self._write_lock:
+            rows = self._conn.execute(sql, params).fetchall()
+        return [Task.from_row(row).to_dict() for row in rows]
 
     def update_status(
         self,

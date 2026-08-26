@@ -163,12 +163,33 @@ class WorkflowEngine:
         self._workflows: dict[str, WorkflowConfig] = {}
         self._runs: dict[str, WorkflowRun] = {}
         self._active_tasks: dict[str, asyncio.Task] = {}
+        self._workflow_concurrency_limit = self._parse_workflow_concurrency()
+        self._workflow_semaphore: asyncio.Semaphore | None = None
         logger.info(
             "WorkflowEngine init, llm_gateway=%s, orchestrator=%s, store=%s",
             "provided" if llm_gateway else "none",
             "provided" if orchestrator else "none",
             "provided" if store else "none",
         )
+
+    @staticmethod
+    def _parse_workflow_concurrency() -> int | None:
+        import os
+
+        raw = os.environ.get("FUSION_WORKFLOW_CONCURRENCY", "4").strip()
+        try:
+            val = int(raw)
+        except ValueError:
+            logger.warning("FUSION_WORKFLOW_CONCURRENCY invalid '%s', fallback 4", raw)
+            return 4
+        return val if val > 0 else None
+
+    def _get_workflow_semaphore(self) -> asyncio.Semaphore | None:
+        if self._workflow_concurrency_limit is None:
+            return None
+        if self._workflow_semaphore is None:
+            self._workflow_semaphore = asyncio.Semaphore(self._workflow_concurrency_limit)
+        return self._workflow_semaphore
 
     def create_workflow(
         self, name: str, phases: list[dict], **kwargs
@@ -253,10 +274,29 @@ class WorkflowEngine:
         if not wf:
             raise ValueError(f"Workflow not found: {workflow_id}")
 
+        sem = self._get_workflow_semaphore()
+        if sem is not None:
+            await sem.acquire()
+        try:
+            return await self._execute_workflow_inner(wf, workflow_id, initial_input, budget)
+        finally:
+            if sem is not None:
+                sem.release()
+
+    async def _execute_workflow_inner(
+        self,
+        wf: WorkflowConfig,
+        workflow_id: str,
+        initial_input: str,
+        budget: int | None,
+    ) -> WorkflowRun:
         run = WorkflowRun(workflow_id=workflow_id, status=WorkflowStatus.RUNNING)
         run.started_at = time.time()
         self._runs[run.id] = run
         self._persist_run(run)
+        current = asyncio.current_task()
+        if current is not None:
+            self._active_tasks[run.id] = current
         logger.info("Starting workflow run %s for workflow %s", run.id, workflow_id)
 
         try:
@@ -278,6 +318,8 @@ class WorkflowEngine:
             run.error = str(e)
             run.finished_at = time.time()
             logger.exception("Workflow run %s failed", run.id)
+        finally:
+            self._active_tasks.pop(run.id, None)
         self._persist_run(run)
         return run
 

@@ -1217,9 +1217,9 @@ class AgentRuntime:
                             if func_delta.get("arguments"):
                                 tc["function"]["arguments"] += func_delta["arguments"]
 
+                    if chunk.get("usage"):
+                        usage = chunk["usage"]
                     if finish_reason:
-                        if chunk.get("usage"):
-                            usage = chunk["usage"]
                         if chunk.get("model"):
                             resp_model = chunk["model"]
 
@@ -1311,7 +1311,7 @@ class AgentRuntime:
             else:
                 logger.warning("Structured output: could not extract JSON from LLM response")
 
-        ctx.add_message("assistant", content, tool_calls=tool_calls or None)
+        ctx.add_message("assistant", content, tool_calls=tool_calls or None, usage=usage or None)
 
         # WF-2: truncation detection — unclosed artifact tags
         if content and self.artifact_manager:
