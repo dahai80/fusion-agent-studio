@@ -15,6 +15,7 @@ from .artifact_fc_tools import (
     ArtifactUpdateTool,
 )
 from .base import BaseTool, ToolResult
+from .browser_tools import BROWSER_CONFIG_PATH, BrowserTool, browser_available
 from .code_tools import CodeExecuteTool, CodeSandboxTool
 from .computer_use_tools import (
     ClipboardTool,
@@ -54,6 +55,7 @@ __all__ = [
     "ArtifactUpdateTool",
     "Base64Tool",
     "BaseTool",
+    "BrowserTool",
     "ClipboardTool",
     "CodeExecuteTool",
     "CodeSandboxTool",
@@ -129,11 +131,21 @@ def create_default_registry() -> ToolRegistry:
     registry.register(ArtifactLoadTool())
     registry.register(ArtifactContextBudgetTool())
     registry.register(ExitPlanModeTool())
+    if browser_available():
+        registry.register(BrowserTool())
+        logger.info("create_default_registry registered BrowserTool (issue #234)")
+    else:
+        registry.failed_plugins["browser"] = (
+            f"fusion-browser config not found: {BROWSER_CONFIG_PATH} (issue #234)"
+        )
+        logger.warning(
+            "create_default_registry skipped BrowserTool: config not found (issue #234)"
+        )
     from .plugin_manager import PluginManager
     _pm = PluginManager(registry)
     _pm.load_all()
     if _pm.loaded_count:
         logger.info("create_default_registry loaded %d plugin tools", _pm.loaded_count)
     if _pm.failed_plugins:
-        registry.failed_plugins = _pm.failed_plugins
+        registry.failed_plugins.update(_pm.failed_plugins)
     return registry
