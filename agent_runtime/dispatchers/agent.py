@@ -360,12 +360,43 @@ class AgentDispatcher(SubDispatcher):
         # 审计 P1-18: 透传 per-agent max_iterations (manifest 持久化值).
         # 0=用 runtime 默认 (25), 正数覆盖.
         agent_max_iter = manifest.max_iterations if manifest.max_iterations else None
+        # 审计 P2-5/P2-6/P0-3: agent.execute 直调 rt 绕过注册/节流/预算, 同 WS/SSE 补.
+        _unreg = None
+        try:
+            _, _unreg = self._daemon.register_execution("agent", agent_id)
+        except Exception:
+            pass
+        sem = self._daemon.graph_semaphore
+        budget = self._daemon.token_budget_ref
+
+        # 审计 P2-18/E-17: 构建 per-exec ctx (同 graph.execute RPC), 传 context= 让
+        # checkpoint/resume 链对齐真实 session_id. 旧版不传 ctx + 返回伪造
+        # sess-{timestamp} -> checkpoint 存的 session_id 与返回值不符, resume 断裂.
+        from ..context import AgentContext
+
+        session_id = f"agent-{agent_id}-{int(time.time() * 1000)}"
+        exec_ctx = AgentContext(session_id=session_id)
+        exec_ctx.agent_id = agent_id
 
         events = []
         try:
-            async for event in rt.execute_graph(graph, input_text, max_iterations=agent_max_iter):
-                ev_dict = event.to_dict() if hasattr(event, "to_dict") else {"type": str(event)}
-                events.append(ev_dict)
+            async def _agent_run():
+                async for event in rt.execute_graph(
+                    graph,
+                    input_text,
+                    context=exec_ctx,
+                    max_iterations=agent_max_iter,
+                    token_budget=budget,
+                ):
+                    ev_dict = event.to_dict() if hasattr(event, "to_dict") else {"type": str(event)}
+                    events.append(ev_dict)
+
+            if sem is not None:
+                async with sem:
+                    logger.info("agent.execute %s acquired concurrency slot", agent_id)
+                    await _agent_run()
+            else:
+                await _agent_run()
         except Exception as e:
             logger.warning("agent.execute runtime error: %s", e)
             return {
@@ -373,16 +404,19 @@ class AgentDispatcher(SubDispatcher):
                 "events": events,
                 "status": "error",
                 "message": str(e),
-                "session_id": f"sess-{int(time.time())}",
+                "session_id": session_id,
             }
+        finally:
+            if _unreg is not None:
+                _unreg()
 
-        logger.info("agent.execute: id=%s graph=%s events=%d", agent_id, graph.id, len(events))
+        logger.info("agent.execute: id=%s graph=%s events=%d session=%s", agent_id, graph.id, len(events), session_id)
         return {
             "agent_id": agent_id,
             "graph_id": graph.id,
             "events": events,
             "status": "completed",
-            "session_id": f"sess-{int(time.time())}",
+            "session_id": session_id,
         }
 
     async def _handle_agent_list_skills(self, params: dict) -> dict:
@@ -1172,6 +1206,14 @@ class AgentDispatcher(SubDispatcher):
 
         # 审计 P1-18: 透传 per-agent max_iterations (与 agent.execute 一致).
         agent_max_iter = manifest.max_iterations if manifest.max_iterations else None
+        # 审计 P2-5/P2-6/P0-3: agent.execute_stream 同补注册/节流/预算.
+        _unreg = None
+        try:
+            _, _unreg = self._daemon.register_execution("agent_stream", agent_id)
+        except Exception:
+            pass
+        sem = self._daemon.graph_semaphore
+        budget = self._daemon.token_budget_ref
 
         events = []
         execution_id = f"exec-{int(time.time())}-{agent_id}"
@@ -1180,17 +1222,28 @@ class AgentDispatcher(SubDispatcher):
         total_input_tokens = 0
         total_output_tokens = 0
         try:
-            async for event in rt.execute_graph_stream(graph, input_text, max_iterations=agent_max_iter):
-                ev_dict = event.to_dict() if hasattr(event, "to_dict") else {"type": str(event)}
-                events.append(ev_dict)
-                ev_type = ev_dict.get("type", "")
-                if ev_type == "TOOL_CALL":
-                    tool_calls_log.append(ev_dict)
-                if ev_type == "TOOL_RESULT":
-                    tool_calls_log.append(ev_dict)
-                if "token" in str(ev_type).lower():
-                    total_input_tokens += ev_dict.get("input_tokens", 0)
-                    total_output_tokens += ev_dict.get("output_tokens", 0)
+            async def _agent_stream_run():
+                nonlocal total_input_tokens, total_output_tokens
+                async for event in rt.execute_graph_stream(
+                    graph, input_text, max_iterations=agent_max_iter, token_budget=budget
+                ):
+                    ev_dict = event.to_dict() if hasattr(event, "to_dict") else {"type": str(event)}
+                    events.append(ev_dict)
+                    ev_type = ev_dict.get("type", "")
+                    if ev_type == "TOOL_CALL":
+                        tool_calls_log.append(ev_dict)
+                    if ev_type == "TOOL_RESULT":
+                        tool_calls_log.append(ev_dict)
+                    if "token" in str(ev_type).lower():
+                        total_input_tokens += ev_dict.get("input_tokens", 0)
+                        total_output_tokens += ev_dict.get("output_tokens", 0)
+
+            if sem is not None:
+                async with sem:
+                    logger.info("agent.execute_stream %s acquired concurrency slot", agent_id)
+                    await _agent_stream_run()
+            else:
+                await _agent_stream_run()
         except Exception as e:
             logger.warning("agent.execute_stream runtime error: %s", e)
             return {
@@ -1198,12 +1251,16 @@ class AgentDispatcher(SubDispatcher):
                 "agent_id": agent_id,
                 "events": events,
                 "status": "error",
+                "streaming": False,
                 "message": str(e),
                 "tool_calls": tool_calls_log,
                 "knowledge_retrieved": knowledge_retrieved,
                 "input_tokens": total_input_tokens,
                 "output_tokens": total_output_tokens,
             }
+        finally:
+            if _unreg is not None:
+                _unreg()
 
         logger.info(
             "agent.execute_stream: id=%s events=%d tools=%d",
@@ -1211,12 +1268,16 @@ class AgentDispatcher(SubDispatcher):
             len(events),
             len(tool_calls_log),
         )
+        # 审计 P2-3: JSON-RPC 单响应无法真流式 (须 WS 通道). 保留批量返回作回退,
+        # 显式标注 streaming=false + 引导真流式调用方走 WS /ws/execute/{id}.
         return {
             "execution_id": execution_id,
             "agent_id": agent_id,
             "graph_id": graph.id,
             "events": events,
             "status": "completed",
+            "streaming": False,
+            "stream_channel": f"WS /ws/execute/{graph.id} (true per-token streaming)",
             "tool_calls": tool_calls_log,
             "knowledge_retrieved": knowledge_retrieved,
             "input_tokens": total_input_tokens,

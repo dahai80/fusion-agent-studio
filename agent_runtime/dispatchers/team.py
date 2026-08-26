@@ -2,10 +2,7 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
-import os
-import signal
 from typing import Callable
 
 from .base import SubDispatcher
@@ -207,112 +204,6 @@ class TeamDispatcher(SubDispatcher):
             "summary": res.summary,
             "total_duration": res.total_duration,
         }
-
-    async def start(self) -> None:
-        if os.path.exists(self._daemon.socket_path):
-            os.unlink(self._daemon.socket_path)
-
-        self._server = await asyncio.start_unix_server(
-            self._handle_client, path=self._daemon.socket_path
-        )
-        # #209: 0o666→0o600 同 UID 限流, 与 daemon_server.start() 对齐.
-        os.chmod(self._daemon.socket_path, 0o600)
-
-        self._daemon._ws_server = None
-        if self._daemon.ws_port:
-            self._daemon._ws_server = await asyncio.start_server(
-                self._handle_ws_client, "127.0.0.1", self._daemon.ws_port
-            )
-
-        self._cluster_task: asyncio.Task | None = None
-        if self._daemon.cluster_port:
-            try:
-                import uvicorn
-
-                from ..cluster_server import app as cluster_app
-
-                config = uvicorn.Config(
-                    cluster_app,
-                    host="127.0.0.1",
-                    port=self._daemon.cluster_port,
-                    log_level="warning",
-                )
-                cluster_server = uvicorn.Server(config)
-                self._cluster_task = asyncio.create_task(cluster_server.serve())
-                logger.info(
-                    "Cluster API server started on port %d", self._daemon.cluster_port
-                )
-            except Exception as e:
-                logger.warning("Cluster API server failed to start: %s", e)
-
-        self._http_task: asyncio.Task | None = None
-        if self._daemon.http_port:
-            try:
-                import uvicorn as uvicorn2
-
-                from ..api_server import app as fastapi_app
-
-                http_config = uvicorn2.Config(
-                    fastapi_app,
-                    host="127.0.0.1",
-                    port=self._daemon.http_port,
-                    log_level="warning",
-                )
-                http_server = uvicorn2.Server(http_config)
-                self._http_task = asyncio.create_task(http_server.serve())
-                logger.info(
-                    "FastAPI HTTP server started on port %d", self._daemon.http_port
-                )
-            except Exception as e:
-                logger.warning("FastAPI HTTP server failed to start: %s", e)
-
-        self._daemon._running = True
-        logger.info(
-            "Daemon listening on %s + WS on %d + Cluster on %d + HTTP on %d",
-            self._daemon.socket_path,
-            self._daemon.ws_port,
-            self._daemon.cluster_port,
-            self._daemon.http_port,
-        )
-
-    async def stop(self) -> None:
-        self._daemon._running = False
-        for task in self._daemon._active_executions.values():
-            if not task.done():
-                task.cancel()
-        if hasattr(self, "_cron_manager") and self._cron_manager:
-            self._cron_manager.close()
-        if hasattr(self, "_vector_strategy") and self._vector_strategy:
-            await self._vector_strategy.close()
-        if self._server:
-            self._server.close()
-            await self._server.wait_closed()
-        if self._daemon._ws_server:
-            self._daemon._ws_server.close()
-            await self._daemon._ws_server.wait_closed()
-        if self._cluster_task and not self._cluster_task.done():
-            self._cluster_task.cancel()
-        if self._daemon._mlx_process and self._daemon._mlx_process.poll() is None:
-            self._daemon._mlx_process.terminate()
-            self._daemon._mlx_process = None
-        if os.path.exists(self._daemon.socket_path):
-            os.unlink(self._daemon.socket_path)
-        self._daemon.store.close()
-        logger.info("Daemon stopped")
-
-    async def run_forever(self) -> None:
-        await self.start()
-        loop = asyncio.get_event_loop()
-        stop_event = asyncio.Event()
-
-        def _signal_handler():
-            stop_event.set()
-
-        for sig in (signal.SIGINT, signal.SIGTERM):
-            loop.add_signal_handler(sig, _signal_handler)
-
-        await stop_event.wait()
-        await self.stop()
 
     async def _handle_team_set_limits(self, params: dict) -> dict:
         orch = self._daemon._get_orchestrator()

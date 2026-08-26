@@ -74,6 +74,7 @@ class MultiAgentOrchestrator:
         swarm_router=None,
         plaza=None,
         fmp=None,
+        safety_gateway=None,
     ):
         self.mlx = mlx_client
         self.tools = tool_registry
@@ -81,6 +82,9 @@ class MultiAgentOrchestrator:
         self.swarm_router = swarm_router
         self.plaza = plaza
         self.fmp = fmp
+        # 审计 P2/dim3: team.orchestrate 起的子 AgentRuntime 原不传 safety_gateway
+        # -> 编排模式全无安全门 (注入/危险工具/审批全失效). 透传到每个子 runtime.
+        self.safety_gateway = safety_gateway
 
         if llm_gateway:
             self.llm_gateway = llm_gateway
@@ -117,7 +121,9 @@ class MultiAgentOrchestrator:
                 from .runtime import AgentRuntime
 
                 runtime = AgentRuntime(
-                    tool_registry=self.tools, llm_gateway=self.llm_gateway
+                    tool_registry=self.tools,
+                    llm_gateway=self.llm_gateway,
+                    safety_gateway=self.safety_gateway,
                 )
                 ctx = AgentContext()
                 ctx.metadata["agent_name"] = agent_config.name
@@ -237,7 +243,9 @@ class MultiAgentOrchestrator:
         from .runtime import AgentRuntime
 
         master_runtime = AgentRuntime(
-            tool_registry=self.tools, llm_gateway=self.llm_gateway
+            tool_registry=self.tools,
+            llm_gateway=self.llm_gateway,
+            safety_gateway=self.safety_gateway,
         )
         master_ctx = AgentContext()
 
@@ -320,7 +328,9 @@ class MultiAgentOrchestrator:
         for i, agent_config in enumerate(agents):
             try:
                 runtime = AgentRuntime(
-                    tool_registry=self.tools, llm_gateway=self.llm_gateway
+                    tool_registry=self.tools,
+                    llm_gateway=self.llm_gateway,
+                    safety_gateway=self.safety_gateway,
                 )
                 ctx = AgentContext()
                 ctx.metadata["agent_name"] = agent_config.name
@@ -494,7 +504,9 @@ class MultiAgentOrchestrator:
             logger.info("Supervisor round %d/%d", round_num, max_rounds)
 
             supervisor_runtime = AgentRuntime(
-                tool_registry=self.tools, llm_gateway=self.llm_gateway
+                tool_registry=self.tools,
+                llm_gateway=self.llm_gateway,
+                safety_gateway=self.safety_gateway,
             )
             supervisor_ctx = AgentContext()
             supervisor_ctx.metadata["agent_name"] = supervisor_config.name
@@ -553,7 +565,9 @@ class MultiAgentOrchestrator:
 
             try:
                 worker_runtime = AgentRuntime(
-                    tool_registry=self.tools, llm_gateway=self.llm_gateway
+                    tool_registry=self.tools,
+                    llm_gateway=self.llm_gateway,
+                    safety_gateway=self.safety_gateway,
                 )
                 worker_ctx = AgentContext()
                 worker_ctx.metadata["agent_name"] = worker_name

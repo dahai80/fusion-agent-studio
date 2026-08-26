@@ -235,6 +235,18 @@ class TestAgentExecuteStreamRPC:
                         return {"system_prompt": prompt}
                 return _SM()
 
+            # 审计 P2-5/P2-6/P0-3: agent.execute_stream 依赖的 daemon 访问点.
+            def register_execution(self, scope, key_id):
+                return f"{scope}:{key_id}", lambda: None
+
+            @property
+            def graph_semaphore(self):
+                return None
+
+            @property
+            def token_budget_ref(self):
+                return None
+
         # AgentPackage.to_graph_config reads graph.json; save_graph needs store attr
         daemon = FakeDaemon()
         daemon.store = store

@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -449,8 +450,22 @@ class WorkflowEngine:
         if not phase.agent_configs:
             return {"output": current_input}
 
+        # 审计 P2-15: fan-out 分支数上限, 防失控并发耗尽资源.
+        max_branches = int(phase.config.get("max_branches", 0)) or int(
+            os.getenv("FUSION_WORKFLOW_MAX_BRANCHES", "32")
+        )
+        if max_branches > 0 and len(phase.agent_configs) > max_branches:
+            logger.warning(
+                "parallel_barrier branch count %d exceeds cap %d, truncating",
+                len(phase.agent_configs),
+                max_branches,
+            )
+            configs = phase.agent_configs[:max_branches]
+        else:
+            configs = phase.agent_configs
+
         tasks = []
-        for agent_cfg in phase.agent_configs:
+        for agent_cfg in configs:
             tasks.append(self._run_agent(agent_cfg, current_input))
         outputs = await asyncio.gather(*tasks, return_exceptions=True)
 
@@ -532,17 +547,23 @@ class WorkflowEngine:
         if budget is None:
             budget = phase.config.get("default_budget", 50000)
 
-        cost_per_iteration = phase.config.get("cost_per_iteration", 5000)
-        max_iterations = budget // max(cost_per_iteration, 1)
+        # 审计 P2-14: max_iterations 独立于 token, 防无 usage 时的失控循环.
+        max_iterations = phase.config.get("max_iterations", 50)
+        fallback_cost = phase.config.get("cost_per_iteration", 5000)
         all_results = []
         iteration = 0
+        estimated = False
 
         while iteration < max_iterations and tokens_used < budget:
             iteration += 1
             if not phase.agent_configs:
                 break
 
-            tasks = [self._run_agent(cfg, current_input) for cfg in phase.agent_configs]
+            token_acc = []
+            tasks = [
+                self._run_agent(cfg, current_input, token_acc)
+                for cfg in phase.agent_configs
+            ]
             outputs = await asyncio.gather(*tasks, return_exceptions=True)
 
             for out in outputs:
@@ -550,13 +571,19 @@ class WorkflowEngine:
                     all_results.append(out)
 
             current_input = all_results[-1] if all_results else current_input
-            tokens_used += cost_per_iteration
+            # 审计 P2-14: 用真实 token; 上游未报 usage 时回退估算值, 标记估算.
+            if token_acc:
+                tokens_used += sum(token_acc)
+            else:
+                tokens_used += fallback_cost
+                estimated = True
 
         return {
             "output": "\n\n".join(all_results) if all_results else current_input,
             "iterations": iteration,
             "budget_used": tokens_used,
             "budget_total": budget,
+            "estimated_budget": estimated,
         }
 
     async def _exec_adversarial_verify(
@@ -656,7 +683,12 @@ class WorkflowEngine:
             "judge_output": judge_output,
         }
 
-    async def _run_agent(self, agent_cfg: dict, input_text: str) -> str:
+    async def _run_agent(
+        self,
+        agent_cfg: dict,
+        input_text: str,
+        token_acc: list | None = None,
+    ) -> str:
         if not agent_cfg:
             return input_text
 
@@ -664,6 +696,14 @@ class WorkflowEngine:
         graph_id = agent_cfg.get("graph_id")
         system_prompt = agent_cfg.get("system_prompt", "")
         agent_id = agent_cfg.get("agent_id", "")
+
+        def _record_tokens(u: dict | None):
+            # 审计 P2-14: 记录真实 token (原 cost_per_iteration 固定值与实际消耗脱节).
+            if not token_acc or not isinstance(u, dict):
+                return
+            t = (u.get("prompt_tokens", 0) or 0) + (u.get("completion_tokens", 0) or 0)
+            if t > 0:
+                token_acc.append(t)
 
         # C16: 统一 soul.md 加载 — workflow agent_cfg 带 agent_id 时,
         # soul.md 优先于配置 system_prompt (与 agent.execute 路径一致).
@@ -723,6 +763,9 @@ class WorkflowEngine:
                             output = msg.get("content", "")
                             break
 
+                # 审计 P2-14: 图路径从 ctx 真实 token 用量记账.
+                _record_tokens(ctx.token_usage())
+
                 logger.info(
                     "Agent %s completed, output len=%d", agent_name, len(output)
                 )
@@ -751,6 +794,8 @@ class WorkflowEngine:
                     content = response.content or ""
                 elif isinstance(response, dict):
                     content = response.get("content", "")
+                # 审计 P2-14: gateway 直连路径从 response.usage 真实 token 记账.
+                _record_tokens(getattr(response, "usage", None))
                 logger.info(
                     "LLM call for agent %s, output len=%d", agent_name, len(content)
                 )

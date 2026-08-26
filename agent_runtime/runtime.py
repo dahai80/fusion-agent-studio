@@ -3487,11 +3487,18 @@ class AgentRuntime:
         )
 
         if not result.passed and result.issues:
+            # 审计 P2-19: verify 失败须置 ctx.error, 否则下游 condition(检查 ctx.error)
+            # 不路由 error_handler, verify 失败静默跳过容错路径. 不发 ERROR (会让
+            # dispatch 直接 return 绕过 error_handler), 用 ctx.error 驱动条件路由.
+            ctx.error = (
+                f"Verify failed (score={result.score:.2f}): "
+                f"{'; '.join(result.issues)}"
+            )
             yield AgentEvent(
                 type=AgentEventType.THINK,
                 content=f"Verification issues: {'; '.join(result.issues)}",
                 node_id=node.label,
-                metadata={"suggestion": result.suggestion},
+                metadata={"suggestion": result.suggestion, "verify_failed": True},
             )
 
     async def _auto_store_memory(self, ctx: AgentContext, graph: AgentGraph) -> None:

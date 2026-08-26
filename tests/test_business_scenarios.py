@@ -23,7 +23,6 @@ Scenarios:
 15. Ping
 """
 
-import tempfile
 from pathlib import Path
 
 import pytest
@@ -372,14 +371,21 @@ class TestDeployScenario:
         formats = await _run(daemon, "deploy.list_formats", {})
         assert len(formats["formats"]) >= 1
 
-        with tempfile.TemporaryDirectory() as tmpdir:
+        # 审计 P2/dim3: deploy.import 限定 import 源在 ~/.fusion-agent-studio/exports/
+        # (防路径穿越). export/import 闭环须在该目录内.
+        import os
+
+        exports_dir = Path(os.path.expanduser("~/.fusion-agent-studio/exports"))
+        exports_dir.mkdir(parents=True, exist_ok=True)
+        export_path = exports_dir / "test_deploy_graph.json"
+        try:
             export = await _run(
                 daemon,
                 "deploy.export",
                 {
                     "graph_id": graph_id,
                     "format": "json",
-                    "filepath": str(Path(tmpdir) / "test_graph.json"),
+                    "filepath": str(export_path),
                 },
             )
             assert export["status"] == "ok"
@@ -389,11 +395,13 @@ class TestDeployScenario:
                 daemon,
                 "deploy.import",
                 {
-                    "filepath": str(Path(tmpdir) / "test_graph.json"),
+                    "filepath": str(export_path),
                 },
             )
             assert imported["graph_id"]
             assert imported["name"] == "TestDeployGraph"
+        finally:
+            export_path.unlink(missing_ok=True)
 
 
 class TestTemplateScenario:

@@ -370,6 +370,8 @@ class DaemonServer:
                 swarm_router=self._get_swarm(),
                 plaza=self._get_plaza(),
                 fmp=self._get_fmp(),
+                # 审计 P2/dim3: 透传 safety_gateway, 编排模式子 runtime 安全门生效.
+                safety_gateway=self._get_safety(),
             )
             logger.info("MultiAgentOrchestrator created (swarm+plaza+fmp wired)")
         return self._orchestrator
@@ -713,7 +715,55 @@ class DaemonServer:
         self.store.close()
         logger.info("Daemon stopped")
 
+    def register_execution(self, scope: str, key_id: str):
+        # 审计 P2-5/A-9: _active_executions 原 2/6 路径 (仅 graph.execute/resume).
+        # agent.execute/execute_stream + WS/SSE 直调 rt 不注册 -> daemon.status
+        # 活跃数失真 + stop() drain 漏掉在途流式执行. 统一注册入口, 各执行路径调.
+        # 返回 (exec_key, unregister), 调方 try/finally 调 unregister.
+        exec_key = f"{scope}:{key_id or id(asyncio.current_task())}"
+        self._active_executions[exec_key] = asyncio.current_task()
+        logger.info("execution registered scope=%s key=%s", scope, key_id)
+
+        def _unregister():
+            self._active_executions.pop(exec_key, None)
+            logger.info("execution unregistered scope=%s key=%s", scope, key_id)
+
+        return exec_key, _unregister
+
+    @property
+    def graph_semaphore(self) -> asyncio.Semaphore | None:
+        # 审计 P2-6/NEW-3: graph 并发节流原仅 graph.execute RPC 路径走, WS/SSE +
+        # agent.execute/execute_stream 直调 rt 绕过 -> 节流失效. 统一暴露给各路径.
+        return getattr(self, "_graph_semaphore", None)
+
+    @property
+    def token_budget_ref(self):
+        # 审计 P0-3: token_budget 透传统一访问点 (WS/SSE/agent 路径漏传=死代码).
+        return getattr(self, "_token_budget", None)
+
+    def _validate_config(self) -> None:
+        # 审计 P2-23: 启动前校验 FUSION_* 互斥/依赖组合, 配置矛盾则 fail-loud 不起.
+        errors: list[str] = []
+        if _ws_enabled() and not _ws_token():
+            errors.append(
+                "FUSION_ENABLE_WS=1 requires FUSION_WS_TOKEN (D-1 WS auth); "
+                "set token or disable WS"
+            )
+        safety_level = os.environ.get("FUSION_SAFETY_LEVEL", "L1").upper()
+        if safety_level not in ("L0", "L1", "L2", "L3"):
+            errors.append(
+                f"FUSION_SAFETY_LEVEL={safety_level!r} invalid (expected L0-L3)"
+            )
+        if errors:
+            for e in errors:
+                logger.error("config validation failed: %s", e)
+            raise RuntimeError(
+                "FUSION config validation failed:\n  - " + "\n  - ".join(errors)
+            )
+        logger.info("FUSION config validated OK (ws=%s safety=%s)", _ws_enabled(), safety_level)
+
     async def run_forever(self) -> None:
+        self._validate_config()
         await self.start()
         loop = asyncio.get_event_loop()
         stop_event = asyncio.Event()
