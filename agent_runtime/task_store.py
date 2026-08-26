@@ -221,16 +221,35 @@ class TaskStore:
         self._conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_tasks_agent ON tasks(agent_id)"
         )
-        # 老库迁移: CREATE IF NOT EXISTS 不会补列, 先 ALTER 补 project_id, 再建其索引 (#141 priority-2).
-        cols = {row[1] for row in self._conn.execute("PRAGMA table_info(tasks)").fetchall()}
+        self._conn.commit()
+        # 审计 3M-6: schema 版本管理. PRAGMA user_version 门禁有序迁移.
+        self._run_schema_migrations(self._conn)
+        logger.info("TaskStore DB initialized: %s", db_path)
+
+    def _run_schema_migrations(self, conn) -> None:
+        migrations = [
+            self._migration_v1_project_id,
+        ]
+        current = conn.execute("PRAGMA user_version").fetchone()[0]
+        for idx, migrate in enumerate(migrations, start=1):
+            if current >= idx:
+                continue
+            logger.info("task_store schema migration v%d (from v%d)", idx, current)
+            migrate(conn)
+            conn.execute(f"PRAGMA user_version = {idx}")
+            conn.commit()
+            current = idx
+
+    def _migration_v1_project_id(self, conn) -> None:
+        # 老库迁移: CREATE IF NOT EXISTS 不会补列, ALTER 补 project_id, 再建其索引
+        # (#141 priority-2). 幂等: 探列存在再 ALTER.
+        cols = {row[1] for row in conn.execute("PRAGMA table_info(tasks)").fetchall()}
         if "project_id" not in cols:
-            self._conn.execute("ALTER TABLE tasks ADD COLUMN project_id TEXT DEFAULT ''")
+            conn.execute("ALTER TABLE tasks ADD COLUMN project_id TEXT DEFAULT ''")
             logger.info("Migrated tasks table: added project_id column")
-        self._conn.execute(
+        conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_tasks_project ON tasks(project_id)"
         )
-        self._conn.commit()
-        logger.info("TaskStore DB initialized: %s", db_path)
 
     def _load_tasks(self) -> None:
         if not self._conn:

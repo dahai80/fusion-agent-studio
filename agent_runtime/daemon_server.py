@@ -836,6 +836,7 @@ class DaemonServer:
             "mlx.health": self._handle_mlx_health,
             "mlx.infer": self._handle_mlx_infer,
             "mlx.restart": self._handle_mlx_restart,
+            "mlx.reconnect": self._handle_mlx_reconnect,
             "mlx.set_model": self._handle_mlx_set_model,
             "mlx.start": self._handle_mlx_start,
             "mlx.status": self._handle_mlx_status,
@@ -1077,6 +1078,35 @@ class DaemonServer:
         # acquire 的 _handle_mlx_start 会死锁 (asyncio.Lock 非重入).
         await self._handle_mlx_stop(params)
         return await self._handle_mlx_start(params)
+
+    async def _handle_mlx_reconnect(self, params: dict) -> dict:
+        # 审计 E-18: MLX_BASE_URL import 期冻结, 运行时改 env/切 gateway 不重建 client.
+        # reconnect 不重启 MLX 进程, 仅按当前 env 重解析 base_url 重 attach client,
+        # 让 gateway 重部署/节点故障转移热生效, 不需重启 daemon.
+        # _attach_mlx_client 内部按当前 env 重解析 base_url/api_key, 这里仅记录前后值.
+        before_url = (
+            str(self._gateway._default_client.base_url)
+            if self._gateway._default_client
+            else ""
+        )
+        self._attach_mlx_client()
+        after_url = (
+            str(self._gateway._default_client.base_url)
+            if self._gateway._default_client
+            else ""
+        )
+        changed = before_url != after_url
+        logger.info(
+            "mlx.reconnect: base_url %s -> %s (changed=%s)",
+            before_url, after_url, changed,
+        )
+        return {
+            "status": "reconnected",
+            "base_url": after_url,
+            "previous_base_url": before_url,
+            "changed": changed,
+            "default_model": self._gateway._default_model or "",
+        }
 
     async def _handle_mlx_status(self, params: dict) -> dict:
         running = self._mlx_process is not None and self._mlx_process.poll() is None
