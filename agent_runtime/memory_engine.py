@@ -235,8 +235,9 @@ class MemoryEngine:
             CREATE INDEX IF NOT EXISTS idx_memories_tier ON memories(tier)
         """)
         self.conn.commit()
-        self._migrate_add_tier_column(c)
-        self._migrate_add_memory_type_column(c)
+        # 审计 3M-6: schema 版本管理. PRAGMA user_version 门禁有序迁移,
+        # 取代裸调用迁移函数. 迁移函数本身幂等 (try/except), 版本门禁只防漏跑/重跑混乱.
+        self._run_schema_migrations(c)
         self.conn.commit()
         # C16: memory_type 索引须在迁移加列之后建 — 老库无此列时先建索引会 OperationalError.
         c.execute("""
@@ -244,6 +245,21 @@ class MemoryEngine:
         """)
         self.conn.commit()
         logger.info("Memory engine initialized at %s", self.db_path)
+
+    def _run_schema_migrations(self, c: sqlite3.Cursor) -> None:
+        migrations = [
+            self._migrate_add_tier_column,
+            self._migrate_add_memory_type_column,
+        ]
+        current = c.execute("PRAGMA user_version").fetchone()[0]
+        for idx, migrate in enumerate(migrations, start=1):
+            if current >= idx:
+                continue
+            logger.info("memory_engine schema migration v%d (from v%d)", idx, current)
+            migrate(c)
+            c.execute(f"PRAGMA user_version = {idx}")
+            self.conn.commit()
+            current = idx
 
     def _migrate_add_tier_column(self, c: sqlite3.Cursor) -> None:
         try:

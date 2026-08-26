@@ -233,11 +233,6 @@ class CronManager:
                 one_shot INTEGER DEFAULT 0
             )
         """)
-        # #141 priority-3: 老库无 one_shot 列, ALTER 兜底迁移 (CREATE IF NOT EXISTS 不会加列).
-        cols = {row[1] for row in self._conn.execute("PRAGMA table_info(cron_jobs)").fetchall()}
-        if "one_shot" not in cols:
-            self._conn.execute("ALTER TABLE cron_jobs ADD COLUMN one_shot INTEGER DEFAULT 0")
-            logger.info("CronManager migrated cron_jobs: added one_shot column")
         self._conn.execute("""
             CREATE TABLE IF NOT EXISTS cron_executions (
                 id TEXT PRIMARY KEY,
@@ -253,7 +248,31 @@ class CronManager:
             "CREATE INDEX IF NOT EXISTS idx_cron_exec_job ON cron_executions(job_id)"
         )
         self._conn.commit()
+        # 审计 3M-6: schema 版本管理. PRAGMA user_version 门禁有序迁移.
+        self._run_schema_migrations(self._conn)
         logger.info("CronManager DB initialized: %s", db_path)
+
+    def _run_schema_migrations(self, conn) -> None:
+        migrations = [
+            self._migration_v1_one_shot,
+        ]
+        current = conn.execute("PRAGMA user_version").fetchone()[0]
+        for idx, migrate in enumerate(migrations, start=1):
+            if current >= idx:
+                continue
+            logger.info("triggers schema migration v%d (from v%d)", idx, current)
+            migrate(conn)
+            conn.execute(f"PRAGMA user_version = {idx}")
+            conn.commit()
+            current = idx
+
+    def _migration_v1_one_shot(self, conn) -> None:
+        # #141 priority-3: 老库无 one_shot 列, ALTER 兜底迁移 (CREATE IF NOT EXISTS 不会加列).
+        # 幂等: 探列存在再 ALTER.
+        cols = {row[1] for row in conn.execute("PRAGMA table_info(cron_jobs)").fetchall()}
+        if "one_shot" not in cols:
+            conn.execute("ALTER TABLE cron_jobs ADD COLUMN one_shot INTEGER DEFAULT 0")
+            logger.info("CronManager migrated cron_jobs: added one_shot column")
 
     def _load_jobs(self) -> None:
         if not self._conn:

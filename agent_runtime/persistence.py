@@ -150,15 +150,33 @@ class AgentStore:
                 ON workflow_runs(workflow_id, created_at DESC);
         """)
         conn.commit()
+        # 审计 3M-6: schema 版本管理. PRAGMA user_version 门禁有序迁移, 不再裸 ALTER.
+        # 每个迁移函数自带幂等列探测, 老库任意版本都能正确落地, 重跑安全.
+        self._run_schema_migrations(conn)
+
+    def _run_schema_migrations(self, conn) -> None:
+        migrations = [
+            self._migration_v1_checkpoint_columns,
+        ]
+        current = conn.execute("PRAGMA user_version").fetchone()[0]
+        for idx, migrate in enumerate(migrations, start=1):
+            if current >= idx:
+                continue
+            logger.info("persistence schema migration v%d (from v%d)", idx, current)
+            migrate(conn)
+            conn.execute(f"PRAGMA user_version = {idx}")
+            conn.commit()
+            current = idx
+
+    def _migration_v1_checkpoint_columns(self, conn) -> None:
         # 审计 E-20: checkpoints 缺 graph_id/state_json 列, save/load 签名不匹配致
         # 写静默失败 + resume 报 "No checkpoint found". 补列 (IF NOT EXISTS 模式不
-        # 改老表, 需 ALTER). 用 PRAGMA table_info 探列存在再 ALTER, 避重复报错.
+        # 改老表, 需 ALTER). 幂等: 探列存在再 ALTER.
         cols = {row[1] for row in conn.execute("PRAGMA table_info(checkpoints)")}
         if "graph_id" not in cols:
             conn.execute("ALTER TABLE checkpoints ADD COLUMN graph_id TEXT DEFAULT ''")
         if "state_json" not in cols:
             conn.execute("ALTER TABLE checkpoints ADD COLUMN state_json TEXT DEFAULT '{}'")
-        conn.commit()
 
     # ── Graph CRUD ──
 
