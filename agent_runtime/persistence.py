@@ -163,9 +163,15 @@ class AgentStore:
             if current >= idx:
                 continue
             logger.info("persistence schema migration v%d (from v%d)", idx, current)
-            migrate(conn)
-            conn.execute(f"PRAGMA user_version = {idx}")
-            conn.commit()
+            try:
+                migrate(conn)
+                conn.execute(f"PRAGMA user_version = {idx}")
+                conn.commit()
+            except Exception:
+                # 审计 P2-20: 迁移失败须回滚未提交 ALTER, 不留半迁移损坏库, 版本不进位.
+                conn.rollback()
+                logger.exception("schema migration v%d failed, rolled back", idx)
+                raise
             current = idx
 
     def _migration_v1_checkpoint_columns(self, conn) -> None:

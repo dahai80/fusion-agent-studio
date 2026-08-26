@@ -253,38 +253,42 @@ class KnowledgeDispatcher(SubDispatcher):
         return {"kbs": kbs_dicts, "building": False, "progress": 1.0}
 
     async def _handle_kb_query(self, params: dict) -> dict:
+        # 审计 P2/dim1: 旧实现给所有文件硬塞 relevance 1.0/0.8 (与 query 无关, 假相关).
+        # 路由到真实向量/混合检索 mgr.search, 与 kb.search 同源.
         query = params.get("query", "")
         kb_id = params.get("kb_id", "")
         limit = params.get("limit", 10)
+        top_k = params.get("top_k", limit)
         if not query:
             return {"status": "error", "message": "query parameter required"}
         mgr = self._daemon._get_kb_manager()
-        results = []
+        search_kwargs = {"top_k": top_k}
+        for key in ("threshold", "hybrid", "hybrid_alpha", "hybrid_method", "rerank"):
+            if key in params:
+                search_kwargs[key] = params[key]
         if kb_id:
-            files = mgr.list_files(kb_id)
-            for f in files[:limit]:
-                f_dict = f.to_dict() if hasattr(f, "to_dict") else f
-                f_dict["relevance"] = 1.0
-                results.append(f_dict)
+            result = await mgr.search(kb_id=kb_id, query=query, **search_kwargs)
         else:
             all_kbs = mgr.list_kbs()
             kbs_list = (
                 all_kbs.get("data", all_kbs) if isinstance(all_kbs, dict) else all_kbs
             )
+            merged = []
             for kb in kbs_list:
                 kid = kb.kb_id if hasattr(kb, "kb_id") else kb.get("kb_id", "")
-                files = mgr.list_files(kid)
-                for f in files[:limit]:
-                    f_dict = f.to_dict() if hasattr(f, "to_dict") else f
-                    f_dict["relevance"] = 0.8
-                    results.append(f_dict)
-                if len(results) >= limit:
-                    break
-            results = results[:limit]
+                if not kid:
+                    continue
+                r = await mgr.search(kb_id=kid, query=query, **search_kwargs)
+                merged.extend(r.get("results", []))
+            merged.sort(key=lambda x: x.get("score", 0.0), reverse=True)
+            result = {"results": merged[:limit], "count": len(merged[:limit])}
         logger.info(
-            "kb.query: query=%s kb_id=%s results=%d", query[:50], kb_id, len(results)
+            "kb.query: query=%s kb_id=%s results=%d",
+            query[:50],
+            kb_id,
+            result.get("count", len(result.get("results", []))),
         )
-        return {"results": results}
+        return result
 
     async def _handle_kb_search(self, params: dict) -> dict:
         kb_id = params.get("kb_id", "")

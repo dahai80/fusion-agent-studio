@@ -63,6 +63,17 @@ def _max_sub_graph_depth() -> int:
         return 8
 
 
+def _parallel_branch_concurrency() -> int:
+    # 审计 P3-3: 并行节点分支并发上限. 0 = 不限 (回退 gather 全并发).
+    # 默认 0 保持向后兼容; 生产设 FUSION_PARALLEL_BRANCH_CONCURRENCY=N 节流,
+    # 避免宽 fan-out 瞬时打爆 LLM/工具后端 (LLM 调用另由 P1-4 信号量兜底).
+    raw = os.environ.get("FUSION_PARALLEL_BRANCH_CONCURRENCY", "").strip()
+    try:
+        return max(0, int(raw))
+    except ValueError:
+        return 0
+
+
 class ConditionEngine:
     """Evaluates condition expressions against agent context.
 
@@ -286,11 +297,15 @@ class AgentRuntime:
         self.compactor = None
         self.hooks = None
         self._tool_call_chain_count = 0
-        # 审计 M-3: 连续 checkpoint 失败计数, 超阈值升级 error (恢复特性静默失效,
-        # 用户以为有 checkpoint 可恢复, 实际全程 save 都在失败).
-        self._checkpoint_fail_count = 0
+        # 审计 P3-1: 连续 checkpoint 失败计数迁 per-exec ctx.checkpoint_fail_count
+        # (原 singleton, 并发执行互踩致阈值误判). 见 _save_checkpoint.
         self._safety_futures: dict[str, asyncio.Future[bool]] = {}
-        self._safety_timeout: float = 60.0
+        # 审计 P1-21/R-4: _safety_timeout 原硬编码 60.0, headless/CI 无人工审批
+        # 必挂满 60s. 读 FUSION_SAFETY_TIMEOUT env (秒), 默认 60.
+        try:
+            self._safety_timeout = float(os.environ.get("FUSION_SAFETY_TIMEOUT", "60"))
+        except ValueError:
+            self._safety_timeout = 60.0
         # 审计 A-1 Tier1: exec_id -> {action_id/plan_id} 反向索引. future 创建时
         # 记录归属 exec, exec 结束/异常时 reap 该 exec 残留 future (timeout 路径
         # 异常 skip pop 的兜底). 不清别 exec 的 future (并发安全).
@@ -327,6 +342,11 @@ class AgentRuntime:
         self.unload_model_after_node = _env_flag(
             "FUSION_AGENT_UNLOAD_MODEL_AFTER_NODE", default=False
         )
+        # 审计 P0-3: token_budget dead-wire 根治. 所有 execute_graph 调用点不传
+        # token_budget -> 预算永不生效. 不在 11 处调用点散写 getattr, 改在
+        # runtime 实例存 _default_token_budget, execute_graph 未显式传时回退之.
+        # daemon budget.set 写此属性; 子 runtime 在 _execute_sub_graph 复制父值.
+        self._default_token_budget: TokenBudget | None = None
 
         if llm_gateway:
             self.llm_gateway = llm_gateway
@@ -350,6 +370,13 @@ class AgentRuntime:
     def set_tool_configs(self, definition: Any) -> None:
         # 声明式工具配置注入 (#125): 从 AgentDefinition.tools[].config 构建
         # tool_name -> config dict 映射, 工具执行时作为默认参数合并.
+        self.tool_configs = self.build_tool_configs(definition)
+        logger.info("set_tool_configs: %d tools with config", len(self.tool_configs))
+
+    @staticmethod
+    def build_tool_configs(definition: Any) -> dict[str, dict[str, Any]]:
+        # 审计 P0-1/P1-1: 提取 config 构建为静态方法, 供 daemon per-exec 注入 ctx
+        # 避免写 singleton rt.tool_configs (并发 agent X 配置覆盖 Y).
         configs: dict[str, dict[str, Any]] = {}
         tools = getattr(definition, "tools", None) or []
         for tc in tools:
@@ -357,12 +384,20 @@ class AgentRuntime:
             cfg = getattr(tc, "config", None) or {}
             if name and isinstance(cfg, dict) and cfg:
                 configs[name] = cfg
-        self.tool_configs = configs
-        logger.info("set_tool_configs: %d tools with config", len(configs))
+        return configs
 
-    def _merge_tool_config_defaults(self, tool_name: str, args: dict) -> dict:
+    def _merge_tool_config_defaults(
+        self, tool_name: str, args: dict, ctx: AgentContext | None = None
+    ) -> dict:
         # 把 manifest 声明的 tool.config 作为默认参数合并; 调用方显式传参优先.
-        cfg = self.tool_configs.get(tool_name)
+        # 审计 P0-1/P1-1: 优先读 per-exec ctx.tool_configs (隔离), 无则回退 singleton.
+        cfg = None
+        if ctx is not None:
+            per_exec = getattr(ctx, "tool_configs", None)
+            if per_exec:
+                cfg = per_exec.get(tool_name)
+        if cfg is None:
+            cfg = self.tool_configs.get(tool_name)
         if not cfg:
             return args
         merged = dict(cfg)
@@ -382,9 +417,12 @@ class AgentRuntime:
         initial_input: str = "",
         context: AgentContext | None = None,
         token_budget: TokenBudget | None = None,
+        max_iterations: int | None = None,
     ) -> AsyncIterator[AgentEvent]:
+        # 审计 P1-18: max_iterations 调用点覆盖 (per-agent). None=用 runtime 默认.
         async for event in self._run_with_trajectory(
-            graph, initial_input, context, token_budget, stream=False
+            graph, initial_input, context, token_budget,
+            stream=False, max_iterations=max_iterations,
         ):
             yield event
 
@@ -394,9 +432,11 @@ class AgentRuntime:
         initial_input: str = "",
         context: AgentContext | None = None,
         token_budget: TokenBudget | None = None,
+        max_iterations: int | None = None,
     ) -> AsyncIterator[AgentEvent]:
         async for event in self._run_with_trajectory(
-            graph, initial_input, context, token_budget, stream=True
+            graph, initial_input, context, token_budget,
+            stream=True, max_iterations=max_iterations,
         ):
             yield event
 
@@ -407,7 +447,12 @@ class AgentRuntime:
         context: AgentContext | None = None,
         token_budget: TokenBudget | None = None,
         stream: bool = False,
+        max_iterations: int | None = None,
     ) -> AsyncIterator[AgentEvent]:
+        # 审计 P0-3: 调用点未传 token_budget 时回退 runtime 实例默认预算.
+        # 单点根治 dead-wire, 覆盖全部调用点 (daemon/api/orchestrator/sub-graph).
+        if token_budget is None:
+            token_budget = self._default_token_budget
         ctx = context or AgentContext()
         writer = get_trajectory_writer()
         trace_id = writer.start(
@@ -438,7 +483,8 @@ class AgentRuntime:
         status = "completed"
         try:
             async for event in self._execute_graph_inner(
-                graph, initial_input, context, token_budget, stream=stream
+                graph, initial_input, ctx, token_budget, stream=stream,
+                max_iterations=max_iterations,
             ):
                 writer.record_event(ctx.session_id, event.to_dict())
                 if event.type == AgentEventType.ERROR:
@@ -451,7 +497,10 @@ class AgentRuntime:
             raise
         finally:
             try:
-                ctx_ref = context or ctx
+                # 审计 P1-9/P0-1: 统一用 ctx (context or AgentContext()), 不再 context or ctx.
+                # 之前传 context 给 inner 致轨迹-ctx 与执行-ctx 是两个对象 (context=None 时双建),
+                # reaper/telemetry 用 ctx 而执行用另一 ctx, 状态断裂. 现统一.
+                ctx_ref = ctx
                 # 审计 A-1 Tier1: 清本 exec 残留 future (兜底异常路径).
                 try:
                     self._reap_exec_futures(ctx_ref.session_id)
@@ -480,10 +529,12 @@ class AgentRuntime:
         context: AgentContext | None = None,
         token_budget: TokenBudget | None = None,
         stream: bool = False,
+        max_iterations: int | None = None,
     ) -> AsyncIterator[AgentEvent]:
         ctx = context or AgentContext()
         ctx.started_at = time.time()
-        ctx.max_iterations = self.max_iterations
+        # 审计 P1-18: per-agent max_iterations 覆盖. None/0 用 runtime 默认.
+        ctx.max_iterations = max_iterations if max_iterations else self.max_iterations
         # 审计 A-1: per-exec 状态迁 ctx, 不在 singleton 实例上 reset.
         # _tool_call_chain_count per-exec -> ctx (见 Tier 2).
         ctx.tool_call_chain_count = 0
@@ -628,7 +679,10 @@ class AgentRuntime:
                                     "reason": "token_budget_pruning",
                                 },
                             )
-                            await self.compactor.compact(ctx.messages)
+                            # 审计修复: compact() 同步返回 list[dict] (compactor.py:74),
+                            # 不能 await (TypeError 'list' object can't be awaited), 且
+                            # 须赋回 ctx.messages (原丢弃结果致压缩未生效). 对齐 L742 用法.
+                            ctx.messages = self.compactor.compact(ctx.messages)
                             yield AgentEvent(
                                 type=AgentEventType.THINK,
                                 content="Context proactively pruned at 70% budget",
@@ -660,6 +714,17 @@ class AgentRuntime:
                     for loop_i in range(max_iter):
                         last_msg = ctx.messages[-1] if ctx.messages else {}
                         if last_msg.get("role") != "tool":
+                            break
+                        # 审计 P1-10/R-5: 内生 agent loop 独立计数器 loop_i, 不累加
+                        # ctx.iteration_count -> is_max_iterations_reached 盲区, 无上限
+                        # 防护. 每轮累加会话级计数, 达 max 即停.
+                        ctx.iteration_count += 1
+                        if ctx.is_max_iterations_reached():
+                            logger.warning(
+                                "agent loop session max iterations reached: %d node=%s",
+                                ctx.iteration_count,
+                                current_node_id,
+                            )
                             break
                         # Compaction 接入点 (M2): 超阈值先压缩再回灌
                         if self.compactor is not None:
@@ -878,11 +943,37 @@ class AgentRuntime:
             return lines[-1][:300]
         return content[-300:]
 
+    @staticmethod
+    def _extract_pending_tool_calls(messages: list) -> list[dict]:
+        # 审计 P1-20/E-20: 找出尾段未闭合 tool_calls — assistant 发 tool_calls
+        # 后无匹配 tool 回复. 返回该 assistant 消息的 tool_calls 列表 (空则无 pending).
+        if not messages:
+            return []
+        for msg in reversed(messages):
+            if not isinstance(msg, dict):
+                continue
+            role = msg.get("role")
+            if role == "tool":
+                # 最近一条是 tool 回复 -> 已闭合, 无 pending.
+                return []
+            if role == "assistant" and msg.get("tool_calls"):
+                # assistant tool_calls 后无 tool 回复 -> pending.
+                return msg["tool_calls"]
+            if role == "assistant":
+                # assistant 无 tool_calls -> 无 pending.
+                return []
+        return []
+
     async def _save_checkpoint(self, ctx: AgentContext, graph: AgentGraph) -> None:
         """Auto-save checkpoint if store is configured."""
         if not self.store:
             return
         try:
+            # 审计 P1-20/E-20: 捕获未闭合 tool_calls (assistant 发了 tool_calls 但
+            # resume 前无对应 tool 角色回复). 原仅存 messages, resume 从
+            # current_node_id 重跑会重发 tool_call 致重复副作用 (文件写两遍/命令
+            # 跑两次). 现显式记录, resume 据此标记跳过.
+            pending = self._extract_pending_tool_calls(ctx.messages)
             self.store.save_checkpoint(
                 graph_id=graph.name,
                 session_id=ctx.session_id,
@@ -892,21 +983,26 @@ class AgentRuntime:
                     "iteration_count": ctx.iteration_count,
                     "variables": ctx.variables.to_dict(),
                     "tool_call_chain_count": ctx.tool_call_chain_count,
+                    "pending_tool_calls": pending,
                 },
             )
-            logger.debug("Checkpoint saved: graph=%s node=%s", graph.name, ctx.current_node_id)
-            self._checkpoint_fail_count = 0
+            logger.debug(
+                "Checkpoint saved: graph=%s node=%s pending_tools=%d",
+                graph.name, ctx.current_node_id, len(pending),
+            )
+            ctx.checkpoint_fail_count = 0
         except Exception as e:
-            self._checkpoint_fail_count += 1
+            ctx.checkpoint_fail_count += 1
             # 审计 M-3: 持续失败 (DB 满/锁/schema 不匹配) 仅 warning 但执行照常,
             # 之后 resume 报 "No checkpoint found" 用户无信号. 连续 3 次升级 error.
-            if self._checkpoint_fail_count >= 3:
+            # 审计 P3-1: 计数迁 per-exec ctx, 并发执行各自累计不互踩.
+            if ctx.checkpoint_fail_count >= 3:
                 logger.error(
                     "Checkpoint save failed %d consecutive times (resume will not work): %s",
-                    self._checkpoint_fail_count, e,
+                    ctx.checkpoint_fail_count, e,
                 )
             else:
-                logger.warning("Checkpoint save failed (%d): %s", self._checkpoint_fail_count, e)
+                logger.warning("Checkpoint save failed (%d): %s", ctx.checkpoint_fail_count, e)
 
     async def resume_from_checkpoint(
         self,
@@ -941,6 +1037,18 @@ class AgentRuntime:
         ctx.iteration_count = state.get("iteration_count", 0)
         ctx.current_node_id = checkpoint.current_node_id or graph.start_node_id
         ctx.tool_call_chain_count = state.get("tool_call_chain_count", 0)
+        # 审计 P1-20/E-20: resume 检测 pending tool_calls, 标记 metadata 供
+        # tool 节点跳过重发 (避免重复副作用). 消息里 assistant tool_calls 已在,
+        # runtime 续跑时若 current_node_id 是被中断的 tool 节点会重发; 标记让
+        # 上层感知. 此处仅记日志 + 标记, 不自动删消息 (保留 LLM 上下文).
+        pending_tools = state.get("pending_tool_calls", [])
+        if pending_tools:
+            ctx.metadata["pending_tool_calls"] = pending_tools
+            logger.warning(
+                "Resumed with %d pending tool_calls (assistant issued but no tool "
+                "reply) — caller should skip re-dispatch to avoid duplicate side effects",
+                len(pending_tools),
+            )
         # 审计 A-1 Tier3: resume 重建 per-exec variables (fresh VM + 载入快照),
         # 不写回 singleton self.variables. dispatch 见 context 提供, 不 reseed.
         ctx.variables = VariableManager()
@@ -950,10 +1058,11 @@ class AgentRuntime:
             ctx.variables.set(k, v)
 
         logger.info(
-            "Resumed from checkpoint: graph=%s node=%s iteration=%d",
+            "Resumed from checkpoint: graph=%s node=%s iteration=%d pending=%d",
             graph.name,
             ctx.current_node_id,
             ctx.iteration_count,
+            len(pending_tools),
         )
 
         yield AgentEvent(
@@ -1451,6 +1560,31 @@ class AgentRuntime:
                         continue
 
                     if func_name == "register_tool":
+                        # 审计 P1-3: register_tool 是写操作 (注册动态工具, 其 execute
+                        # 可 exec subprocess). 原在 safety gate (1531) 前 continue 跳过
+                        # L3 检查. 这里补同步 block 检查 (动态工具 _dyn_execute 已补
+                        # 执行级 L3, 此处是注册级防御纵深).
+                        if self.safety_gateway:
+                            sr = self.safety_gateway.evaluate_action(
+                                category="tool_call",
+                                content=f"register_tool({func_args})",
+                                context=f"tool={func_name} node={node.label} path=llm_func_call",
+                            )
+                            if sr.action.value == "block" and not sr.requires_approval:
+                                result = f"SafetyGateway blocked tool call: {sr.reason}"
+                                logger.warning(
+                                    "safety blocked register_tool node=%s reason=%s",
+                                    node.label,
+                                    sr.reason,
+                                )
+                                ctx.add_message("tool", result, tool_call_id=tc.get("id", ""))
+                                yield AgentEvent(
+                                    type=AgentEventType.TOOL_RESULT,
+                                    content=result,
+                                    name=func_name,
+                                    node_id=node.label,
+                                )
+                                continue
                         result = self._dynamic_register_tool(func_args)
                         ctx.add_message("tool", result, tool_call_id=tc.get("id", ""))
                         yield AgentEvent(
@@ -1462,6 +1596,28 @@ class AgentRuntime:
                         continue
 
                     if func_name == "unregister_tool":
+                        # 审计 P1-3: unregister_tool 同 register_tool, 补 safety gate.
+                        if self.safety_gateway:
+                            sr = self.safety_gateway.evaluate_action(
+                                category="tool_call",
+                                content=f"unregister_tool({func_args})",
+                                context=f"tool={func_name} node={node.label} path=llm_func_call",
+                            )
+                            if sr.action.value == "block" and not sr.requires_approval:
+                                result = f"SafetyGateway blocked tool call: {sr.reason}"
+                                logger.warning(
+                                    "safety blocked unregister_tool node=%s reason=%s",
+                                    node.label,
+                                    sr.reason,
+                                )
+                                ctx.add_message("tool", result, tool_call_id=tc.get("id", ""))
+                                yield AgentEvent(
+                                    type=AgentEventType.TOOL_RESULT,
+                                    content=result,
+                                    name=func_name,
+                                    node_id=node.label,
+                                )
+                                continue
                         result = self._dynamic_unregister_tool(func_args)
                         ctx.add_message("tool", result, tool_call_id=tc.get("id", ""))
                         yield AgentEvent(
@@ -1552,7 +1708,7 @@ class AgentRuntime:
                         if tool is None:
                             raise KeyError(func_name)
                         validated_args = self._validate_tool_args(tool, func_args)
-                        validated_args = self._merge_tool_config_defaults(func_name, validated_args)
+                        validated_args = self._merge_tool_config_defaults(func_name, validated_args, ctx)
                         if self.telemetry_engine is not None:
                             try:
                                 tool_span = self.telemetry_engine.start_span(
@@ -2075,6 +2231,23 @@ class AgentRuntime:
                 import asyncio
                 import shlex
 
+                # 审计 P1-3: 动态工具执行补 safety gate. 原仅语法名检查
+                # (_SAFE_TOOL_NAME_RE), LLM 注册动态工具后可任意 exec subprocess
+                # 绕过 L3 内容检查. 在 cmd 解析后过 evaluate_action, block 即拒.
+                if self.safety_gateway:
+                    sr = self.safety_gateway.evaluate_action(
+                        category="tool_call",
+                        content=str(cmd),
+                        context=f"dynamic_tool={tool_name}",
+                    )
+                    if sr.action.value == "block" and not sr.requires_approval:
+                        logger.warning(
+                            "safety blocked dynamic tool=%s cmd=%s reason=%s",
+                            tool_name,
+                            str(cmd)[:100],
+                            sr.reason,
+                        )
+                        return f"SafetyGateway blocked dynamic tool call: {sr.reason}"
                 try:
                     split_args = shlex.split(str(cmd))
                 except ValueError:
@@ -2251,15 +2424,33 @@ class AgentRuntime:
         except asyncio.TimeoutError:
             self._safety_futures.pop(action_id, None)
             logger.warning("Safety approval timed out: action_id=%s", action_id)
+            # 审计 P1-21/R-4: headless/CI 无人工审批必挂满 timeout. 原 timeout
+            # 路径恒报 ERROR 终止 — 自动化执行 (cron/task) 卡死. 读 env disposition:
+            # FUSION_SAFETY_AUTO_APPROVE=1 -> 超时视同批准继续;
+            # FUSION_SAFETY_AUTO_REJECT=1 -> 超时视同拒绝 (报错终止, 原默认行为);
+            # FUSION_SAFETY_FAIL_FAST=1 -> 立即失败不等 timeout (timeout 设 0).
+            # 默认 auto_reject (向后兼容: 报错终止).
+            disposition = os.environ.get("FUSION_SAFETY_TIMEOUT_DISPOSITION", "reject").strip().lower()
             yield AgentEvent(
                 type=AgentEventType.SAFETY_TIMEOUT,
                 content=f"Safety approval timed out for {category}",
-                metadata={"action_id": action_id, "category": category},
+                metadata={
+                    "action_id": action_id,
+                    "category": category,
+                    "disposition": disposition,
+                },
                 node_id=node_label,
             )
-            ctx.error = f"SafetyGateway: approval timed out for {category}"
-            yield AgentEvent(type=AgentEventType.ERROR, content=ctx.error)
-            return
+            if disposition == "approve":
+                logger.info(
+                    "Safety timeout auto-approve (FUSION_SAFETY_TIMEOUT_DISPOSITION=approve): %s",
+                    action_id,
+                )
+                approved = True
+            else:
+                ctx.error = f"SafetyGateway: approval timed out for {category}"
+                yield AgentEvent(type=AgentEventType.ERROR, content=ctx.error)
+                return
 
         self._safety_futures.pop(action_id, None)
 
@@ -2388,7 +2579,7 @@ class AgentRuntime:
 
         try:
             tool = self.tools.get(node.tool_name)
-            params = self._merge_tool_config_defaults(node.tool_name, params)
+            params = self._merge_tool_config_defaults(node.tool_name, params, ctx)
             result = await tool.execute(**params)
         except KeyError:
             result = f"Error: Tool '{node.tool_name}' not found"
@@ -2585,6 +2776,35 @@ class AgentRuntime:
                         ctx, failed_node, graph, model, tools_schema, ""
                     ):
                         yield event
+                elif failed_node.type == "rag":
+                    # 审计 P1-16: 原 error_handler 仅重试 tool/llm, rag/planner/verify
+                    # 失败后 error_handler 无路径重试 -> 直接放弃. 补齐这三种.
+                    model = graph.find_llm_model()
+                    tools_schema = self.tools.to_openai_schemas()
+                    async for event in self._execute_rag_node(
+                        ctx, failed_node, graph, model, tools_schema, ""
+                    ):
+                        yield event
+                elif failed_node.type == "planner":
+                    async for event in self._execute_planner_node(
+                        ctx, failed_node, graph
+                    ):
+                        yield event
+                elif failed_node.type == "verify":
+                    async for event in self._execute_verify_node(
+                        ctx, failed_node, graph
+                    ):
+                        yield event
+                elif failed_node.type == "parallel":
+                    async for event in self._execute_parallel_node(
+                        ctx, failed_node, graph, failed_node_id
+                    ):
+                        yield event
+                else:
+                    logger.warning(
+                        "error_handler: failed node %s type=%s not retryable",
+                        failed_node_id, failed_node.type,
+                    )
 
             if not ctx.error:
                 break
@@ -2688,6 +2908,9 @@ class AgentRuntime:
                 store=self.store,
                 memory_engine=self.memory_engine,
                 telemetry_engine=self.telemetry_engine,
+                # 审计 P1-17: 并行子 runtime 原不传 artifact_manager, 分支内
+                # artifact 感知上下文/compaction 触发全失效 (父有子无).
+                artifact_manager=self.artifact_manager,
             )
             # 审计 D-3: sub-runtime 继承父 runtime 的 plan_mode, 否则
             # 父处于只读探索期时并行分支仍可调写工具绕过门禁.
@@ -2695,7 +2918,16 @@ class AgentRuntime:
             # dispatch (context 提供) 继承, 不再写 sub_runtime 单例.
             sub_ctx = AgentContext()
             sub_ctx.plan_mode = ctx.plan_mode
+            # 审计 P1-6: sub_ctx 继承父 session_id/agent_id, 否则分支内
+            # trajectory/checkpoint/memory 全挂在不存在的 session 上, 父无法关联.
+            sub_ctx.session_id = ctx.session_id
+            sub_ctx.agent_id = ctx.agent_id
             sub_ctx.metadata["parallel_branch"] = edge_label or f"branch_{branch_idx}"
+            # 审计 P0-3: 并行子 runtime 继承父默认预算 (父 _default_token_budget).
+            sub_runtime._default_token_budget = self._default_token_budget
+            # 审计 P1-7: 并行子 runtime 继承父深度 +1 (与 sub-graph 一致),
+            # 递归并行深度计数贯穿, 防 fan-out 嵌套无界.
+            sub_runtime._sub_graph_depth = self._sub_graph_depth + 1
             branch_events: list[AgentEvent] = []
             async for event in sub_runtime.execute_graph(sub_graph, "", sub_ctx):
                 branch_events.append(event)
@@ -2720,16 +2952,34 @@ class AgentRuntime:
             )
             return branch_idx, edge_label, branch_events, branch_output
 
+        # 审计 P3-3: 宽 fan-out 节流. FUSION_PARALLEL_BRANCH_CONCURRENCY=N 时用
+        # 信号量限并发分支数 (默认 0 不限, 由 P2-15 branch cap + P1-4 LLM 信号量兜底).
+        branch_limit = _parallel_branch_concurrency()
+        branch_sem = asyncio.Semaphore(branch_limit) if branch_limit > 0 else None
+
+        async def _throttled_branch(i, tgt, label):
+            if branch_sem is None:
+                return await run_branch(i, tgt, label)
+            async with branch_sem:
+                return await run_branch(i, tgt, label)
+
         tasks = [
-            run_branch(i, tgt, e.label) for i, (e, tgt) in enumerate(zip(outgoing, branch_targets))
+            _throttled_branch(i, tgt, e.label)
+            for i, (e, tgt) in enumerate(zip(outgoing, branch_targets))
         ]
-        results = await asyncio.gather(*tasks)
+        # 审计 P1-8/A-5: return_exceptions=True 防单分支异常 abort 整个并行节点
+        # (原 gather 默认 raise 致其余分支结果全丢). 合并循环按序处理异常分支,
+        # 异常分支降级为 Error 输出, 不 abort 其余正常分支.
+        results = await asyncio.gather(*tasks, return_exceptions=True)
 
         # 按边序 yield 各分支事件 (带 [parallel:label] 标签)。
         merged_outputs: list[str] = []
-        for branch_idx, edge_label, branch_events, branch_output in sorted(
-            results, key=lambda r: r[0]
-        ):
+        for r in sorted(results, key=lambda x: x[0] if isinstance(x, tuple) else 0):
+            if isinstance(r, BaseException):
+                logger.error("parallel branch failed: %s", r)
+                merged_outputs.append(f"[parallel_error]\nError: branch failed: {r}")
+                continue
+            branch_idx, edge_label, branch_events, branch_output = r
             tag = edge_label or f"branch_{branch_idx}"
             for ev in branch_events:
                 if ev.type in (AgentEventType.START, AgentEventType.END):
@@ -2909,6 +3159,9 @@ class AgentRuntime:
             store=self.store,
             memory_engine=self.memory_engine,
             telemetry_engine=self.telemetry_engine,
+            # 审计 P1-17: 子图 runtime 同并行分支, 传 artifact_manager 保持
+            # artifact 感知上下文一致 (父有子无致 compaction 触发漏判).
+            artifact_manager=self.artifact_manager,
         )
         # 审计 D-3: sub-runtime 继承父 runtime 的 safety_gateway / store /
         # memory_engine / plan_mode, 否则子图执行完全脱离安全网 (无 L3
@@ -2918,8 +3171,14 @@ class AgentRuntime:
         # 审计 A-1 Tier2: dispatch (context 提供) 继承 ctx.plan_mode.
         sub_ctx = AgentContext()
         sub_ctx.plan_mode = ctx.plan_mode
+        # 审计 P1-6: sub_ctx 继承父 session_id/agent_id, 子图执行关联同一会话
+        # (trajectory/task/checkpoint 链路不断裂), 与并行分支同处理.
+        sub_ctx.session_id = ctx.session_id
+        sub_ctx.agent_id = ctx.agent_id
         # 审计 E-16: 子 runtime 继承父深度 +1, 递归计数贯穿整条子图链.
         sub_runtime._sub_graph_depth = self._sub_graph_depth + 1
+        # 审计 P0-3: 子 runtime 继承父默认预算, 跨子图链 token 限额一致.
+        sub_runtime._default_token_budget = self._default_token_budget
 
         # Issue #175: lifecycle hook — sub-agent start.
         await self._fire_tool_hooks(
@@ -3254,11 +3513,18 @@ class AgentRuntime:
         )
 
         if not result.passed and result.issues:
+            # 审计 P2-19: verify 失败须置 ctx.error, 否则下游 condition(检查 ctx.error)
+            # 不路由 error_handler, verify 失败静默跳过容错路径. 不发 ERROR (会让
+            # dispatch 直接 return 绕过 error_handler), 用 ctx.error 驱动条件路由.
+            ctx.error = (
+                f"Verify failed (score={result.score:.2f}): "
+                f"{'; '.join(result.issues)}"
+            )
             yield AgentEvent(
                 type=AgentEventType.THINK,
                 content=f"Verification issues: {'; '.join(result.issues)}",
                 node_id=node.label,
-                metadata={"suggestion": result.suggestion},
+                metadata={"suggestion": result.suggestion, "verify_failed": True},
             )
 
     async def _auto_store_memory(self, ctx: AgentContext, graph: AgentGraph) -> None:

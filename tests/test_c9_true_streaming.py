@@ -90,6 +90,8 @@ def patched_api(tmp_path, monkeypatch):
     monkeypatch.setattr(api_server, "_store", store)
     monkeypatch.setattr(api_server, "_runtime", runtime)
     monkeypatch.setattr(api_server, "_daemon", None)
+    # 审计 P0-2: SSE/WS 现有鉴权门禁 (与 POST 一致). 单元测试本地受信, 关鉴权.
+    monkeypatch.setattr(api_server, "_auth_configured", lambda: False)
     return {"store": store, "runtime": runtime, "graph": graph}
 
 
@@ -232,6 +234,18 @@ class TestAgentExecuteStreamRPC:
                     def apply(self, prompt, style):
                         return {"system_prompt": prompt}
                 return _SM()
+
+            # 审计 P2-5/P2-6/P0-3: agent.execute_stream 依赖的 daemon 访问点.
+            def register_execution(self, scope, key_id):
+                return f"{scope}:{key_id}", lambda: None
+
+            @property
+            def graph_semaphore(self):
+                return None
+
+            @property
+            def token_budget_ref(self):
+                return None
 
         # AgentPackage.to_graph_config reads graph.json; save_graph needs store attr
         daemon = FakeDaemon()

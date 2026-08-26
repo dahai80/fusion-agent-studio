@@ -2,11 +2,38 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import time
 import uuid
 from dataclasses import dataclass, field
 
 logger = logging.getLogger(__name__)
+
+
+def _tel_max_spans() -> int:
+    # 审计 P1-14/NEW-3: _spans dict 无界 (每 span 永留), 长跑内存泄漏.
+    # 默认 10000, FUSION_TELEMETRY_MAX_SPANS 调; 0=不限.
+    try:
+        return max(0, int(os.environ.get("FUSION_TELEMETRY_MAX_SPANS", "10000")))
+    except ValueError:
+        return 10000
+
+
+def _tel_max_traces() -> int:
+    # 审计 P1-14/NEW-3: _traces dict 无界. 默认 1000, 0=不限.
+    try:
+        return max(0, int(os.environ.get("FUSION_TELEMETRY_MAX_TRACES", "1000")))
+    except ValueError:
+        return 1000
+
+
+def _tel_max_latencies() -> int:
+    # 审计 P1-14/NEW-3: _latencies 每键 list 无界 (每次调用 append). 滚动保留
+    # 最近 N 用于 p99/avg, 默认 1000, 0=不限.
+    try:
+        return max(0, int(os.environ.get("FUSION_TELEMETRY_MAX_LATENCIES", "1000")))
+    except ValueError:
+        return 1000
 
 
 @dataclass
@@ -104,6 +131,50 @@ class TelemetryEngine:
         }
         logger.info("TelemetryEngine initialized")
 
+    def _prune_spans(self) -> None:
+        # 审计 P1-14/NEW-3: _spans 超 cap 删最旧 (按 start_time). 不删 active.
+        cap = _tel_max_spans()
+        if cap <= 0 or len(self._spans) <= cap:
+            return
+        candidates = [
+            (sid, s.start_time) for sid, s in self._spans.items()
+            if sid not in self._active_spans
+        ]
+        candidates.sort(key=lambda kv: kv[1])
+        overflow = len(self._spans) - cap
+        for sid, _ in candidates[:overflow]:
+            self._spans.pop(sid, None)
+        logger.debug("telemetry pruned %d old spans (cap=%d)", min(overflow, len(candidates)), cap)
+
+    def _prune_traces(self) -> None:
+        # 审计 P1-14/NEW-3: _traces 超 cap 删最旧 trace (整条链 span_ids 从 _spans 清).
+        cap = _tel_max_traces()
+        if cap <= 0 or len(self._traces) <= cap:
+            return
+        # 按 trace 内最新 span start_time 排序 (无 span 则 0), 删最旧.
+        ranked = []
+        for tid, sids in self._traces.items():
+            latest = max(
+                (self._spans[s].start_time for s in sids if s in self._spans),
+                default=0.0,
+            )
+            ranked.append((tid, latest))
+        ranked.sort(key=lambda kv: kv[1])
+        overflow = len(self._traces) - cap
+        for tid, _ in ranked[:overflow]:
+            for sid in self._traces.pop(tid, []):
+                self._spans.pop(sid, None)
+        logger.debug("telemetry pruned %d old traces (cap=%d)", overflow, cap)
+
+    def _prune_latencies(self, key: str) -> None:
+        # 审计 P1-14/NEW-3: 单键 latency list 超 cap 保留最近 N.
+        cap = _tel_max_latencies()
+        vals = self._latencies.get(key)
+        if cap <= 0 or not vals or len(vals) <= cap:
+            return
+        self._latencies[key] = vals[-cap:]
+        logger.debug("telemetry pruned %s latencies to %d (cap=%d)", key, cap, cap)
+
     def configure(self, params: dict) -> None:
         self.config = TelemetryConfig.from_dict(params)
         logger.info(
@@ -139,6 +210,10 @@ class TelemetryEngine:
             self._traces[trace_id] = []
         self._traces[trace_id].append(span.span_id)
 
+        # 审计 P1-14/NEW-3: span/trace 入表后裁剪, 防无界增长.
+        self._prune_spans()
+        self._prune_traces()
+
         logger.debug("Started span %s name=%s trace=%s", span.span_id, name, trace_id)
         return span
 
@@ -157,12 +232,15 @@ class TelemetryEngine:
             self._counters["tokens_completion"] += span.attributes.get(
                 "completion_tokens", 0
             )
+            self._prune_latencies("llm_calls")
         elif span.name == "tool.call":
             self._counters["tool_calls"] += 1
             self._latencies["tool_calls"].append(span.end_time - span.start_time)
+            self._prune_latencies("tool_calls")
         elif span.name == "graph.execute":
             self._counters["graph_executions"] += 1
             self._latencies["graph_executions"].append(span.end_time - span.start_time)
+            self._prune_latencies("graph_executions")
 
         if status == "error":
             self._counters["errors"] += 1
@@ -243,28 +321,44 @@ class TelemetryEngine:
     def _push_otlp(self, payload: str) -> None:
         # C13: POST OTLP/HTTP JSON 到 collector. 同步 urllib 避免新依赖;
         # 失败仅日志不抛 (遥测不阻塞主路径).
+        # 审计 P1-14/NEW-3: 检测 event loop 在跑则 offload 到 executor (5s 同步
+        # urllib 在 async handler 内直接阻塞 event loop); 无 loop 则同步直调.
         import urllib.error
         import urllib.request
 
         endpoint = self.config.endpoint
         headers = {"Content-Type": "application/json"}
         headers.update(self.config.headers)
-        req = urllib.request.Request(
-            endpoint,
-            data=payload.encode("utf-8"),
-            headers=headers,
-            method="POST",
-        )
+
+        def _do_post() -> None:
+            req = urllib.request.Request(
+                endpoint,
+                data=payload.encode("utf-8"),
+                headers=headers,
+                method="POST",
+            )
+            try:
+                with urllib.request.urlopen(req, timeout=5) as resp:
+                    logger.info(
+                        "OTLP export to %s -> HTTP %d (bytes=%d)",
+                        endpoint,
+                        resp.status,
+                        len(payload),
+                    )
+            except (urllib.error.URLError, OSError, TimeoutError) as e:
+                logger.warning("OTLP export to %s failed: %s", endpoint, e)
+
+        import asyncio
+
         try:
-            with urllib.request.urlopen(req, timeout=5) as resp:
-                logger.info(
-                    "OTLP export to %s -> HTTP %d (bytes=%d)",
-                    endpoint,
-                    resp.status,
-                    len(payload),
-                )
-        except (urllib.error.URLError, OSError, TimeoutError) as e:
-            logger.warning("OTLP export to %s failed: %s", endpoint, e)
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+        if loop is not None:
+            loop.run_in_executor(None, _do_post)
+            logger.debug("OTLP export offloaded to executor (async context)")
+        else:
+            _do_post()
 
     def metrics(self) -> dict:
         avg_latencies = {}

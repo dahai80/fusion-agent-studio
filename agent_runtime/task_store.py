@@ -29,7 +29,10 @@ def _task_ttl() -> float:
 
 
 def _lazy_load_enabled() -> bool:
-    return os.environ.get("FUSION_TASK_LAZY_LOAD", "").strip().lower() in ("1", "true", "yes")
+    # 审计 P2-16/3M-1-leg3: 默认开启懒加载, 防 10 万历史 task 启动全载致内存膨胀.
+    # 显式 FUSION_TASK_LAZY_LOAD=0 关闭 (回退 eager 全载, 兼容旧部署).
+    val = os.environ.get("FUSION_TASK_LAZY_LOAD", "1").strip().lower()
+    return val not in ("0", "false", "no", "off")
 
 # Task 状态机: pending(已提交待触发) -> running(执行中) -> completed/failed/canceled
 TASK_STATUS_PENDING = "pending"
@@ -263,6 +266,27 @@ class TaskStore:
                 self._tasks[task.task_id] = task
         logger.info("Loaded %d tasks from DB", len(self._tasks))
 
+    def _get_task(self, task_id: str) -> Task | None:
+        # 审计 P2-12: lazy-load 模式下 task 仅在磁盘, 内存 dict miss -> update_status/
+        # cancel/rerun/add_artifacts/delete 恒 False (盲区). 缓存 miss 时按 id 从磁盘
+        # 单行加载进 dict, 后续写操作正常. eager 模式行为不变 (dict 已满).
+        task = self._tasks.get(task_id)
+        if task is not None:
+            return task
+        if not self._conn or not self._lazy_load:
+            return None
+        with self._write_lock:
+            row = self._conn.execute(
+                "SELECT " + ", ".join(_TASK_COLUMNS) + " FROM tasks WHERE task_id=?",
+                (task_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        task = Task.from_row(row)
+        self._tasks[task_id] = task
+        logger.info("lazy-loaded task %s from disk into cache", task_id)
+        return task
+
     def _save_task(self, task: Task) -> None:
         if not self._conn:
             return
@@ -300,12 +324,14 @@ class TaskStore:
             )
             self._conn.commit()
 
-    def _delete_task(self, task_id: str) -> None:
+    def _delete_task(self, task_id: str) -> int:
+        # 审计 P2-12: 返回删除行数, 供 delete() 判定磁盘上是否真存在 (lazy 模式).
         if not self._conn:
-            return
+            return 0
         with self._write_lock:
-            self._conn.execute("DELETE FROM tasks WHERE task_id = ?", (task_id,))
+            cur = self._conn.execute("DELETE FROM tasks WHERE task_id = ?", (task_id,))
             self._conn.commit()
+            return cur.rowcount or 0
 
     def reap_expired(self) -> int:
         if not self._conn:
@@ -361,21 +387,8 @@ class TaskStore:
         return task
 
     def get(self, task_id: str) -> Task | None:
-        task = self._tasks.get(task_id)
-        if task is not None:
-            return task
-        if not self._lazy_load or not self._conn:
-            return None
-        with self._write_lock:
-            row = self._conn.execute(
-                "SELECT " + ", ".join(_TASK_COLUMNS) + " FROM tasks WHERE task_id = ?",
-                (task_id,),
-            ).fetchone()
-        if not row:
-            return None
-        task = Task.from_row(row)
-        self._tasks[task.task_id] = task
-        return task
+        # 审计 P2-12: 复用 _get_task 的 lazy-load 磁盘回填, 统一盲区修复入口.
+        return self._get_task(task_id)
 
     def list(
         self,
@@ -437,7 +450,7 @@ class TaskStore:
         last_result: dict | None = None,
         last_error: str = "",
     ) -> bool:
-        task = self._tasks.get(task_id)
+        task = self._get_task(task_id)
         if not task:
             return False
         if status not in _VALID_STATUSES:
@@ -460,7 +473,7 @@ class TaskStore:
 
     def cancel(self, task_id: str) -> bool:
         # 仅 pending/running 可取消; completed/failed/canceled 幂等返 False.
-        task = self._tasks.get(task_id)
+        task = self._get_task(task_id)
         if not task:
             return False
         if task.status in (TASK_STATUS_COMPLETED, TASK_STATUS_CANCELED):
@@ -469,7 +482,7 @@ class TaskStore:
 
     def rerun(self, task_id: str) -> Task | None:
         # 重置为 pending, retry_count+1, 供调度/前端再次拉起.
-        task = self._tasks.get(task_id)
+        task = self._get_task(task_id)
         if not task:
             return None
         task.status = TASK_STATUS_PENDING
@@ -481,7 +494,7 @@ class TaskStore:
         return task
 
     def add_artifacts(self, task_id: str, artifact_ids: list[str]) -> bool:
-        task = self._tasks.get(task_id)
+        task = self._get_task(task_id)
         if not task:
             return False
         for aid in artifact_ids:
@@ -492,30 +505,49 @@ class TaskStore:
         return True
 
     def delete(self, task_id: str) -> bool:
-        task = self._tasks.pop(task_id, None)
-        if not task:
-            return False
-        self._delete_task(task_id)
-        logger.info("Task deleted: %s", task_id)
-        return True
+        # 审计 P2-12: lazy 模式 task 仅磁盘, pop miss -> 返 False 但磁盘残留.
+        # 先弹缓存, 再无条件删磁盘行 (存在则删, 不存在无副作用), 按磁盘实际删除数判定.
+        self._tasks.pop(task_id, None)
+        deleted_rows = self._delete_task(task_id)
+        if deleted_rows:
+            logger.info("Task deleted: %s", task_id)
+            return True
+        return False
 
     def projects(self) -> list[dict]:
         # 聚合 distinct project_id 及其任务数/状态分布 (#141 priority-2 多 Task 看板).
+        # 审计 P2-12: lazy 模式 dict 仅部分 task, 从 DB 聚合保证全量.
         buckets: dict[str, dict[str, Any]] = {}
-        for t in self._tasks.values():
-            pid = t.project_id or ""
-            if not pid:
-                continue
-            b = buckets.setdefault(
-                pid,
-                {"project_id": pid, "total": 0, "pending": 0, "running": 0,
-                 "completed": 0, "failed": 0, "canceled": 0},
-            )
-            b["total"] += 1
-            if t.status in b:
-                b[t.status] += 1
+        if self._lazy_load and self._conn:
+            with self._write_lock:
+                rows = self._conn.execute(
+                    "SELECT project_id, status, COUNT(*) FROM tasks "
+                    "WHERE project_id != '' GROUP BY project_id, status"
+                ).fetchall()
+            for pid, status, cnt in rows:
+                b = buckets.setdefault(
+                    pid,
+                    {"project_id": pid, "total": 0, "pending": 0, "running": 0,
+                     "completed": 0, "failed": 0, "canceled": 0},
+                )
+                b["total"] += cnt
+                if status in b:
+                    b[status] += cnt
+        else:
+            for t in self._tasks.values():
+                pid = t.project_id or ""
+                if not pid:
+                    continue
+                b = buckets.setdefault(
+                    pid,
+                    {"project_id": pid, "total": 0, "pending": 0, "running": 0,
+                     "completed": 0, "failed": 0, "canceled": 0},
+                )
+                b["total"] += 1
+                if t.status in b:
+                    b[t.status] += 1
         result = sorted(buckets.values(), key=lambda b: b["total"], reverse=True)
-        logger.info("Aggregated %d projects from %d tasks", len(result), len(self._tasks))
+        logger.info("Aggregated %d projects", len(result))
         return result
 
     def close(self) -> None:

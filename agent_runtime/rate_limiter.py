@@ -6,6 +6,13 @@ from agent_runtime.errors import ErrorCode, raise_api_error
 logger = logging.getLogger(__name__)
 
 
+def _mask_key(key: str) -> str:
+    # 审计 P0-4: 日志不记全量 api_key (明文泄露). 短 key 全挡, 长 key 首尾留 4.
+    if not key or len(key) <= 8:
+        return "***"
+    return key[:4] + "..." + key[-4:]
+
+
 class TokenBucket:
     def __init__(self, rate: float, capacity: float):
         self.rate = rate
@@ -133,7 +140,7 @@ class RateLimitMiddleware:
 
         logger.debug(
             "RateLimitMiddleware: api_key=%s agent_id=%s path=%s",
-            api_key,
+            _mask_key(api_key),
             agent_id,
             scope.get("path"),
         )
@@ -143,7 +150,7 @@ class RateLimitMiddleware:
             bucket = self.limiter._key_buckets.get(api_key)
             if bucket:
                 wait = bucket.get_wait_time()
-            logger.warning("Key rate limited: api_key=%s wait=%.2fs", api_key, wait)
+            logger.warning("Key rate limited: api_key=%s wait=%.2fs", _mask_key(api_key), wait)
             response = JSONResponse(
                 status_code=429,
                 content=raise_api_error(

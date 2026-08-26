@@ -659,58 +659,68 @@ class LLMGateway:
         temp = temperature if temperature is not None else 0.7
         mtokens = max_tokens if max_tokens is not None else 4096
 
+        # 审计 P1-4/R-9: chat_stream 补 LLM 并发 semaphore. 原仅 _call_model_async
+        # + _call_default_client_async 获取 _get_llm_semaphore(), 流式调用无节流
+        # -> 并发流式请求压垮本地 MLX. 整流期间持有, finally 释放.
+        sem = self._get_llm_semaphore()
+        if sem is not None:
+            await sem.acquire()
         try:
-            stream_iter = client.chat_stream(
-                model=resolved_model,
-                messages=messages,
-                tools=tools,
-                temperature=temp,
-                max_tokens=mtokens,
-                **kwargs,
-            )
-            start = asyncio.get_event_loop().time()
             try:
-                async for chunk in stream_iter:
-                    elapsed = asyncio.get_event_loop().time() - start
-                    if elapsed > timeout:
-                        logger.warning("chat_stream exceeded timeout %.0fs, aborting", timeout)
-                        # 审计 P-3: 超时 return 前必须显式关闭底层 HTTP 流, 否则
-                        # 连接留到 GC, 繁忙 daemon 多流超时累积 socket 泄漏.
-                        aclose = getattr(stream_iter, "aclose", None)
-                        if aclose is not None:
-                            try:
-                                await aclose()
-                            except Exception as close_err:
-                                logger.debug("chat_stream aclose on timeout: %s", close_err)
+                stream_iter = client.chat_stream(
+                    model=resolved_model,
+                    messages=messages,
+                    tools=tools,
+                    temperature=temp,
+                    max_tokens=mtokens,
+                    **kwargs,
+                )
+                start = asyncio.get_event_loop().time()
+                try:
+                    async for chunk in stream_iter:
+                        elapsed = asyncio.get_event_loop().time() - start
+                        if elapsed > timeout:
+                            logger.warning("chat_stream exceeded timeout %.0fs, aborting", timeout)
+                            # 审计 P-3: 超时 return 前必须显式关闭底层 HTTP 流, 否则
+                            # 连接留到 GC, 繁忙 daemon 多流超时累积 socket 泄漏.
+                            aclose = getattr(stream_iter, "aclose", None)
+                            if aclose is not None:
+                                try:
+                                    await aclose()
+                                except Exception as close_err:
+                                    logger.debug("chat_stream aclose on timeout: %s", close_err)
+                            yield {
+                                "delta_content": "",
+                                "delta_tool_calls": [],
+                                "finish_reason": "error",
+                                "error": f"Stream timeout after {timeout:.0f}s",
+                            }
+                            return
                         yield {
-                            "delta_content": "",
-                            "delta_tool_calls": [],
-                            "finish_reason": "error",
-                            "error": f"Stream timeout after {timeout:.0f}s",
+                            "delta_content": chunk.delta_content,
+                            "delta_tool_calls": chunk.delta_tool_calls,
+                            "finish_reason": chunk.finish_reason,
+                            "usage": chunk.usage,
                         }
-                        return
-                    yield {
-                        "delta_content": chunk.delta_content,
-                        "delta_tool_calls": chunk.delta_tool_calls,
-                        "finish_reason": chunk.finish_reason,
-                        "usage": chunk.usage,
-                    }
-            finally:
-                # 兜底: 任何路径退出 (异常/正常) 都尝试关闭流, 防连接泄漏.
-                aclose = getattr(stream_iter, "aclose", None)
-                if aclose is not None:
-                    try:
-                        await aclose()
-                    except Exception as close_err:
-                        logger.debug("chat_stream aclose on exit: %s", close_err)
-        except Exception as exc:
-            logger.error("chat_stream failed: %s", exc)
-            yield {
-                "delta_content": "",
-                "delta_tool_calls": [],
-                "finish_reason": "error",
-                "error": str(exc),
-            }
+                finally:
+                    # 兜底: 任何路径退出 (异常/正常) 都尝试关闭流, 防连接泄漏.
+                    aclose = getattr(stream_iter, "aclose", None)
+                    if aclose is not None:
+                        try:
+                            await aclose()
+                        except Exception as close_err:
+                            logger.debug("chat_stream aclose on exit: %s", close_err)
+            except Exception as exc:
+                logger.error("chat_stream failed: %s", exc)
+                yield {
+                    "delta_content": "",
+                    "delta_tool_calls": [],
+                    "finish_reason": "error",
+                    "error": str(exc),
+                }
+        finally:
+            if sem is not None:
+                sem.release()
 
     def _resolve_target(self, model: str = "", capability: str = "") -> ModelConfig | None:
         """Resolve which model config to use for a request."""

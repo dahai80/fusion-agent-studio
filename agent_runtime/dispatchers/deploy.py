@@ -73,10 +73,28 @@ class DeployDispatcher(SubDispatcher):
         filepath = params.get("filepath", "")
         if not filepath:
             return {"status": "error", "message": "filepath parameter required"}
+        # 审计 P2/dim3: deploy.import 原接任意路径 -> 路径穿越/任意文件读取.
+        # 限定 import 源在 ~/.fusion-agent-studio/exports/ 内 (resolve + startswith,
+        # 防 ../ 穿越逃逸). exports 目录由 deploy.export 写出, 自治闭环.
+        import os
+
+        export_root = Path(os.path.expanduser("~/.fusion-agent-studio/exports")).resolve()
         try:
-            graph = GraphDeployer.import_from_json(filepath)
+            resolved = Path(filepath).resolve()
+        except (OSError, ValueError) as e:
+            return {"status": "error", "message": f"invalid filepath: {e}"}
+        try:
+            resolved.relative_to(export_root)
+        except ValueError:
+            logger.warning("deploy.import blocked: path=%s outside exports root", filepath)
+            return {
+                "status": "error",
+                "message": "import path must be inside ~/.fusion-agent-studio/exports/",
+            }
+        try:
+            graph = GraphDeployer.import_from_json(str(resolved))
             self._daemon.store.save_graph(graph)
-            logger.info("deploy.import: path=%s graph_id=%s", filepath, graph.id)
+            logger.info("deploy.import: path=%s graph_id=%s", resolved, graph.id)
             return {
                 "graph_id": graph.id,
                 "name": graph.name,

@@ -370,7 +370,9 @@ class TestV1Routes:
         resp = client.get("/v1/health")
         assert resp.status_code == 200
         data = resp.json()
-        assert data["status"] == "ok"
+        # 审计 P1-26: /v1/health 探 MLX 可达性, status ok|degraded, 含 mlx_reachable.
+        assert data["status"] in ("ok", "degraded")
+        assert "mlx_reachable" in data
 
     def test_v1_dashboard(self):
         from fastapi.testclient import TestClient

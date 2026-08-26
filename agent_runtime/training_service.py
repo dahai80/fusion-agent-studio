@@ -172,6 +172,20 @@ class TrainingService:
             return {"error": "unknown run_id"}
         return dict(run)
 
+    # 审计 P1-22/NEW-2: task-level 兜底 mark (done_callback 用). _task 体内已
+    # try/except 记 error, 此处理体外漏网 (coro 启动即崩 / CancelledError).
+    def mark_run_failed(self, run_id: str, err: str) -> None:
+        run = _RUNS.get(run_id)
+        if run is not None and run.get("status") == "running":
+            run.update({"status": "error", "error": err})
+            logger.error("training run %s marked failed (task-level): %s", run_id, err)
+
+    def mark_run_cancelled(self, run_id: str) -> None:
+        run = _RUNS.get(run_id)
+        if run is not None and run.get("status") == "running":
+            run.update({"status": "cancelled"})
+            logger.warning("training run %s marked cancelled", run_id)
+
     def info(self) -> dict[str, Any]:
         try:
             import fusion_trainer

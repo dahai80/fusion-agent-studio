@@ -13,6 +13,10 @@ logger = logging.getLogger(__name__)
 
 
 class InfraDispatcher(SubDispatcher):
+    # 审计 P2/dim1: alert.acknowledge 原为 no-op 空返 {acknowledged:True} 未真正
+    # 标记. 现 lazy 持已确认 alert_id 集合, alert.list 据此标 acknowledged 状态.
+    _acknowledged_alerts: set[str] = set()
+
     def get_handlers(self) -> dict[str, Callable]:
         return {
             "telemetry.configure": self._handle_telemetry_configure,
@@ -444,6 +448,8 @@ class InfraDispatcher(SubDispatcher):
 
     async def _handle_alert_list(self, params: dict) -> dict:
         alerts = []
+        # 审计 P2/dim1: 已确认 alert 据 _acknowledged_alerts 标 acknowledged 状态.
+        ack = self._acknowledged_alerts
         try:
             budget_handler = self._daemon._handle_budget_status({})
             budget_data = budget_handler if isinstance(budget_handler, dict) else {}
@@ -455,7 +461,7 @@ class InfraDispatcher(SubDispatcher):
                         "level": "warning",
                         "message": f"Token budget usage at {warn_pct}%",
                         "type": "budget",
-                        "acknowledged": False,
+                        "acknowledged": "budget-warning" in ack,
                     }
                 )
             if warn_pct > 95:
@@ -465,7 +471,7 @@ class InfraDispatcher(SubDispatcher):
                         "level": "critical",
                         "message": f"Token budget nearly exhausted ({warn_pct}%)",
                         "type": "budget",
-                        "acknowledged": False,
+                        "acknowledged": "budget-critical" in ack,
                     }
                 )
         except Exception:
@@ -475,13 +481,14 @@ class InfraDispatcher(SubDispatcher):
             _now = time.time()
             for s in sessions[-20:]:
                 if isinstance(s, dict) and s.get("status") == "error":
+                    aid = f"session-error-{s.get('session_id', '')}"
                     alerts.append(
                         {
-                            "id": f"session-error-{s.get('session_id', '')}",
+                            "id": aid,
                             "level": "error",
                             "message": f"Session error: {s.get('error', 'unknown')}",
                             "type": "session",
-                            "acknowledged": False,
+                            "acknowledged": aid in ack,
                         }
                     )
         except Exception:
@@ -490,7 +497,10 @@ class InfraDispatcher(SubDispatcher):
 
     async def _handle_alert_acknowledge(self, params: dict) -> dict:
         alert_id = params.get("alert_id", "")
-        logger.info("alert.acknowledge: id=%s", alert_id)
+        # 审计 P2/dim1: 真正持久化确认状态 (原 no-op), alert.list 据此标 acknowledged.
+        if alert_id:
+            self._acknowledged_alerts.add(alert_id)
+        logger.info("alert.acknowledge: id=%s total_ack=%d", alert_id, len(self._acknowledged_alerts))
         return {"acknowledged": True, "alert_id": alert_id}
 
     # ── Marketplace handlers ──

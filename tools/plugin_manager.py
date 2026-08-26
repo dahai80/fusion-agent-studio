@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import importlib.util
 import logging
+import re
 from pathlib import Path
 from typing import Any
 
@@ -10,6 +11,10 @@ from tools.base import BaseTool
 from tools.registry import ToolRegistry
 
 logger = logging.getLogger(__name__)
+
+# 审计 P1-24/E-6: plugin name 仅允许安全字符 (字母数字下划线), 挡路径穿越
+# (name="../../../etc/passwd" 逃出 plugin_dir). 命名规范同 Python 标识符.
+_SAFE_TOOL_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
 class PluginManager:
@@ -45,7 +50,22 @@ class PluginManager:
 
     def load_plugin(self, name: str) -> BaseTool | None:
         """Load a single plugin by name (without .py suffix)."""
+        # 审计 P1-24/E-6: name 安全校验 — 挡路径穿越 + 非法字符 (防 ../../etc/passwd).
+        if not _SAFE_TOOL_NAME_RE.match(name):
+            logger.warning("Plugin name rejected (unsafe chars): %r", name)
+            self._failed[name] = "unsafe plugin name (path traversal blocked)"
+            return None
         plugin_path = self.plugin_dir / f"{name}.py"
+        # 审计 P1-24/E-6: resolve 后确认仍在 plugin_dir 内 (双保险挡符号链接/穿越).
+        try:
+            resolved = plugin_path.resolve()
+            if not str(resolved).startswith(str(self.plugin_dir.resolve())):
+                logger.warning("Plugin path escapes plugin_dir: %s", resolved)
+                self._failed[name] = "plugin path escapes plugin_dir"
+                return None
+        except OSError as e:
+            logger.warning("Plugin path resolve failed: %s: %s", plugin_path, e)
+            return None
         if not plugin_path.exists():
             logger.warning("Plugin not found: %s", plugin_path)
             return None

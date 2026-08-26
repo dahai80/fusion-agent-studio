@@ -2,11 +2,32 @@
 
 from __future__ import annotations
 
+import logging
+import os
 import time
 import uuid
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
+
+logger = logging.getLogger(__name__)
+
+
+def _context_max_messages() -> int:
+    # 审计 P1-11/A-8: 上下文消息软上限. 默认 0=不限 (向后兼容本地短会话).
+    # 设 FUSION_CONTEXT_MAX_MESSAGES 正数则裁剪最旧非 system 消息, 防 OOM.
+    try:
+        return max(0, int(os.environ.get("FUSION_CONTEXT_MAX_MESSAGES", "0")))
+    except ValueError:
+        return 0
+
+
+def _context_max_events() -> int:
+    # 审计 P1-11/A-8: 事件缓冲软上限. 默认 0=不限.
+    try:
+        return max(0, int(os.environ.get("FUSION_CONTEXT_MAX_EVENTS", "0")))
+    except ValueError:
+        return 0
 
 
 class AgentEventType(str, Enum):
@@ -102,6 +123,13 @@ class AgentContext:
     # 快照 copy (隔离不共享), 子 runtime 再 copy (已有 sub_vars 模式).
     # 持 VariableManager 实例 (非裸 dict), 保留 interpolate/nested/coerce.
     variables: Any = None
+    # 审计 P0-1/P1-1: per-exec 工具配置. daemon 构建到 ctx 而非写 singleton
+    # rt.tool_configs (并发 agent X 配置覆盖 Y). runtime._merge_tool_config_defaults
+    # 优先读 ctx.tool_configs, 无则回退 singleton.
+    tool_configs: dict = field(default_factory=dict)
+    # 审计 P3-1: per-exec 连续 checkpoint 失败计数 (原 rt._checkpoint_fail_count
+    # singleton, 并发执行互踩致阈值误判). _save_checkpoint 读写 ctx 版本.
+    checkpoint_fail_count: int = 0
 
     def __post_init__(self):
         if not self.session_id:
@@ -126,9 +154,26 @@ class AgentContext:
         if usage:
             msg["usage"] = usage
         self.messages.append(msg)
+        # 审计 P1-11/A-8: 消息软上限. 超限裁剪最旧非 system 消息 (保留 system
+        # 上下文), 防长会话无界增长 OOM. 默认 0=不限.
+        cap = _context_max_messages()
+        if cap > 0 and len(self.messages) > cap:
+            kept = [m for m in self.messages if isinstance(m, dict) and m.get("role") == "system"]
+            non_sys = [m for m in self.messages if not (isinstance(m, dict) and m.get("role") == "system")]
+            overflow = len(non_sys) - max(0, cap - len(kept))
+            if overflow > 0:
+                trimmed = non_sys[overflow:]
+                self.messages = kept + trimmed
+                logger.info("context messages trimmed: dropped %d oldest (cap=%d)", overflow, cap)
 
     def add_event(self, event: AgentEvent) -> None:
         self.events.append(event)
+        # 审计 P1-11/A-8: 事件缓冲软上限. 超限丢弃最旧, 防 telemetry/事件无界累积.
+        cap = _context_max_events()
+        if cap > 0 and len(self.events) > cap:
+            overflow = len(self.events) - cap
+            self.events = self.events[overflow:]
+            logger.debug("context events trimmed: dropped %d oldest (cap=%d)", overflow, cap)
 
     def is_complete(self) -> bool:
         return bool(self.finished_at) or bool(self.error)

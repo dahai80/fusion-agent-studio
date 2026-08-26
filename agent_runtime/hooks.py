@@ -4,6 +4,7 @@ import asyncio
 import enum
 import json
 import logging
+import os
 import re
 import shlex
 from dataclasses import dataclass
@@ -145,6 +146,26 @@ class HookEngine:
         return None
 
     async def _run_command(self, hook: HookConfig, payload: dict) -> HookResult:
+        # 审计 E-7: command hook 执行任意 shell 命令, 默认关 (RCE 面). 须显式
+        # FUSION_HOOKS_ALLOW_COMMAND=1 开启. 关时该 hook 降级为 no-op (回调类
+        # hook 不受影响), fail-closed 仅安全门事件.
+        if os.environ.get("FUSION_HOOKS_ALLOW_COMMAND", "") != "1":
+            logger.warning(
+                "hook command blocked (FUSION_HOOKS_ALLOW_COMMAND!=1) cmd=%s event=%s",
+                hook.command,
+                hook.event,
+            )
+            fail_closed = hook.event in (
+                HookEvent.PRE_TOOL_USE.value,
+                HookEvent.POST_TOOL_USE.value,
+            )
+            if fail_closed:
+                return HookResult(
+                    continue_loop=False,
+                    decision="block",
+                    reason="command hooks disabled (set FUSION_HOOKS_ALLOW_COMMAND=1)",
+                )
+            return HookResult()
         proc = await asyncio.create_subprocess_exec(
             *shlex.split(hook.command),
             stdin=asyncio.subprocess.PIPE,

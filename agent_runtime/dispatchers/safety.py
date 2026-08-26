@@ -91,20 +91,35 @@ class SafetyDispatcher(SubDispatcher):
         return {"added": True, "category": category}
 
     # ── Template handlers ──
+    # 审计 P2/dim1: safety.approve/reject 冷启动. P0-1 后 future 经共享
+    # safety_gateway._pending_approvals 注册 (含并行分支子 runtime, 与父 runtime
+    # 同 gateway). 优先经 runtime (解析 + reap), 失败回退 gateway 直解.
 
     async def _handle_safety_approve(self, params: dict) -> dict:
         action_id = params.get("action_id", "")
+        if not action_id:
+            return {"status": "error", "message": "action_id required"}
+        ok = False
         if self._daemon._runtime and hasattr(self._daemon._runtime, "approve_action"):
             ok = self._daemon._runtime.approve_action(action_id)
-            return {"status": "ok" if ok else "not_found", "action_id": action_id}
-        return {"status": "error", "message": "No runtime available"}
+        if not ok:
+            guard = self._daemon._get_safety()
+            ok = guard.approve_action(action_id)
+            logger.info("safety.approve gateway fallback: action_id=%s ok=%s", action_id, ok)
+        return {"status": "ok" if ok else "not_found", "action_id": action_id}
 
     async def _handle_safety_reject(self, params: dict) -> dict:
         action_id = params.get("action_id", "")
+        if not action_id:
+            return {"status": "error", "message": "action_id required"}
+        ok = False
         if self._daemon._runtime and hasattr(self._daemon._runtime, "reject_action"):
             ok = self._daemon._runtime.reject_action(action_id)
-            return {"status": "ok" if ok else "not_found", "action_id": action_id}
-        return {"status": "error", "message": "No runtime available"}
+        if not ok:
+            guard = self._daemon._get_safety()
+            ok = guard.reject_action(action_id)
+            logger.info("safety.reject gateway fallback: action_id=%s ok=%s", action_id, ok)
+        return {"status": "ok" if ok else "not_found", "action_id": action_id}
 
     # ── WebSocket Streaming ──
 

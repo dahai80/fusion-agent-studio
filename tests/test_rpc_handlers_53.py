@@ -172,16 +172,18 @@ class TestKbQuery:
 
     @pytest.mark.asyncio
     async def test_kb_query_with_kb_id(self, daemon):
+        # 审计 P2/dim1: kb.query 现路由真实 mgr.search (async), 非 list_files 假相关.
+        # mock 须 AsyncMock 可 await, 返回 search 结果格式.
         mock_mgr = MagicMock()
-        mock_file = MagicMock()
-        mock_file.to_dict.return_value = {"file_id": "f1", "name": "test.py"}
-        mock_mgr.list_files.return_value = [mock_file]
+        mock_mgr.search = AsyncMock(
+            return_value={"results": [{"file_id": "f1", "score": 0.9}], "count": 1}
+        )
         daemon._kb_manager = mock_mgr
         result = await daemon._handle_kb_query(
             {"query": "test", "kb_id": "kb-1", "limit": 5}
         )
         assert len(result["results"]) == 1
-        assert result["results"][0]["relevance"] == 1.0
+        assert result["results"][0]["score"] == 0.9
 
 
 class TestAuditList:

@@ -20,9 +20,9 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
-from fastapi import Depends, FastAPI, Request, WebSocket, WebSocketDisconnect
+from fastapi import Depends, FastAPI, Query, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import PlainTextResponse, StreamingResponse
 from pydantic import BaseModel
 
 from agent_runtime.errors import ErrorCode, raise_api_error
@@ -296,9 +296,88 @@ async def _require_auth_if_configured(request: Request) -> dict | None:
     return await _require_auth(request)
 
 
+def _validate_api_key_str(api_key: str) -> dict | None:
+    # 审计 P0-2: query-string 鉴权校验. WS/SSE 浏览器 EventSource 不能设自定义 header,
+    # 故走 ?api_key= query param. 复用 ApiKeyManager.validate.
+    # 返回 validate result dict (含 valid) 或 None (空 key).
+    if not api_key:
+        return None
+    from agent_runtime.apikey_manager import ApiKeyManager
+
+    mgr = ApiKeyManager(Path.home() / ".fusion-agent-studio")
+    result = mgr.validate(api_key)
+    return result
+
+
+def _require_auth_qs_or_raise(api_key: str = Query("")) -> dict | None:
+    # 审计 P0-2: SSE (GET) 用 FastAPI Depends, 校验 query-string api_key.
+    # 配置了 key 则必须有效; 否则本地受信放行. 校验失败抛 API_KEY_MISSING/INVALID.
+    if not _auth_configured():
+        return None
+    if not api_key:
+        raise_api_error(ErrorCode.API_KEY_MISSING)
+    result = _validate_api_key_str(api_key)
+    if result is None or not result.get("valid"):
+        raise_api_error(ErrorCode.API_KEY_INVALID)
+    return result
+
+
+def _ws_auth_ok(api_key: str) -> tuple[bool, str]:
+    # 审计 P0-2: WS 握手前校验 query-string api_key (accept 后无法干净抛 HTTP).
+    # 返回 (ok, reason). 配置了 key 则必须有效; 否则本地受信放行.
+    if not _auth_configured():
+        return True, ""
+    if not api_key:
+        return False, "api key required"
+    result = _validate_api_key_str(api_key)
+    if result is None or not result.get("valid"):
+        return False, "api key invalid"
+    return True, ""
+
+
 @app.get("/health")
 async def health():
-    return {"status": "ok", "version": "0.3.0", "persistence": "sqlite"}
+    # 审计 P1-26: 原静态 {"status":"ok"} 是健康谎报 — 不探 MLX 可达性, MLX 宕
+    # 时仍报 ok 致负载均衡/监控误路由. 现探 daemon 网关 MLX 可达性, 不可达降级.
+    mlx_reachable = False
+    if _daemon is not None and hasattr(_daemon, "_check_mlx_health"):
+        try:
+            mlx_reachable = await _daemon._check_mlx_health()
+        except Exception as e:
+            logger.warning("/health MLX probe failed: %s", e)
+    return {
+        "status": "ok" if mlx_reachable else "degraded",
+        "mlx_reachable": mlx_reachable,
+        "version": "0.3.0",
+        "persistence": "sqlite",
+    }
+
+
+@app.get("/metrics")
+async def prometheus_metrics():
+    # 审计 P2-21: Prometheus 拉取端点. 暴露 telemetry counters/latencies +
+    # daemon active executions/queue, 文本 exposition 格式, 接 Grafana/Prometheus.
+    # 无密钥 (metrics 不含 secret), 但生产部署应在反代层限源 IP.
+    lines: list[str] = []
+    tele = _get_telemetry()
+    m = tele.metrics() if tele else {}
+    for name, val in (m.get("counters") or {}).items():
+        lines.append(f"# TYPE fusion_counter_{name} counter")
+        lines.append(f"fusion_counter_{name} {val}")
+    for name, val in (m.get("latencies") or {}).items():
+        lines.append(f"# TYPE fusion_latency_{name} gauge")
+        lines.append(f"fusion_latency_{name} {val}")
+    lines.append("# TYPE fusion_telemetry_spans_total gauge")
+    lines.append(f"fusion_telemetry_spans_total {m.get('total_spans', 0)}")
+    lines.append("# TYPE fusion_telemetry_traces_total gauge")
+    lines.append(f"fusion_telemetry_traces_total {m.get('total_traces', 0)}")
+    lines.append("# TYPE fusion_telemetry_active_spans gauge")
+    lines.append(f"fusion_telemetry_active_spans {m.get('active_spans', 0)}")
+    if _daemon is not None:
+        active_exec = len(getattr(_daemon, "_active_executions", {}) or {})
+        lines.append("# TYPE fusion_daemon_active_executions gauge")
+        lines.append(f"fusion_daemon_active_executions {active_exec}")
+    return PlainTextResponse("\n".join(lines) + "\n", media_type="text/plain")
 
 
 # ── /v1 versioned routes ──
@@ -306,7 +385,18 @@ async def health():
 
 @app.get("/v1/health")
 async def v1_health():
-    return {"status": "ok", "version": "0.3.0", "persistence": "sqlite"}
+    mlx_reachable = False
+    if _daemon is not None and hasattr(_daemon, "_check_mlx_health"):
+        try:
+            mlx_reachable = await _daemon._check_mlx_health()
+        except Exception as e:
+            logger.warning("/v1/health MLX probe failed: %s", e)
+    return {
+        "status": "ok" if mlx_reachable else "degraded",
+        "mlx_reachable": mlx_reachable,
+        "version": "0.3.0",
+        "persistence": "sqlite",
+    }
 
 
 @app.get("/v1/dashboard")
@@ -1101,6 +1191,14 @@ async def execute_graph(graph_id: str, req: GraphExecuteRequest):
 
 @app.websocket("/ws/execute/{graph_id}")
 async def ws_execute(websocket: WebSocket, graph_id: str):
+    # 审计 P0-2: WS 握手前鉴权 (accept 后无法干净抛 HTTP 401).
+    # 浏览器不能设自定义 header, 故读 query-string ?api_key=.
+    ok, reason = _ws_auth_ok(websocket.query_params.get("api_key", ""))
+    if not ok:
+        await websocket.accept()
+        await websocket.close(code=4401, reason=reason)
+        logger.warning("WS execute rejected for graph %s: %s", graph_id, reason)
+        return
     await websocket.accept()
     logger.info("WebSocket connected for graph %s", graph_id)
     graph = _get_store().load_graph(graph_id)
@@ -1109,16 +1207,36 @@ async def ws_execute(websocket: WebSocket, graph_id: str):
         await websocket.close()
         return
     rt = _get_runtime()
+    # 审计 P2-5/P2-6/P0-3: WS 直调 rt 绕过 daemon 注册/节流/预算.
+    # 经 daemon 统一注册活跃执行 + 并发节流 + 透传 token_budget.
+    daemon = _daemon
+    _unreg = None
+    _sem_ctx = None
+    if daemon is not None:
+        _, _unreg = daemon.register_execution("ws", graph_id)
+        sem = daemon.graph_semaphore
+        if sem is not None:
+            _sem_ctx = sem
     try:
         input_text = ""
         init_msg = await asyncio.wait_for(websocket.receive_json(), timeout=30.0)
         if isinstance(init_msg, dict):
             input_text = init_msg.get("input", "")
-        async for event in rt.execute_graph_stream(graph, input_text):
-            ev_dict = (
-                event.to_dict() if hasattr(event, "to_dict") else {"type": str(event)}
-            )
-            await websocket.send_json(ev_dict)
+        budget = daemon.token_budget_ref if daemon is not None else None
+
+        async def _ws_stream():
+            async for event in rt.execute_graph_stream(graph, input_text, token_budget=budget):
+                ev_dict = (
+                    event.to_dict() if hasattr(event, "to_dict") else {"type": str(event)}
+                )
+                await websocket.send_json(ev_dict)
+
+        if _sem_ctx is not None:
+            async with _sem_ctx:
+                logger.info("WS execute %s acquired concurrency slot", graph_id)
+                await _ws_stream()
+        else:
+            await _ws_stream()
         await websocket.send_json({"type": "done"})
     except WebSocketDisconnect:
         logger.info("WebSocket disconnected for graph %s", graph_id)
@@ -1132,13 +1250,18 @@ async def ws_execute(websocket: WebSocket, graph_id: str):
         except Exception:
             pass
     finally:
+        if _unreg is not None:
+            _unreg()
         try:
             await websocket.close()
         except Exception:
             pass
 
 
-@app.get("/v1/graphs/{graph_id}/execute/stream")
+@app.get(
+    "/v1/graphs/{graph_id}/execute/stream",
+    dependencies=[Depends(_require_auth_qs_or_raise)],
+)
 async def v1_execute_graph_stream(graph_id: str, input: str = ""):
     """Server-Sent Events stream — pushes per-token TOKEN events as they arrive.
 
@@ -1150,18 +1273,38 @@ async def v1_execute_graph_stream(graph_id: str, input: str = ""):
     if graph is None:
         raise_api_error(ErrorCode.AGENT_NOT_FOUND, param="graph_id")
     rt = _get_runtime()
+    # 审计 P2-5/P2-6/P0-3: SSE 直调 rt 绕过 daemon 注册/节流/预算, 与 WS 同补.
+    daemon = _daemon
+    budget = daemon.token_budget_ref if daemon is not None else None
+    sem = daemon.graph_semaphore if daemon is not None else None
 
     async def event_generator():
         logger.info("SSE stream start for graph %s", graph_id)
+        _unreg = None
+        if daemon is not None:
+            _, _unreg = daemon.register_execution("sse", graph_id)
         try:
-            async for event in rt.execute_graph_stream(graph, input):
-                ev_dict = (
-                    event.to_dict() if hasattr(event, "to_dict") else {"type": str(event)}
-                )
-                yield f"data: {json.dumps(ev_dict, ensure_ascii=False)}\n\n"
+            async def _sse_stream():
+                async for event in rt.execute_graph_stream(graph, input, token_budget=budget):
+                    ev_dict = (
+                        event.to_dict() if hasattr(event, "to_dict") else {"type": str(event)}
+                    )
+                    yield f"data: {json.dumps(ev_dict, ensure_ascii=False)}\n\n"
+
+            if sem is not None:
+                async with sem:
+                    logger.info("SSE execute %s acquired concurrency slot", graph_id)
+                    async for chunk in _sse_stream():
+                        yield chunk
+            else:
+                async for chunk in _sse_stream():
+                    yield chunk
         except Exception as e:
             logger.exception("SSE stream error for graph %s", graph_id)
             yield f"data: {json.dumps({'type': 'error', 'message': str(e)}, ensure_ascii=False)}\n\n"
+        finally:
+            if _unreg is not None:
+                _unreg()
         yield f"data: {json.dumps({'type': 'done'}, ensure_ascii=False)}\n\n"
         logger.info("SSE stream end for graph %s", graph_id)
 

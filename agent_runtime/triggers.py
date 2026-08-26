@@ -377,17 +377,17 @@ class CronManager:
         await asyncio.to_thread(self._save_job, job)
         logger.info("Cron job registered (async): %s (%s)", job.id, job.expression)
 
-    def register_once(
+    def _build_once_job(
         self,
         run_at: float,
         graph_id: str,
-        input_data: str = "",
-        job_id: str = "",
-        name: str = "",
-        handler: Callable | None = None,
+        input_data: str,
+        job_id: str,
+        name: str,
+        handler: Callable | None,
     ) -> CronJob:
-        # #141 priority-3: 一次性定时任务 (run_at). 不走 cron 表达式, next_run=run_at,
-        # one_shot=True 触发后 _run_loop 自动注销. run_at 已过期则立即排队下一 tick 触发.
+        # 审计 P2-13: 抽出构造逻辑, register_once/aregister_once 各自只存一次
+        # (原 aregister_once 调 register_once 同步存 + 再 async 存 = 双写).
         if not job_id:
             job_id = f"once_{int(time.time() * 1000)}_{id(self) % 100000}"
         job = CronJob(
@@ -403,8 +403,24 @@ class CronManager:
         self._jobs[job_id] = job
         if handler:
             self._handlers[job_id] = handler
+        return job
+
+    def register_once(
+        self,
+        run_at: float,
+        graph_id: str,
+        input_data: str = "",
+        job_id: str = "",
+        name: str = "",
+        handler: Callable | None = None,
+    ) -> CronJob:
+        # #141 priority-3: 一次性定时任务 (run_at). 不走 cron 表达式, next_run=run_at,
+        # one_shot=True 触发后 _run_loop 自动注销. run_at 已过期则立即排队下一 tick 触发.
+        job = self._build_once_job(
+            run_at, graph_id, input_data, job_id, name, handler
+        )
         self._save_job(job)
-        logger.info("One-shot cron job registered: %s run_at=%.0f", job_id, job.next_run)
+        logger.info("One-shot cron job registered: %s run_at=%.0f", job.id, job.next_run)
         return job
 
     async def aregister_once(
@@ -416,10 +432,12 @@ class CronManager:
         name: str = "",
         handler: Callable | None = None,
     ) -> CronJob:
-        job = self.register_once(
+        # 审计 P2-13: 单次异步持久化 (不再委托 register_once 同步存).
+        job = self._build_once_job(
             run_at, graph_id, input_data, job_id, name, handler
         )
         await asyncio.to_thread(self._save_job, job)
+        logger.info("One-shot cron job registered (async): %s run_at=%.0f", job.id, job.next_run)
         return job
 
     def unregister(self, job_id: str) -> None:

@@ -109,7 +109,8 @@ class TrajectoryWriter:
         return record.trace_id
 
     def _evict_if_needed(self) -> None:
-        # 超上限淘汰最老 (按 started_at 升序) 的未 flush 记录, 防内存无界增长.
+        # 审计 R-8/P2-17: 超上限淘汰最老未 flush 记录. 原仅日志不落盘 = 静默丢 trace.
+        # 现落盘 (status=evicted_abandoned) 保数据, 仅释放内存.
         if len(self._records) <= self._MAX_RECORDS:
             return
         oldest = sorted(
@@ -118,9 +119,10 @@ class TrajectoryWriter:
         evict_count = len(self._records) - self._MAX_RECORDS
         for sid, rec in oldest[:evict_count]:
             self._records.pop(sid, None)
+            self._write_record(rec, "evicted_abandoned")
             logger.warning(
-                "TrajectoryWriter evicted abandoned record (session=%s trace=%s "
-                "events=%d) — flush never called (SSE early-cancel?), capping memory",
+                "TrajectoryWriter evicted abandoned record to disk (session=%s "
+                "trace=%s events=%d) — flush never called (SSE early-cancel?)",
                 sid, rec.trace_id, len(rec.events),
             )
 
@@ -181,10 +183,8 @@ class TrajectoryWriter:
         if record is not None:
             record.token_usage = usage
 
-    def flush(self, session_id: str, status: str = "completed") -> str | None:
-        record = self._records.pop(session_id, None)
-        if record is None:
-            return None
+    def _write_record(self, record, status: str) -> str | None:
+        # 审计 R-8/P2-17: 抽出落盘逻辑, flush + evict 共用 (evict 不再静默丢 trace).
         record.finished_at = time.time()
         if record.status != "error":
             record.status = status
@@ -194,13 +194,47 @@ class TrajectoryWriter:
             with open(fpath, "w", encoding="utf-8") as f:
                 json.dump(record.to_dict(), f, indent=2, ensure_ascii=False)
             logger.info(
-                "Trajectory flushed: %s (%d events, %d tool_calls)",
-                fpath.name, len(record.events), len(record.tool_calls),
+                "Trajectory flushed: %s (%d events, %d tool_calls, status=%s)",
+                fpath.name, len(record.events), len(record.tool_calls), record.status,
             )
+            # 审计 P1-13/3M-1: flush 后按文件数轮转. 原每会话写一个 JSON 永不删,
+            # 长跑积累 GB 级轨迹. 超 max (默认 1000, FUSION_TRAJECTORY_MAX_FILES
+            # 调) 删最旧 N 个.
+            self._rotate_files()
             return str(fpath)
         except OSError as e:
             logger.error("Failed to flush trajectory %s: %s", fpath, e)
             return None
+
+    def flush(self, session_id: str, status: str = "completed") -> str | None:
+        record = self._records.pop(session_id, None)
+        if record is None:
+            return None
+        return self._write_record(record, status)
+
+    def _rotate_files(self) -> None:
+        # 审计 P1-13/3M-1: 轨迹文件按数轮转, 删最旧.
+        import os as _os
+
+        try:
+            max_files = int(_os.environ.get("FUSION_TRAJECTORY_MAX_FILES", "1000"))
+        except ValueError:
+            max_files = 1000
+        if max_files <= 0:
+            return
+        try:
+            files = sorted(self.output_dir.glob("*.json"), key=lambda p: p.stat().st_mtime)
+        except OSError:
+            return
+        overflow = len(files) - max_files
+        if overflow <= 0:
+            return
+        for old in files[:overflow]:
+            try:
+                old.unlink()
+            except OSError:
+                pass
+        logger.info("Trajectory rotated: removed %d old files (max=%d)", overflow, max_files)
 
     def list_trajectories(self, limit: int = 50) -> list[dict]:
         files = sorted(self.output_dir.glob("*.json"), reverse=True)

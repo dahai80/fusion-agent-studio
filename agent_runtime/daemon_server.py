@@ -370,6 +370,8 @@ class DaemonServer:
                 swarm_router=self._get_swarm(),
                 plaza=self._get_plaza(),
                 fmp=self._get_fmp(),
+                # 审计 P2/dim3: 透传 safety_gateway, 编排模式子 runtime 安全门生效.
+                safety_gateway=self._get_safety(),
             )
             logger.info("MultiAgentOrchestrator created (swarm+plaza+fmp wired)")
         return self._orchestrator
@@ -713,7 +715,55 @@ class DaemonServer:
         self.store.close()
         logger.info("Daemon stopped")
 
+    def register_execution(self, scope: str, key_id: str):
+        # 审计 P2-5/A-9: _active_executions 原 2/6 路径 (仅 graph.execute/resume).
+        # agent.execute/execute_stream + WS/SSE 直调 rt 不注册 -> daemon.status
+        # 活跃数失真 + stop() drain 漏掉在途流式执行. 统一注册入口, 各执行路径调.
+        # 返回 (exec_key, unregister), 调方 try/finally 调 unregister.
+        exec_key = f"{scope}:{key_id or id(asyncio.current_task())}"
+        self._active_executions[exec_key] = asyncio.current_task()
+        logger.info("execution registered scope=%s key=%s", scope, key_id)
+
+        def _unregister():
+            self._active_executions.pop(exec_key, None)
+            logger.info("execution unregistered scope=%s key=%s", scope, key_id)
+
+        return exec_key, _unregister
+
+    @property
+    def graph_semaphore(self) -> asyncio.Semaphore | None:
+        # 审计 P2-6/NEW-3: graph 并发节流原仅 graph.execute RPC 路径走, WS/SSE +
+        # agent.execute/execute_stream 直调 rt 绕过 -> 节流失效. 统一暴露给各路径.
+        return getattr(self, "_graph_semaphore", None)
+
+    @property
+    def token_budget_ref(self):
+        # 审计 P0-3: token_budget 透传统一访问点 (WS/SSE/agent 路径漏传=死代码).
+        return getattr(self, "_token_budget", None)
+
+    def _validate_config(self) -> None:
+        # 审计 P2-23: 启动前校验 FUSION_* 互斥/依赖组合, 配置矛盾则 fail-loud 不起.
+        errors: list[str] = []
+        if _ws_enabled() and not _ws_token():
+            errors.append(
+                "FUSION_ENABLE_WS=1 requires FUSION_WS_TOKEN (D-1 WS auth); "
+                "set token or disable WS"
+            )
+        safety_level = os.environ.get("FUSION_SAFETY_LEVEL", "L1").upper()
+        if safety_level not in ("L0", "L1", "L2", "L3"):
+            errors.append(
+                f"FUSION_SAFETY_LEVEL={safety_level!r} invalid (expected L0-L3)"
+            )
+        if errors:
+            for e in errors:
+                logger.error("config validation failed: %s", e)
+            raise RuntimeError(
+                "FUSION config validation failed:\n  - " + "\n  - ".join(errors)
+            )
+        logger.info("FUSION config validated OK (ws=%s safety=%s)", _ws_enabled(), safety_level)
+
     async def run_forever(self) -> None:
+        self._validate_config()
         await self.start()
         loop = asyncio.get_event_loop()
         stop_event = asyncio.Event()
@@ -905,13 +955,17 @@ class DaemonServer:
             ChatDispatcher(self),
             TeamDispatcher(self),
             InfraDispatcher(self),
+            # 审计 P1-15: ArtifactDispatcher 须在 WorkflowDispatcher 之前注册.
+            # 两者都声明 artifact.create RPC (Workflow 的是 stub), _get_handler
+            # first-wins 按注册顺序, 原序 Workflow 在前致真实 artifact.create 被
+            # Workflow stub 影子覆盖. 前置 ArtifactDispatcher 让真实现优先.
+            ArtifactDispatcher(self),
             WorkflowDispatcher(self),
             SafetyDispatcher(self),
             PlannerDispatcher(self),
             MemoryDispatcher(self),
             McpDispatcher(self),
             PluginDispatcher(self),
-            ArtifactDispatcher(self),
             TrainerDispatcher(self),
         ]
 
@@ -1405,18 +1459,31 @@ class DaemonServer:
         self._active_executions[exec_key] = asyncio.current_task()
         try:
             initial_vars = params.get("variables", {})
+            # 审计 P0-1/P1-1/P1-2: 构建 per-exec ctx, 变量+工具配置进 ctx 隔离, 不写 singleton.
+            # 旧版 rt.variables.set 写 singleton VariableManager -> _seed_ctx_variables 快照
+            # 污染 singleton 进每个新 ctx -> 跨执行变量泄漏 (user A api_key 进 user B ctx).
+            # 旧版 rt.set_tool_configs 写 rt.tool_configs -> 并发 agent X 配置覆盖 Y.
+            # 旧版 execute_graph 不传 context= -> ctx.session_id 新 UUID, 与返回 session_id 不符
+            # -> task/trajectory/checkpoint 链错 id, resume 断裂.
+            from .context import AgentContext
+            from .variable_manager import VariableManager
+
+            agent_id = params.get("agent_id", "") or getattr(graph, "agent_id", "")
+            exec_ctx = AgentContext(session_id=session_id or "")
+            exec_ctx.agent_id = agent_id
             if isinstance(initial_vars, dict):
+                exec_ctx.variables = VariableManager()
                 for k, v in initial_vars.items():
-                    rt.variables.set(str(k), v)
+                    exec_ctx.variables.set(str(k), v)
                 logger.info(
-                    "graph.execute %s pre-set %d variables: %s",
+                    "graph.execute %s pre-set %d per-exec variables: %s",
                     graph_id,
                     len(initial_vars),
                     list(initial_vars.keys()),
                 )
             # 声明工具配置注入 (#125/#131): agent_id 优先取 params, 回退 graph 元数据.
             # graph 内嵌 agent_id 让 CLI/GUI 等任意调用方零改动触发注入.
-            agent_id = params.get("agent_id", "") or getattr(graph, "agent_id", "")
+            # 审计 P1-1: 构建到 ctx.tool_configs (隔离), 不调 rt.set_tool_configs (写 singleton).
             if agent_id:
                 try:
                     from .agent_definition import AgentDefinition
@@ -1427,11 +1494,12 @@ class DaemonServer:
                     if os.path.exists(defn_path):
                         with open(defn_path) as f:
                             definition = AgentDefinition.from_dict(json.load(f))
-                        rt.set_tool_configs(definition)
+                        exec_ctx.tool_configs = AgentRuntime.build_tool_configs(definition)
                         logger.info(
-                            "graph.execute %s loaded tool configs from agent %s",
+                            "graph.execute %s loaded tool configs from agent %s (%d)",
                             graph_id,
                             agent_id,
+                            len(exec_ctx.tool_configs),
                         )
                 except Exception as exc:
                     logger.warning(
@@ -1455,7 +1523,14 @@ class DaemonServer:
             # #214: 并发节流. 有 Semaphore 时 acquire 再执行, 超限排队等待 (不拒).
             # 无 Semaphore (默认) 直接执行, 行为不变.
             async def _run_stream():
-                async for event in rt.execute_graph(graph, input_text):
+                # 审计 P0-1/P1-2/P0-3: 传 per-exec ctx (变量+配置隔离+session_id 链对齐)
+                # + token_budget (预算控制接线, 旧版 11 处调用点全漏传=死代码).
+                async for event in rt.execute_graph(
+                    graph,
+                    input_text,
+                    context=exec_ctx,
+                    token_budget=getattr(self, "_token_budget", None),
+                ):
                     ev_dict = (
                         event.to_dict() if hasattr(event, "to_dict") else {"type": str(event)}
                     )
@@ -2206,6 +2281,11 @@ class DaemonServer:
         max_tokens = params.get("max_tokens", 0)
         budget = TokenBudget(max_tokens=max_tokens)
         self._token_budget = budget
+        # 审计 P0-3: 写入 runtime 实例默认预算, execute_graph 回退读取, 全调用点生效.
+        try:
+            self._get_runtime()._default_token_budget = budget
+        except Exception as exc:
+            logger.warning("budget.set write runtime default failed: %s", exc)
         logger.info("Token budget set: max_tokens=%d", max_tokens)
         return budget.status()
 
@@ -2351,8 +2431,11 @@ class DaemonServer:
             # 被误判为不健康 (bug6 一直显示检测中)
             key = self._resolve_mlx_api_key_for_attach()
             headers = {"Authorization": f"Bearer {key}"} if key else {}
+            # 审计 P1-25: 每次读 env 解析 base_url, 不用 import 时冻结的 MLX_BASE_URL
+            # 常量 (reconnect/gateway 切换后探测旧地址误报不健康).
+            base_url = _resolve_mlx_base_url()
             async with httpx.AsyncClient(timeout=2.0) as client:
-                resp = await client.get(f"{MLX_BASE_URL}/models", headers=headers)
+                resp = await client.get(f"{base_url}/models", headers=headers)
                 return resp.status_code == 200
         except Exception as e:
             # 审计 M-2: 健康检查所有失败 (401/拒连/DNS/超时) 统一 return False,
@@ -2366,8 +2449,10 @@ class DaemonServer:
 
             key = self._resolve_mlx_api_key_for_attach()
             headers = {"Authorization": f"Bearer {key}"} if key else {}
+            # 审计 P1-25: 同 _check_mlx_health, 每次读 env 解析 base_url.
+            base_url = _resolve_mlx_base_url()
             async with httpx.AsyncClient(timeout=5.0) as client:
-                resp = await client.get(f"{MLX_BASE_URL}/models", headers=headers)
+                resp = await client.get(f"{base_url}/models", headers=headers)
                 resp.raise_for_status()
                 data = resp.json()
                 return data.get("data", [])
@@ -2511,7 +2596,9 @@ class DaemonServer:
             import urllib.request
 
             headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
-            req = urllib.request.Request(f"{MLX_BASE_URL}/models", headers=headers)
+            # 审计 P1-25: 同 _check_mlx_health, 读 env 解析 base_url (非冻结常量).
+            base_url = _resolve_mlx_base_url()
+            req = urllib.request.Request(f"{base_url}/models", headers=headers)
             with urllib.request.urlopen(req, timeout=5.0) as resp:
                 data = json.loads(resp.read())
             models = data.get("data", []) if isinstance(data, dict) else []

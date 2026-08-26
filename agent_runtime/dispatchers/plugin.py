@@ -79,15 +79,30 @@ class PluginDispatcher(SubDispatcher):
         return result
 
     async def _handle_plugin_install(self, params: dict) -> dict:
+        # 审计 P2/dim1: 旧返回 "queued" 但从不执行 — UI 误判安装成功. 显式 not_implemented.
+        # 插件经文件落盘 ~/.fusion-agent-studio/plugins/ + PluginManager 自动加载, 无远程安装.
         source = params.get("source", "")
         if not source:
             return self._err("source is required")
-        logger.info("plugin.install: source=%s", source)
-        return {"status": "ok", "message": f"Plugin install from {source} queued"}
+        logger.info("plugin.install: source=%s (not_implemented)", source)
+        return {
+            "status": "not_implemented",
+            "implemented": False,
+            "message": "Remote plugin install not implemented. Drop .py into "
+            "~/.fusion-agent-studio/plugins/ for auto-load.",
+            "source": source,
+        }
 
     async def _handle_plugin_uninstall(self, params: dict) -> dict:
+        # 审计 P2/dim1: 同 install — 旧 "queued" 谎报. 显式 not_implemented.
         name = params.get("name", "")
         if not name:
             return self._err("name is required")
-        logger.info("plugin.uninstall: name=%s", name)
-        return {"status": "ok", "message": f"Plugin {name} uninstall queued"}
+        logger.info("plugin.uninstall: name=%s (not_implemented)", name)
+        return {
+            "status": "not_implemented",
+            "implemented": False,
+            "message": "Programmatic uninstall not implemented. Remove the .py "
+            "file from ~/.fusion-agent-studio/plugins/ to disable.",
+            "name": name,
+        }

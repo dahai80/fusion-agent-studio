@@ -83,7 +83,9 @@ async def test_matcher_filters():
     ).decision == "block"
 
 
-async def test_command_hook_approves():
+async def test_command_hook_approves(monkeypatch):
+    # 审计 P2-9: command hook 默认关, 显式开 FUSION_HOOKS_ALLOW_COMMAND=1 才执行.
+    monkeypatch.setenv("FUSION_HOOKS_ALLOW_COMMAND", "1")
     eng = HookEngine()
     # 审计 D-7: POST_TOOL_USE 现 fail-closed, hook 输出必须是合法 JSON.
     # 单引号包双引号 JSON, shlex.split 保留内层引号 -> echo 输出合法 JSON.
@@ -95,7 +97,9 @@ async def test_command_hook_approves():
     assert res.decision == "approve"
 
 
-async def test_command_hook_fail_closed_on_non_json():
+async def test_command_hook_fail_closed_on_non_json(monkeypatch):
+    # 审计 P2-9: command hook 默认关, 显式开才执行.
+    monkeypatch.setenv("FUSION_HOOKS_ALLOW_COMMAND", "1")
     # 审计 D-7: 安全门 hook 输出畸形应 fail-closed (block), 非静默放行.
     eng = HookEngine()
     cmd = "echo not-json"

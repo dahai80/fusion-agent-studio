@@ -30,22 +30,30 @@ _DANGEROUS_STDIO = (
 
 
 def _mcp_validate_server(server_url: str, stdio_cmd) -> str | None:
-    # 返回拒绝原因 str, None = 放行. 先 allowlist (设了即闭集), 再元数据/SSRF 黑.
+    # 返回拒绝原因 str, None = 放行. 审计 E-5: 默认 deny 非 localhost (本地 MCP 服务
+    # 场景), 连远程须显式 FUSION_MCP_ALLOWLIST=host1,host2 (闭集). 再挡元数据 IP/SSRF.
     allow_raw = os.environ.get("FUSION_MCP_ALLOWLIST", "").strip()
-    if allow_raw:
-        allowed = {h.strip().lower() for h in allow_raw.split(",") if h.strip()}
-        host = (urlparse(server_url).hostname or "").lower() if server_url else ""
-        if stdio_cmd and not server_url:
-            # stdio 无 URL host, allowlist 模式下 stdio 需显式允许 (cmd[0]).
-            cmd0 = str(stdio_cmd[0]).lower() if stdio_cmd else ""
-            if cmd0 not in allowed:
-                return f"stdio cmd '{cmd0}' not in FUSION_MCP_ALLOWLIST"
-        elif host and host not in allowed:
-            return f"host '{host}' not in FUSION_MCP_ALLOWLIST"
     if server_url:
         host = (urlparse(server_url).hostname or "").lower()
         if host in _METADATA_IPS or host in _SSRF_BLOCK_HOSTS:
             return f"host '{host}' is a cloud-metadata/SSRF target, blocked"
+        if allow_raw:
+            allowed = {h.strip().lower() for h in allow_raw.split(",") if h.strip()}
+            if host and host not in allowed:
+                return f"host '{host}' not in FUSION_MCP_ALLOWLIST"
+        else:
+            # 无 allowlist: 仅放行 localhost 系 (本地 MCP), 远程需显式 allowlist.
+            if host not in ("", "localhost", "127.0.0.1", "::1", "[::1]"):
+                return (
+                    f"host '{host}' not localhost; set FUSION_MCP_ALLOWLIST to "
+                    f"allow remote MCP servers"
+                )
+    if allow_raw and stdio_cmd and not server_url:
+        # stdio 无 URL host, allowlist 模式下 stdio 需显式允许 (cmd[0]).
+        allowed = {h.strip().lower() for h in allow_raw.split(",") if h.strip()}
+        cmd0 = str(stdio_cmd[0]).lower() if stdio_cmd else ""
+        if cmd0 not in allowed:
+            return f"stdio cmd '{cmd0}' not in FUSION_MCP_ALLOWLIST"
     if stdio_cmd:
         cmd0 = str(stdio_cmd[0]).lower() if stdio_cmd else ""
         if cmd0 in _DANGEROUS_STDIO:
