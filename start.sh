@@ -31,6 +31,39 @@ STDOUT_LOG="${LOG_DIR}/stdout.log"
 STDERR_LOG="${LOG_DIR}/stderr.log"
 HEALTH_WAIT=60
 
+# 审计 P1-28: 日志轮转 — 日志超 max_size(字节) 则滚动归档, 超 keep_count 个
+# .N 归档则删最旧. 防 daemon 长跑 (launchd KeepAlive) 日志无限增长撑满磁盘.
+# 默认 10MB 滚动 + 保留 5 个归档, 可经 env 覆盖.
+LOG_MAX_SIZE="${FUSION_LOG_MAX_SIZE:-10485760}"
+LOG_KEEP_COUNT="${FUSION_LOG_KEEP_COUNT:-5}"
+
+rotate_log() {
+    local log_file="$1"
+    [[ -f "$log_file" ]] || return 0
+    local size
+    size=$(wc -c < "$log_file" 2>/dev/null || echo 0)
+    if (( size > LOG_MAX_SIZE )); then
+        local i=$(( LOG_KEEP_COUNT ))
+        while (( i > 0 )); do
+            if [[ -f "${log_file}.$(( i - 1 ))" ]]; then
+                if (( i >= LOG_KEEP_COUNT )); then
+                    rm -f "${log_file}.$(( i - 1 ))"
+                else
+                    mv -f "${log_file}.$(( i - 1 ))" "${log_file}.${i}"
+                fi
+            fi
+            i=$(( i - 1 ))
+        done
+        mv -f "$log_file" "${log_file}.0"
+        log_info "rotated ${log_file} (was ${size} bytes)"
+    fi
+}
+
+rotate_logs() {
+    rotate_log "$STDOUT_LOG"
+    rotate_log "$STDERR_LOG"
+}
+
 log_info()  { printf "\033[0;32m[INFO]\033[0m  %s\n" "$*"; }
 log_warn()  { printf "\033[0;33m[WARN]\033[0m  %s\n" "$*"; }
 log_error() { printf "\033[0;31m[ERROR]\033[0m %s\n" "$*"; }
@@ -68,6 +101,8 @@ start() {
         exit 0
     fi
     mkdir -p "$LOG_DIR"
+    # 审计 P1-28: 启动前轮转旧日志, 防 stdout/stderr 持续追加无限增长.
+    rotate_logs
     ensure_venv
 
     # 商用默认安全策略: 注入检测开启 + L2 (注入 block, 危险操作 preview).

@@ -260,7 +260,9 @@ class TestAPIServer:
             resp = await c.get("/health")
             assert resp.status_code == 200
             data = resp.json()
-            assert data["status"] == "ok"
+            # 审计 P1-26: /health 探 MLX, status ok|degraded, 含 mlx_reachable.
+            assert data["status"] in ("ok", "degraded")
+            assert "mlx_reachable" in data
 
     @pytest.mark.asyncio
     async def test_create_graph(self, client):

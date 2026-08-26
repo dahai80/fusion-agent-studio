@@ -337,7 +337,20 @@ def _ws_auth_ok(api_key: str) -> tuple[bool, str]:
 
 @app.get("/health")
 async def health():
-    return {"status": "ok", "version": "0.3.0", "persistence": "sqlite"}
+    # 审计 P1-26: 原静态 {"status":"ok"} 是健康谎报 — 不探 MLX 可达性, MLX 宕
+    # 时仍报 ok 致负载均衡/监控误路由. 现探 daemon 网关 MLX 可达性, 不可达降级.
+    mlx_reachable = False
+    if _daemon is not None and hasattr(_daemon, "_check_mlx_health"):
+        try:
+            mlx_reachable = await _daemon._check_mlx_health()
+        except Exception as e:
+            logger.warning("/health MLX probe failed: %s", e)
+    return {
+        "status": "ok" if mlx_reachable else "degraded",
+        "mlx_reachable": mlx_reachable,
+        "version": "0.3.0",
+        "persistence": "sqlite",
+    }
 
 
 # ── /v1 versioned routes ──
@@ -345,7 +358,18 @@ async def health():
 
 @app.get("/v1/health")
 async def v1_health():
-    return {"status": "ok", "version": "0.3.0", "persistence": "sqlite"}
+    mlx_reachable = False
+    if _daemon is not None and hasattr(_daemon, "_check_mlx_health"):
+        try:
+            mlx_reachable = await _daemon._check_mlx_health()
+        except Exception as e:
+            logger.warning("/v1/health MLX probe failed: %s", e)
+    return {
+        "status": "ok" if mlx_reachable else "degraded",
+        "mlx_reachable": mlx_reachable,
+        "version": "0.3.0",
+        "persistence": "sqlite",
+    }
 
 
 @app.get("/v1/dashboard")

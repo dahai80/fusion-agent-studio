@@ -905,13 +905,17 @@ class DaemonServer:
             ChatDispatcher(self),
             TeamDispatcher(self),
             InfraDispatcher(self),
+            # 审计 P1-15: ArtifactDispatcher 须在 WorkflowDispatcher 之前注册.
+            # 两者都声明 artifact.create RPC (Workflow 的是 stub), _get_handler
+            # first-wins 按注册顺序, 原序 Workflow 在前致真实 artifact.create 被
+            # Workflow stub 影子覆盖. 前置 ArtifactDispatcher 让真实现优先.
+            ArtifactDispatcher(self),
             WorkflowDispatcher(self),
             SafetyDispatcher(self),
             PlannerDispatcher(self),
             MemoryDispatcher(self),
             McpDispatcher(self),
             PluginDispatcher(self),
-            ArtifactDispatcher(self),
             TrainerDispatcher(self),
         ]
 
@@ -2377,8 +2381,11 @@ class DaemonServer:
             # 被误判为不健康 (bug6 一直显示检测中)
             key = self._resolve_mlx_api_key_for_attach()
             headers = {"Authorization": f"Bearer {key}"} if key else {}
+            # 审计 P1-25: 每次读 env 解析 base_url, 不用 import 时冻结的 MLX_BASE_URL
+            # 常量 (reconnect/gateway 切换后探测旧地址误报不健康).
+            base_url = _resolve_mlx_base_url()
             async with httpx.AsyncClient(timeout=2.0) as client:
-                resp = await client.get(f"{MLX_BASE_URL}/models", headers=headers)
+                resp = await client.get(f"{base_url}/models", headers=headers)
                 return resp.status_code == 200
         except Exception as e:
             # 审计 M-2: 健康检查所有失败 (401/拒连/DNS/超时) 统一 return False,
@@ -2392,8 +2399,10 @@ class DaemonServer:
 
             key = self._resolve_mlx_api_key_for_attach()
             headers = {"Authorization": f"Bearer {key}"} if key else {}
+            # 审计 P1-25: 同 _check_mlx_health, 每次读 env 解析 base_url.
+            base_url = _resolve_mlx_base_url()
             async with httpx.AsyncClient(timeout=5.0) as client:
-                resp = await client.get(f"{MLX_BASE_URL}/models", headers=headers)
+                resp = await client.get(f"{base_url}/models", headers=headers)
                 resp.raise_for_status()
                 data = resp.json()
                 return data.get("data", [])
@@ -2537,7 +2546,9 @@ class DaemonServer:
             import urllib.request
 
             headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
-            req = urllib.request.Request(f"{MLX_BASE_URL}/models", headers=headers)
+            # 审计 P1-25: 同 _check_mlx_health, 读 env 解析 base_url (非冻结常量).
+            base_url = _resolve_mlx_base_url()
+            req = urllib.request.Request(f"{base_url}/models", headers=headers)
             with urllib.request.urlopen(req, timeout=5.0) as resp:
                 data = json.loads(resp.read())
             models = data.get("data", []) if isinstance(data, dict) else []
