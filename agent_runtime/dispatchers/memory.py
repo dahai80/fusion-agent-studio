@@ -22,6 +22,7 @@ class MemoryDispatcher(SubDispatcher):
             "memory.count": self._handle_memory_count,
             "memory.recall_relevant": self._handle_memory_recall_relevant,
             "memory.auto_forget": self._handle_memory_auto_forget,
+            "memory.backend": self._handle_memory_backend,
         }
 
     async def _handle_memory_store(self, params: dict) -> dict:
@@ -119,5 +120,26 @@ class MemoryDispatcher(SubDispatcher):
             max_entries=max_entries, min_importance=min_importance
         )
         return {"removed": removed}
+
+    async def _handle_memory_backend(self, params: dict) -> dict:
+        # issue #246 后续: 暴露当前记忆后端 (fusion_memory adapter 或 legacy sqlite),
+        # 供运维查活服务到底走的哪条路。鸭子类型按类名判, 免跨模块 import。
+        mem = self._daemon._get_memory()
+        cls_name = type(mem).__name__
+        if cls_name == "FusionMemoryAdapter":
+            backend = "fusion_memory"
+            base_url = getattr(mem, "_base_url", "")
+            api_key_configured = bool(getattr(mem, "_api_key", ""))
+        else:
+            backend = "sqlite"
+            # MemoryEngine.db_path 是 PosixPath, JSON 不序列化 -> str()。
+            base_url = str(getattr(mem, "db_path", ""))
+            api_key_configured = False
+        logger.info("memory.backend: %s base=%s", backend, base_url)
+        return {
+            "backend": backend,
+            "base_url": base_url,
+            "api_key_configured": api_key_configured,
+        }
 
     # ── Safety handlers ──

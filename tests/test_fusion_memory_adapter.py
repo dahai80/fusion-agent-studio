@@ -198,6 +198,8 @@ class TestRecall:
 
 class TestGetDelete:
     def test_get_returns_entry(self, env_snap):
+        # fm-server get 走 GET /v1/memory/{id} 路径参 (http.rs get_memory),
+        # 非 POST JSON-RPC body。断言 method=GET + path=/v1/memory/m-9。
         item = {
             "id": "m-9",
             "content": "fact",
@@ -217,9 +219,9 @@ class TestGetDelete:
             assert entry.content == "fact"
             assert entry.importance == 7
             assert entry.metadata == {"k": "v"}
-            body = parse_body(captured[0])
-            assert body["method"] == "get"
-            assert body["params"]["id"] == "m-9"
+            req = captured[0]
+            assert req.method == "GET"
+            assert req.url.path == "/v1/memory/m-9"
         finally:
             adapter.close()
 
@@ -227,6 +229,14 @@ class TestGetDelete:
         adapter, _ = make_adapter(lambda r: rpc_ok(None))
         try:
             assert adapter.get("nope") is None
+        finally:
+            adapter.close()
+
+    def test_get_http_404_returns_none(self, env_snap):
+        # 无 POST /v1/memory/get 路由 -> 活服务 404; fail-empty 不抛。
+        adapter, _ = make_adapter(lambda r: http_err(404))
+        try:
+            assert adapter.get("m-9") is None
         finally:
             adapter.close()
 

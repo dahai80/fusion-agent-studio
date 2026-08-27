@@ -111,6 +111,15 @@ start() {
     export FUSION_SAFETY_LEVEL="${FUSION_SAFETY_LEVEL:-L2}"
     log_info "safety: injection=${FUSION_SAFETY_INJECTION} level=${FUSION_SAFETY_LEVEL}"
 
+    # #246 运维告警: 端口 11435 冲突。daemon WS_PORT 默认 11435 (WS 默认关,
+    # FUSION_ENABLE_WS=1 才起); fusion-memory fm-server 默认 FUSION_MEMORY_HTTP_PORT
+    # 也是 11435。若同时开 WS + fm-server 默认口, 其中一方 bind 失败。
+    # 解法: 二选一改口 —— FUSION_WS_PORT 改 daemon WS, 或 FUSION_MEMORY_HTTP_PORT
+    # 改 fm-server。WS 默认关, 故默认无冲突; 此处仅前向提示。
+    if [[ "${FUSION_ENABLE_WS:-0}" == "1" && -n "${FUSION_MEMORY_API_KEY:-}" ]]; then
+        log_warn "WS (11435) 与 fusion-memory fm-server (11435) 同端口, 二者须改其一 (FUSION_WS_PORT / FUSION_MEMORY_HTTP_PORT)"
+    fi
+
     # 运维修补：清掉 shell 继承的 FUSION_MLX_API_KEY（可能过期 → daemon 调 mlx_script 401）。
     # 统一走 ~/.fusion-mlx/settings.json auth.api_key，与 mlx daemon / comfyui 同源。
     unset FUSION_MLX_API_KEY

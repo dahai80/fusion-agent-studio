@@ -22,6 +22,7 @@
 | 06 | [触发与定时任务](./06-triggers-cron.md) | cron 定时、task.submit、project 聚合、事件触发 |
 | 07 | [程序化集成（SDK）](./07-sdk-programmatic.md) | Python SDK 建模、query 流式、注册自定义工具 |
 | 08 | [部署与发布](./08-deploy-publish.md) | 导出包、发布到 marketplace、HTTP API 端点、launchd 持久化 |
+| 09 | [切换记忆后端](./09-memory-backend.md) | 把记忆存储切到 fusion-memory、查后端、降级与端口冲突 |
 
 ## 通用约定（所有文档共用）
 

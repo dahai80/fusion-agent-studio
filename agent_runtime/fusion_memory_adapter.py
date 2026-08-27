@@ -177,7 +177,36 @@ class FusionMemoryAdapter:
         )
 
     def get(self, entry_id: str) -> MemoryEntry | None:
-        item = self._rpc("get", {"id": entry_id})
+        # fm-server 无 POST /v1/memory/get; get 走 GET /v1/memory/{id} 路径参
+        # (http.rs get_memory, 服务端组 JSON-RPC)。客户端发 GET + Bearer, 解 result。
+        try:
+            resp = self._client.get(f"/v1/memory/{entry_id}")
+        except httpx.HTTPError as exc:
+            logger.warning("fusion-memory get(%s) error: %s", entry_id, exc)
+            return None
+        if resp.status_code >= 400:
+            logger.warning(
+                "fusion-memory get(%s) HTTP %d %s",
+                entry_id,
+                resp.status_code,
+                resp.text[:200],
+            )
+            return None
+        try:
+            data = resp.json()
+        except ValueError as exc:
+            logger.warning("fusion-memory get(%s) bad json: %s", entry_id, exc)
+            return None
+        if data.get("error"):
+            err = data["error"]
+            logger.warning(
+                "fusion-memory get(%s) RPC %s: %s",
+                entry_id,
+                err.get("code"),
+                err.get("message"),
+            )
+            return None
+        item = data.get("result")
         if not item:
             return None
         return self._item_to_entry(item)

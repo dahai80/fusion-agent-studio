@@ -62,6 +62,7 @@ from .fmp_router import (
     TurnManager,
 )
 from .fusion_code_bridge import CodeResult, CodeTask, FusionCodeBridge
+from .fusion_memory_adapter import FusionMemoryAdapter
 from .graph import AgentGraph, Edge, NodeConfig, NodeType
 from .graph_editor import (
     GraphDocument,
@@ -153,6 +154,7 @@ __all__ = [
     "MemoryEngine",
     "MemoryEntry",
     "MemoryTier",
+    "FusionMemoryAdapter",
     "SafetyGateway",
     "SafetyLevel",
     "SafetyAction",

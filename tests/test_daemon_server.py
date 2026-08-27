@@ -711,6 +711,24 @@ class TestDaemonMemory:
         resp = await _rpc_call(daemon.socket_path, "memory.delete_scope", {})
         assert resp["result"]["status"] == "error"
 
+    @pytest.mark.asyncio
+    async def test_memory_backend_legacy_sqlite(self, daemon, monkeypatch):
+        # FUSION_MEMORY_API_KEY 未配 -> _get_memory 返 MemoryEngine (sqlite)。
+        monkeypatch.delenv("FUSION_MEMORY_API_KEY", raising=False)
+        resp = await _rpc_call(daemon.socket_path, "memory.backend", {})
+        assert resp["result"]["backend"] == "sqlite"
+        assert resp["result"]["api_key_configured"] is False
+
+    @pytest.mark.asyncio
+    async def test_memory_backend_fusion_memory(self, daemon, monkeypatch):
+        # FUSION_MEMORY_API_KEY 配 -> _get_memory 返 FusionMemoryAdapter。
+        # adapter __init__ 只建 httpx.Client, 不发网络, fm-server 不起也成功。
+        monkeypatch.setenv("FUSION_MEMORY_API_KEY", "test-key")
+        resp = await _rpc_call(daemon.socket_path, "memory.backend", {})
+        assert resp["result"]["backend"] == "fusion_memory"
+        assert resp["result"]["api_key_configured"] is True
+        assert "11435" in resp["result"]["base_url"]
+
 
 class TestDaemonSafety:
     @pytest.mark.asyncio
