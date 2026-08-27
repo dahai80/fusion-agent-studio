@@ -11,7 +11,7 @@ Run, build, and orchestrate AI agents entirely on your Mac — no cloud, no API 
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 [![Tests](https://img.shields.io/badge/Tests-2246-success.svg)](tests/)
 
-**[中文文档](README_CN.md)** · [Quick Start](#quick-start) · [Architecture](#architecture) · [Documentation](docs/) · [Examples](examples/)
+**[中文文档](README_CN.md)** · [Quick Start](#quick-start) · [Architecture](#architecture) · [Documentation](docs/) · [Examples](examples/) · **[Guided Tutorials](docs/guides/README.md)**
 
 </div>
 
