@@ -34,6 +34,19 @@ def _lazy_load_enabled() -> bool:
     val = os.environ.get("FUSION_TASK_LAZY_LOAD", "1").strip().lower()
     return val not in ("0", "false", "no", "off")
 
+
+def _task_max_concurrency() -> int:
+    # #239: task 执行并发上限, task.health 上报给 fusion-event 做反向背压.
+    # 默认 5 (对齐 fusion-event tokenBucketMax). cron run_loop 当前无信号量,
+    # 此值是声明式上限 (运维契约), 非 hard gate.
+    raw = os.environ.get("FUSION_TASK_CONCURRENCY", "5").strip()
+    try:
+        val = int(raw)
+    except ValueError:
+        logger.warning("FUSION_TASK_CONCURRENCY invalid '%s', fallback 5", raw)
+        return 5
+    return val if val > 0 else 5
+
 # Task 状态机: pending(已提交待触发) -> running(执行中) -> completed/failed/canceled
 TASK_STATUS_PENDING = "pending"
 TASK_STATUS_RUNNING = "running"
@@ -60,7 +73,7 @@ _TASK_COLUMNS = [
     "task_id", "title", "description", "agent_id", "graph_id", "trigger",
     "cron_expression", "run_at", "cron_job_id", "input", "status", "priority",
     "project_id", "artifact_ids", "last_result", "last_error", "retry_count",
-    "max_retries", "created_at", "updated_at", "last_run_at",
+    "max_retries", "created_at", "updated_at", "last_run_at", "idempotency_key",
 ]
 
 
@@ -88,6 +101,7 @@ class Task:
     created_at: float = 0.0
     updated_at: float = 0.0
     last_run_at: float = 0.0
+    idempotency_key: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -112,6 +126,7 @@ class Task:
             "created_at": self.created_at,
             "updated_at": self.updated_at,
             "last_run_at": self.last_run_at,
+            "idempotency_key": self.idempotency_key,
         }
 
     @classmethod
@@ -158,6 +173,7 @@ class Task:
             created_at=row[18],
             updated_at=row[19],
             last_run_at=row[20],
+            idempotency_key=row[21] if len(row) > 21 and row[21] else "",
         )
 
 
@@ -172,6 +188,8 @@ class TaskStore:
         self._write_lock = threading.RLock()
         # 自增序号, 配合毫秒时间戳生成唯一 task_id, 避免同毫秒并发提交撞 id.
         self._id_seq = 0
+        # #238: 上次 submit 是否命中幂等去重 (RPC 层读此标志回写 deduped).
+        self.last_submit_deduped = False
         self._lazy_load = _lazy_load_enabled()
         if db_path:
             self._init_db(db_path)
@@ -214,7 +232,8 @@ class TaskStore:
                 max_retries INTEGER DEFAULT 0,
                 created_at REAL DEFAULT 0,
                 updated_at REAL DEFAULT 0,
-                last_run_at REAL DEFAULT 0
+                last_run_at REAL DEFAULT 0,
+                idempotency_key TEXT DEFAULT ''
             )
             """
         )
@@ -232,6 +251,7 @@ class TaskStore:
     def _run_schema_migrations(self, conn) -> None:
         migrations = [
             self._migration_v1_project_id,
+            self._migration_v2_idempotency_key,
         ]
         current = conn.execute("PRAGMA user_version").fetchone()[0]
         for idx, migrate in enumerate(migrations, start=1):
@@ -252,6 +272,18 @@ class TaskStore:
             logger.info("Migrated tasks table: added project_id column")
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_tasks_project ON tasks(project_id)"
+        )
+
+    def _migration_v2_idempotency_key(self, conn) -> None:
+        # #238: task.submit 幂等去重. ALTER 补 idempotency_key 列 + 唯一索引
+        # (空键不冲突, 多空行允许). 幂等: 探列存在再 ALTER.
+        cols = {row[1] for row in conn.execute("PRAGMA table_info(tasks)").fetchall()}
+        if "idempotency_key" not in cols:
+            conn.execute("ALTER TABLE tasks ADD COLUMN idempotency_key TEXT DEFAULT ''")
+            logger.info("Migrated tasks table: added idempotency_key column")
+        conn.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_tasks_idempotency "
+            "ON tasks(idempotency_key) WHERE idempotency_key != ''"
         )
 
     def _load_tasks(self) -> None:
@@ -296,8 +328,8 @@ class TaskStore:
                    (task_id, title, description, agent_id, graph_id, trigger,
                     cron_expression, run_at, cron_job_id, input, status, priority,
                     project_id, artifact_ids, last_result, last_error, retry_count, max_retries,
-                    created_at, updated_at, last_run_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    created_at, updated_at, last_run_at, idempotency_key)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     task.task_id,
                     task.title,
@@ -320,6 +352,7 @@ class TaskStore:
                     task.created_at,
                     task.updated_at,
                     task.last_run_at,
+                    task.idempotency_key,
                 ),
             )
             self._conn.commit()
@@ -375,6 +408,17 @@ class TaskStore:
         # 审计 P0: _id_seq 自增 + dict 写 + _save_task 必须原子, 否则并发提交撞 id 覆盖.
         self.reap_expired()
         with self._write_lock:
+            # #238: 幂等去重. 同 idempotency_key 已存在 -> 返回旧 task, 不新建行.
+            if task.idempotency_key:
+                existing = self._find_by_idempotency_key(task.idempotency_key)
+                if existing is not None:
+                    logger.info(
+                        "Task deduped by idempotency_key=%s -> existing %s",
+                        task.idempotency_key, existing.task_id,
+                    )
+                    self.last_submit_deduped = True
+                    return existing
+            self.last_submit_deduped = False
             if not task.task_id:
                 self._id_seq += 1
                 task.task_id = f"task_{int(time.time() * 1000)}_{self._id_seq}"
@@ -442,6 +486,40 @@ class TaskStore:
         with self._write_lock:
             rows = self._conn.execute(sql, params).fetchall()
         return [Task.from_row(row).to_dict() for row in rows]
+
+    def _find_by_idempotency_key(self, key: str) -> Task | None:
+        # #238: 幂等查找. 走 _TASK_COLUMNS 显式 SELECT (ALTER 追列位置稳定).
+        # caller 必须持有 _write_lock (submit 内调用).
+        if not self._conn or not key:
+            return None
+        sql = (
+            "SELECT " + ", ".join(_TASK_COLUMNS)
+            + " FROM tasks WHERE idempotency_key = ? LIMIT 1"
+        )
+        row = self._conn.execute(sql, (key,)).fetchone()
+        if row is None:
+            return None
+        task = Task.from_row(row)
+        self._tasks[task.task_id] = task
+        return task
+
+    def count_by_status(self, status: str) -> int:
+        # #239: 按状态计数, task.health 队列深度上报. 无 db 时走内存 dict.
+        if self._lazy_load and self._conn:
+            with self._write_lock:
+                row = self._conn.execute(
+                    "SELECT COUNT(*) FROM tasks WHERE status = ?", (status,)
+                ).fetchone()
+            return int(row[0]) if row else 0
+        return sum(1 for t in self._tasks.values() if t.status == status)
+
+    def total_count(self) -> int:
+        # #239: 全量计数, task.health.total_tasks.
+        if self._lazy_load and self._conn:
+            with self._write_lock:
+                row = self._conn.execute("SELECT COUNT(*) FROM tasks").fetchone()
+            return int(row[0]) if row else 0
+        return len(self._tasks)
 
     def update_status(
         self,

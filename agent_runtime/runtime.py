@@ -362,6 +362,11 @@ class AgentRuntime(_SafetyApprovalMixin, _CheckpointMixin, _DynamicToolsMixin, _
         # 子 dispatch 再 copy 进 sub_ctx, 父 self.variables 全程不被写.
         self._seed_ctx_variables(ctx)
 
+        # #240: trigger_id 从 variables 透传到运行日志 (fusion-event 跨进程可追溯).
+        _trig_id = ctx.variables.get("trigger_id") if ctx.variables else ""
+        if _trig_id:
+            logger.info("execute_graph %s trigger_id=%s", graph.id, _trig_id)
+
         errors = graph.validate()
         if errors:
             ctx.error = "; ".join(errors)

@@ -141,6 +141,9 @@ async def fb_server(fb_config):
         os.unlink(sock)
 
 
+# issue #241: wire contract keys structured node_id BARE ("e1", no "@").
+# The @-prefix lives ONLY in ax_tree_markdown display form ("[@e1] ...").
+# mock must be faithful to the real engine so the suite pins real behavior.
 def _state(sid="s1", url="https://example.com", md="# Page\n- @e1 [button] Login", **extra):
     payload = {
         "session_id": sid,
@@ -149,7 +152,7 @@ def _state(sid="s1", url="https://example.com", md="# Page\n- @e1 [button] Login
         "ax_tree_markdown": md,
         "interactive_nodes": [
             {
-                "node_id": "@e1",
+                "node_id": "e1",
                 "role": "button",
                 "name": "Login",
                 "is_disabled": False,
