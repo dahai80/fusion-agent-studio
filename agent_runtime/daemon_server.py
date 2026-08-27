@@ -1890,12 +1890,36 @@ class DaemonServer:
 
     def _get_memory(self):
         if self._memory is None:
-            from .memory_engine import MemoryEngine
+            # issue #246: env-gated backend swap. FUSION_MEMORY_API_KEY set ->
+            # proxy to fusion-memory hub (fm-server, vector recall + entity graph +
+            # forgetting-curve). unset -> legacy local SQLite MemoryEngine (fallback)。
+            if os.environ.get("FUSION_MEMORY_API_KEY"):
+                try:
+                    from .fusion_memory_adapter import FusionMemoryAdapter
 
-            self._memory = MemoryEngine(
-                db_path=self._memory_db_path, gateway=self._gateway
-            )
-            logger.info("MemoryEngine created at %s", self._memory.db_path)
+                    self._memory = FusionMemoryAdapter()
+                    logger.info(
+                        "FusionMemoryAdapter created at %s (FUSION_MEMORY_API_KEY set)",
+                        self._memory.db_path,
+                    )
+                except Exception as exc:
+                    logger.warning(
+                        "FusionMemoryAdapter init failed (%s), fallback to MemoryEngine",
+                        exc,
+                    )
+                    from .memory_engine import MemoryEngine
+
+                    self._memory = MemoryEngine(
+                        db_path=self._memory_db_path, gateway=self._gateway
+                    )
+                    logger.info("MemoryEngine created at %s (fallback)", self._memory.db_path)
+            else:
+                from .memory_engine import MemoryEngine
+
+                self._memory = MemoryEngine(
+                    db_path=self._memory_db_path, gateway=self._gateway
+                )
+                logger.info("MemoryEngine created at %s", self._memory.db_path)
         return self._memory
 
     def _get_safety(self):
