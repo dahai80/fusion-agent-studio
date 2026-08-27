@@ -1973,19 +1973,41 @@ class DaemonServer:
     async def _cron_default_handler(self, job) -> dict:
         import json as _json
 
+        from .trigger_input import parse_trigger_input
+
         if not getattr(job, "graph_id", ""):
             logger.warning("Cron job %s has no graph_id, skipping", job.id)
             return {"status": "skipped", "reason": "no graph_id"}
         variables = {}
         raw = getattr(job, "input_data", "") or ""
+        trigger_id = ""
         if raw:
-            try:
-                variables = _json.loads(raw)
-                if not isinstance(variables, dict):
-                    variables = {"input": variables}
-            except Exception as exc:
-                logger.warning("Cron job %s input_data not JSON dict: %s", job.id, exc)
-                variables = {}
+            # #240: 优先走冻结 schema 解码 (trigger_id 一等字段透传日志).
+            tri = parse_trigger_input(raw)
+            if tri is not None:
+                trigger_id = tri.trigger_id
+                logger.info(
+                    "Cron job %s trigger_id=%s rule=%s node=%s event_type=%s",
+                    job.id, trigger_id, tri.rule_name, tri.node_id, tri.event.type,
+                )
+                # schema input 解出后, 把 trigger_id/context 放进 variables 供 DAG 节点消费.
+                # 同时保留原 JSON dict 的其他键 (如 task_id), 向后兼容旧自由格式 input.
+                variables = {"input": raw, "trigger_id": trigger_id, "context": tri.context}
+                try:
+                    raw_dict = _json.loads(raw)
+                    if isinstance(raw_dict, dict):
+                        for k, v in raw_dict.items():
+                            variables.setdefault(k, v)
+                except Exception:
+                    pass
+            else:
+                try:
+                    variables = _json.loads(raw)
+                    if not isinstance(variables, dict):
+                        variables = {"input": variables}
+                except Exception as exc:
+                    logger.warning("Cron job %s input_data not JSON dict: %s", job.id, exc)
+                    variables = {}
         logger.info("Cron job %s triggering graph.execute %s", job.id, job.graph_id)
         # #141 priority-4: input_data 可能携带 task_id, 透传让产物回写 task.
         exec_params = {"graph_id": job.graph_id, "variables": variables}

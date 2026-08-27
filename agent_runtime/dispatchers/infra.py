@@ -49,6 +49,7 @@ class InfraDispatcher(SubDispatcher):
             "task.rerun": self._handle_task_rerun,
             "task.delete": self._handle_task_delete,
             "task.add_artifacts": self._handle_task_add_artifacts,
+            "task.health": self._handle_task_health,
             "project.list": self._handle_project_list,
             "project.tasks": self._handle_project_tasks,
             "hooks.list": self._handle_hooks_list,
@@ -243,10 +244,14 @@ class InfraDispatcher(SubDispatcher):
             priority=int(params.get("priority", 0) or 0),
             project_id=params.get("project_id", ""),
             max_retries=int(params.get("max_retries", 0) or 0),
+            idempotency_key=params.get("idempotency_key", ""),
         )
         task = store.submit(task)
+        # #238: 幂等去重命中 -> 回写 deduped=True, caller 知是旧 task 非新建.
+        deduped = getattr(store, "last_submit_deduped", False)
         # cron 触发: 同步注册 cron job, 回写 cron_job_id 关联.
-        if trigger == TRIGGER_CRON and task.cron_expression and task.graph_id:
+        # #238: 去重命中(旧 task) 不重复注册 cron, 避免重复 job.
+        if trigger == TRIGGER_CRON and task.cron_expression and task.graph_id and not deduped:
             try:
                 from ..triggers import CronJob
 
@@ -267,7 +272,7 @@ class InfraDispatcher(SubDispatcher):
             except Exception as exc:
                 logger.warning("task %s cron register failed: %s", task.task_id, exc)
         # run_at 触发 (#141 priority-3): 一次性定时, 注册 one-shot cron job 回写 cron_job_id.
-        elif trigger == "run_at" and task.run_at > 0 and task.graph_id:
+        elif trigger == "run_at" and task.run_at > 0 and task.graph_id and not deduped:
             try:
                 cm = self._daemon._get_cron_manager()
                 job = await cm.aregister_once(
@@ -283,7 +288,10 @@ class InfraDispatcher(SubDispatcher):
                 logger.info("task %s linked one-shot job %s run_at=%.0f", task.task_id, job.id, task.run_at)
             except Exception as exc:
                 logger.warning("task %s run_at register failed: %s", task.task_id, exc)
-        return {"status": "ok", "task": task.to_dict()}
+        # #238: deduped 标志透传到 task dict, 区分新建 vs 幂等命中.
+        task_dict = task.to_dict()
+        task_dict["deduped"] = deduped
+        return {"status": "ok", "task": task_dict}
 
     async def _handle_task_list(self, params: dict) -> dict:
         store = self._daemon._get_task_store()
@@ -317,6 +325,32 @@ class InfraDispatcher(SubDispatcher):
             return {"status": "error", "message": f"Task not found or invalid status: {task_id}/{status}"}
         task = store.get(task_id)
         return {"status": "ok", "task": task.to_dict() if task else None}
+
+    async def _handle_task_health(self, params: dict) -> dict:
+        # #239: 队列深度聚合, 供 fusion-event 反向背压 (D-10).
+        # pending_tasks = 未被 worker 取走的待触发; running_tasks = 执行中.
+        from ..task_store import (
+            TASK_STATUS_PENDING,
+            TASK_STATUS_RUNNING,
+            _task_max_concurrency,
+        )
+
+        store = self._daemon._get_task_store()
+        pending = store.count_by_status(TASK_STATUS_PENDING)
+        running = store.count_by_status(TASK_STATUS_RUNNING)
+        total = store.total_count()
+        max_concurrency = _task_max_concurrency()
+        logger.info(
+            "task.health: pending=%d running=%d total=%d max_concurrency=%d",
+            pending, running, total, max_concurrency,
+        )
+        return {
+            "ok": True,
+            "pending_tasks": pending,
+            "running_tasks": running,
+            "total_tasks": total,
+            "max_concurrency": max_concurrency,
+        }
 
     async def _handle_task_cancel(self, params: dict) -> dict:
         store = self._daemon._get_task_store()
