@@ -73,6 +73,7 @@ from .graph_editor import (
     auto_layout,
     validate_graph,
 )
+from .guard_client import GuardSafetyBackend
 from .json_schema import JsonSchemaValidator
 from .knowledge_engine import KnowledgeEngine, KnowledgeEntry
 from .llm_gateway import GatewayResponse, LLMGateway, ModelConfig, ModelStats
@@ -155,6 +156,7 @@ __all__ = [
     "MemoryEntry",
     "MemoryTier",
     "FusionMemoryAdapter",
+    "GuardSafetyBackend",
     "SafetyGateway",
     "SafetyLevel",
     "SafetyAction",

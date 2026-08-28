@@ -124,6 +124,12 @@ class TestRegistryIntegration:
         # (如 douyin_*) 污染 registry.count 断言.
         fake_home = tmp_path / "home"
         monkeypatch.setattr(Path, "home", lambda: fake_home)
+        # BrowserTool 的 BROWSER_CONFIG_PATH 在模块导入时按真实 home 固化,
+        # monkeypatch Path.home 已晚于该常量求值, 无法使其 skip. 显式指向空
+        # tmp 路径, 强制 browser_available()=False, count 断言稳定为 37.
+        import tools.browser_tools as _bt
+        monkeypatch.setattr(_bt, "BROWSER_CONFIG_PATH", fake_home / ".fusion-browser" / "config.json")
+        monkeypatch.setattr("tools.__init__.BROWSER_CONFIG_PATH", fake_home / ".fusion-browser" / "config.json")
 
     def test_computer_use_tools_in_registry(self):
         registry = create_default_registry()

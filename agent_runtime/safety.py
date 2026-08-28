@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 import difflib
 import logging
+import os
 import re
 import threading
 import uuid
@@ -291,6 +292,8 @@ class SafetyGateway:
         approver: ApproverCallback | None = None,
         policies: list[SafetyPolicy] | None = None,
         enable_injection: bool = False,
+        backend: str | None = None,
+        guard_client=None,
     ):
         self.level = level
         self.custom_rules = custom_rules or []
@@ -300,6 +303,31 @@ class SafetyGateway:
         self._pending_approvals: dict[str, asyncio.Future[bool]] = {}
         self._pending_action_approvals: dict[str, dict[str, Any]] = {}
         self._lock = threading.Lock()
+
+        # #252: guard thin-client. backend="guard" delegates judgment to
+        # fusion-guard (single security-rule SSOT). Default "local" preserves
+        # the in-process rule engine until callers opt in (env-gated).
+        self.backend = backend or os.environ.get("FUSION_SAFETY_BACKEND", "local")
+        self._guard_backend = None
+        if self.backend == "guard":
+            self._guard_backend = self._init_guard_backend(guard_client)
+        if self._guard_backend is not None:
+            logger.info(
+                "SafetyGateway guard mode active (backend=guard, available=%s)",
+                self._guard_backend.is_available(),
+            )
+
+    def _init_guard_backend(self, guard_client):
+        # lazy import avoids circular (guard_client imports safety symbols).
+        try:
+            from .guard_client import GuardSafetyBackend
+            return GuardSafetyBackend(client=guard_client) if guard_client else GuardSafetyBackend()
+        except Exception as e:
+            logger.warning(
+                "SafetyBackend guard init failed (%s); falling back to local engine", e
+            )
+            self.backend = "local"
+            return None
 
     @property
     def rules(self) -> list[SafetyRule]:
@@ -333,6 +361,9 @@ class SafetyGateway:
         content: str = "",
         context: str = "",
     ) -> SafetyVerdict:
+        if self._guard_backend is not None:
+            return self._evaluate_action_guard(category, content, context)
+
         policy = self.get_policy(category)
 
         if policy is None:
@@ -431,6 +462,71 @@ class SafetyGateway:
 
         return SafetyVerdict(action=SafetyAction.ALLOW)
 
+    def _evaluate_action_guard(
+        self, category: str, content: str, context: str
+    ) -> SafetyVerdict:
+        # #252 guard thin-client: delegate judgment to fusion-guard. Guard is the
+        # security-rule SSOT; local policies/_DANGEROUS_PATTERNS are advisory only.
+        # injection detection stays local (guard out-of-scope). diff preview for
+        # file_write/code_edit generated locally (guard doesn't diff).
+        if self.enable_injection and content:
+            inj = detect_prompt_injection(content)
+            if inj["detected"]:
+                logger.warning(
+                    "Guard mode: injection detected (%d patterns) before delegate",
+                    inj["match_count"],
+                )
+                if self._level_ord(self.level) >= self._level_ord(SafetyLevel.L2):
+                    return SafetyVerdict(
+                        action=SafetyAction.BLOCK,
+                        reason=f"Prompt injection detected ({inj['match_count']} patterns)",
+                        requires_approval=True,
+                        metadata={"injection": True, "matches": inj["matches"]},
+                    )
+                return SafetyVerdict(
+                    action=SafetyAction.PREVIEW,
+                    reason=f"Prompt injection detected ({inj['match_count']} patterns)",
+                    requires_approval=True,
+                    metadata={"injection": True, "matches": inj["matches"]},
+                )
+
+        verdict = self._guard_backend.evaluate(category, content, context)
+        verdict.metadata.setdefault("category", category)
+
+        # L2 preview with a file target: generate local diff preview (guard doesn't diff).
+        if (
+            verdict.action == SafetyAction.PREVIEW
+            and category in (CAT_FILE_WRITE, CAT_CODE_EDIT)
+            and content
+        ):
+            action_id = verdict.metadata.get("action_id") or str(uuid.uuid4())
+            verdict.metadata["action_id"] = action_id
+            verdict.diff_preview = self.generate_diff_preview(
+                content, context or "", category, action_id
+            )
+
+        # L3 block requires approval: register pending store so the runtime
+        # approval future resolves via approve_action/reject_action below.
+        if verdict.action == SafetyAction.BLOCK and verdict.requires_approval:
+            action_id = verdict.metadata.get("action_id")
+            if action_id:
+                with self._lock:
+                    self._pending_action_approvals[action_id] = {
+                        "category": category,
+                        "content": content,
+                        "level": verdict.metadata.get("level", "L3"),
+                        "status": "pending",
+                    }
+
+        logger.info(
+            "Guard verdict for category '%s': action=%s risk=%s action_id=%s",
+            category,
+            verdict.action.value,
+            verdict.metadata.get("risk_level"),
+            verdict.metadata.get("action_id"),
+        )
+        return verdict
+
     def generate_diff_preview(
         self,
         original: str,
@@ -479,6 +575,13 @@ class SafetyGateway:
         return request
 
     def approve_action(self, action_id: str) -> bool:
+        # #252 guard mode: delegate confirm to guard before resolving local future.
+        if self._guard_backend is not None:
+            if not self._guard_backend.confirm(action_id, True):
+                logger.warning(
+                    "approve_action: guard.confirm failed for action_id=%s", action_id
+                )
+                return False
         with self._lock:
             pending = self._pending_action_approvals.get(action_id)
             if pending is None:
@@ -504,6 +607,13 @@ class SafetyGateway:
         return True
 
     def reject_action(self, action_id: str) -> bool:
+        # #252 guard mode: delegate confirm(rejected) to guard.
+        if self._guard_backend is not None:
+            if not self._guard_backend.confirm(action_id, False):
+                logger.warning(
+                    "reject_action: guard.confirm failed for action_id=%s", action_id
+                )
+                return False
         with self._lock:
             pending = self._pending_action_approvals.get(action_id)
             if pending is None:
@@ -560,6 +670,13 @@ class SafetyGateway:
                     requires_approval=True,
                     metadata={"injection": True, "matches": inj["matches"]},
                 )
+
+        # #252 guard mode: delegate remaining judgment to guard; local rule
+        # engine (_DANGEROUS_PATTERNS) is no longer authoritative. check() is
+        # reachable via the safety.check RPC + internally by local-mode
+        # evaluate_action; guard mode bypasses local rule iteration entirely.
+        if self._guard_backend is not None:
+            return self._guard_backend.evaluate("", content, context)
 
         verdicts = []
         for rule in self.rules:
