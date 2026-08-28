@@ -109,7 +109,10 @@ start() {
     # 可被环境变量显式覆盖.
     export FUSION_SAFETY_INJECTION="${FUSION_SAFETY_INJECTION:-1}"
     export FUSION_SAFETY_LEVEL="${FUSION_SAFETY_LEVEL:-L2}"
-    log_info "safety: injection=${FUSION_SAFETY_INJECTION} level=${FUSION_SAFETY_LEVEL}"
+    # plugin auto-load 默认 secure-by-default 关 (fb1faf9 audit A-3).
+    # 运营 daemon 信任本地 plugin 目录, 默认开启. 可被环境变量显式关闭.
+    export FUSION_PLUGINS_ENABLE="${FUSION_PLUGINS_ENABLE:-1}"
+    log_info "safety: injection=${FUSION_SAFETY_INJECTION} level=${FUSION_SAFETY_LEVEL} plugins=${FUSION_PLUGINS_ENABLE}"
 
     # #246 运维告警: 端口 11435 冲突。daemon WS_PORT 默认 11435 (WS 默认关,
     # FUSION_ENABLE_WS=1 才起); fusion-memory fm-server 默认 FUSION_MEMORY_HTTP_PORT
@@ -248,6 +251,8 @@ install_launchd() {
         <string>1</string>
         <key>FUSION_SAFETY_LEVEL</key>
         <string>L2</string>
+        <key>FUSION_PLUGINS_ENABLE</key>
+        <string>1</string>
     </dict>
 </dict>
 </plist>
