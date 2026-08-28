@@ -25,6 +25,10 @@ test = [
 ]
 rag = [
     "sqlite-vec>=0.1.9",
+    # #251: fusion_store HNSW 后端可选依赖. numpy 是 PyO3 零拷贝向量输入 (PyPI).
+    # fusion_store 本体非 PyPI 包 (maturin develop 本地构建, 见 fusion-store/crates/fs-ffi-py),
+    # 故不锁在此; 装好后 FUSION_RAG_BACKEND=fusion_store 即启用, 否则降级 sqlite-vec.
+    "numpy>=1.26.0",
 ]
 plugins = [
     "fusion-plugins-ecosystem>=0.3.0",
