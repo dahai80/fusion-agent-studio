@@ -127,9 +127,14 @@ class TestRegistryIntegration:
         # BrowserTool 的 BROWSER_CONFIG_PATH 在模块导入时按真实 home 固化,
         # monkeypatch Path.home 已晚于该常量求值, 无法使其 skip. 显式指向空
         # tmp 路径, 强制 browser_available()=False, count 断言稳定为 37.
+        # patch 模块对象 (非字符串 "tools.__init__" — 后者在 py3.12 解析为
+        # method-wrapper 抛 AttributeError), browser_available() 读模块全局
+        # 故只需 patch tools.browser_tools; 同步 patch tools 包级 re-export.
+        import tools as _tools_pkg
         import tools.browser_tools as _bt
-        monkeypatch.setattr(_bt, "BROWSER_CONFIG_PATH", fake_home / ".fusion-browser" / "config.json")
-        monkeypatch.setattr("tools.__init__.BROWSER_CONFIG_PATH", fake_home / ".fusion-browser" / "config.json")
+        fake_cfg = fake_home / ".fusion-browser" / "config.json"
+        monkeypatch.setattr(_bt, "BROWSER_CONFIG_PATH", fake_cfg)
+        monkeypatch.setattr(_tools_pkg, "BROWSER_CONFIG_PATH", fake_cfg)
 
     def test_computer_use_tools_in_registry(self):
         registry = create_default_registry()
