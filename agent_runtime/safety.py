@@ -1,10 +1,13 @@
-"""Safety gateway - 3-level Human-in-the-Loop safety system.
+"""Safety gateway - Human-in-the-Loop safety system delegating judgment to fusion-guard.
 
-L1 (Autonomous): Agent acts silently. No approval needed.
-L2 (Preview): Agent shows diff/plan, waits for user confirm before executing.
-L3 (Gateway): Agent must get explicit approval before every action.
+fusion-guard (per-host zero-trust authorization daemon) is the single security-rule SSOT.
+This gateway is a thin client: evaluate_action/check delegate to GuardSafetyBackend, which
+talks to the guard daemon over UDS. When guard is unreachable (CI has no fusion_guard; local
+dev has no socket) the backend degrades to a fail-closed floor that BLOCKs destructive ops
+(rm -rf /, DROP TABLE) and REDACTs secrets — never ALLOWs a destructive command.
 
-Also provides content filtering for dangerous patterns.
+L1/L2/L3 levels + approval store remain for the approval flow. detect_prompt_injection,
+generate_diff_preview and classify_action stay local (guard out-of-scope).
 """
 
 from __future__ import annotations
@@ -154,118 +157,10 @@ class SafetyRule:
     min_level: SafetyLevel = SafetyLevel.L1
 
 
-_DANGEROUS_PATTERNS = [
-    SafetyRule(
-        name="rm-rf",
-        pattern="rm -rf /",
-        action=SafetyAction.BLOCK,
-        reason="Destructive filesystem command",
-        min_level=SafetyLevel.L3,
-    ),
-    SafetyRule(
-        name="drop-table",
-        pattern="DROP TABLE",
-        action=SafetyAction.BLOCK,
-        reason="Destructive database operation",
-        min_level=SafetyLevel.L3,
-    ),
-    SafetyRule(
-        name="delete-from",
-        pattern="DELETE FROM",
-        action=SafetyAction.PREVIEW,
-        reason="Database deletion requires review",
-        min_level=SafetyLevel.L2,
-    ),
-    SafetyRule(
-        name="env-secrets",
-        pattern=r"(?i)(password|secret|token|api_key)\s*=\s*\S+",
-        action=SafetyAction.REDACT,
-        reason="Potential secret exposure",
-        min_level=SafetyLevel.L1,
-    ),
-    SafetyRule(
-        name="network-bind",
-        pattern=r"0\.0\.0\.0",
-        action=SafetyAction.PREVIEW,
-        reason="Binding to all interfaces may expose service",
-        min_level=SafetyLevel.L2,
-    ),
-]
-
-_DEFAULT_POLICIES = [
-    SafetyPolicy(
-        category=CAT_CODE_ANALYSIS,
-        default_level=SafetyLevel.L1,
-        requires_diff=False,
-        description="Code AST analysis, runs silently",
-    ),
-    SafetyPolicy(
-        category=CAT_DOC_RETRIEVAL,
-        default_level=SafetyLevel.L1,
-        requires_diff=False,
-        description="Document retrieval, runs silently",
-    ),
-    SafetyPolicy(
-        category=CAT_KNOWLEDGE_SEARCH,
-        default_level=SafetyLevel.L1,
-        requires_diff=False,
-        description="Plaza knowledge search, runs silently",
-    ),
-    SafetyPolicy(
-        category=CAT_FILE_READ,
-        default_level=SafetyLevel.L1,
-        requires_diff=False,
-        description="File read operations, runs silently",
-    ),
-    SafetyPolicy(
-        category=CAT_FILE_WRITE,
-        default_level=SafetyLevel.L2,
-        requires_diff=True,
-        description="File write requires diff preview",
-    ),
-    SafetyPolicy(
-        category=CAT_CODE_EDIT,
-        default_level=SafetyLevel.L2,
-        requires_diff=True,
-        description="Code edit requires diff preview",
-    ),
-    SafetyPolicy(
-        category=CAT_SHELL_EXEC,
-        default_level=SafetyLevel.L3,
-        requires_diff=False,
-        description="Shell command execution requires gateway approval",
-    ),
-    SafetyPolicy(
-        category=CAT_GIT_PUSH,
-        default_level=SafetyLevel.L3,
-        requires_diff=False,
-        description="Git push to main requires gateway approval",
-    ),
-    SafetyPolicy(
-        category=CAT_DATABASE_WRITE,
-        default_level=SafetyLevel.L3,
-        requires_diff=False,
-        description="Database write operations require gateway approval",
-    ),
-    SafetyPolicy(
-        category=CAT_NETWORK_ACCESS,
-        default_level=SafetyLevel.L2,
-        requires_diff=False,
-        description="Network access requires preview",
-    ),
-    SafetyPolicy(
-        category=CAT_TOOL_CALL,
-        default_level=SafetyLevel.L1,
-        requires_diff=False,
-        description="Direct tool-node execution in graphs, auto-approved (content check still applies)",
-    ),
-    SafetyPolicy(
-        category=CAT_LLM_CALL,
-        default_level=SafetyLevel.L1,
-        requires_diff=False,
-        description="LLM node calls, auto-approved (content check still applies)",
-    ),
-]
+# #258: local rule engine (_DANGEROUS_PATTERNS) + default policies (_DEFAULT_POLICIES)
+# deleted — judgment is delegated to GuardSafetyBackend (fusion-guard SSOT). SafetyRule is
+# retained: set_network_policy + custom_rules still build it as advisory state, but the
+# regex loop that consumed it is gone (guard-down floor catches destructive ops).
 
 ApproverCallback = Callable[[str, str], Coroutine[Any, Any, bool]]
 
@@ -296,25 +191,34 @@ class SafetyGateway:
         guard_client=None,
     ):
         self.level = level
+        # custom_rules is advisory-only (#258): set_network_policy appends
+        # SafetyRule here, but judgment no longer iterates it (guard-down floor
+        # catches destructive ops). Retained for get_network_policy state.
         self.custom_rules = custom_rules or []
         self.approver = approver
         self.enable_injection = enable_injection
-        self._policies = policies if policies is not None else list(_DEFAULT_POLICIES)
+        # _policies is advisory-only (#258): add_policy/get_policy/policies keep
+        # a thin local-override store (safety.add_policy RPC stays public), but
+        # judgment delegates to guard and ignores it. Starts empty.
+        self._policies = policies if policies is not None else []
         self._pending_approvals: dict[str, asyncio.Future[bool]] = {}
         self._pending_action_approvals: dict[str, dict[str, Any]] = {}
         self._lock = threading.Lock()
 
-        # #252: guard thin-client. backend="guard" delegates judgment to
-        # fusion-guard (single security-rule SSOT). Default "local" preserves
-        # the in-process rule engine until callers opt in (env-gated).
+        # #258: unified guard backend. local/guard/auto all route through
+        # GuardSafetyBackend — guard-up -> guard verdict; guard-down (CI: no
+        # fusion_guard import; local: no socket) -> fail-closed floor (BLOCKs
+        # rm-rf / never ALLOW). The local regex engine is gone.
         self.backend = backend or os.environ.get("FUSION_SAFETY_BACKEND", "local")
-        self._guard_backend = None
-        if self.backend == "guard":
-            self._guard_backend = self._init_guard_backend(guard_client)
+        self._guard_backend = self._init_guard_backend(guard_client)
         if self._guard_backend is not None:
             logger.info(
-                "SafetyGateway guard mode active (backend=guard, available=%s)",
+                "SafetyGateway guard backend active (available=%s)",
                 self._guard_backend.is_available(),
+            )
+        else:
+            logger.error(
+                "SafetyGateway guard backend init failed; fail-closed floor will apply"
             )
 
     def _init_guard_backend(self, guard_client):
@@ -323,15 +227,8 @@ class SafetyGateway:
             from .guard_client import GuardSafetyBackend
             return GuardSafetyBackend(client=guard_client) if guard_client else GuardSafetyBackend()
         except Exception as e:
-            logger.warning(
-                "SafetyBackend guard init failed (%s); falling back to local engine", e
-            )
-            self.backend = "local"
+            logger.warning("SafetyBackend guard init failed (%s)", e)
             return None
-
-    @property
-    def rules(self) -> list[SafetyRule]:
-        return _DANGEROUS_PATTERNS + self.custom_rules
 
     @property
     def policies(self) -> list[SafetyPolicy]:
@@ -361,106 +258,19 @@ class SafetyGateway:
         content: str = "",
         context: str = "",
     ) -> SafetyVerdict:
-        if self._guard_backend is not None:
-            return self._evaluate_action_guard(category, content, context)
-
-        policy = self.get_policy(category)
-
-        if policy is None:
-            logger.warning(
-                "No policy for category '%s', defaulting to L3 BLOCK", category
+        # #258: unified guard delegation. Guard is the judgment SSOT; local
+        # policy lookup is gone. If the backend failed to init, fail closed.
+        if self._guard_backend is None:
+            logger.error(
+                "evaluate_action: no guard backend, fail-closed BLOCK for '%s'", category
             )
             return SafetyVerdict(
                 action=SafetyAction.BLOCK,
-                reason=f"No safety policy defined for category '{category}'",
+                reason="Safety backend unavailable",
                 requires_approval=True,
-                metadata={"category": category, "policy_missing": True},
+                metadata={"category": category, "backend_missing": True},
             )
-
-        required_level = policy.default_level
-
-        content_verdict = self.check(content, context) if content else None
-        if content_verdict is not None and content_verdict.action == SafetyAction.BLOCK:
-            logger.info("Content check blocked action in category '%s'", category)
-            content_verdict.metadata["category"] = category
-            return content_verdict
-
-        if required_level == SafetyLevel.L1:
-            logger.debug(
-                "L1 auto-approve category '%s': %s", category, policy.description
-            )
-            return SafetyVerdict(
-                action=SafetyAction.ALLOW,
-                reason=policy.description,
-                requires_approval=False,
-                metadata={"category": category, "level": "L1"},
-            )
-
-        if required_level == SafetyLevel.L2:
-            if policy.requires_diff and content:
-                action_id = str(uuid.uuid4())
-                diff_preview = self.generate_diff_preview(
-                    content, context or "", category, action_id
-                )
-                logger.info(
-                    "L2 preview required for category '%s', action_id=%s",
-                    category,
-                    action_id,
-                )
-                return SafetyVerdict(
-                    action=SafetyAction.PREVIEW,
-                    reason=policy.description,
-                    requires_approval=True,
-                    metadata={"category": category, "level": "L2"},
-                    diff_preview=diff_preview,
-                )
-            else:
-                action_id = str(uuid.uuid4())
-                with self._lock:
-                    self._pending_action_approvals[action_id] = {
-                        "category": category,
-                        "content": content,
-                        "level": "L2",
-                        "status": "pending",
-                    }
-                logger.info(
-                    "L2 preview required for category '%s' (no diff), action_id=%s",
-                    category,
-                    action_id,
-                )
-                return SafetyVerdict(
-                    action=SafetyAction.PREVIEW,
-                    reason=policy.description,
-                    requires_approval=True,
-                    metadata={
-                        "category": category,
-                        "level": "L2",
-                        "action_id": action_id,
-                    },
-                )
-
-        if required_level == SafetyLevel.L3:
-            action_id = str(uuid.uuid4())
-            with self._lock:
-                self._pending_action_approvals[action_id] = {
-                    "category": category,
-                    "content": content,
-                    "level": "L3",
-                    "status": "pending",
-                }
-            logger.warning(
-                "L3 gateway required for category '%s', action_id=%s",
-                category,
-                action_id,
-            )
-            return SafetyVerdict(
-                action=SafetyAction.BLOCK,
-                reason=policy.description,
-                requires_approval=True,
-                metadata={"category": category, "level": "L3", "action_id": action_id},
-            )
-
-        return SafetyVerdict(action=SafetyAction.ALLOW)
+        return self._evaluate_action_guard(category, content, context)
 
     def _evaluate_action_guard(
         self, category: str, content: str, context: str
@@ -671,49 +481,19 @@ class SafetyGateway:
                     metadata={"injection": True, "matches": inj["matches"]},
                 )
 
-        # #252 guard mode: delegate remaining judgment to guard; local rule
-        # engine (_DANGEROUS_PATTERNS) is no longer authoritative. check() is
-        # reachable via the safety.check RPC + internally by local-mode
-        # evaluate_action; guard mode bypasses local rule iteration entirely.
-        if self._guard_backend is not None:
-            return self._guard_backend.evaluate("", content, context)
-
-        verdicts = []
-        for rule in self.rules:
-            if self._level_ord(self.level) < self._level_ord(rule.min_level):
-                continue
-            if re.search(rule.pattern, content, re.IGNORECASE):
-                verdicts.append(
-                    SafetyVerdict(
-                        action=rule.action,
-                        reason=rule.reason,
-                        requires_approval=rule.action
-                        in (SafetyAction.PREVIEW, SafetyAction.BLOCK),
-                        metadata={"rule": rule.name, "pattern": rule.pattern},
-                    )
-                )
-
-        if not verdicts:
-            if self.level == SafetyLevel.L3:
-                return SafetyVerdict(
-                    action=SafetyAction.PREVIEW,
-                    reason="L3 requires approval for all actions",
-                    requires_approval=True,
-                )
-            return SafetyVerdict(action=SafetyAction.ALLOW)
-
-        most_restrictive = max(verdicts, key=lambda v: self._action_ord(v.action))
-
-        if most_restrictive.action == SafetyAction.REDACT:
-            redacted = content
-            for rule in self.rules:
-                if rule.action == SafetyAction.REDACT:
-                    redacted = re.sub(
-                        rule.pattern, "[REDACTED]", redacted, flags=re.IGNORECASE
-                    )
-            most_restrictive.redacted_content = redacted
-
-        return most_restrictive
+        # #258: delegate content judgment to the guard backend. Guard-up ->
+        # guard verdict; guard-down -> fail-closed floor (BLOCKs rm-rf /,
+        # DROP TABLE, REDACTs secrets, never ALLOWs destructive ops). If the
+        # backend failed to init, fail closed.
+        if self._guard_backend is None:
+            logger.error("check: no guard backend, fail-closed BLOCK")
+            return SafetyVerdict(
+                action=SafetyAction.BLOCK,
+                reason="Safety backend unavailable",
+                requires_approval=True,
+                metadata={"backend_missing": True},
+            )
+        return self._guard_backend.evaluate("", content, context)
 
     async def request_approval(
         self,
@@ -745,14 +525,6 @@ class SafetyGateway:
         except asyncio.TimeoutError:
             logger.warning("Approval timed out for %s", action_id)
             return False
-
-    def check_and_approve_sync(self, content: str, context: str = "") -> SafetyVerdict:
-        verdict = self.check(content, context)
-
-        if self.level == SafetyLevel.L1 and verdict.action != SafetyAction.BLOCK:
-            verdict.requires_approval = False
-
-        return verdict
 
     def set_level(self, level: SafetyLevel) -> None:
         old = self.level
@@ -868,15 +640,6 @@ class SafetyGateway:
     @staticmethod
     def _level_ord(level: SafetyLevel) -> int:
         return {SafetyLevel.L1: 1, SafetyLevel.L2: 2, SafetyLevel.L3: 3}[level]
-
-    @staticmethod
-    def _action_ord(action: SafetyAction) -> int:
-        return {
-            SafetyAction.ALLOW: 0,
-            SafetyAction.REDACT: 1,
-            SafetyAction.PREVIEW: 2,
-            SafetyAction.BLOCK: 3,
-        }[action]
 
 
 _INJECTION_PATTERNS = [

@@ -5,6 +5,7 @@ from agent_runtime.context import AgentEventType
 from agent_runtime.graph import NodeConfig
 from agent_runtime.safety import SafetyAction, SafetyGateway, SafetyLevel
 from agent_runtime.token_budget import TokenBudget
+from tests._safety_mock import MockGuardClient, MockVerdict
 
 
 class TestTokenBudget:
@@ -152,7 +153,15 @@ class TestNodeConfigRetryOnError:
 
 class TestSafetyGatewayApproval:
     def test_l2_requires_approval(self):
-        gw = SafetyGateway(level=SafetyLevel.L2)
+        client = MockGuardClient(
+            verdict=MockVerdict(
+                action="preview",
+                risk_level="l2",
+                requires_approval=True,
+                action_id="aid-l2",
+            )
+        )
+        gw = SafetyGateway(level=SafetyLevel.L2, guard_client=client)
         verdict = gw.evaluate_action(
             category="file_write", content="write data", context="test"
         )
@@ -160,14 +169,23 @@ class TestSafetyGatewayApproval:
         assert verdict.action == SafetyAction.PREVIEW
 
     def test_l3_requires_approval(self):
-        gw = SafetyGateway(level=SafetyLevel.L3)
+        client = MockGuardClient(
+            verdict=MockVerdict(
+                action="block",
+                risk_level="l3",
+                requires_approval=True,
+                action_id="aid-l3",
+            )
+        )
+        gw = SafetyGateway(level=SafetyLevel.L3, guard_client=client)
         verdict = gw.evaluate_action(
             category="shell_exec", content="ls", context="test"
         )
         assert verdict.requires_approval is True
 
     def test_l1_auto_approve(self):
-        gw = SafetyGateway(level=SafetyLevel.L1)
+        client = MockGuardClient(verdict=MockVerdict(action="allow", risk_level="l1"))
+        gw = SafetyGateway(level=SafetyLevel.L1, guard_client=client)
         verdict = gw.evaluate_action(
             category="file_read", content="read data", context="test"
         )
@@ -175,21 +193,37 @@ class TestSafetyGatewayApproval:
         assert verdict.action == SafetyAction.ALLOW
 
     def test_approve_pending_action(self):
-        gw = SafetyGateway(level=SafetyLevel.L2)
+        client = MockGuardClient(
+            verdict=MockVerdict(
+                action="preview",
+                risk_level="l2",
+                requires_approval=True,
+                action_id="aid-approve",
+            )
+        )
+        gw = SafetyGateway(level=SafetyLevel.L2, guard_client=client)
         verdict = gw.evaluate_action(
             category="file_write", content="write data", context="test"
         )
-        action_id = verdict.metadata.get("action_id", "")
+        action_id = verdict.diff_preview.action_id if verdict.diff_preview else verdict.metadata.get("action_id", "")
         if action_id:
             ok = gw.approve_action(action_id)
             assert ok
 
     def test_reject_pending_action(self):
-        gw = SafetyGateway(level=SafetyLevel.L2)
+        client = MockGuardClient(
+            verdict=MockVerdict(
+                action="preview",
+                risk_level="l2",
+                requires_approval=True,
+                action_id="aid-reject",
+            )
+        )
+        gw = SafetyGateway(level=SafetyLevel.L2, guard_client=client)
         verdict = gw.evaluate_action(
             category="file_write", content="write data", context="test"
         )
-        action_id = verdict.metadata.get("action_id", "")
+        action_id = verdict.diff_preview.action_id if verdict.diff_preview else verdict.metadata.get("action_id", "")
         if action_id:
             ok = gw.reject_action(action_id)
             assert ok

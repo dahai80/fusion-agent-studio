@@ -290,6 +290,10 @@ class TestParallelToolCalls:
         gw = LLMGateway()
         gw.set_default_client(client)
         gw.register_model(ModelConfig(name="test-model", provider="local", context_length=4096))
+        # #258: no guard_client -> guard-down fail-closed floor. Floor matches
+        # `rm -rf /` inside the tool_call content -> BLOCK l4 (requires_approval
+        # False, satisfies runtime block condition). Safe `sleep(...)` -> ALLOW.
+        # Deterministic across guard-up/guard-down (floor is the shared net).
         rt = AgentRuntime(
             llm_gateway=gw,
             tool_registry=_make_registry(),

@@ -372,13 +372,49 @@ def test_gateway_guard_mode_injection_still_local(tmp_rules_cache):
     assert client.evaluate_calls == []
 
 
-def test_gateway_local_mode_unchanged_no_guard_backend(tmp_rules_cache):
-    # default local: no guard backend constructed, local engine still authoritative
+def test_gateway_guard_down_floor_blocks_destructive_no_socket(tmp_rules_cache, monkeypatch):
+    # #258: unified backend. Default SafetyGateway() (no guard_client, no
+    # fusion_guard, no socket) builds GuardSafetyBackend in guard-down state ->
+    # fail-closed floor. Benign -> ALLOW, rm -rf / -> BLOCK. Never ALLOWs
+    # destructive ops under any config.
+    monkeypatch.setattr("agent_runtime.guard_client._GUARD_SOCK_DEFAULT", "/nonexistent.sock")
+    monkeypatch.delenv("FUSION_GUARD_SOCK", raising=False)
     g = SafetyGateway(level=SafetyLevel.L1)
-    assert g.backend == "local"
-    assert g._guard_backend is None
+    assert g._guard_backend is not None
+    assert g._guard_backend.is_available() is False
     v = g.evaluate_action("llm_call", "hello")
     assert v.action == SafetyAction.ALLOW
+    v = g.evaluate_action("shell_exec", "rm -rf /")
+    assert v.action == SafetyAction.BLOCK
+    assert v.requires_approval is False
+
+
+def test_258_regression_rm_rf_blocks_under_every_config(tmp_rules_cache, monkeypatch):
+    # #258 core acceptance: check("rm -rf /") returns BLOCK under EVERY backend
+    # configuration — never ALLOW. Covers (1) guard-down -> floor, (2) mock
+    # guard l4 block, (3) check() content path, (4) evaluate_action path.
+    monkeypatch.setattr("agent_runtime.guard_client._GUARD_SOCK_DEFAULT", "/nonexistent.sock")
+    monkeypatch.delenv("FUSION_GUARD_SOCK", raising=False)
+    cases = [
+        ("guard-down floor L1", SafetyGateway(level=SafetyLevel.L1)),
+        ("guard-down floor L2", SafetyGateway(level=SafetyLevel.L2)),
+        ("guard-down floor L3", SafetyGateway(level=SafetyLevel.L3)),
+    ]
+    # mock guard l4 absolute block
+    cases.append((
+        "mock guard l4 block",
+        SafetyGateway(
+            level=SafetyLevel.L3,
+            guard_client=MockGuardClient(
+                verdict=MockVerdict(action="block", risk_level="l4", reason="destructive"),
+            ),
+        ),
+    ))
+    for label, gw in cases:
+        v = gw.check("rm -rf /")
+        assert v.action == SafetyAction.BLOCK, f"{label}: check() must BLOCK rm -rf /, got {v.action}"
+        v2 = gw.evaluate_action("shell_exec", "rm -rf /")
+        assert v2.action == SafetyAction.BLOCK, f"{label}: evaluate_action must BLOCK rm -rf /, got {v2.action}"
 
 
 # --- live tests (skipif no fusion_guard / no socket) ---

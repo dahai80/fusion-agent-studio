@@ -39,6 +39,7 @@ from agent_runtime.safety import (
     SafetyLevel,
     SafetyPolicy,
 )
+from tests._safety_mock import MockGuardClient, MockVerdict
 
 # ─── P0: Plaza ──────────────────────────────────────────────
 
@@ -212,39 +213,64 @@ class TestDiffPreviewRequest:
 
 class TestSafetyGatewayL1L2:
     def test_l1_auto_approve_safe_actions(self):
-        gw = SafetyGateway(level=SafetyLevel.L1)
+        client = MockGuardClient(verdict=MockVerdict(action="allow", risk_level="l1"))
+        gw = SafetyGateway(level=SafetyLevel.L1, guard_client=client)
         verdict = gw.evaluate_action(CAT_CODE_ANALYSIS, "analyzing code")
         assert verdict.action == SafetyAction.ALLOW
         assert not verdict.requires_approval
 
     def test_l1_auto_approve_doc_retrieval(self):
-        gw = SafetyGateway(level=SafetyLevel.L1)
+        client = MockGuardClient(verdict=MockVerdict(action="allow", risk_level="l1"))
+        gw = SafetyGateway(level=SafetyLevel.L1, guard_client=client)
         verdict = gw.evaluate_action(CAT_DOC_RETRIEVAL, "searching docs")
         assert verdict.action == SafetyAction.ALLOW
 
     def test_l2_file_write_requires_preview(self):
-        gw = SafetyGateway(level=SafetyLevel.L2)
+        client = MockGuardClient(
+            verdict=MockVerdict(
+                action="preview", risk_level="l2", requires_approval=True
+            )
+        )
+        gw = SafetyGateway(level=SafetyLevel.L2, guard_client=client)
         verdict = gw.evaluate_action(CAT_FILE_WRITE, "write to file.py")
         assert verdict.action == SafetyAction.PREVIEW
         assert verdict.requires_approval
 
     def test_l2_code_edit_requires_preview(self):
-        gw = SafetyGateway(level=SafetyLevel.L2)
+        client = MockGuardClient(verdict=MockVerdict(action="preview", risk_level="l2"))
+        gw = SafetyGateway(level=SafetyLevel.L2, guard_client=client)
         verdict = gw.evaluate_action(CAT_CODE_EDIT, "modify function")
         assert verdict.action == SafetyAction.PREVIEW
 
     def test_l3_shell_exec_blocked(self):
-        gw = SafetyGateway(level=SafetyLevel.L3)
+        client = MockGuardClient(
+            verdict=MockVerdict(
+                action="block",
+                risk_level="l3",
+                requires_approval=True,
+                action_id="aid-sh",
+            )
+        )
+        gw = SafetyGateway(level=SafetyLevel.L3, guard_client=client)
         verdict = gw.evaluate_action(CAT_SHELL_EXEC, "rm -rf /")
         assert verdict.requires_approval
 
     def test_l3_git_push_blocked(self):
-        gw = SafetyGateway(level=SafetyLevel.L3)
+        client = MockGuardClient(
+            verdict=MockVerdict(
+                action="block",
+                risk_level="l3",
+                requires_approval=True,
+                action_id="aid-push",
+            )
+        )
+        gw = SafetyGateway(level=SafetyLevel.L3, guard_client=client)
         verdict = gw.evaluate_action(CAT_GIT_PUSH, "git push origin main")
         assert verdict.requires_approval
 
     def test_generate_diff_preview(self):
-        gw = SafetyGateway(level=SafetyLevel.L2)
+        client = MockGuardClient(verdict=MockVerdict(action="allow", risk_level="l1"))
+        gw = SafetyGateway(level=SafetyLevel.L2, guard_client=client)
         preview = gw.generate_diff_preview("original text", "modified text")
         assert preview.action_id
         assert preview.original == "original text"
@@ -252,25 +278,36 @@ class TestSafetyGatewayL1L2:
         assert preview.diff
 
     def test_approve_reject_action(self):
-        gw = SafetyGateway(level=SafetyLevel.L2)
+        client = MockGuardClient(verdict=MockVerdict(action="allow", risk_level="l1"))
+        gw = SafetyGateway(level=SafetyLevel.L2, guard_client=client)
         preview = gw.generate_diff_preview("old", "new")
         aid = preview.action_id
         assert gw.approve_action(aid)
         assert not gw.approve_action("nonexistent")
 
     def test_set_level(self):
-        gw = SafetyGateway(level=SafetyLevel.L1)
+        client = MockGuardClient(verdict=MockVerdict(action="allow", risk_level="l1"))
+        gw = SafetyGateway(level=SafetyLevel.L1, guard_client=client)
         gw.set_level(SafetyLevel.L2)
         assert gw.level == SafetyLevel.L2
 
     def test_evaluate_action_unknown_category_blocks(self):
-        gw = SafetyGateway(level=SafetyLevel.L1)
+        client = MockGuardClient(
+            verdict=MockVerdict(
+                action="block",
+                risk_level="l3",
+                requires_approval=True,
+                action_id="aid-unk",
+            )
+        )
+        gw = SafetyGateway(level=SafetyLevel.L1, guard_client=client)
         verdict = gw.evaluate_action("unknown_cat", "something")
         assert verdict.action == SafetyAction.BLOCK
         assert verdict.requires_approval
 
     def test_backward_compat_check(self):
-        gw = SafetyGateway(level=SafetyLevel.L1)
+        client = MockGuardClient(verdict=MockVerdict(action="allow", risk_level="l1"))
+        gw = SafetyGateway(level=SafetyLevel.L1, guard_client=client)
         verdict = gw.check("hello world")
         assert verdict.action == SafetyAction.ALLOW
 
