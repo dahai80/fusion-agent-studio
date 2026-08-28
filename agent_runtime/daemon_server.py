@@ -1929,11 +1929,22 @@ class DaemonServer:
             level_name = os.environ.get("FUSION_SAFETY_LEVEL", "L1").upper()
             level = SafetyLevel[level_name] if level_name in SafetyLevel.__members__ else SafetyLevel.L1
             enable_injection = os.environ.get("FUSION_SAFETY_INJECTION", "0") in ("1", "true", "yes")
-            self._safety = SafetyGateway(level=level, enable_injection=enable_injection)
+            # #252 guard thin-client: FUSION_SAFETY_BACKEND selects judgment engine.
+            # "local" (default) = in-process rule engine; "guard" = fusion-guard SSOT;
+            # "auto" = guard when /tmp/fusion-guard.sock present, else local fallback.
+            backend = os.environ.get("FUSION_SAFETY_BACKEND", "local").lower()
+            if backend == "auto":
+                sock = os.environ.get("FUSION_GUARD_SOCK", "/tmp/fusion-guard.sock")
+                backend = "guard" if os.path.exists(sock) else "local"
+                logger.info("FUSION_SAFETY_BACKEND=auto resolved to %s", backend)
+            self._safety = SafetyGateway(
+                level=level, enable_injection=enable_injection, backend=backend
+            )
             logger.info(
-                "SafetyGateway created (level=%s, injection=%s)",
+                "SafetyGateway created (level=%s, injection=%s, backend=%s)",
                 level.value,
                 enable_injection,
+                self._safety.backend,
             )
         return self._safety
 
