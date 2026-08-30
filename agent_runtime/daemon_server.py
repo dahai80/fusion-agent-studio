@@ -1468,8 +1468,11 @@ class DaemonServer:
         # 审计 E-14: 注册当前 task 到 _active_executions, 让 daemon.status 报真实
         # 活跃数 + stop() 可取消/等待. graph.execute 在调用方 RPC task 内同步跑,
         # 旧版从不注册 -> status 恒 0 + stop 啥也不停. try/finally 保证注销.
-        exec_key = f"{graph_id}:{task_id or session_id or id(rt)}"
-        self._active_executions[exec_key] = asyncio.current_task()
+        # 审计 P0-12: 旧 fallback id(rt) 是进程级单例常量, 并发同 graph+无 task_id
+        # 的多执行互覆同一个 exec_key -> 先注册者被后注册者覆盖, stop()/status 失真,
+        # finally 误注销在途执行. 改走 register_execution, fallback id(current_task)
+        # 每个 asyncio task 唯一, 无碰撞.
+        exec_key, _unregister = self.register_execution("graph", task_id or session_id)
         try:
             initial_vars = params.get("variables", {})
             # 审计 P0-1/P1-1/P1-2: 构建 per-exec ctx, 变量+工具配置进 ctx 隔离, 不写 singleton.
@@ -1608,7 +1611,7 @@ class DaemonServer:
             }
         finally:
             # 审计 E-14: 注销活跃执行, 无论成功/异常/取消.
-            self._active_executions.pop(exec_key, None)
+            _unregister()
 
     async def _handle_graph_resume(self, params: dict) -> dict:
         # 审计 E-20: 闭合 checkpoint 读路径. 旧版只写不读 (write-only stage),
@@ -1622,8 +1625,10 @@ class DaemonServer:
         if graph is None:
             raise ValueError(f"Graph not found: {graph_id}")
         rt = self._get_runtime()
-        exec_key = f"resume:{graph_id}:{session_id}"
-        self._active_executions[exec_key] = asyncio.current_task()
+        # 审计 P0-12: 旧键 resume:{graph_id}:{session_id} 同 graph+session 并发 resume
+        # 互覆 -> 同 graph.execute 的 id(rt) 碰撞. 改走 register_execution,
+        # fallback id(current_task) 每 task 唯一.
+        exec_key, _unregister = self.register_execution("resume", f"{graph_id}:{session_id}")
         try:
             events = []
             async for event in rt.resume_from_checkpoint(
@@ -1643,7 +1648,7 @@ class DaemonServer:
                 "status": "completed",
             }
         finally:
-            self._active_executions.pop(exec_key, None)
+            _unregister()
 
     def _extract_artifact_id(self, content: str) -> str:
         # #141 priority-4: 从 artifact_create 工具结果 JSON 提取 artifact_id.
