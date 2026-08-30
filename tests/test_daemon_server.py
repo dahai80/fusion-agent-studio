@@ -1224,3 +1224,39 @@ class TestDispatchStrParamsTolerance:
         # params="" 应兜底为 {} -> graph.list 不崩.
         resp = await self._rpc_call_str_params(daemon.socket_path, "graph.list", "")
         assert "result" in resp, resp
+
+
+class TestP0_12ExecKeyCollision:
+    # 审计 P0-12: id(rt) 进程级单例 fallback, 并发同 graph 无 task_id 的多执行
+    # 互覆同一 exec_key. register_execution 用 id(current_task) 每 task 唯一.
+
+    @pytest.mark.asyncio
+    async def test_register_execution_distinct_keys_per_task(self, daemon):
+        # 两个并发 task 同 scope+空 key_id -> 旧版同键互覆, 新版各拿唯一键.
+        keys = []
+
+        async def _register():
+            exec_key, _unreg = daemon.register_execution("graph", "")
+            keys.append(exec_key)
+            await asyncio.sleep(0.05)
+            _unreg()
+
+        await asyncio.gather(_register(), _register())
+        assert len(keys) == 2
+        assert keys[0] != keys[1], f"collision: both keys = {keys[0]}"
+
+    @pytest.mark.asyncio
+    async def test_register_execution_unregister_releases_slot(self, daemon):
+        exec_key, _unreg = daemon.register_execution("graph", "task-1")
+        assert exec_key in daemon._active_executions
+        _unreg()
+        assert exec_key not in daemon._active_executions
+
+    @pytest.mark.asyncio
+    async def test_register_execution_explicit_key_stable(self, daemon):
+        # 有 task_id 时不走 fallback, 同 task_id 多次注册同键 (调用方职责去重).
+        k1, u1 = daemon.register_execution("graph", "task-7")
+        k2, u2 = daemon.register_execution("graph", "task-7")
+        assert k1 == k2 == "graph:task-7"
+        u1()
+        u2()
