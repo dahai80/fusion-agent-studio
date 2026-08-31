@@ -114,13 +114,12 @@ start() {
     export FUSION_PLUGINS_ENABLE="${FUSION_PLUGINS_ENABLE:-1}"
     log_info "safety: injection=${FUSION_SAFETY_INJECTION} level=${FUSION_SAFETY_LEVEL} plugins=${FUSION_PLUGINS_ENABLE}"
 
-    # #246 运维告警: 端口 11435 冲突。daemon WS_PORT 默认 11435 (WS 默认关,
-    # FUSION_ENABLE_WS=1 才起); fusion-memory fm-server 默认 FUSION_MEMORY_HTTP_PORT
-    # 也是 11435。若同时开 WS + fm-server 默认口, 其中一方 bind 失败。
-    # 解法: 二选一改口 —— FUSION_WS_PORT 改 daemon WS, 或 FUSION_MEMORY_HTTP_PORT
-    # 改 fm-server。WS 默认关, 故默认无冲突; 此处仅前向提示。
-    if [[ "${FUSION_ENABLE_WS:-0}" == "1" && -n "${FUSION_MEMORY_API_KEY:-}" ]]; then
-        log_warn "WS (11435) 与 fusion-memory fm-server (11435) 同端口, 二者须改其一 (FUSION_WS_PORT / FUSION_MEMORY_HTTP_PORT)"
+    # #265: daemon WS_PORT 默认从 11435 移到 11437, 避开 fusion-memory fm-server
+    # 默认 11435 (3 downstream 客户端依赖). WS 默认关 (FUSION_ENABLE_WS=1 才起),
+    # 起时默认 11437 不再与 fm-server 冲突. 仅当用户显式 FUSION_WS_PORT=11435
+    # 覆盖时才可能撞 fm-server —— 此处前向提示。
+    if [[ "${FUSION_ENABLE_WS:-0}" == "1" && "${FUSION_WS_PORT:-11437}" == "11435" ]]; then
+        log_warn "FUSION_WS_PORT=11435 与 fusion-memory fm-server 默认口同端口, 二者须改其一 (FUSION_WS_PORT / FUSION_MEMORY_HTTP_PORT)"
     fi
 
     # 运维修补：清掉 shell 继承的 FUSION_MLX_API_KEY（可能过期 → daemon 调 mlx_script 401）。

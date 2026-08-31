@@ -41,7 +41,7 @@ from .runtime import AgentRuntime
 logger = logging.getLogger(__name__)
 
 SOCKET_PATH = "/tmp/fusion-studio.sock"
-WS_PORT = 11435
+WS_PORT = 11437  # #265: moved off 11435 (fusion-memory fm-server default) to avoid EADDRINUSE
 WS_MAGIC = "258EAFA5-E914-47DA-95CA-5AB5DC65B283"
 
 # #209: peer credential constants. macOS LOCAL_PEERCRED (SOL_LOCAL=0).
@@ -111,10 +111,11 @@ def _resolve_socket_path(default: str = SOCKET_PATH) -> str:
 
 
 def _ws_enabled() -> bool:
-    # 审计 D-1: WS TCP 11435 默认关闭. 原 WS 无鉴权不校验 peer-UID, 任意本机
+    # 审计 D-1: WS TCP 11437 默认关闭. 原 WS 无鉴权不校验 peer-UID, 任意本机
     # 进程可经 chat.stream 接管完整 agent 循环 (RCE). 默认关, 显式 env
     # FUSION_ENABLE_WS=1 才起. 起时必须同时设 FUSION_WS_TOKEN 共享密钥,
     # 客户端首帧须携带 Sec-WebSocket-Protocol 头带 token, 否则握手拒.
+    # #265: 端口从 11435 移到 11437, 避开 fusion-memory fm-server 默认 11435.
     return os.environ.get("FUSION_ENABLE_WS", "").strip().lower() in (
         "1",
         "true",
