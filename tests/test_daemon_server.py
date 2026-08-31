@@ -307,7 +307,7 @@ class TestDaemonMLX:
         d = DaemonServer(socket_path="/tmp/_nonexistent.sock")
         assert d.http_port == 11455, "agent-studio HTTP must listen on 11455 (PORT_ALLOCATION)"
         assert d.cluster_port == 11457, "cluster port must avoid fusion-security 11454"
-        assert d.ws_port == 11435
+        assert d.ws_port == 11437, "WS port moved off 11435 (#265) to avoid fusion-memory fm-server"
 
     @pytest.mark.asyncio
     @pytest.mark.skipif(
