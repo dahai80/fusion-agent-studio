@@ -202,12 +202,11 @@ class TrainingService:
     # ------------------------------------------------------------------
 
     def run_manager(self):
-        """Lazily build a single RunManager (fusion_trainer.run_manager)."""
         rm = getattr(self, "_run_manager", None)
         if rm is None:
-            from fusion_trainer.run_manager import RunManager
+            from fusion_trainer.run_manager import get_run_manager
 
-            rm = RunManager()
+            rm = get_run_manager()
             self._run_manager = rm
         return rm
 
