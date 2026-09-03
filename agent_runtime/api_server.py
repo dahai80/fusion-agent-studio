@@ -1415,6 +1415,122 @@ async def api_v1_test_agent(
     return await v1_test_agent(agent_id, project_id, kb_id, message)
 
 
+# ── #274: Chat↔FSB integration HTTP endpoints (env-gated FUSION_FSB_ENABLED) ──
+
+
+class FSBBindRequest(BaseModel):
+    workspace_id: str
+    agent_id: str
+    session_id: str = ""
+
+
+class FSBUnbindRequest(BaseModel):
+    workspace_id: str
+
+
+class FSBChatRunRequest(BaseModel):
+    workspace_id: str
+    query: str
+    input_data: dict = {}
+
+
+class FSBNotifyRequest(BaseModel):
+    workspaceId: str
+    agentId: str = ""
+    event: str = ""
+    run: dict = {}
+
+
+@app.post("/api/v1/chat/agent/bind", dependencies=[Depends(_require_auth_if_configured)])
+async def api_v1_chat_agent_bind(req: FSBBindRequest):
+    # #274: consumed by FSB to register workspace↔agent mapping on chat side.
+    # Also calls FSB bind upstream when FSB enabled (round-trip both sides).
+    from agent_runtime.fsb_client import get_fsb_client, is_fsb_enabled
+    from agent_runtime.workspace_binder import get_workspace_binder
+
+    binder = get_workspace_binder()
+    binder.bind(req.workspace_id, req.agent_id, req.session_id or None)
+    if req.session_id and _daemon is not None:
+        engine = _daemon._get_chat_engine()
+        session = engine.get_session(req.session_id)
+        if session is not None:
+            session.metadata["fsb_workspace_id"] = req.workspace_id
+            session.metadata["fsb_agent_id"] = req.agent_id
+    upstream = None
+    if is_fsb_enabled():
+        upstream = get_fsb_client().bind(req.workspace_id, req.agent_id)
+    logger.info("chat.agent.bind ws=%s agent=%s fsb=%s", req.workspace_id, req.agent_id, is_fsb_enabled())
+    return {"status": "ok", "bound": True, "upstream": upstream}
+
+
+@app.post("/api/v1/chat/agent/unbind", dependencies=[Depends(_require_auth_if_configured)])
+async def api_v1_chat_agent_unbind(req: FSBUnbindRequest):
+    from agent_runtime.fsb_client import get_fsb_client, is_fsb_enabled
+    from agent_runtime.workspace_binder import get_workspace_binder
+
+    binder = get_workspace_binder()
+    binder.unbind(req.workspace_id)
+    upstream = None
+    if is_fsb_enabled():
+        upstream = get_fsb_client().unbind(req.workspace_id)
+    logger.info("chat.agent.unbind ws=%s", req.workspace_id)
+    return {"status": "ok", "bound": False, "upstream": upstream}
+
+
+@app.post("/api/v1/chat/run", dependencies=[Depends(_require_auth_if_configured)])
+async def api_v1_chat_run(req: FSBChatRunRequest):
+    # #274: NL query -> FSB intent match -> workflow run. Fail-soft.
+    from agent_runtime.fsb_client import get_fsb_client, is_fsb_enabled
+
+    if not is_fsb_enabled():
+        return {"status": "disabled", "matched": False}
+    result = get_fsb_client().chat_run(req.workspace_id, req.query, req.input_data)
+    if result is None:
+        return {"status": "error", "matched": False, "message": "fsb unreachable"}
+    return {"status": "ok", **result}
+
+
+@app.post("/api/v1/chat/notify")
+async def api_v1_chat_notify(req: FSBNotifyRequest):
+    # #274: inbound — FSB run-completion hook. Pushes a "workflow completed"
+    # assistant message into the bound chat session. Fail-soft (logged, 200).
+    from agent_runtime.workspace_binder import get_workspace_binder
+
+    binder = get_workspace_binder()
+    binding = binder.get(req.workspaceId)
+    if binding is None:
+        logger.info("chat.notify ws=%s no binding (ignored)", req.workspaceId)
+        return {"status": "ok", "delivered": False, "reason": "no binding"}
+    session_id = binding.get("session_id")
+    if not session_id or _daemon is None:
+        logger.info("chat.notify ws=%s no session bound", req.workspaceId)
+        return {"status": "ok", "delivered": False, "reason": "no session"}
+    engine = _daemon._get_chat_engine()
+    session = engine.get_session(session_id)
+    if session is None:
+        logger.warning("chat.notify ws=%s session=%s not found", req.workspaceId, session_id)
+        return {"status": "ok", "delivered": False, "reason": "session not found"}
+    # Synthesize a system/assistant message describing the run completion.
+    run = req.run or {}
+    run_id = run.get("id", "")
+    workflow = run.get("workflow", {})
+    wf_name = workflow.get("name", "") if isinstance(workflow, dict) else str(workflow)
+    status = run.get("status", req.event)
+    from agent_runtime.chat_engine import ChatMessage
+
+    notify_text = f"✅ Workflow completed: {wf_name} (run {run_id}, status: {status})"
+    session.add_message(ChatMessage(role="assistant", content=notify_text, mode="simple"))
+    engine._persist_session(session)
+    # Broadcast to live WS listeners on this session.
+    if hasattr(_daemon, "_broadcast_event"):
+        await _daemon._broadcast_event(
+            "chat_notify",
+            {"session_id": session_id, "workspace_id": req.workspaceId, "run": run, "message": notify_text},
+        )
+    logger.info("chat.notify delivered ws=%s session=%s run=%s", req.workspaceId, session_id, run_id)
+    return {"status": "ok", "delivered": True, "session_id": session_id}
+
+
 def run_server(host: str = "127.0.0.1", port: int = 11455):
     import uvicorn
 
