@@ -70,6 +70,16 @@ app.add_middleware(
     allow_headers=["x-api-key", "content-type", "authorization"],
 )
 
+# #271: env-gated multi-tenant identity. FUSION_IDENTITY_ENABLED=1 installs the
+# fusion-core TenantMiddleware (X-Tenant-Id header + bearer JWT verify via
+# fusion-identity:11470). Unset = current local ApiKeyManager behavior unchanged.
+try:
+    from agent_runtime.identity_integration import install_identity_middleware
+
+    install_identity_middleware(app)
+except Exception as _identity_err:  # noqa: BLE001 — never block server boot
+    logger.warning("identity middleware install skipped: %s", _identity_err)
+
 
 class GraphCreateRequest(BaseModel):
     name: str = ""

@@ -93,6 +93,23 @@ class GuardSafetyBackend:
         self._available: bool | None = None
         self._connect()
 
+    def _resolve_tenant_id(self) -> str | None:
+        # #271: identity on -> source tenant_id from verified TenantContext (set by
+        # fusion-core TenantMiddleware per-request contextvar). Identity off or no
+        # active context -> fall back to caller-supplied self._tenant_id.
+        try:
+            from agent_runtime.identity_integration import is_identity_enabled
+
+            if is_identity_enabled():
+                from fusion_core.tenant.context import current
+
+                ctx = current()
+                if ctx is not None:
+                    return ctx.tenant_id
+        except Exception as e:
+            logger.debug("resolve tenant context failed: %s", e)
+        return self._tenant_id
+
     # --- connection + rules cache ---
 
     def _connect(self) -> None:
@@ -198,7 +215,7 @@ class GuardSafetyBackend:
             gv = self._client.evaluate(
                 content=content,
                 caller_epoch=self._epoch,
-                tenant_id=self._tenant_id,
+                tenant_id=self._resolve_tenant_id(),
                 requester=self._requester,
                 content_type=content_type,
                 category_hint=category if category else None,
@@ -211,7 +228,7 @@ class GuardSafetyBackend:
                 gv = self._client.evaluate(
                     content=content,
                     caller_epoch=self._epoch,
-                    tenant_id=self._tenant_id,
+                    tenant_id=self._resolve_tenant_id(),
                     requester=self._requester,
                     content_type=content_type,
                     category_hint=category if category else None,
@@ -276,7 +293,7 @@ class GuardSafetyBackend:
                 action_id=action_id,
                 approved=approved,
                 approved_by=approved_by,
-                tenant_id=self._tenant_id,
+                tenant_id=self._resolve_tenant_id(),
             )
             logger.info("GuardSafetyBackend.confirm: action_id=%s approved=%s", action_id, approved)
             return True
