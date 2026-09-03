@@ -47,6 +47,7 @@ class TestInstallMiddleware:
         app.add_middleware.assert_not_called()
 
     def test_enabled_installs(self, monkeypatch):
+        pytest.importorskip("fusion_core")
         monkeypatch.setenv("FUSION_IDENTITY_ENABLED", "1")
         from agent_runtime.identity_integration import install_identity_middleware
 
@@ -168,6 +169,7 @@ class TestGuardTenantResolution:
         assert mock_client.evaluate.call_args.kwargs["tenant_id"] == "caller-tid"
 
     def test_identity_on_sources_from_context(self, monkeypatch):
+        pytest.importorskip("fusion_core")
         monkeypatch.setenv("FUSION_IDENTITY_ENABLED", "1")
         from agent_runtime.guard_client import GuardSafetyBackend
 
@@ -186,6 +188,7 @@ class TestGuardTenantResolution:
         assert mock_client.evaluate.call_args.kwargs["tenant_id"] == "ctx-tenant"
 
     def test_identity_on_no_context_falls_back(self, monkeypatch):
+        pytest.importorskip("fusion_core")
         monkeypatch.setenv("FUSION_IDENTITY_ENABLED", "1")
         from agent_runtime.guard_client import GuardSafetyBackend
 
