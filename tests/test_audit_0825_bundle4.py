@@ -190,17 +190,25 @@ class TestR2CronParallel:
         cm.close()
 
 
-# 3M-5 cron UTC tz-aware
+# 3M-5 cron tz-aware (#270: default local tz, not hardcoded UTC)
 class Test3M5CronUtc:
-    def test_cron_tz_default_utc(self):
+    def test_cron_tz_default_local_not_utc(self, monkeypatch):
+        # #270: unset FUSION_CRON_TZ resolves to system local tz, not UTC.
+        monkeypatch.delenv("FUSION_CRON_TZ", raising=False)
         tz = _cron_tz()
-        assert tz == timezone.utc
+        local_offset = datetime.now().astimezone().utcoffset()
+        assert tz.utcoffset(None) == local_offset
 
-    def test_compute_next_run_tz_aware(self, tmp_path):
+    def test_cron_tz_explicit_utc(self, monkeypatch):
+        monkeypatch.setenv("FUSION_CRON_TZ", "UTC")
+        assert _cron_tz() == timezone.utc
+
+    def test_compute_next_run_tz_aware(self, tmp_path, monkeypatch):
+        # Pin UTC explicitly so the 12:00 assertion is deterministic across machines.
+        monkeypatch.setenv("FUSION_CRON_TZ", "UTC")
         cm = CronManager(db_path=str(tmp_path / "cron.db"))
         nxt = cm._compute_next_run("0 12 * * *")
         assert nxt > time.time()
-        # 每日12:00 UTC -> next_run 落在 12:00 整点.
         dt = datetime.fromtimestamp(nxt, tz=timezone.utc)
         assert dt.minute == 0
         assert dt.hour == 12

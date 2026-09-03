@@ -26,17 +26,52 @@ def _cron_job_timeout() -> float:
     return val
 
 
-def _cron_tz():
-    tz_name = os.environ.get("FUSION_CRON_TZ", "UTC").strip()
-    if not tz_name or tz_name.upper() == "UTC":
-        return timezone.utc
+def _detect_local_tz():
+    # #270: 解析系统本地时区, 不硬编码 UTC. 优先 datetime.now().astimezone()
+    # 拿到的 tzinfo (含 IANA 名); 退化用 time.localtime().tm_gmtoff 构造固定偏移.
     try:
-        from zoneinfo import ZoneInfo
-
-        return ZoneInfo(tz_name)
+        local = datetime.now().astimezone()
+        tzinfo = local.tzinfo
+        if tzinfo is not None:
+            return tzinfo, _tz_name(tzinfo)
     except Exception as e:
-        logger.warning("FUSION_CRON_TZ '%s' invalid (%s), fallback UTC", tz_name, e)
-        return timezone.utc
+        logger.warning("detect local tz failed (%s), fallback fixed-offset", e)
+    offset = time.localtime().tm_gmtoff
+    return timezone(timedelta(seconds=offset)), f"UTC{offset/3600:+.0f}"
+
+
+def _tz_name(tzinfo):
+    name = getattr(tzinfo, "key", None) or getattr(tzinfo, "tzname", None)
+    if callable(name):
+        try:
+            name = name(datetime.now())
+        except Exception:
+            name = None
+    return name or "local"
+
+
+def _cron_tz():
+    # #270: FUSION_CRON_TZ 未设时默认系统本地时区 (非 UTC), 对齐 systemd/launchd/cron
+    # 通行预期. 显式设 "UTC" 仍用 UTC. 检测到系统非 UTC 且未设 env 时 warn 一次.
+    raw = os.environ.get("FUSION_CRON_TZ")
+    if raw is not None:
+        tz_name = raw.strip()
+        if not tz_name or tz_name.upper() == "UTC":
+            return timezone.utc
+        try:
+            from zoneinfo import ZoneInfo
+
+            return ZoneInfo(tz_name)
+        except Exception as e:
+            logger.warning("FUSION_CRON_TZ '%s' invalid (%s), fallback local", tz_name, e)
+    local_tz, local_name = _detect_local_tz()
+    if local_name and local_name.upper() != "UTC":
+        logger.warning(
+            "FUSION_CRON_TZ unset; cron jobs fire in system local tz '%s' "
+            "(set FUSION_CRON_TZ to override). #270",
+            local_name,
+        )
+    return local_tz
 
 
 @dataclass

@@ -5,13 +5,14 @@ from __future__ import annotations
 import asyncio
 import json
 import tempfile
+from datetime import datetime, timedelta
 from pathlib import Path
 from unittest.mock import AsyncMock
 
 import pytest
 
 from agent_runtime.i18n import I18n
-from agent_runtime.triggers import CronJob, CronManager, Webhook, WebhookManager
+from agent_runtime.triggers import CronJob, CronManager, Webhook, WebhookManager, _cron_tz
 from tools.db_tools import AnnotationNode, PerformanceMonitor, SqliteQueryTool
 
 # ── WebhookManager ──
@@ -157,6 +158,35 @@ class TestCronManager:
         exes = cm.list_executions(job_id="cnone", limit=5)
         assert any(e["status"] == "no_handler" for e in exes)
         cm.close()
+
+
+# ── #270: cron tz defaults to system local, not hardcoded UTC ──
+
+
+class TestCronTzDefault:
+    def test_explicit_utc_env(self, monkeypatch):
+        monkeypatch.setenv("FUSION_CRON_TZ", "UTC")
+        tz = _cron_tz()
+        assert tz.utcoffset(None) == timedelta(0)
+
+    def test_explicit_zone_env(self, monkeypatch):
+        monkeypatch.setenv("FUSION_CRON_TZ", "Asia/Shanghai")
+        tz = _cron_tz()
+        assert str(tz) == "Asia/Shanghai"
+
+    def test_unset_falls_back_to_local_not_utc(self, monkeypatch):
+        # #270: unset FUSION_CRON_TZ must NOT hardcode UTC — should resolve
+        # to system local tz. Compare offset against datetime.now().astimezone().
+        monkeypatch.delenv("FUSION_CRON_TZ", raising=False)
+        tz = _cron_tz()
+        local_offset = datetime.now().astimezone().utcoffset()
+        assert tz.utcoffset(None) == local_offset
+
+    def test_invalid_env_falls_back_to_local(self, monkeypatch):
+        monkeypatch.setenv("FUSION_CRON_TZ", "Bogus/Nowhere")
+        tz = _cron_tz()
+        local_offset = datetime.now().astimezone().utcoffset()
+        assert tz.utcoffset(None) == local_offset
 
     # ── #141 priority-3: register_once (一次性定时 run_at) ──
 
