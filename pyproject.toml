@@ -15,6 +15,15 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# #271: multi-tenant identity (env-gated via FUSION_IDENTITY_ENABLED).
+# fusion-identity + fusion-core are local in-tree packages (not on PyPI),
+# so they live in an optional extra. install with `.[identity]` to enable.
+# Lazy imports + fail-closed (install_identity_middleware catches ImportError)
+# mean their absence degrades gracefully to local ApiKeyManager in CI/local-dev.
+identity = [
+    "fusion-identity>=0.1.0",
+    "fusion-core>=0.1.0",
+]
 test = [
     "pytest>=8.0.0",
     "pytest-asyncio>=0.23.0",
