@@ -24,6 +24,11 @@ class ChatDispatcher(SubDispatcher):
             "chat.branches": self._handle_chat_branches,
             "chat.message_tree": self._handle_chat_message_tree,
             "chat.history": self._handle_chat_message_tree,
+            # #274: Chat↔FSB integration (env-gated FUSION_FSB_ENABLED).
+            "chat.fsb_bind": self._handle_fsb_bind,
+            "chat.fsb_unbind": self._handle_fsb_unbind,
+            "chat.fsb_run": self._handle_fsb_run,
+            "chat.fsb_status": self._handle_fsb_status,
             "session.create": self._handle_chat_create,
             "style.list": self._handle_style_list,
             "style.get": self._handle_style_get,
@@ -178,5 +183,73 @@ class ChatDispatcher(SubDispatcher):
         style_id = params.get("style_id", "")
         system_prompt = params.get("system_prompt", "")
         return mgr.apply(system_prompt, style_id)
+
+    # ── #274: Chat↔FSB integration (env-gated FUSION_FSB_ENABLED) ──
+
+    async def _handle_fsb_bind(self, params: dict) -> dict:
+        # Register workspace↔agent binding locally + call FSB bind upstream.
+        # FSB off -> returns disabled (chat works without FSB).
+        from agent_runtime.fsb_client import get_fsb_client, is_fsb_enabled
+        from agent_runtime.workspace_binder import get_workspace_binder
+
+        workspace_id = params.get("workspace_id", "")
+        agent_id = params.get("agent_id", "")
+        session_id = params.get("session_id", "")
+        if not workspace_id or not agent_id:
+            return {"status": "error", "message": "workspace_id and agent_id required"}
+        binder = get_workspace_binder()
+        binder.bind(workspace_id, agent_id, session_id or None)
+        # Stamp chat session metadata so notify can resolve session from workspace.
+        if session_id:
+            engine = self._daemon._get_chat_engine()
+            session = engine.get_session(session_id)
+            if session is not None:
+                session.metadata["fsb_workspace_id"] = workspace_id
+                session.metadata["fsb_agent_id"] = agent_id
+        if not is_fsb_enabled():
+            return {"status": "disabled", "bound": True, "workspace_id": workspace_id}
+        upstream = get_fsb_client().bind(workspace_id, agent_id)
+        return {"status": "ok", "bound": True, "workspace_id": workspace_id, "upstream": upstream}
+
+    async def _handle_fsb_unbind(self, params: dict) -> dict:
+        from agent_runtime.fsb_client import get_fsb_client, is_fsb_enabled
+        from agent_runtime.workspace_binder import get_workspace_binder
+
+        workspace_id = params.get("workspace_id", "")
+        if not workspace_id:
+            return {"status": "error", "message": "workspace_id required"}
+        binder = get_workspace_binder()
+        binder.unbind(workspace_id)
+        if not is_fsb_enabled():
+            return {"status": "disabled", "bound": False, "workspace_id": workspace_id}
+        upstream = get_fsb_client().unbind(workspace_id)
+        return {"status": "ok", "bound": False, "workspace_id": workspace_id, "upstream": upstream}
+
+    async def _handle_fsb_run(self, params: dict) -> dict:
+        # NL query -> FSB intent match -> workflow run. FSB off/none matched ->
+        # chat shows no-workflow. Never raises (fail-soft).
+        from agent_runtime.fsb_client import get_fsb_client, is_fsb_enabled
+
+        if not is_fsb_enabled():
+            return {"status": "disabled", "matched": False}
+        workspace_id = params.get("workspace_id", "")
+        query = params.get("query", "")
+        input_data = params.get("input_data") or {}
+        if not workspace_id or not query:
+            return {"status": "error", "message": "workspace_id and query required"}
+        result = get_fsb_client().chat_run(workspace_id, query, input_data)
+        if result is None:
+            return {"status": "error", "matched": False, "message": "fsb unreachable"}
+        return {"status": "ok", **result}
+
+    async def _handle_fsb_status(self, params: dict) -> dict:
+        from agent_runtime.fsb_client import is_fsb_enabled
+        from agent_runtime.workspace_binder import get_workspace_binder
+
+        binder = get_workspace_binder()
+        return {
+            "enabled": is_fsb_enabled(),
+            "bindings": binder.list(),
+        }
 
     # ── Alert handlers ──
