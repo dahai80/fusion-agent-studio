@@ -196,3 +196,82 @@ def test_trainer_adapters_delete_requires_name():
     assert asyncio.run(d._handle_adapters_delete({})) == {
         "error": "name parameter required"
     }
+
+
+# ---------------------------------------------------------------------------
+# #277: _build_trainer_config forwards publish-to-hub fields.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.skipif(not _HAS_FUSION_TRAINER, reason="fusion_trainer not installed")
+def test_build_trainer_config_forwards_publish_fields():
+    from fusion_trainer.config import (
+        DatasetConfig,
+        RLSLConfig,
+        SFTConfig,
+        TrainerConfig,
+    )
+
+    from agent_runtime.training_service import _build_trainer_config
+
+    cfg = _build_trainer_config(
+        {
+            "dataset": {"path": "/tmp/d.jsonl"},
+            "publish_adapter": True,
+            "hub_url": "https://hub.example.com",
+            "hub_api_key": "secret-key-123",
+        },
+        DatasetConfig,
+        RLSLConfig,
+        SFTConfig,
+        TrainerConfig,
+    )
+    assert cfg.publish_adapter is True
+    assert cfg.hub_url == "https://hub.example.com"
+    assert cfg.hub_api_key == "secret-key-123"
+
+
+@pytest.mark.skipif(not _HAS_FUSION_TRAINER, reason="fusion_trainer not installed")
+def test_build_trainer_config_defaults_publish_off():
+    from fusion_trainer.config import (
+        DatasetConfig,
+        RLSLConfig,
+        SFTConfig,
+        TrainerConfig,
+    )
+
+    from agent_runtime.training_service import _build_trainer_config
+
+    cfg = _build_trainer_config(
+        {"dataset": {"path": "/tmp/d.jsonl"}},
+        DatasetConfig,
+        RLSLConfig,
+        SFTConfig,
+        TrainerConfig,
+    )
+    assert cfg.publish_adapter is False
+    assert cfg.hub_url == ""
+    assert cfg.hub_api_key == ""
+
+
+@pytest.mark.skipif(not _HAS_FUSION_TRAINER, reason="fusion_trainer not installed")
+def test_build_trainer_config_truthy_non_bool_publish():
+    from fusion_trainer.config import (
+        DatasetConfig,
+        RLSLConfig,
+        SFTConfig,
+        TrainerConfig,
+    )
+
+    from agent_runtime.training_service import _build_trainer_config
+
+    cfg = _build_trainer_config(
+        {"dataset": {"path": "/tmp/d.jsonl"}, "publish_adapter": "true"},
+        DatasetConfig,
+        RLSLConfig,
+        SFTConfig,
+        TrainerConfig,
+    )
+    # bool() coercion — GUI may send string "true".
+    assert cfg.publish_adapter is True
+

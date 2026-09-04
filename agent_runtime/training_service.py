@@ -287,4 +287,9 @@ def _build_trainer_config(
         model_hub_path=d.get("model_hub_path", ""),
         cache_path=d.get("cache_path", ""),
         mlx_port=d.get("mlx_port"),
+        # #277: publish-to-hub fields — forward from RPC payload so GUI-triggered
+        # runs can publish LoRA adapters. hub_api_key is a secret: never log its value.
+        publish_adapter=bool(d.get("publish_adapter", False)),
+        hub_url=d.get("hub_url", ""),
+        hub_api_key=d.get("hub_api_key", ""),
     )
