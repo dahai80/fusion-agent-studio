@@ -60,6 +60,17 @@ class AgentDispatcher(SubDispatcher):
             "agent.diff_review": self._handle_agent_diff_review,
             "permission.list": self._handle_permission_list,
             "permission.update": self._handle_permission_update,
+            # #289: agent version snapshot/versions/restore (agent_studio.* namespace
+            # used by Fusion Studio client, plus plain aliases).
+            "agent_studio.agent.snapshot": self._handle_agent_snapshot,
+            "agent_studio.agent.versions": self._handle_agent_versions,
+            "agent_studio.agent.restore_version": self._handle_agent_restore_version,
+            "agent.snapshot": self._handle_agent_snapshot,
+            "agent.versions": self._handle_agent_versions,
+            "agent.restore_version": self._handle_agent_restore_version,
+            # #290: agent-scoped audit trail + session logs (agent_studio.* namespace).
+            "agent_studio.audit.trail": self._handle_audit_trail,
+            "agent_studio.session.logs": self._handle_session_logs,
         }
 
     async def _handle_agent_create(self, params: dict) -> dict:
@@ -1586,3 +1597,168 @@ class AgentDispatcher(SubDispatcher):
             denied,
         )
         return {"ok": True, "denied_tools": denied}
+
+    # ── #289: agent snapshot / versions / restore_version ──
+
+    def _agent_snapshot_data(self, agent_id: str) -> dict | None:
+        from ..agent_package import AgentPackage
+
+        agent_dir = self._daemon._agent_dir(agent_id)
+        pkg = AgentPackage(agent_dir)
+        if not pkg.exists:
+            return None
+        manifest = pkg.load_manifest()
+        data = manifest.to_dict()
+        data["skills"] = pkg.list_skills()
+        data["has_soul"] = bool(pkg.load_soul().strip())
+        return data
+
+    async def _handle_agent_snapshot(self, params: dict) -> dict:
+        agent_id = params.get("agent_id", "")
+        if not agent_id:
+            return {"status": "error", "message": "agent_id parameter required"}
+        snapshot = self._agent_snapshot_data(agent_id)
+        if snapshot is None:
+            return {"status": "error", "message": f"Agent not found: {agent_id}"}
+        label = params.get("label", "")
+        version_store = self._daemon._get_version_store()
+        record = version_store.save_snapshot(agent_id, snapshot, label=label)
+        logger.info("agent.snapshot: agent=%s version=%s", agent_id, record.version_id)
+        return {"version_id": record.version_id, "snapshot": record.to_dict()}
+
+    async def _handle_agent_versions(self, params: dict) -> dict:
+        agent_id = params.get("agent_id", "")
+        if not agent_id:
+            return {"status": "error", "message": "agent_id parameter required"}
+        version_store = self._daemon._get_version_store()
+        records = version_store.list_versions(agent_id)
+        entries = [r.to_dict() for r in records]
+        logger.info("agent.versions: agent=%s count=%d", agent_id, len(entries))
+        return {"versions": entries, "total": len(entries)}
+
+    async def _handle_agent_restore_version(self, params: dict) -> dict:
+        agent_id = params.get("agent_id", "")
+        version_id = params.get("version_id", "")
+        if not agent_id or not version_id:
+            return {
+                "status": "error",
+                "message": "agent_id and version_id parameters required",
+            }
+        version_store = self._daemon._get_version_store()
+        snapshot = version_store.restore_version(agent_id, version_id)
+        if snapshot is None:
+            return {
+                "status": "error",
+                "message": f"Version not found: {version_id} for agent {agent_id}",
+            }
+        from ..agent_package import AgentPackage
+
+        agent_dir = self._daemon._agent_dir(agent_id)
+        pkg = AgentPackage(agent_dir)
+        if not pkg.exists:
+            return {"status": "error", "message": f"Agent not found: {agent_id}"}
+        manifest = pkg.load_manifest()
+        if isinstance(snapshot, dict):
+            for key in (
+                "name",
+                "model",
+                "system_prompt",
+                "temperature",
+                "max_tokens",
+                "safety_level",
+                "description",
+                "author",
+                "version",
+                "status",
+                "version_int",
+                "published_at",
+                "knowledge_base_ids",
+                "visibility",
+                "rag_strategy",
+                "web_search_enabled",
+                "deep_research_enabled",
+                "connector_ids",
+                "style",
+                "top_p",
+                "context_window",
+                "rate_limit_qps",
+            ):
+                if key in snapshot:
+                    setattr(manifest, key, snapshot[key])
+            if "tools" in snapshot:
+                manifest.tools = snapshot["tools"]
+            if "capabilities" in snapshot:
+                manifest.capabilities = snapshot["capabilities"]
+            if "tags" in snapshot:
+                manifest.tags = snapshot["tags"]
+        pkg.save_manifest(manifest)
+
+        self._daemon._load_agents_index()
+        if agent_id in self._daemon._agents:
+            self._daemon._agents[agent_id].update(manifest.to_dict())
+            self._daemon._persist_agents_index()
+
+        logger.info(
+            "agent.restore_version: agent=%s version=%s", agent_id, version_id
+        )
+        result = manifest.to_dict()
+        result["id"] = agent_id
+        result["skills"] = pkg.list_skills()
+        result["has_soul"] = bool(pkg.load_soul().strip())
+        return {"restored": True, "agent": result}
+
+    # ── #290: agent-scoped audit trail + session logs ──
+
+    @staticmethod
+    def _parse_date_bound(value: str, default: float) -> float:
+        if not value:
+            return default
+        for fmt in ("%Y-%m-%d", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%dT%H:%M:%S.%f"):
+            try:
+                import datetime
+
+                return datetime.datetime.strptime(value, fmt).timestamp()
+            except (ValueError, TypeError):
+                continue
+        return default
+
+    async def _handle_audit_trail(self, params: dict) -> dict:
+        agent_id = params.get("agent_id", "")
+        start_date = params.get("start_date", "")
+        end_date = params.get("end_date", "")
+        limit = int(params.get("limit", 100) or 100)
+        audit = self._daemon._get_audit_logger()
+        kwargs: dict = {"limit": limit}
+        if agent_id:
+            kwargs["resource_id"] = agent_id
+        if start_date:
+            kwargs["since"] = self._parse_date_bound(start_date, 0.0)
+        if end_date:
+            kwargs["until"] = self._parse_date_bound(end_date, time.time())
+        result = audit.query_logs(**kwargs)
+        entries = result.get("data", []) if isinstance(result, dict) else []
+        logger.info(
+            "audit.trail: agent=%s entries=%d", agent_id, len(entries)
+        )
+        return {"entries": entries, "total": len(entries)}
+
+    async def _handle_session_logs(self, params: dict) -> dict:
+        agent_id = params.get("agent_id", "")
+        start_date = params.get("start_date", "")
+        end_date = params.get("end_date", "")
+        limit = int(params.get("limit", 100) or 100)
+        tracker = self._daemon._get_status_tracker()
+        history = tracker.get_history(agent_id, limit=limit) if agent_id else []
+        entries = []
+        since = self._parse_date_bound(start_date, 0.0)
+        until = self._parse_date_bound(end_date, time.time())
+        for h in history:
+            hd = h.to_dict() if hasattr(h, "to_dict") else h
+            started = hd.get("started_at", 0.0)
+            if started and (started < since or started > until):
+                continue
+            entries.append(hd)
+        logger.info(
+            "session.logs: agent=%s entries=%d", agent_id, len(entries)
+        )
+        return {"sessions": entries, "total": len(entries)}

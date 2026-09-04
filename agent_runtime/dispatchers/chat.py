@@ -34,6 +34,7 @@ class ChatDispatcher(SubDispatcher):
             "style.get": self._handle_style_get,
             "style.create": self._handle_style_create,
             "style.apply": self._handle_style_apply,
+            "style.delete": self._handle_style_delete,
         }
 
     async def _handle_chat_create(self, params: dict) -> dict:
@@ -183,6 +184,17 @@ class ChatDispatcher(SubDispatcher):
         style_id = params.get("style_id", "")
         system_prompt = params.get("system_prompt", "")
         return mgr.apply(system_prompt, style_id)
+
+    async def _handle_style_delete(self, params: dict) -> dict:
+        mgr = self._daemon._get_style_manager()
+        style_id = params.get("style_id", "")
+        if not style_id:
+            return {"status": "error", "message": "style_id parameter required"}
+        deleted = mgr.delete(style_id)
+        if not deleted:
+            return {"status": "error", "message": f"Style not found or not deletable: {style_id}"}
+        logger.info("style.delete: id=%s", style_id)
+        return {"deleted": True, "style_id": style_id}
 
     # ── #274: Chat↔FSB integration (env-gated FUSION_FSB_ENABLED) ──
 
