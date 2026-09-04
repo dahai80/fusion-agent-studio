@@ -857,12 +857,37 @@ class DaemonServer:
         if handler is None:
             return self._error_response(msg_id, -32601, f"Method not found: {method}")
 
+        # #279: consume `_auth` (jwt/tid) from params when identity is enabled.
+        # Sets a TenantContext for the handler call; rejects invalid JWT with a
+        # 401-style error. No `_auth` (logged-out/legacy) -> current behavior.
+        auth_token = None
+        try:
+            from .identity_integration import consume_rpc_auth
+            auth_token = consume_rpc_auth(params)
+        except RuntimeError as e:
+            logger.warning("rpc auth rejected for %s: %s", method, e)
+            return self._error_response(msg_id, -32001, f"Auth rejected: {e}")
+        except Exception as e:
+            # identity_integration import / fusion_core absent -> fail-open (local-dev).
+            logger.debug("rpc auth skipped: %s", e)
+
+        # Strip `_auth` so handlers never see the caller's credentials.
+        if auth_token is not None and isinstance(params, dict):
+            params.pop("_auth", None)
+
         try:
             result = await handler(params)
             return self._success_response(msg_id, result)
         except Exception as e:
             logger.exception("Handler error for %s", method)
             return self._error_response(msg_id, -32000, str(e))
+        finally:
+            if auth_token is not None:
+                try:
+                    from .identity_integration import reset_rpc_auth
+                    reset_rpc_auth(auth_token)
+                except Exception:
+                    pass
 
     def _core_handlers(self) -> dict:
         # 审计 E-17: 核心 RPC handler dict 原两处重复 (_get_handler +

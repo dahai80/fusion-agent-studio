@@ -203,3 +203,152 @@ class TestGuardTenantResolution:
         with patch("fusion_core.tenant.context.current", return_value=None):
             backend.evaluate(category="command", content="ls")
         assert mock_client.evaluate.call_args.kwargs["tenant_id"] == "caller-tid"
+
+
+# ── #279: consume_rpc_auth / reset_rpc_auth ──
+
+
+class TestConsumeRpcAuth:
+    def test_identity_off_returns_none(self, monkeypatch):
+        monkeypatch.delenv("FUSION_IDENTITY_ENABLED", raising=False)
+        from agent_runtime.identity_integration import consume_rpc_auth
+
+        assert consume_rpc_auth({"_auth": {"jwt": "x"}}) is None
+
+    def test_no_auth_key_returns_none(self, monkeypatch):
+        monkeypatch.setenv("FUSION_IDENTITY_ENABLED", "1")
+        from agent_runtime.identity_integration import consume_rpc_auth
+
+        assert consume_rpc_auth({}) is None
+        assert consume_rpc_auth({"other": 1}) is None
+
+    def test_empty_auth_returns_none(self, monkeypatch):
+        monkeypatch.setenv("FUSION_IDENTITY_ENABLED", "1")
+        from agent_runtime.identity_integration import consume_rpc_auth
+
+        assert consume_rpc_auth({"_auth": {}}) is None
+
+    def test_missing_jwt_raises(self, monkeypatch):
+        monkeypatch.setenv("FUSION_IDENTITY_ENABLED", "1")
+        from agent_runtime.identity_integration import consume_rpc_auth
+
+        with pytest.raises(RuntimeError, match="missing jwt"):
+            consume_rpc_auth({"_auth": {"tid": "t1"}})
+
+    def test_invalid_jwt_raises_runtime(self, monkeypatch):
+        monkeypatch.setenv("FUSION_IDENTITY_ENABLED", "1")
+        monkeypatch.setenv("FUSION_IDENTITY_SERVICE_TOKEN", "svc-secret")
+        from agent_runtime.identity_integration import consume_rpc_auth
+
+        resp = MagicMock(status_code=401, text="revoked")
+        with patch("httpx.post", return_value=resp):
+            with pytest.raises(RuntimeError):
+                consume_rpc_auth({"_auth": {"jwt": "bad"}})
+
+    def test_valid_jwt_binds_context(self, monkeypatch):
+        pytest.importorskip("fusion_core")
+        from fusion_core.tenant.context import current
+
+        monkeypatch.setenv("FUSION_IDENTITY_ENABLED", "1")
+        monkeypatch.setenv("FUSION_IDENTITY_SERVICE_TOKEN", "svc-secret")
+        from agent_runtime.identity_integration import (
+            consume_rpc_auth,
+            reset_rpc_auth,
+        )
+
+        resp = MagicMock(status_code=200)
+        resp.json.return_value = {
+            "claims": {"tid": "tenant-x", "role": "admin"}
+        }
+        with patch("httpx.post", return_value=resp):
+            token = consume_rpc_auth({"_auth": {"jwt": "valid"}})
+
+        assert token is not None
+        ctx = current()
+        assert ctx.tenant_id == "tenant-x"
+        # reset clears the bound context
+        reset_rpc_auth(token)
+        assert current() is None
+
+    def test_reset_none_is_noop(self, monkeypatch):
+        from agent_runtime.identity_integration import reset_rpc_auth
+
+        reset_rpc_auth(None)  # must not raise
+
+
+# ── #279: _dispatch auth wiring (DaemonServer) ──
+
+
+class TestDispatchAuth:
+    def _make_server(self):
+        from agent_runtime.daemon_server import DaemonServer
+
+        return DaemonServer(store_path="/tmp/test_dispatch_auth.db")
+
+    def test_dispatch_no_auth_identity_off_unscoped(self, monkeypatch):
+        monkeypatch.delenv("FUSION_IDENTITY_ENABLED", raising=False)
+        srv = self._make_server()
+        seen = {}
+
+        async def fake_handler(params):
+            seen["params"] = params
+            return {"ok": True}
+
+        monkeypatch.setattr(srv, "_get_handler", lambda m: fake_handler)
+        msg = {"jsonrpc": "2.0", "id": 1, "method": "noop", "params": {}}
+        result = __import__("asyncio").run(srv._dispatch(msg))
+        assert result["result"] == {"ok": True}
+
+    def test_dispatch_valid_auth_strips_and_succeeds(self, monkeypatch):
+        pytest.importorskip("fusion_core")
+        monkeypatch.setenv("FUSION_IDENTITY_ENABLED", "1")
+        monkeypatch.setenv("FUSION_IDENTITY_SERVICE_TOKEN", "svc-secret")
+        srv = self._make_server()
+        seen = {}
+
+        async def fake_handler(params):
+            seen["params"] = params
+            return {"ok": True}
+
+        monkeypatch.setattr(srv, "_get_handler", lambda m: fake_handler)
+        resp = MagicMock(status_code=200)
+        resp.json.return_value = {
+            "claims": {"tid": "tenant-x", "role": "admin"}
+        }
+        with patch("httpx.post", return_value=resp):
+            msg = {
+                "jsonrpc": "2.0",
+                "id": 2,
+                "method": "noop",
+                "params": {"_auth": {"jwt": "valid"}, "keep": 1},
+            }
+            result = __import__("asyncio").run(srv._dispatch(msg))
+        assert result["result"] == {"ok": True}
+        # _auth stripped from params passed to handler; real params kept
+        assert "_auth" not in seen["params"]
+        assert seen["params"]["keep"] == 1
+
+    def test_dispatch_invalid_auth_returns_401_style(self, monkeypatch):
+        monkeypatch.setenv("FUSION_IDENTITY_ENABLED", "1")
+        monkeypatch.setenv("FUSION_IDENTITY_SERVICE_TOKEN", "svc-secret")
+        srv = self._make_server()
+        called = {"n": 0}
+
+        async def fake_handler(params):
+            called["n"] += 1
+            return {"ok": True}
+
+        monkeypatch.setattr(srv, "_get_handler", lambda m: fake_handler)
+        resp = MagicMock(status_code=401, text="revoked")
+        with patch("httpx.post", return_value=resp):
+            msg = {
+                "jsonrpc": "2.0",
+                "id": 3,
+                "method": "noop",
+                "params": {"_auth": {"jwt": "bad"}},
+            }
+            result = __import__("asyncio").run(srv._dispatch(msg))
+        assert result["error"]["code"] == -32001
+        assert "Auth rejected" in result["error"]["message"]
+        # handler must NOT be called on auth reject
+        assert called["n"] == 0

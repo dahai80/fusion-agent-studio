@@ -91,6 +91,48 @@ def report_usage(tenant_id: str, tokens: int, agent_id: str | None = None) -> No
         logger.debug("usage report failed (best-effort): %s", e)
 
 
+def consume_rpc_auth(params: dict[str, Any]) -> Any:
+    """#279: consume `_auth` (jwt/tid) from a JSON-RPC params payload.
+
+    Env-gated (FUSION_IDENTITY_ENABLED). When identity is on AND params carry
+    an `_auth` object, verify the JWT via fusion-identity and bind a
+    TenantContext for the duration of the handler call. Returns a contextvar
+    token to reset after the call (or None when no context was set).
+
+    Behavior:
+    - identity off, or no `_auth` -> None (current unscoped behavior preserved).
+    - identity on, `_auth` present, valid JWT -> TenantContext set, token returned.
+    - identity on, `_auth` present, invalid/expired/unreachable -> raises
+      RuntimeError; the caller should return a 401-style JSON-RPC error.
+    """
+    if not is_identity_enabled():
+        return None
+    auth = params.get("_auth")
+    if not isinstance(auth, dict) or not auth:
+        return None
+    jwt = auth.get("jwt", "")
+    if not jwt:
+        raise RuntimeError("auth missing jwt")
+    claims = verify_identity_jwt(jwt)
+    # from_mapping wants tid/tenant; verify_identity_jwt already enforced tid.
+    from fusion_core.tenant.context import from_mapping, set_context
+    ctx = from_mapping(claims)
+    token = set_context(ctx)
+    logger.info("rpc auth bound tid=%s", ctx.tenant_id)
+    return token
+
+
+def reset_rpc_auth(token: Any) -> None:
+    """#279: reset the TenantContext set by consume_rpc_auth (finally block)."""
+    if token is None:
+        return
+    try:
+        from fusion_core.tenant.context import reset as _reset
+        _reset(token)
+    except Exception as e:
+        logger.debug("rpc auth reset failed: %s", e)
+
+
 def install_identity_middleware(app: Any) -> bool:
     """Wire install_tenant_middleware on app when identity enabled.
 
