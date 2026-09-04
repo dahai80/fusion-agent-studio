@@ -73,6 +73,91 @@ def _get_event_source() -> Any:
     return CGEventSourceCreate(CGEventSourceStateID.kCGEventSourceStateHIDSystemState)
 
 
+def _ax_locator_enabled() -> bool:
+    # #282: AX-tree-backed locator mode is opt-in (env-gated). Unset = raw
+    # coordinate mode (current behavior), so CI/local-dev stay unchanged.
+    import os
+
+    return os.environ.get("FUSION_AX_LOCATOR_ENABLED", "0").strip() == "1"
+
+
+def _resolve_ax_locator(locator: Any) -> tuple[int, int] | str:
+    """#282: resolve a semantic locator to (x, y) via fusion-executor AX tree.
+
+    `locator` is a dict like {"ax_label": "Submit", "ax_role": "AXButton"} or
+    a string semantic query. Calls fusion_executor gui_action({"kind":
+    "inspect_tree"}) and searches the returned node_tree for a matching AX node,
+    then reads its frame center. Returns (x, y) on success, or an "Error: ..."
+    string on failure (fusion_executor absent, no match, no frame).
+    """
+    try:
+        from fusion_executor import Executor
+    except ImportError as e:
+        return f"Error: fusion_executor not installed ({e}); cannot resolve AX locator"
+    try:
+        ex = Executor()
+        res = ex.gui_action({"kind": "inspect_tree"})
+        tree = getattr(res, "node_tree", None) or ""
+        if not tree:
+            return "Error: AX inspect_tree returned empty node_tree"
+    except Exception as e:
+        return f"Error: AX inspect_tree failed: {e}"
+
+    # node_tree is a text/json dump of AXUI nodes; each node carries a frame.
+    # Search by label substring or role. This is a best-effort parse; the exact
+    # format is owned by fusion-executor, so we scan for frame coordinates near
+    # the matched marker rather than assuming a fixed schema.
+    import json as _json
+
+    query = ""
+    role_filter = ""
+    if isinstance(locator, dict):
+        query = str(locator.get("ax_label", locator.get("query", "")))
+        role_filter = str(locator.get("ax_role", ""))
+    else:
+        query = str(locator)
+    if not query and not role_filter:
+        return "Error: locator has no ax_label/query/ax_role"
+
+    try:
+        nodes = _json.loads(tree) if tree.strip().startswith("[") else None
+    except (ValueError, TypeError):
+        nodes = None
+
+    if isinstance(nodes, list):
+        for n in nodes:
+            label = str(n.get("ax_label", n.get("title", n.get("label", ""))))
+            role = str(n.get("ax_role", n.get("role", "")))
+            if query and query.lower() not in label.lower():
+                continue
+            if role_filter and role_filter.lower() not in role.lower():
+                continue
+            frame = n.get("frame") or n.get("rect") or n.get("bounds")
+            if isinstance(frame, dict) and "x" in frame and "y" in frame:
+                w = float(frame.get("width", 0))
+                hgt = float(frame.get("height", 0))
+                cx = int(frame["x"] + w / 2)
+                cy = int(frame["y"] + hgt / 2)
+                logger.info(
+                    "AX locator resolved query=%s -> (%d,%d) via node %s",
+                    query,
+                    cx,
+                    cy,
+                    role,
+                )
+                return (cx, cy)
+        return f"Error: AX locator no match for query={query!r} role={role_filter!r}"
+
+    # Fallback: text-tree scan — find the query marker, then the nearest frame.
+    if query and query.lower() in tree.lower():
+        logger.info(
+            "AX locator text-match for %r (structured frame parse unavailable)",
+            query,
+        )
+        return f"Error: AX locator matched {query!r} but frame coords not parseable from text tree"
+    return f"Error: AX locator no match for query={query!r} in text tree"
+
+
 class ScreenCaptureTool(BaseTool):
     name = "screen_capture"
     description = "Capture a screenshot of the entire screen or a specific region. Returns a base64-encoded PNG image."
@@ -194,6 +279,12 @@ class MouseTool(BaseTool):
             "description": "Mouse button: 'left' (default), 'right', 'middle'",
             "default": "left",
         },
+        "locator": {
+            "type": "object",
+            "description": "#282: optional AX-tree locator (env-gated FUSION_AX_LOCATOR_ENABLED). "
+            "Resolves target via fusion-executor inspect_tree before issuing CGEvent. "
+            "e.g. {\"ax_label\": \"Submit\", \"ax_role\": \"AXButton\"}. Overrides x/y when set.",
+        },
     }
 
     async def execute(self, **kwargs) -> str:
@@ -205,6 +296,15 @@ class MouseTool(BaseTool):
         x = int(kwargs.get("x", 0))
         y = int(kwargs.get("y", 0))
         button = kwargs.get("button", "left")
+        # #282: AX-tree locator mode. When enabled and a locator is provided,
+        # resolve (x, y) from the AX tree; fall back to raw coords on error.
+        locator = kwargs.get("locator")
+        if locator and _ax_locator_enabled():
+            resolved = _resolve_ax_locator(locator)
+            if isinstance(resolved, tuple):
+                x, y = resolved
+            else:
+                logger.warning("AX locator failed, falling back to raw coords: %s", resolved)
 
         try:
             source = _get_event_source()
@@ -335,6 +435,12 @@ class KeyboardTool(BaseTool):
             "description": "Delay between keystrokes in milliseconds (default: 20)",
             "default": 20,
         },
+        "locator": {
+            "type": "object",
+            "description": "#282: optional AX-tree locator (env-gated FUSION_AX_LOCATOR_ENABLED). "
+            "Resolves a focus target via fusion-executor inspect_tree and clicks it "
+            "to focus before typing. e.g. {\"ax_label\": \"Search\", \"ax_role\": \"AXTextField\"}.",
+        },
     }
 
     async def execute(self, **kwargs) -> str:
@@ -344,6 +450,38 @@ class KeyboardTool(BaseTool):
 
         action = kwargs.get("action", "")
         delay_ms = int(kwargs.get("delay_ms", 20)) / 1000.0
+        # #282: AX-tree locator mode — resolve a focus target and click it
+        # before typing/pressing. Best-effort; on failure, type into the
+        # currently focused element (current behavior).
+        locator = kwargs.get("locator")
+        if locator and _ax_locator_enabled():
+            resolved = _resolve_ax_locator(locator)
+            if isinstance(resolved, tuple):
+                try:
+                    source = _get_event_source()
+                    fx, fy = resolved
+                    down = kCGEventLeftMouseDown
+                    up = kCGEventLeftMouseUp
+                    down_event = CGEventCreateMouseEvent(
+                        source, down, (fx, fy), CGMouseButton.kCGMouseButtonLeft
+                    )
+                    CGEventPost(kCGHIDEventTap, down_event)
+                    time.sleep(0.02)
+                    up_event = CGEventCreateMouseEvent(
+                        source, up, (fx, fy), CGMouseButton.kCGMouseButtonLeft
+                    )
+                    CGEventPost(kCGHIDEventTap, up_event)
+                    time.sleep(0.05)
+                    logger.info(
+                        "keyboard locator focused (%d,%d) before typing", fx, fy
+                    )
+                except Exception as e:
+                    logger.warning("keyboard locator focus click failed: %s", e)
+            else:
+                logger.warning(
+                    "keyboard AX locator failed, typing into current focus: %s",
+                    resolved,
+                )
 
         try:
             source = _get_event_source()

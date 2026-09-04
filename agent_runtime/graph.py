@@ -66,6 +66,16 @@ class NodeConfig:
     # Canvas position
     x: float = 0.0
     y: float = 0.0
+    # #283: optional runtime model router for fast/slow dual-core. A callable
+    # (node, model, prior_result) -> model_id, OR a string label resolved by the
+    # runtime's model_router registry. Not serialized (callables aren't portable);
+    # set programmatically via the SDK. Empty = current single-model behavior.
+    model_router: Any = ""
+    # #284: post-action screen capture + assertion for tool nodes. Default off.
+    # assertion is a dict spec {"type": "...", ...} consumed by a pluggable
+    # assertion fn registered on the runtime, OR "" for capture-only (no assert).
+    post_action_capture: bool = False
+    assertion: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         d = {
@@ -90,6 +100,11 @@ class NodeConfig:
             "stop_sequences": self.stop_sequences,
             "x": self.x,
             "y": self.y,
+            # #284: serializable post-action capture flag + assertion spec.
+            # model_router (#283) is deliberately excluded — callables aren't
+            # portable; set it programmatically via the SDK.
+            "post_action_capture": self.post_action_capture,
+            "assertion": self.assertion,
         }
         return {k: v for k, v in d.items() if v}
 
