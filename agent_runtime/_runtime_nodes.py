@@ -73,6 +73,25 @@ class _NodeExecutorsMixin:
                 node.model,
             )
             model = node.model
+        # #283: optional model_router for fast/slow dual-core. A callable
+        # (node, model, prior_result) -> model_id overrides the resolved model.
+        # Empty/None = current single-model behavior. Non-fatal: a router that
+        # raises or returns empty falls back to the resolved model.
+        router = getattr(node, "model_router", None)
+        if router:
+            try:
+                prior = ctx.messages[-1].get("content", "") if ctx.messages else ""
+                routed = router(node, model, prior) if callable(router) else None
+                if routed and routed != model:
+                    logger.info(
+                        "model_router %s -> %s for node %s",
+                        model,
+                        routed,
+                        node.label or "?",
+                    )
+                    model = routed
+            except Exception as e:
+                logger.warning("model_router failed, falling back: %s", e)
         messages = []
 
         if node.disable_tools:
@@ -1239,6 +1258,14 @@ class _NodeExecutorsMixin:
         if output_mapping:
             self._apply_tool_output_mapping(output_mapping, result, node.label, ctx)
 
+        # #284: optional post-action screen capture + frame-diff assertion.
+        # Default off (no behavior change). When node.post_action_capture is
+        # set, capture a frame after the tool runs and, if an assertion fn is
+        # registered on the runtime, run it. Capture failure is non-fatal.
+        if getattr(node, "post_action_capture", False):
+            async for evt in self._post_action_assert(ctx, node, result):
+                yield evt
+
     def _apply_tool_output_mapping(
         self, output_mapping: dict, result: Any, node_label: str, ctx: AgentContext
     ) -> None:
@@ -1268,6 +1295,89 @@ class _NodeExecutorsMixin:
                 ctx.variables.set(target_var, parsed[source_key])
             else:
                 ctx.variables.set(target_var, result)
+
+    async def _post_action_assert(
+        self,
+        ctx: AgentContext,
+        node: NodeConfig,
+        tool_result: Any,
+    ) -> AsyncIterator[AgentEvent]:
+        """#284: capture a post-action frame and run the registered assertion fn.
+
+        Capture is best-effort (ScreenCaptureTool). If a post_action_assertion_fn
+        is registered on the runtime, call it with (ctx, node, tool_result,
+        frame_b64, w, h) -> str; a non-empty return is an assertion failure
+        emitted as a tagged event. No fn registered = capture-only. Capture
+        failure is non-fatal (logs + skip).
+        """
+        frame_b64 = ""
+        w = 0
+        h = 0
+        try:
+            cap = self.tools.get("screenshot")
+            raw = await cap.execute()
+            # ScreenCaptureTool returns JSON {"path":..,"width":..,"height":..}
+            # or "Error: ..."; parse defensively.
+            if isinstance(raw, str) and raw.strip().startswith("{"):
+                try:
+                    parsed = json.loads(raw)
+                    w = int(parsed.get("width", 0))
+                    h = int(parsed.get("height", 0))
+                    p = parsed.get("path", "")
+                    if p:
+                        import base64
+
+                        with open(p, "rb") as fh:
+                            frame_b64 = base64.b64encode(fh.read()).decode()
+                except (ValueError, TypeError, OSError) as e:
+                    logger.warning("post_action capture parse failed: %s", e)
+            elif isinstance(raw, str) and raw.startswith("Error:"):
+                logger.warning("post_action capture error: %s", raw[:200])
+        except Exception as e:
+            logger.warning("post_action capture skipped: %s", e)
+
+        yield AgentEvent(
+            type=AgentEventType.TOOL_RESULT,
+            content=frame_b64[:80] if frame_b64 else "captured",
+            name="post_action_capture",
+            node_id=node.label,
+            metadata={
+                "post_action_capture": True,
+                "width": w,
+                "height": h,
+                "has_frame": bool(frame_b64),
+            },
+        )
+
+        assertion_fn = getattr(self, "post_action_assertion_fn", None)
+        if assertion_fn is None:
+            return
+        assertion_spec = getattr(node, "assertion", {}) or {}
+        if not assertion_spec:
+            return
+        try:
+            verdict = assertion_fn(ctx, node, tool_result, frame_b64, w, h)
+        except Exception as e:
+            logger.exception("post_action assertion fn raised: %s", e)
+            verdict = f"assertion fn error: {e}"
+        if verdict:
+            logger.warning(
+                "post_action assertion FAILED node=%s tool=%s: %s",
+                node.label,
+                node.tool_name,
+                verdict[:200],
+            )
+            yield AgentEvent(
+                type=AgentEventType.ERROR,
+                content=f"Post-action assertion failed: {verdict}",
+                name="post_action_assertion",
+                node_id=node.label,
+                metadata={
+                    "assertion_failed": True,
+                    "tool": node.tool_name,
+                    "spec": assertion_spec,
+                },
+            )
 
     def _execute_condition_node(self, ctx: AgentContext, node: NodeConfig) -> AgentEvent:
         """Evaluate a condition node using the condition engine."""

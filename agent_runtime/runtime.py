@@ -118,6 +118,10 @@ class AgentRuntime(_SafetyApprovalMixin, _CheckpointMixin, _DynamicToolsMixin, _
         # nodes awaiting approval (mirrors _safety_futures pattern).
         self.plan_mode: bool = False
         self._plan_futures: dict[str, asyncio.Future[bool]] = {}
+        # #284: pluggable post-action assertion fn for tool nodes. Signature:
+        #   (ctx, node, tool_result, frame_b64, frame_w, frame_h) -> str
+        # Returns "" on pass, an error message on fail. Set via SDK; None = off.
+        self.post_action_assertion_fn: Any = None
         # 审计 E-16/P0-4: 子图递归深度计数器. 无上限 -> 含子图循环引用 (A 子图
         # 指向 B, B 指向 A, 含无意构建) 触发无限递归 RecursionError 栈溢出崩溃
         # 整个 runtime 进程. 顶层执行 depth=0, 每进一层子图 +1, 超 _MAX_SUB_GRAPH_DEPTH
