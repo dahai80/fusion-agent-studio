@@ -737,6 +737,146 @@ async def v1_restore_agent_version(agent_id: str, version_id: str):
     return {"agent_id": agent_id, "version_id": version_id, "snapshot_data": snapshot}
 
 
+# ── Test-agent scheduling endpoints (#285) ──
+# #285: minimal, documented REST contract so external automated test platforms
+# (e.g. fusion-autotest) can submit/poll/cancel agent runs without speaking
+# JSON-RPC. These wrap the existing task.* RPC handlers on the daemon (which
+# own the TaskStore + cron registration). Env-gated: when the daemon is not
+# wired into the API server (CLI-only mode), these return a 503 with a clear
+# message instead of crashing.
+
+
+def _daemon_or_503():
+    if _daemon is None:
+        raise_api_error(
+            ErrorCode.INTERNAL_ERROR,
+            detail="daemon not attached to API server; start via daemon mode (start.sh) to use /v1/runs",
+        )
+    return _daemon
+
+
+async def _rpc(method: str, params: dict) -> dict:
+    daemon = _daemon_or_503()
+    handler = daemon._get_handler(method)
+    if handler is None:
+        raise_api_error(ErrorCode.INTERNAL_ERROR, detail=f"RPC method not found: {method}")
+    return await handler(params)
+
+
+@app.post("/v1/runs", dependencies=[Depends(_require_auth_if_configured)])
+async def v1_submit_run(request: Request):
+    body = await request.json()
+    goal = str(body.get("goal", "")).strip()
+    if not goal:
+        raise_api_error(ErrorCode.PARAM_REQUIRED, param="goal")
+    timeout = float(body.get("timeout", 0) or 0)
+    constraints = body.get("constraints", {}) or {}
+    agent_id = str(body.get("agent_id", "") or "")
+    graph_id = str(body.get("graph_id", "") or "")
+    title = str(body.get("title", "") or goal[:80])
+    idempotency_key = str(body.get("idempotency_key", "") or "")
+    # Submit a task record (immediate trigger). The task store owns the run_id.
+    submit_params = {
+        "title": title,
+        "description": goal,
+        "agent_id": agent_id,
+        "graph_id": graph_id,
+        "trigger": "immediate",
+        "input": goal,
+        "status": "pending",
+        "idempotency_key": idempotency_key,
+    }
+    # constraints -> task priority + max_retries (best-effort passthrough).
+    if isinstance(constraints, dict):
+        if "priority" in constraints:
+            submit_params["priority"] = int(constraints["priority"])
+        if "max_retries" in constraints:
+            submit_params["max_retries"] = int(constraints["max_retries"])
+    res = await _rpc("task.submit", submit_params)
+    task = res.get("task", {}) if isinstance(res, dict) else {}
+    run_id = task.get("task_id", "")
+    logger.info("/v1/runs submitted run_id=%s goal=%r timeout=%s", run_id, goal[:60], timeout)
+    # If a graph_id is bound, kick off execution immediately so the run
+    # progresses without waiting for a separate cron tick. Execution is
+    # non-blocking: the graph.execute handler streams events then returns.
+    if graph_id:
+        try:
+            await _rpc(
+                "graph.execute",
+                {"graph_id": graph_id, "input": goal, "task_id": run_id},
+            )
+        except Exception as exc:
+            logger.warning("/v1/runs graph.execute for %s failed (task still queued): %s", run_id, exc)
+    return {"run_id": run_id, "status": task.get("status", "pending"), "deduped": res.get("deduped", False)}
+
+
+@app.get("/v1/runs/{run_id}")
+async def v1_get_run(run_id: str):
+    res = await _rpc("task.get", {"task_id": run_id})
+    task = res.get("task") if isinstance(res, dict) else None
+    if not task:
+        raise_api_error(ErrorCode.AGENT_NOT_FOUND, param="run_id", detail=f"run not found: {run_id}")
+    status = task.get("status", "pending")
+    progress = {
+        "events": int((task.get("last_result") or {}).get("events", 0)),
+        "artifact_ids": list(task.get("artifact_ids") or []),
+        "retry_count": int(task.get("retry_count", 0)),
+    }
+    return {
+        "run_id": run_id,
+        "status": status,
+        "progress": progress,
+        "error": task.get("last_error", ""),
+        "agent_id": task.get("agent_id", ""),
+        "graph_id": task.get("graph_id", ""),
+        "created_at": task.get("created_at", 0),
+        "updated_at": task.get("updated_at", 0),
+    }
+
+
+@app.get("/v1/runs/{run_id}/result")
+async def v1_get_run_result(run_id: str):
+    res = await _rpc("task.get", {"task_id": run_id})
+    task = res.get("task") if isinstance(res, dict) else None
+    if not task:
+        raise_api_error(ErrorCode.AGENT_NOT_FOUND, param="run_id", detail=f"run not found: {run_id}")
+    last_result = task.get("last_result") or {}
+    # steps: best-effort extraction from last_result.events count + tool_errors.
+    steps = []
+    if isinstance(last_result, dict):
+        steps.append({
+            "session_id": last_result.get("session_id", ""),
+            "events": int(last_result.get("events", 0)),
+        })
+    return {
+        "run_id": run_id,
+        "status": task.get("status", "pending"),
+        "steps": steps,
+        "artifacts": list(task.get("artifact_ids") or []),
+        "logs": [],
+        "last_result": last_result,
+        "last_error": task.get("last_error", ""),
+    }
+
+
+@app.post("/v1/runs/{run_id}/cancel", dependencies=[Depends(_require_auth_if_configured)])
+async def v1_cancel_run(run_id: str):
+    res = await _rpc("task.cancel", {"task_id": run_id})
+    if isinstance(res, dict) and res.get("status") == "error":
+        raise_api_error(
+            ErrorCode.INTERNAL_ERROR,
+            detail=res.get("message", f"run not cancelable: {run_id}"),
+        )
+    logger.info("/v1/runs canceled run_id=%s", run_id)
+    return {"run_id": run_id, "status": "canceled"}
+
+
+@app.get("/v1/runs")
+async def v1_list_runs(status: str = "", limit: int = 100, agent_id: str = ""):
+    res = await _rpc("task.list", {"status": status, "agent_id": agent_id, "limit": limit})
+    return {"runs": res.get("tasks", []) if isinstance(res, dict) else [], "total": res.get("total", 0) if isinstance(res, dict) else 0}
+
+
 # ── Knowledge Base endpoints ──
 
 
