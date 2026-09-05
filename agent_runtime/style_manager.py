@@ -149,6 +149,19 @@ class StyleManager:
         logger.info("style.create: id=%s name=%s", style_id, name)
         return {"style_id": style_id, "style": cfg.to_dict()}
 
+    def delete(self, style_id: str) -> bool:
+        cfg = self._styles.get(style_id)
+        if cfg is None:
+            logger.warning("style.delete: not found id=%s", style_id)
+            return False
+        if cfg.is_builtin:
+            logger.warning("style.delete: refused builtin id=%s", style_id)
+            return False
+        del self._styles[style_id]
+        self._persist_index()
+        logger.info("style.delete: removed id=%s", style_id)
+        return True
+
     def apply(self, system_prompt: str, style_id: str) -> dict[str, Any]:
         cfg = self._styles.get(style_id)
         if cfg is None:

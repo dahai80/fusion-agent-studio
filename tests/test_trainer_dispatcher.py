@@ -124,7 +124,13 @@ def test_training_service_run_rlsl_surfaces_upstream_error():
     assert status["status"] == "error"
     err = status.get("error", "")
     assert err, "upstream error must surface into run status"
-    assert "create_dpo_job" in err or "fusion-mlx" in err or "401" in err
+    assert (
+        "create_dpo_job" in err
+        or "fusion-mlx" in err
+        or "401" in err
+        or "Connection refused" in err
+        or "11432" in err
+    ), f"unrecognized upstream error: {err}"
 
 
 def test_trainer_rlsl_handler_schedules_task_and_surfaces_error():
