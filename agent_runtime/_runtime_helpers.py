@@ -170,6 +170,15 @@ class ConditionEngine:
             return float(raw)
         except ValueError:
             pass
+        # #294: bareword-as-string fallthrough is intentional contract. An
+        # unquoted right-hand token that is not {{var}}/quoted/true/false/int/
+        # float is treated as a string literal (e.g. `status == publish_ok` ->
+        # str "publish_ok"). Authors wanting the literal string "true"/"5"
+        # MUST quote it to avoid collision with bool/numeric coercion.
+        logger.debug(
+            "condition literal bareword resolved as str: %r (quote to disambiguate)",
+            raw,
+        )
         return raw
 
     @staticmethod
@@ -209,6 +218,16 @@ class ConditionEngine:
     def _compare(self, left: Any, op: str, right: Any) -> str:
         # #212: 先归一再比, 避免跨类型严格相等静默判假.
         left, right = self._coerce_pair(left, right)
+        # #294: debug-trace resolved types so graph authors can inspect what
+        # each side actually evaluated to (aids bareword/quoting questions).
+        logger.debug(
+            "condition compare: %r(%s) %s %r(%s)",
+            left,
+            type(left).__name__,
+            op,
+            right,
+            type(right).__name__,
+        )
         try:
             if op == "==":
                 return "true" if left == right else "false"
@@ -223,5 +242,17 @@ class ConditionEngine:
             if op == "<":
                 return "true" if left < right else "false"
         except TypeError:
+            # #294: surface swallowed comparison failures so DAG gate
+            # misroutes (e.g. list/dict tool output vs scalar) are
+            # traceable in daemon logs instead of silent false-branch.
+            logger.warning(
+                "condition compare TypeError swallowed -> false: "
+                "%r(%s) %s %r(%s)",
+                left,
+                type(left).__name__,
+                op,
+                right,
+                type(right).__name__,
+            )
             return "false"
         return "false"
