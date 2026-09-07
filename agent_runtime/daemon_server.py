@@ -1321,6 +1321,33 @@ class DaemonServer:
             enriched.append(entry)
         return {"graphs": enriched}
 
+    @staticmethod
+    def _node_config_from_payload(n: dict) -> NodeConfig:
+        # #297: client (fusion-studio AgentWorkflowCanvas) nests the full
+        # NodeConfig under a `config` key and sends `position` separately.
+        # Merge nested config + position into a flat field map, also accept
+        # flat top-level fields (back-compat), then filter to known dataclass
+        # fields so unknown/forward-compatible keys don't break NodeConfig().
+        import dataclasses as _dc
+
+        node_fields: dict = {"type": n.get("type", "llm"), "label": n.get("label", "")}
+        cfg = n.get("config")
+        if isinstance(cfg, dict):
+            node_fields.update(cfg)
+        pos = n.get("position")
+        if isinstance(pos, dict):
+            node_fields.setdefault("x", pos.get("x", 0.0))
+            node_fields.setdefault("y", pos.get("y", 0.0))
+        # flat top-level back-compat for all NodeConfig fields.
+        # nested config wins; flat only fills gaps (setdefault).
+        known = {f.name for f in _dc.fields(NodeConfig)}
+        for k, v in n.items():
+            if k in known and k not in ("type", "label", "config", "position"):
+                node_fields.setdefault(k, v)
+        filtered = {k: v for k, v in node_fields.items() if k in known}
+        logger.debug("node_config_from_payload: %s -> fields=%s", n.get("id"), sorted(filtered))
+        return NodeConfig(**filtered)
+
     async def _handle_graph_create(self, params: dict) -> dict:
         name = params.get("name", "")
         description = params.get("description", "")
@@ -1343,12 +1370,7 @@ class DaemonServer:
                 node_id = n.get("id", "")
                 if not node_id:
                     continue
-                node_config = NodeConfig(
-                    type=n.get("type", "llm"),
-                    label=n.get("label", ""),
-                    model=n.get("model", ""),
-                    system_prompt=n.get("system_prompt", ""),
-                )
+                node_config = self._node_config_from_payload(n)
                 graph.add_node(node_id, node_config)
 
             edges_data = params.get("edges", [])
@@ -1710,12 +1732,7 @@ class DaemonServer:
                 nid = n.get("id", "")
                 if not nid:
                     continue
-                node_config = NodeConfig(
-                    type=n.get("type", "llm"),
-                    label=n.get("label", ""),
-                    model=n.get("model", ""),
-                    system_prompt=n.get("system_prompt", ""),
-                )
+                node_config = self._node_config_from_payload(n)
                 graph.add_node(nid, node_config)
 
         edges_data = params.get("edges")
