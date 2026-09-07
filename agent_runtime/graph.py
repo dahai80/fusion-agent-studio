@@ -110,7 +110,25 @@ class NodeConfig:
 
     @classmethod
     def from_dict(cls, data: dict) -> NodeConfig:
-        return cls(**data)
+        # #297: client (fusion-studio) nests full NodeConfig under `config`
+        # and sends `position` separately. Merge both into flat fields here
+        # so the graph_data / AgentGraph.from_dict path round-trips too.
+        # Also tolerate unknown keys (forward-compatible field additions).
+        import dataclasses as _dc
+
+        known = {f.name for f in _dc.fields(cls)}
+        merged: dict = {}
+        cfg = data.get("config")
+        if isinstance(cfg, dict):
+            merged.update({k: v for k, v in cfg.items() if k in known})
+        pos = data.get("position")
+        if isinstance(pos, dict):
+            merged.setdefault("x", pos.get("x", 0.0))
+            merged.setdefault("y", pos.get("y", 0.0))
+        for k, v in data.items():
+            if k in known:
+                merged[k] = v
+        return cls(**merged)
 
 
 @dataclass
