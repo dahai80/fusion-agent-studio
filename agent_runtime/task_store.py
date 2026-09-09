@@ -47,6 +47,7 @@ def _task_max_concurrency() -> int:
         return 5
     return val if val > 0 else 5
 
+
 # Task 状态机: pending(已提交待触发) -> running(执行中) -> completed/failed/canceled
 TASK_STATUS_PENDING = "pending"
 TASK_STATUS_RUNNING = "running"
@@ -68,12 +69,49 @@ _VALID_STATUSES = {
 }
 _VALID_TRIGGERS = {TRIGGER_IMMEDIATE, TRIGGER_CRON, TRIGGER_RUN_AT}
 
+# 评审态 (正交维度 2, M1-1): none/review/needs_fix/approved
+REVIEW_STATE_NONE = "none"
+REVIEW_STATE_REVIEW = "review"
+REVIEW_STATE_NEEDS_FIX = "needs_fix"
+REVIEW_STATE_APPROVED = "approved"
+_VALID_REVIEW_STATES = {
+    REVIEW_STATE_NONE,
+    REVIEW_STATE_REVIEW,
+    REVIEW_STATE_NEEDS_FIX,
+    REVIEW_STATE_APPROVED,
+}
+
 # 列读取顺序(显式 SELECT, 保证 from_row 位置稳定, 不受 ALTER 追列影响).
 _TASK_COLUMNS = [
-    "task_id", "title", "description", "agent_id", "graph_id", "trigger",
-    "cron_expression", "run_at", "cron_job_id", "input", "status", "priority",
-    "project_id", "artifact_ids", "last_result", "last_error", "retry_count",
-    "max_retries", "created_at", "updated_at", "last_run_at", "idempotency_key",
+    "task_id",
+    "title",
+    "description",
+    "agent_id",
+    "graph_id",
+    "trigger",
+    "cron_expression",
+    "run_at",
+    "cron_job_id",
+    "input",
+    "status",
+    "priority",
+    "project_id",
+    "artifact_ids",
+    "last_result",
+    "last_error",
+    "retry_count",
+    "max_retries",
+    "created_at",
+    "updated_at",
+    "last_run_at",
+    "idempotency_key",
+    "review_state",
+    "attempt_token",
+    "owner_role",
+    "owner_agent",
+    "resource_lease_id",
+    "evidence_ref",
+    "team",
 ]
 
 
@@ -102,6 +140,14 @@ class Task:
     updated_at: float = 0.0
     last_run_at: float = 0.0
     idempotency_key: str = ""
+    # M1-1 双状态机扩展 (正交维度 2 + 归属/租约/证据)
+    review_state: str = REVIEW_STATE_NONE
+    attempt_token: str = ""
+    owner_role: str = ""
+    owner_agent: str = ""
+    resource_lease_id: str = ""
+    evidence_ref: str = ""
+    team: str = "default"
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -127,6 +173,13 @@ class Task:
             "updated_at": self.updated_at,
             "last_run_at": self.last_run_at,
             "idempotency_key": self.idempotency_key,
+            "review_state": self.review_state,
+            "attempt_token": self.attempt_token,
+            "owner_role": self.owner_role,
+            "owner_agent": self.owner_agent,
+            "resource_lease_id": self.resource_lease_id,
+            "evidence_ref": self.evidence_ref,
+            "team": self.team,
         }
 
     @classmethod
@@ -140,7 +193,9 @@ class Task:
                     artifact_ids = []
             except Exception as e:
                 # 审计 L-3: 静默吞 JSON 解析错 -> 空列表, 调试无法定位坏数据.
-                logger.warning("task_store.from_row: bad artifact_ids JSON (task=%s): %s", row[0], e)
+                logger.warning(
+                    "task_store.from_row: bad artifact_ids JSON (task=%s): %s", row[0], e
+                )
                 artifact_ids = []
         last_result = {}
         if row[14]:
@@ -174,6 +229,13 @@ class Task:
             updated_at=row[19],
             last_run_at=row[20],
             idempotency_key=row[21] if len(row) > 21 and row[21] else "",
+            review_state=row[22] if len(row) > 22 and row[22] else REVIEW_STATE_NONE,
+            attempt_token=row[23] if len(row) > 23 and row[23] else "",
+            owner_role=row[24] if len(row) > 24 and row[24] else "",
+            owner_agent=row[25] if len(row) > 25 and row[25] else "",
+            resource_lease_id=row[26] if len(row) > 26 and row[26] else "",
+            evidence_ref=row[27] if len(row) > 27 and row[27] else "",
+            team=row[28] if len(row) > 28 and row[28] else "default",
         )
 
 
@@ -237,12 +299,8 @@ class TaskStore:
             )
             """
         )
-        self._conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status)"
-        )
-        self._conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_tasks_agent ON tasks(agent_id)"
-        )
+        self._conn.execute("CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status)")
+        self._conn.execute("CREATE INDEX IF NOT EXISTS idx_tasks_agent ON tasks(agent_id)")
         self._conn.commit()
         # 审计 3M-6: schema 版本管理. PRAGMA user_version 门禁有序迁移.
         self._run_schema_migrations(self._conn)
@@ -252,6 +310,7 @@ class TaskStore:
         migrations = [
             self._migration_v1_project_id,
             self._migration_v2_idempotency_key,
+            self._migration_v3_team_state,
         ]
         current = conn.execute("PRAGMA user_version").fetchone()[0]
         for idx, migrate in enumerate(migrations, start=1):
@@ -270,9 +329,7 @@ class TaskStore:
         if "project_id" not in cols:
             conn.execute("ALTER TABLE tasks ADD COLUMN project_id TEXT DEFAULT ''")
             logger.info("Migrated tasks table: added project_id column")
-        conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_tasks_project ON tasks(project_id)"
-        )
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_tasks_project ON tasks(project_id)")
 
     def _migration_v2_idempotency_key(self, conn) -> None:
         # #238: task.submit 幂等去重. ALTER 补 idempotency_key 列 + 唯一索引
@@ -285,6 +342,60 @@ class TaskStore:
             "CREATE UNIQUE INDEX IF NOT EXISTS idx_tasks_idempotency "
             "ON tasks(idempotency_key) WHERE idempotency_key != ''"
         )
+
+    def _migration_v3_team_state(self, conn) -> None:
+        # M1-1 双状态机: review_state + attempt_token + owner/lease/evidence/team 列,
+        # task_history 表 (迁移审计) + idempotency_index 表 (跨状态查重).
+        # 幂等: 探列存在再 ALTER.
+        cols = {row[1] for row in conn.execute("PRAGMA table_info(tasks)").fetchall()}
+        new_cols = [
+            ("review_state", "TEXT DEFAULT 'none'"),
+            ("attempt_token", "TEXT DEFAULT ''"),
+            ("owner_role", "TEXT DEFAULT ''"),
+            ("owner_agent", "TEXT DEFAULT ''"),
+            ("resource_lease_id", "TEXT DEFAULT ''"),
+            ("evidence_ref", "TEXT DEFAULT ''"),
+            ("team", "TEXT DEFAULT 'default'"),
+        ]
+        for col_name, col_def in new_cols:
+            if col_name not in cols:
+                conn.execute(f"ALTER TABLE tasks ADD COLUMN {col_name} {col_def}")
+                logger.info("Migrated tasks table: added %s column", col_name)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_tasks_team_status ON tasks(team, status)")
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_tasks_owner ON tasks(owner_agent) WHERE owner_agent != ''"
+        )
+        # 迁移历史表: 谁何时为何迁移 (from->to status/review).
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS task_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                task_id TEXT NOT NULL,
+                from_status TEXT DEFAULT '',
+                to_status TEXT DEFAULT '',
+                from_review TEXT DEFAULT '',
+                to_review TEXT DEFAULT '',
+                actor TEXT DEFAULT '',
+                reason TEXT DEFAULT '',
+                ts REAL DEFAULT 0,
+                FOREIGN KEY (task_id) REFERENCES tasks(task_id)
+            )
+            """
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_task_history_task ON task_history(task_id, ts)"
+        )
+        # 幂等索引独立表: 跨状态查重 (替代 tasks 上偏索引, 支持查重查询不耦合主表).
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS idempotency_index (
+                idempotency_key TEXT PRIMARY KEY,
+                task_id TEXT NOT NULL,
+                created_at REAL DEFAULT 0
+            )
+            """
+        )
+        logger.info("Migrated tasks table: v3 team_state (task_history + idempotency_index)")
 
     def _load_tasks(self) -> None:
         if not self._conn:
@@ -328,8 +439,10 @@ class TaskStore:
                    (task_id, title, description, agent_id, graph_id, trigger,
                     cron_expression, run_at, cron_job_id, input, status, priority,
                     project_id, artifact_ids, last_result, last_error, retry_count, max_retries,
-                    created_at, updated_at, last_run_at, idempotency_key)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    created_at, updated_at, last_run_at, idempotency_key,
+                    review_state, attempt_token, owner_role, owner_agent,
+                    resource_lease_id, evidence_ref, team)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     task.task_id,
                     task.title,
@@ -353,6 +466,13 @@ class TaskStore:
                     task.updated_at,
                     task.last_run_at,
                     task.idempotency_key,
+                    task.review_state,
+                    task.attempt_token,
+                    task.owner_role,
+                    task.owner_agent,
+                    task.resource_lease_id,
+                    task.evidence_ref,
+                    task.team,
                 ),
             )
             self._conn.commit()
@@ -385,9 +505,7 @@ class TaskStore:
             if not rows:
                 return 0
             ids = [r[0] for r in rows]
-            self._conn.executemany(
-                "DELETE FROM tasks WHERE task_id = ?", [(tid,) for tid in ids]
-            )
+            self._conn.executemany("DELETE FROM tasks WHERE task_id = ?", [(tid,) for tid in ids])
             self._conn.commit()
             for tid in ids:
                 self._tasks.pop(tid, None)
@@ -414,7 +532,8 @@ class TaskStore:
                 if existing is not None:
                     logger.info(
                         "Task deduped by idempotency_key=%s -> existing %s",
-                        task.idempotency_key, existing.task_id,
+                        task.idempotency_key,
+                        existing.task_id,
                     )
                     self.last_submit_deduped = True
                     return existing
@@ -424,9 +543,20 @@ class TaskStore:
                 task.task_id = f"task_{int(time.time() * 1000)}_{self._id_seq}"
             self._tasks[task.task_id] = task
             self._save_task(task)
+            # M1-1: 幂等索引独立表 (跨状态查重, 不耦合主表).
+            if task.idempotency_key and self._conn:
+                self._conn.execute(
+                    "INSERT OR IGNORE INTO idempotency_index (idempotency_key, task_id, created_at) "
+                    "VALUES (?, ?, ?)",
+                    (task.idempotency_key, task.task_id, task.created_at),
+                )
+                self._conn.commit()
         logger.info(
             "Task submitted: %s trigger=%s graph=%s status=%s",
-            task.task_id, task.trigger, task.graph_id, task.status,
+            task.task_id,
+            task.trigger,
+            task.graph_id,
+            task.status,
         )
         return task
 
@@ -476,8 +606,10 @@ class TaskStore:
             params.append(project_id)
         where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
         sql = (
-            "SELECT " + ", ".join(_TASK_COLUMNS)
-            + " FROM tasks" + where
+            "SELECT "
+            + ", ".join(_TASK_COLUMNS)
+            + " FROM tasks"
+            + where
             + " ORDER BY priority DESC, created_at DESC"
         )
         if limit > 0:
@@ -492,10 +624,7 @@ class TaskStore:
         # caller 必须持有 _write_lock (submit 内调用).
         if not self._conn or not key:
             return None
-        sql = (
-            "SELECT " + ", ".join(_TASK_COLUMNS)
-            + " FROM tasks WHERE idempotency_key = ? LIMIT 1"
-        )
+        sql = "SELECT " + ", ".join(_TASK_COLUMNS) + " FROM tasks WHERE idempotency_key = ? LIMIT 1"
         row = self._conn.execute(sql, (key,)).fetchone()
         if row is None:
             return None
@@ -545,7 +674,10 @@ class TaskStore:
         self._save_task(task)
         logger.info(
             "Task %s status -> %s (result=%d keys, error=%d chars)",
-            task_id, status, len(task.last_result), len(task.last_error),
+            task_id,
+            status,
+            len(task.last_result),
+            len(task.last_error),
         )
         return True
 
@@ -605,8 +737,15 @@ class TaskStore:
             for pid, status, cnt in rows:
                 b = buckets.setdefault(
                     pid,
-                    {"project_id": pid, "total": 0, "pending": 0, "running": 0,
-                     "completed": 0, "failed": 0, "canceled": 0},
+                    {
+                        "project_id": pid,
+                        "total": 0,
+                        "pending": 0,
+                        "running": 0,
+                        "completed": 0,
+                        "failed": 0,
+                        "canceled": 0,
+                    },
                 )
                 b["total"] += cnt
                 if status in b:
@@ -618,8 +757,15 @@ class TaskStore:
                     continue
                 b = buckets.setdefault(
                     pid,
-                    {"project_id": pid, "total": 0, "pending": 0, "running": 0,
-                     "completed": 0, "failed": 0, "canceled": 0},
+                    {
+                        "project_id": pid,
+                        "total": 0,
+                        "pending": 0,
+                        "running": 0,
+                        "completed": 0,
+                        "failed": 0,
+                        "canceled": 0,
+                    },
                 )
                 b["total"] += 1
                 if t.status in b:
@@ -627,6 +773,196 @@ class TaskStore:
         result = sorted(buckets.values(), key=lambda b: b["total"], reverse=True)
         logger.info("Aggregated %d projects", len(result))
         return result
+
+    def _append_history(
+        self,
+        task_id: str,
+        from_status: str,
+        to_status: str,
+        from_review: str,
+        to_review: str,
+        actor: str,
+        reason: str,
+    ) -> None:
+        # M1-1: 迁移审计行 (谁何时为何迁移). caller 持有 _write_lock.
+        if not self._conn:
+            return
+        self._conn.execute(
+            "INSERT INTO task_history (task_id, from_status, to_status, from_review, to_review, actor, reason, ts) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (task_id, from_status, to_status, from_review, to_review, actor, reason, time.time()),
+        )
+
+    def dequeue(self, team: str, owner_agent: str, task_type: str = "") -> Task | None:
+        # M1-1: 认领 todo 列首个任务 (worker pull 模型). 原子单语句 UPDATE...RETURNING,
+        # SQLite 行锁保护并发认领竞争, 无 RMW 窗口. 写 owner + attempt_token (uuid4).
+        if not self._conn or not owner_agent:
+            return None
+        import uuid
+
+        token = uuid.uuid4().hex
+        team = team or "default"
+        with self._write_lock:
+            # 选首个 pending 无 owner 任务 (priority DESC, created_at ASC).
+            select_sql = (
+                "SELECT task_id FROM tasks WHERE team = ? AND status = ? AND owner_agent = '' "
+                "ORDER BY priority DESC, created_at ASC LIMIT 1"
+            )
+            row = self._conn.execute(select_sql, (team, TASK_STATUS_PENDING)).fetchone()
+            if row is None:
+                return None
+            task_id = row[0]
+            now = time.time()
+            self._conn.execute(
+                "UPDATE tasks SET status = ?, owner_agent = ?, attempt_token = ?, updated_at = ?, last_run_at = ? "
+                "WHERE task_id = ? AND status = ?",
+                (TASK_STATUS_RUNNING, owner_agent, token, now, now, task_id, TASK_STATUS_PENDING),
+            )
+            self._append_history(
+                task_id,
+                TASK_STATUS_PENDING,
+                TASK_STATUS_RUNNING,
+                REVIEW_STATE_NONE,
+                REVIEW_STATE_NONE,
+                owner_agent,
+                "dequeue claim",
+            )
+            self._conn.commit()
+        # 强制从 DB 重载缓存 (UPDATE 不回填 _tasks dict, 旧对象 status 过期).
+        self._tasks.pop(task_id, None)
+        task = self._get_task(task_id)
+        if task:
+            logger.info(
+                "Task %s dequeued by %s team=%s token=%s",
+                task_id,
+                owner_agent,
+                team,
+                token[:8],
+            )
+        return task
+
+    def move_task(
+        self,
+        task_id: str,
+        to_status: str,
+        to_review: str = "",
+        actor: str = "",
+        reason: str = "",
+    ) -> Task | None:
+        # M1-1: 状态迁移 + 写 task_history 行. review_state 空串=不变.
+        task = self._get_task(task_id)
+        if not task:
+            return None
+        if to_status and to_status not in _VALID_STATUSES:
+            logger.warning("move_task invalid status=%s, ignore", to_status)
+            return None
+        if to_review and to_review not in _VALID_REVIEW_STATES:
+            logger.warning("move_task invalid review=%s, ignore", to_review)
+            return None
+        from_status = task.status
+        from_review = task.review_state
+        with self._write_lock:
+            if to_status:
+                task.status = to_status
+            if to_review:
+                task.review_state = to_review
+            task.updated_at = time.time()
+            if to_status == TASK_STATUS_RUNNING:
+                task.last_run_at = task.updated_at
+            self._save_task(task)
+            self._append_history(
+                task_id,
+                from_status,
+                task.status,
+                from_review,
+                task.review_state,
+                actor or "system",
+                reason,
+            )
+            self._conn.commit()
+        logger.info(
+            "Task %s moved %s->%s review %s->%s by %s (%s)",
+            task_id,
+            from_status,
+            task.status,
+            from_review,
+            task.review_state,
+            actor,
+            reason,
+        )
+        return task
+
+    def set_evidence(self, task_id: str, evidence_ref: str) -> bool:
+        # M1-1: 写证据 jsonl 路径 (execution 证据链, 崩溃恢复靠证据 reconcile).
+        task = self._get_task(task_id)
+        if not task:
+            return False
+        task.evidence_ref = evidence_ref
+        task.updated_at = time.time()
+        self._save_task(task)
+        logger.info("Task %s evidence_ref=%s", task_id, evidence_ref)
+        return True
+
+    def claim_lease(self, task_id: str, lease_id: str) -> bool:
+        # M1-1: 关联资源租约 (M1-4 ResourceLease 写 resource_lease_id).
+        task = self._get_task(task_id)
+        if not task:
+            return False
+        task.resource_lease_id = lease_id
+        task.updated_at = time.time()
+        self._save_task(task)
+        logger.info("Task %s lease=%s", task_id, lease_id)
+        return True
+
+    def list_by_column(self, team: str = "") -> dict[str, list[dict]]:
+        # M1-1: 按 derive_column 分组 (GUI 看板用). 推导式列避免双写不一致.
+        from .task_board import derive_column
+
+        team = team or "default"
+        columns: dict[str, list[dict]] = {
+            "todo": [],
+            "in_progress": [],
+            "review": [],
+            "approved": [],
+        }
+        if self._lazy_load and self._conn:
+            with self._write_lock:
+                rows = self._conn.execute(
+                    "SELECT " + ", ".join(_TASK_COLUMNS) + " FROM tasks WHERE team = ?",
+                    (team,),
+                ).fetchall()
+            for row in rows:
+                task = Task.from_row(row)
+                col = derive_column(task)
+                if col == "archived":
+                    continue
+                columns.setdefault(col, []).append(task.to_dict())
+        else:
+            for task in self._tasks.values():
+                if task.team != team:
+                    continue
+                col = derive_column(task)
+                if col == "archived":
+                    continue
+                columns.setdefault(col, []).append(task.to_dict())
+        for col in columns:
+            columns[col].sort(
+                key=lambda t: (t.get("priority", 0), t.get("created_at", 0)), reverse=True
+            )
+        return columns
+
+    def find_by_idempotency(self, key: str) -> Task | None:
+        # M1-1: 跨状态幂等查重 (查 idempotency_index 独立表). 公开方法 (非 submit 内部).
+        if not self._conn or not key:
+            return None
+        with self._write_lock:
+            row = self._conn.execute(
+                "SELECT task_id FROM idempotency_index WHERE idempotency_key = ? LIMIT 1",
+                (key,),
+            ).fetchone()
+        if row is None:
+            return None
+        return self._get_task(row[0])
 
     def close(self) -> None:
         if self._conn:
