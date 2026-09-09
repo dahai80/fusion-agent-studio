@@ -27,6 +27,7 @@ import struct
 import subprocess
 import sys
 import time
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -930,6 +931,9 @@ class DaemonServer:
             "graph.delete": self._handle_graph_delete,
             "graph.purge_test": self._handle_graph_purge_test,
             "graph.execute": self._handle_graph_execute,
+            "graph.execute_async": self._handle_graph_execute_async,
+            "graph.status": self._handle_graph_status,
+            "graph.cancel": self._handle_graph_cancel,
             "graph.resume": self._handle_graph_resume,
             "graph.get": self._handle_graph_get,
             "graph.list": self._handle_graph_list,
@@ -1685,6 +1689,364 @@ class DaemonServer:
         finally:
             # 审计 E-14: 注销活跃执行, 无论成功/异常/取消.
             _unregister()
+
+    # ── M1-2: 异步执行 + 证据 jsonl + status/cancel ──
+
+    def _evidence_dir(self, team: str = "default") -> Path:
+        # 证据 jsonl 目录: ~/.fusion-agent-studio/out/<team>/evidence/executions/
+        base = Path.home() / ".fusion-agent-studio" / "out" / (team or "default")
+        ev_dir = base / "evidence" / "executions"
+        ev_dir.mkdir(parents=True, exist_ok=True)
+        return ev_dir
+
+    def _evidence_path(self, execution_id: str, team: str = "default") -> Path:
+        return self._evidence_dir(team) / f"{execution_id}.jsonl"
+
+    def _write_evidence(self, execution_id: str, record: dict, team: str = "default") -> None:
+        # 每个状态变化写证据行 (jsonl append). 崩溃恢复靠证据 reconcile.
+        # record: {ts, type, node_id?, status?, events_count?, error?}
+        record["ts"] = record.get("ts", time.time())
+        record["execution_id"] = execution_id
+        try:
+            path = self._evidence_path(execution_id, team)
+            with open(path, "a", encoding="utf-8") as f:
+                f.write(json.dumps(record, ensure_ascii=False) + "\n")
+        except Exception:
+            logger.exception("evidence write failed: execution_id=%s", execution_id)
+
+    def _read_evidence_tail(
+        self, execution_id: str, team: str = "default", n: int = 20
+    ) -> list[dict]:
+        # 读证据 jsonl 尾部 n 行 (graph.status 进度用).
+        path = self._evidence_path(execution_id, team)
+        if not path.exists():
+            return []
+        try:
+            lines = path.read_text(encoding="utf-8").strip().split("\n")
+            results = []
+            for line in lines[-n:]:
+                if line.strip():
+                    results.append(json.loads(line))
+            return results
+        except Exception:
+            logger.exception("evidence read failed: execution_id=%s", execution_id)
+            return []
+
+    async def _handle_graph_execute_async(self, params: dict) -> dict:
+        # M1-2: 异步执行. 返回 execution_id ≤5s, 后台跑 graph, 事件走流 + 证据 jsonl.
+        # graph.execute (同步) 保留向后兼容, 调用方迁移后可删.
+        graph_id = params.get("graph_id", "")
+        input_text = params.get("input", "")
+        if not isinstance(input_text, str):
+            input_text = json.dumps(input_text, ensure_ascii=False)
+        session_id = params.get("session_id", "") or f"sess-{uuid.uuid4().hex[:12]}"
+        task_id = params.get("task_id", "")
+        team = params.get("team", "default")
+        execution_id = f"exec_{uuid.uuid4().hex[:12]}"
+
+        graph = self.store.load_graph(graph_id)
+        if graph is None:
+            raise ValueError(f"Graph not found: {graph_id}")
+
+        # 写启动证据
+        self._write_evidence(
+            execution_id,
+            {
+                "type": "execution.started",
+                "graph_id": graph_id,
+                "session_id": session_id,
+                "task_id": task_id,
+            },
+            team=team,
+        )
+
+        # 创建后台任务
+        bg_task = asyncio.create_task(
+            self._run_graph_async(
+                execution_id=execution_id,
+                graph=graph,
+                graph_id=graph_id,
+                input_text=input_text,
+                session_id=session_id,
+                task_id=task_id,
+                team=team,
+                params=params,
+            )
+        )
+        self._active_executions[execution_id] = bg_task
+
+        # task_id 关联时前置 running
+        if task_id:
+            try:
+                ts = self._get_task_store()
+                ts.update_status(task_id, "running")
+            except Exception as exc:
+                logger.warning("execute_async set task %s running failed: %s", task_id, exc)
+
+        logger.info(
+            "graph.execute_async %s started (exec=%s task=%s team=%s)",
+            graph_id,
+            execution_id,
+            task_id,
+            team,
+        )
+        return {
+            "execution_id": execution_id,
+            "status": "running",
+            "session_id": session_id,
+            "task_id": task_id,
+        }
+
+    async def _run_graph_async(
+        self,
+        execution_id: str,
+        graph,
+        graph_id: str,
+        input_text: str,
+        session_id: str,
+        task_id: str,
+        team: str,
+        params: dict,
+    ) -> None:
+        # 后台执行 graph: 获取 semaphore → 建 ctx → 跑 execute_graph → 证据 + 事件 + task 回写.
+        events_count = 0
+        artifact_ids: list[str] = []
+        tool_errors: list[str] = []
+        error_msg = ""
+        try:
+            rt = self._get_runtime()
+            from .context import AgentContext
+            from .variable_manager import VariableManager
+
+            agent_id = params.get("agent_id", "") or getattr(graph, "agent_id", "")
+            exec_ctx = AgentContext(session_id=session_id)
+            exec_ctx.agent_id = agent_id
+            initial_vars = params.get("variables", {})
+            if isinstance(initial_vars, dict):
+                exec_ctx.variables = VariableManager()
+                for k, v in initial_vars.items():
+                    exec_ctx.variables.set(str(k), v)
+            if agent_id:
+                try:
+                    from .agent_definition import AgentDefinition
+
+                    defn_path = os.path.join(
+                        str(self._agent_dir(agent_id)), "definition.json"
+                    )
+                    if os.path.exists(defn_path):
+                        with open(defn_path) as f:
+                            definition = AgentDefinition.from_dict(json.load(f))
+                        exec_ctx.tool_configs = AgentRuntime.build_tool_configs(definition)
+                except Exception as exc:
+                    logger.warning("execute_async %s tool configs failed: %s", graph_id, exc)
+
+            async def _stream():
+                nonlocal events_count
+                async for event in rt.execute_graph(
+                    graph,
+                    input_text,
+                    context=exec_ctx,
+                    token_budget=getattr(self, "_token_budget", None),
+                ):
+                    ev_dict = (
+                        event.to_dict() if hasattr(event, "to_dict") else {"type": str(event)}
+                    )
+                    events_count += 1
+                    if (
+                        ev_dict.get("type") == "tool_result"
+                        and ev_dict.get("name") == "artifact_create"
+                    ):
+                        aid = self._extract_artifact_id(ev_dict.get("content", ""))
+                        if aid:
+                            artifact_ids.append(aid)
+                    if (
+                        ev_dict.get("type") == "error"
+                        and ev_dict.get("metadata", {}).get("tool_error")
+                    ):
+                        tool_errors.append(
+                            f"{ev_dict.get('name','?')}: {ev_dict.get('content','')[:200]}"
+                        )
+                    # 每 5 个事件写一次进度证据 + 广播
+                    if events_count % 5 == 0:
+                        self._write_evidence(
+                            execution_id,
+                            {
+                                "type": "execution.progress",
+                                "node_id": ev_dict.get("node_id", ""),
+                                "events_count": events_count,
+                            },
+                            team=team,
+                        )
+                        await self._broadcast_event(
+                            "execution.progress",
+                            {"execution_id": execution_id, "events_count": events_count},
+                        )
+
+            if self._graph_semaphore is not None:
+                async with self._graph_semaphore:
+                    await _stream()
+            else:
+                await _stream()
+
+            # 完成证据
+            self._write_evidence(
+                execution_id,
+                {
+                    "type": "execution.completed",
+                    "events_count": events_count,
+                    "artifact_ids": artifact_ids,
+                },
+                team=team,
+            )
+            await self._broadcast_event(
+                "execution.completed",
+                {"execution_id": execution_id, "events_count": events_count},
+            )
+
+            # task 回写: completed + artifact_ids + evidence_ref
+            if task_id:
+                try:
+                    ts = self._get_task_store()
+                    if artifact_ids:
+                        ts.add_artifacts(task_id, artifact_ids)
+                    ts.update_status(
+                        task_id,
+                        "completed",
+                        last_result={
+                            "session_id": session_id,
+                            "events": events_count,
+                            "artifact_ids": artifact_ids,
+                            "execution_id": execution_id,
+                        },
+                    )
+                    ev_path = str(self._evidence_path(execution_id, team))
+                    ts.set_evidence(task_id, ev_path)
+                    logger.info(
+                        "execute_async %s task %s -> completed, artifacts=%s",
+                        execution_id,
+                        task_id,
+                        artifact_ids,
+                    )
+                except Exception as exc:
+                    logger.warning("execute_async task %s writeback failed: %s", task_id, exc)
+
+            logger.info(
+                "graph.execute_async %s completed: %d events, %d artifacts",
+                execution_id,
+                events_count,
+                len(artifact_ids),
+            )
+        except asyncio.CancelledError:
+            # cancel: 写 cancelled 证据 + task cancelled
+            self._write_evidence(
+                execution_id,
+                {"type": "execution.cancelled", "events_count": events_count},
+                team=team,
+            )
+            await self._broadcast_event(
+                "execution.cancelled",
+                {"execution_id": execution_id, "events_count": events_count},
+            )
+            if task_id:
+                try:
+                    ts = self._get_task_store()
+                    ts.update_status(task_id, "canceled")
+                except Exception:
+                    logger.warning("execute_async cancel task %s writeback failed", task_id)
+            logger.info("graph.execute_async %s cancelled", execution_id)
+            raise
+        except Exception as exc:
+            error_msg = str(exc)
+            self._write_evidence(
+                execution_id,
+                {
+                    "type": "execution.failed",
+                    "events_count": events_count,
+                    "error": error_msg,
+                },
+                team=team,
+            )
+            await self._broadcast_event(
+                "execution.failed",
+                {"execution_id": execution_id, "error": error_msg},
+            )
+            if task_id:
+                try:
+                    ts = self._get_task_store()
+                    ts.update_status(task_id, "failed", last_result={"error": error_msg})
+                except Exception:
+                    logger.warning("execute_async fail task %s writeback failed", task_id)
+            logger.exception("graph.execute_async %s failed: %s", execution_id, error_msg)
+
+    async def _handle_graph_status(self, params: dict) -> dict:
+        # M1-2: 查执行状态. _active_executions 有=running, 无+证据有 completed/failed=终态.
+        execution_id = params.get("execution_id", "")
+        team = params.get("team", "default")
+        if not execution_id:
+            return {"error": "execution_id is required"}
+
+        bg_task = self._active_executions.get(execution_id)
+        if bg_task is not None and not bg_task.done():
+            evidence_tail = self._read_evidence_tail(execution_id, team)
+            last_ev = evidence_tail[-1] if evidence_tail else {}
+            return {
+                "execution_id": execution_id,
+                "status": "running",
+                "progress": {
+                    "events_count": last_ev.get("events_count", 0),
+                    "node_id": last_ev.get("node_id", ""),
+                },
+                "last_event_at": last_ev.get("ts", 0),
+            }
+
+        # 不在活跃表 → 查证据判终态
+        evidence = self._read_evidence_tail(execution_id, team, n=50)
+        if not evidence:
+            return {
+                "execution_id": execution_id,
+                "status": "unknown",
+                "error": "execution not found (no active task, no evidence)",
+            }
+        last = evidence[-1]
+        ev_type = last.get("type", "")
+        if ev_type == "execution.completed":
+            status = "completed"
+        elif ev_type == "execution.failed":
+            status = "failed"
+        elif ev_type == "execution.cancelled":
+            status = "cancelled"
+        else:
+            status = "running"
+        # 清理已完成的 _active_executions 条目
+        if bg_task is not None and bg_task.done():
+            self._active_executions.pop(execution_id, None)
+        return {
+            "execution_id": execution_id,
+            "status": status,
+            "progress": {
+                "events_count": last.get("events_count", 0),
+                "artifact_ids": last.get("artifact_ids", []),
+            },
+            "last_event_at": last.get("ts", 0),
+            "error": last.get("error", ""),
+        }
+
+    async def _handle_graph_cancel(self, params: dict) -> dict:
+        # M1-2: 取消执行. 取 asyncio.Task.cancel() → 写 cancelled 证据 (在 CancelledError 路径).
+        execution_id = params.get("execution_id", "")
+        reason = params.get("reason", "")
+        if not execution_id:
+            return {"error": "execution_id is required"}
+        bg_task = self._active_executions.get(execution_id)
+        if bg_task is None:
+            return {
+                "execution_id": execution_id,
+                "status": "not_found",
+                "error": "execution not active (already finished or unknown)",
+            }
+        bg_task.cancel()
+        logger.info("graph.cancel %s (reason=%s)", execution_id, reason)
+        return {"execution_id": execution_id, "status": "cancelled", "reason": reason}
 
     async def _handle_graph_resume(self, params: dict) -> dict:
         # 审计 E-20: 闭合 checkpoint 读路径. 旧版只写不读 (write-only stage),
