@@ -11,10 +11,13 @@ import logging
 import time
 import uuid
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, TYPE_CHECKING
 
 from .fmp_router import AgentInfo, FMProtocol
 from .safety import CAT_SHELL_EXEC, SafetyGateway
+
+if TYPE_CHECKING:
+    from .persistence import AgentStore
 
 logger = logging.getLogger(__name__)
 
@@ -144,6 +147,7 @@ class SwarmRouter:
         max_hops: int = MAX_HOPS,
         fmp: FMProtocol | None = None,
         safety: SafetyGateway | None = None,
+        store: AgentStore | None = None,
     ):
         self.max_hops = max_hops
         self._agents: dict[str, SwarmAgent] = {}
@@ -151,20 +155,102 @@ class SwarmRouter:
         self._handoff_log: list[dict[str, Any]] = []
         self.fmp = fmp if fmp is not None else FMProtocol("swarm_router")
         self.safety = safety if safety is not None else SafetyGateway()
+        self._store = store
+        if store is not None:
+            self._load_from_store()
         logger.info(
-            "SwarmRouter initialized (max_hops=%d, fmp=%s, safety=%s)",
+            "SwarmRouter initialized (max_hops=%d, fmp=%s, safety=%s, store=%s, agents=%d)",
             max_hops,
             "injected" if fmp else "auto",
             "injected" if safety else "auto",
+            "on" if store else "off",
+            len(self._agents),
         )
+
+    def _load_from_store(self) -> None:
+        # 启动: 从 SQLite 加载 agents + delegations 进内存缓存.
+        if self._store is None:
+            return
+        try:
+            for a_data in self._store.load_swarm_agents():
+                agent = SwarmAgent(
+                    id=a_data.get("agent_id", ""),
+                    name=a_data.get("name", ""),
+                    capabilities=a_data.get("capabilities", []),
+                    handoff_targets=a_data.get("handoff_targets", []),
+                    max_hops=a_data.get("max_hops", MAX_HOPS),
+                    status=a_data.get("status", "online"),
+                    metadata=a_data.get("metadata", {}),
+                )
+                self._agents[agent.id] = agent
+            for d_data in self._store.load_swarm_delegations():
+                delegation = TaskDelegation(
+                    id=d_data.get("id", ""),
+                    task=d_data.get("task", ""),
+                    delegator=d_data.get("delegator", ""),
+                    delegatee=d_data.get("delegatee", ""),
+                    status=d_data.get("status", "pending"),
+                    hop_count=d_data.get("hop_count", 0),
+                    created_at=d_data.get("created_at", 0.0),
+                    completed_at=d_data.get("completed_at", 0.0),
+                    result=d_data.get("result", {}),
+                )
+                self._delegations[delegation.id] = delegation
+            logger.info(
+                "SwarmRouter loaded from store: %d agents, %d delegations",
+                len(self._agents),
+                len(self._delegations),
+            )
+        except Exception:
+            logger.exception("SwarmRouter _load_from_store failed, starting empty cache")
+
+    def _persist_agent(self, agent: SwarmAgent) -> None:
+        if self._store is None:
+            return
+        try:
+            self._store.save_swarm_agent(
+                agent_id=agent.id,
+                name=agent.name,
+                capabilities=agent.capabilities,
+                handoff_targets=agent.handoff_targets,
+                max_hops=agent.max_hops,
+                status=agent.status,
+                metadata=agent.metadata,
+            )
+        except Exception:
+            logger.exception("SwarmRouter _persist_agent failed: %s", agent.id)
+
+    def _persist_delegation(self, delegation: TaskDelegation) -> None:
+        if self._store is None:
+            return
+        try:
+            self._store.save_swarm_delegation(
+                delegation_id=delegation.id,
+                delegator=delegation.delegator,
+                delegatee=delegation.delegatee,
+                task=delegation.task,
+                status=delegation.status,
+                hop_count=delegation.hop_count,
+                created_at=delegation.created_at,
+                completed_at=delegation.completed_at,
+                result=delegation.result,
+            )
+        except Exception:
+            logger.exception("SwarmRouter _persist_delegation failed: %s", delegation.id)
 
     def register_agent(self, agent: SwarmAgent) -> None:
         self._agents[agent.id] = agent
+        self._persist_agent(agent)
         logger.info("Registered swarm agent: %s (%s)", agent.id, agent.name)
 
     def unregister_agent(self, agent_id: str) -> bool:
         if agent_id in self._agents:
             del self._agents[agent_id]
+            if self._store is not None:
+                try:
+                    self._store.delete_swarm_agent(agent_id)
+                except Exception:
+                    logger.exception("SwarmRouter unregister store fail: %s", agent_id)
             logger.info("Unregistered swarm agent: %s", agent_id)
             return True
         return False
@@ -235,6 +321,7 @@ class SwarmRouter:
             hop_count=1,
         )
         self._delegations[delegation.id] = delegation
+        self._persist_delegation(delegation)
         self._ensure_fmp_agent(delegatee)
         self.fmp.send(
             recipient=delegatee.id,
@@ -316,6 +403,7 @@ class SwarmRouter:
         delegation.status = "completed"
         delegation.result = result
         delegation.completed_at = time.time()
+        self._persist_delegation(delegation)
         logger.info("Task %s evaluated: status=completed", task_id)
         return delegation
 
@@ -335,6 +423,7 @@ class SwarmRouter:
             "action_id": verdict.metadata.get("action_id", ""),
         }
         delegation.completed_at = time.time()
+        self._persist_delegation(delegation)
         logger.warning(
             "Task %s ESCALATED via L3 safety: action=%s reason=%s",
             task_id,

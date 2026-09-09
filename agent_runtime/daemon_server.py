@@ -346,16 +346,16 @@ class DaemonServer:
         if self._swarm is None:
             from .swarm_router import SwarmRouter
 
-            self._swarm = SwarmRouter(fmp=self._get_fmp())
-            logger.info("SwarmRouter created (shared fmp)")
+            self._swarm = SwarmRouter(fmp=self._get_fmp(), store=self.store)
+            logger.info("SwarmRouter created (shared fmp, store wired)")
         return self._swarm
 
     def _get_plaza(self):
         if self._plaza is None:
             from .plaza import Plaza
 
-            self._plaza = Plaza()
-            logger.info("Plaza created")
+            self._plaza = Plaza(store=self.store)
+            logger.info("Plaza created (store wired)")
         return self._plaza
 
     def _get_orchestrator(self):
@@ -631,6 +631,31 @@ class DaemonServer:
             logger.info("Auto-attached to running fusion-mlx on port %d", MLX_PORT)
 
         self._log_startup_selfcheck()
+        self._reconcile_team_launch_phases()
+
+    def _reconcile_team_launch_phases(self) -> None:
+        # M1-3: 启动 reconcile. 扫 team_launch_phases WHERE phase='active'
+        # → 逐团队 reconcile → phase='reconciled'.
+        # 完整证据驱动恢复 (in_progress 任务按 evidence jsonl 判定) 依赖 M1-2;
+        # M1-3 先建 phase 跟踪 + stub reconcile (标记 active→reconciled + 日志告警).
+        try:
+            active = self.store.get_team_launch_phases("active")
+            if not active:
+                logger.info("reconcile: no active team launch phases (clean start)")
+                return
+            for phase_row in active:
+                team = phase_row.get("team", "")
+                logger.warning(
+                    "reconcile: team %s was active at crash — marking reconciled "
+                    "(in_progress tasks need evidence check when M1-2 lands)",
+                    team,
+                )
+                self.store.set_team_launch_phase(team, "reconciled")
+            logger.info(
+                "reconcile: %d active phase(s) → reconciled", len(active)
+            )
+        except Exception:
+            logger.exception("reconcile: team launch phase reconcile failed")
 
     def _log_startup_selfcheck(self) -> None:
         try:

@@ -157,6 +157,7 @@ class AgentStore:
     def _run_schema_migrations(self, conn) -> None:
         migrations = [
             self._migration_v1_checkpoint_columns,
+            self._migration_v2_team_state,
         ]
         current = conn.execute("PRAGMA user_version").fetchone()[0]
         for idx, migrate in enumerate(migrations, start=1):
@@ -562,6 +563,363 @@ class AgentStore:
                 "DELETE FROM workflow_runs WHERE id = ?", (run_id,)
             )
         return cursor.rowcount > 0
+
+    def _migration_v2_team_state(self, conn) -> None:
+        # M1-3: swarm/plaza 持久化 + launch phase reconcile. 5 新表入 store.db.
+        # plaza_messages: 消息持久化, hash 去重 (INSERT OR IGNORE), message_id 唯一.
+        # plaza_channels: 频道状态, name 唯一.
+        # swarm_agents: agent 注册表, agent_id 唯一.
+        # swarm_delegations: 委托链, id 唯一.
+        # team_launch_phases: launch 三态 (active/finished/reconciled), 崩溃恢复靠此.
+        conn.executescript("""
+            CREATE TABLE IF NOT EXISTS plaza_messages (
+                message_id TEXT PRIMARY KEY,
+                channel TEXT NOT NULL,
+                sender TEXT NOT NULL,
+                role TEXT DEFAULT '',
+                task_ref TEXT DEFAULT '',
+                ts REAL NOT NULL,
+                payload_json TEXT DEFAULT '{}',
+                hash TEXT NOT NULL UNIQUE
+            );
+            CREATE INDEX IF NOT EXISTS idx_plaza_msg_channel_ts
+                ON plaza_messages(channel, ts);
+            CREATE INDEX IF NOT EXISTS idx_plaza_msg_hash
+                ON plaza_messages(hash);
+
+            CREATE TABLE IF NOT EXISTS plaza_channels (
+                name TEXT PRIMARY KEY,
+                participants_json TEXT DEFAULT '[]',
+                max_rounds INTEGER DEFAULT 0,
+                current_round INTEGER DEFAULT 0,
+                suspended INTEGER DEFAULT 0
+            );
+
+            CREATE TABLE IF NOT EXISTS swarm_agents (
+                agent_id TEXT PRIMARY KEY,
+                name TEXT DEFAULT '',
+                capabilities_json TEXT DEFAULT '[]',
+                handoff_targets_json TEXT DEFAULT '[]',
+                max_hops INTEGER DEFAULT 3,
+                status TEXT DEFAULT 'online',
+                metadata_json TEXT DEFAULT '{}',
+                team TEXT DEFAULT 'default'
+            );
+
+            CREATE TABLE IF NOT EXISTS swarm_delegations (
+                id TEXT PRIMARY KEY,
+                delegator TEXT NOT NULL,
+                delegatee TEXT NOT NULL,
+                task TEXT DEFAULT '',
+                status TEXT DEFAULT 'pending',
+                hop_count INTEGER DEFAULT 0,
+                created_at REAL NOT NULL,
+                completed_at REAL DEFAULT 0,
+                result_json TEXT DEFAULT '{}'
+            );
+            CREATE INDEX IF NOT EXISTS idx_swarm_del_status
+                ON swarm_delegations(status);
+
+            CREATE TABLE IF NOT EXISTS team_launch_phases (
+                team TEXT PRIMARY KEY,
+                phase TEXT DEFAULT 'active',
+                updated_at REAL NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_team_launch_phase
+                ON team_launch_phases(phase);
+        """)
+
+    # ── M1-3 Plaza Message CRUD ──
+
+    def save_plaza_message(
+        self,
+        message_id: str,
+        channel: str,
+        sender: str,
+        ts: float,
+        payload: dict[str, Any],
+        hash_val: str,
+        role: str = "",
+        task_ref: str = "",
+    ) -> bool:
+        # INSERT OR IGNORE on hash UNIQUE — sha256 去重. 返回 True=新写入, False=重复跳过.
+        with self._cursor() as conn:
+            cursor = conn.execute(
+                """INSERT OR IGNORE INTO plaza_messages
+                   (message_id, channel, sender, role, task_ref, ts, payload_json, hash)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    message_id,
+                    channel,
+                    sender,
+                    role,
+                    task_ref,
+                    ts,
+                    json.dumps(payload, ensure_ascii=False),
+                    hash_val,
+                ),
+            )
+        return cursor.rowcount > 0
+
+    def verify_plaza_message(self, message_id: str) -> bool:
+        # 回读验证: 写后立即 SELECT 确认落盘. 缺失=告警不静默 (源方案 §5.5).
+        with self._cursor() as conn:
+            row = conn.execute(
+                "SELECT 1 FROM plaza_messages WHERE message_id = ?",
+                (message_id,),
+            ).fetchone()
+        return row is not None
+
+    def load_plaza_messages(
+        self, channel: str = "", since_id: str = "", limit: int = 500
+    ) -> list[dict[str, Any]]:
+        with self._cursor() as conn:
+            if channel and since_id:
+                rows = conn.execute(
+                    """SELECT * FROM plaza_messages
+                       WHERE channel = ? AND message_id > ?
+                       ORDER BY ts ASC LIMIT ?""",
+                    (channel, since_id, limit),
+                ).fetchall()
+            elif channel:
+                rows = conn.execute(
+                    """SELECT * FROM plaza_messages
+                       WHERE channel = ?
+                       ORDER BY ts ASC LIMIT ?""",
+                    (channel, limit),
+                ).fetchall()
+            elif since_id:
+                rows = conn.execute(
+                    """SELECT * FROM plaza_messages
+                       WHERE message_id > ?
+                       ORDER BY ts ASC LIMIT ?""",
+                    (since_id, limit),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT * FROM plaza_messages ORDER BY ts ASC LIMIT ?",
+                    (limit,),
+                ).fetchall()
+        results = []
+        for r in rows:
+            d = dict(r)
+            try:
+                d["payload"] = json.loads(d.pop("payload_json", "{}"))
+            except (json.JSONDecodeError, TypeError):
+                d["payload"] = {}
+            results.append(d)
+        return results
+
+    def load_all_plaza_messages(self) -> list[dict[str, Any]]:
+        with self._cursor() as conn:
+            rows = conn.execute(
+                "SELECT * FROM plaza_messages ORDER BY ts ASC"
+            ).fetchall()
+        results = []
+        for r in rows:
+            d = dict(r)
+            try:
+                d["payload"] = json.loads(d.pop("payload_json", "{}"))
+            except (json.JSONDecodeError, TypeError):
+                d["payload"] = {}
+            results.append(d)
+        return results
+
+    # ── M1-3 Plaza Channel CRUD ──
+
+    def save_plaza_channel(
+        self,
+        name: str,
+        participants: list[str],
+        max_rounds: int,
+        current_round: int,
+        suspended: bool,
+    ) -> None:
+        with self._cursor() as conn:
+            conn.execute(
+                """INSERT INTO plaza_channels
+                   (name, participants_json, max_rounds, current_round, suspended)
+                   VALUES (?, ?, ?, ?, ?)
+                   ON CONFLICT(name) DO UPDATE SET
+                       participants_json=excluded.participants_json,
+                       max_rounds=excluded.max_rounds,
+                       current_round=excluded.current_round,
+                       suspended=excluded.suspended""",
+                (
+                    name,
+                    json.dumps(participants),
+                    max_rounds,
+                    current_round,
+                    1 if suspended else 0,
+                ),
+            )
+
+    def delete_plaza_channel(self, name: str) -> bool:
+        with self._cursor() as conn:
+            cursor = conn.execute(
+                "DELETE FROM plaza_channels WHERE name = ?", (name,)
+            )
+        return cursor.rowcount > 0
+
+    def load_plaza_channels(self) -> list[dict[str, Any]]:
+        with self._cursor() as conn:
+            rows = conn.execute("SELECT * FROM plaza_channels").fetchall()
+        results = []
+        for r in rows:
+            d = dict(r)
+            try:
+                d["participants"] = json.loads(d.pop("participants_json", "[]"))
+            except (json.JSONDecodeError, TypeError):
+                d["participants"] = []
+            d["suspended"] = bool(d.get("suspended", 0))
+            results.append(d)
+        return results
+
+    # ── M1-3 Swarm Agent CRUD ──
+
+    def save_swarm_agent(
+        self,
+        agent_id: str,
+        name: str,
+        capabilities: list[str],
+        handoff_targets: list[str],
+        max_hops: int,
+        status: str,
+        metadata: dict[str, Any],
+        team: str = "default",
+    ) -> None:
+        with self._cursor() as conn:
+            conn.execute(
+                """INSERT INTO swarm_agents
+                   (agent_id, name, capabilities_json, handoff_targets_json,
+                    max_hops, status, metadata_json, team)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                   ON CONFLICT(agent_id) DO UPDATE SET
+                       name=excluded.name,
+                       capabilities_json=excluded.capabilities_json,
+                       handoff_targets_json=excluded.handoff_targets_json,
+                       max_hops=excluded.max_hops,
+                       status=excluded.status,
+                       metadata_json=excluded.metadata_json""",
+                (
+                    agent_id,
+                    name,
+                    json.dumps(capabilities),
+                    json.dumps(handoff_targets),
+                    max_hops,
+                    status,
+                    json.dumps(metadata, ensure_ascii=False),
+                    team,
+                ),
+            )
+
+    def delete_swarm_agent(self, agent_id: str) -> bool:
+        with self._cursor() as conn:
+            cursor = conn.execute(
+                "DELETE FROM swarm_agents WHERE agent_id = ?", (agent_id,)
+            )
+        return cursor.rowcount > 0
+
+    def load_swarm_agents(self) -> list[dict[str, Any]]:
+        with self._cursor() as conn:
+            rows = conn.execute("SELECT * FROM swarm_agents").fetchall()
+        results = []
+        for r in rows:
+            d = dict(r)
+            try:
+                d["capabilities"] = json.loads(d.pop("capabilities_json", "[]"))
+            except (json.JSONDecodeError, TypeError):
+                d["capabilities"] = []
+            try:
+                d["handoff_targets"] = json.loads(
+                    d.pop("handoff_targets_json", "[]")
+                )
+            except (json.JSONDecodeError, TypeError):
+                d["handoff_targets"] = []
+            try:
+                d["metadata"] = json.loads(d.pop("metadata_json", "{}"))
+            except (json.JSONDecodeError, TypeError):
+                d["metadata"] = {}
+            results.append(d)
+        return results
+
+    # ── M1-3 Swarm Delegation CRUD ──
+
+    def save_swarm_delegation(
+        self,
+        delegation_id: str,
+        delegator: str,
+        delegatee: str,
+        task: str,
+        status: str,
+        hop_count: int,
+        created_at: float,
+        completed_at: float = 0.0,
+        result: dict[str, Any] | None = None,
+    ) -> None:
+        with self._cursor() as conn:
+            conn.execute(
+                """INSERT INTO swarm_delegations
+                   (id, delegator, delegatee, task, status, hop_count,
+                    created_at, completed_at, result_json)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                   ON CONFLICT(id) DO UPDATE SET
+                       status=excluded.status,
+                       hop_count=excluded.hop_count,
+                       completed_at=excluded.completed_at,
+                       result_json=excluded.result_json""",
+                (
+                    delegation_id,
+                    delegator,
+                    delegatee,
+                    task,
+                    status,
+                    hop_count,
+                    created_at,
+                    completed_at,
+                    json.dumps(result or {}, ensure_ascii=False),
+                ),
+            )
+
+    def load_swarm_delegations(self) -> list[dict[str, Any]]:
+        with self._cursor() as conn:
+            rows = conn.execute("SELECT * FROM swarm_delegations").fetchall()
+        results = []
+        for r in rows:
+            d = dict(r)
+            try:
+                d["result"] = json.loads(d.pop("result_json", "{}"))
+            except (json.JSONDecodeError, TypeError):
+                d["result"] = {}
+            results.append(d)
+        return results
+
+    # ── M1-3 Team Launch Phase CRUD ──
+
+    def set_team_launch_phase(self, team: str, phase: str) -> None:
+        # phase: active / finished / reconciled. 崩溃恢复扫 active.
+        with self._cursor() as conn:
+            conn.execute(
+                """INSERT INTO team_launch_phases (team, phase, updated_at)
+                   VALUES (?, ?, ?)
+                   ON CONFLICT(team) DO UPDATE SET
+                       phase=excluded.phase,
+                       updated_at=excluded.updated_at""",
+                (team, phase, time.time()),
+            )
+
+    def get_team_launch_phases(self, phase: str = "") -> list[dict[str, Any]]:
+        with self._cursor() as conn:
+            if phase:
+                rows = conn.execute(
+                    "SELECT * FROM team_launch_phases WHERE phase = ?",
+                    (phase,),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT * FROM team_launch_phases"
+                ).fetchall()
+        return [dict(r) for r in rows]
 
     def close(self) -> None:
         """Close the database connection."""
