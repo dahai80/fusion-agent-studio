@@ -185,15 +185,20 @@ class ResourceLease:
             lease["resource_id"],
             reason,
         )
+        promoted_id = ""
         if was_granted:
-            self._promote_queued(lease["resource_id"], lease["team"])
-        return {"status": "released", "lease_id": lease_id}
+            promoted = self._promote_queued(lease["resource_id"], lease["team"])
+            if promoted:
+                promoted_id = promoted.get("lease_id", "")
+        # #319: surface promoted lease so daemon can broadcast resource.lease_granted.
+        return {"status": "released", "lease_id": lease_id, "promoted_lease": promoted_id}
 
-    def _promote_queued(self, resource_id: str, team: str) -> None:
+    def _promote_queued(self, resource_id: str, team: str) -> dict | None:
         # 释放后把排队第一个 promote 为 granted (按 position 升序).
+        # #319: return promoted lease so caller can broadcast resource.lease_granted.
         queued = self._store.list_leases(resource_id=resource_id, status=LEASE_QUEUED, team=team)
         if not queued:
-            return
+            return None
         queued.sort(key=lambda x: x["position"])
         nxt = queued[0]
         now = time.time()
@@ -211,15 +216,17 @@ class ResourceLease:
             resource_id,
             nxt.get("task_id", ""),
         )
+        return nxt
 
     def expiry_sweep(self, now: float | None = None) -> list[dict]:
         # ttl 到期未释放 → expired + 返回清单 (daemon 写证据 + team 告警).
+        # #319: each expired dict carries "promoted_lease" so daemon broadcasts
+        # both resource.lease_expired and resource.lease_granted (promoted successor).
         if self._store is None:
             return []
         if now is None:
             now = time.time()
         expired = self._store.list_expired_leases(now)
-        promoted: list[dict] = []
         for lease in expired:
             lease["status"] = LEASE_EXPIRED
             lease["released_at"] = now
@@ -232,9 +239,9 @@ class ResourceLease:
                 lease.get("task_id", ""),
                 lease["expires_at"],
             )
-            self._promote_queued(lease["resource_id"], lease["team"])
-            promoted.append(lease)
-        return promoted
+            promoted = self._promote_queued(lease["resource_id"], lease["team"])
+            lease["promoted_lease"] = promoted.get("lease_id", "") if promoted else ""
+        return expired
 
     def list_resources(self, team: str = "") -> list[dict]:
         if self._store is None:

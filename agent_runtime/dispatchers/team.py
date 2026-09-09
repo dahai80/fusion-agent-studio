@@ -32,6 +32,7 @@ class TeamDispatcher(SubDispatcher):
             "team.orchestrate": self._handle_team_orchestrate,
             "team.set_limits": self._handle_team_set_limits,
             "team.get_limits": self._handle_team_get_limits,
+            "team.health": self._handle_team_health,
         }
 
     async def _handle_team_swarm_register(self, params: dict) -> dict:
@@ -224,3 +225,62 @@ class TeamDispatcher(SubDispatcher):
     async def _handle_team_get_limits(self, params: dict) -> dict:
         orch = self._daemon._get_orchestrator()
         return orch.get_limits()
+
+    async def _handle_team_health(self, params: dict) -> dict:
+        # #318: per-team health aggregation for GUI BudgetView + EnvironmentHealthCard.
+        # Aggregates from task store (filter by team) + resource_lease queue depth.
+        import time as _time
+
+        from ..task_store import (
+            TASK_STATUS_FAILED,
+            TASK_STATUS_PENDING,
+            TASK_STATUS_RUNNING,
+            _task_max_concurrency,
+        )
+
+        team = params.get("team", "default") or "default"
+        store = self._daemon._get_task_store()
+        tasks = store.list(team=team, limit=0)
+        pending = sum(1 for t in tasks if t.get("status") == TASK_STATUS_PENDING)
+        running = sum(1 for t in tasks if t.get("status") == TASK_STATUS_RUNNING)
+        total = len(tasks)
+        now = _time.time()
+        # recent_failures = failed within last 24h.
+        recent_failures = sum(
+            1
+            for t in tasks
+            if t.get("status") == TASK_STATUS_FAILED
+            and (now - float(t.get("updated_at", 0) or 0)) <= 86400
+        )
+        # lease_queue_depth = queued leases for this team.
+        lease_queue_depth = 0
+        try:
+            rl = self._daemon._get_resource_lease()
+            queued = rl.list_leases(status="queued", team=team)
+            lease_queue_depth = len(queued)
+        except Exception as exc:
+            logger.warning("team.health lease queue depth failed: %s", exc)
+        # budget_remaining from global token budget (not team-scoped yet).
+        budget_remaining = 0
+        tb = getattr(self._daemon, "_token_budget", None)
+        if tb:
+            try:
+                st = tb.status()
+                budget_remaining = max(0, st.get("max_tokens", 0) - st.get("spent_tokens", 0))
+            except Exception:
+                budget_remaining = 0
+        max_concurrency = _task_max_concurrency()
+        logger.info(
+            "team.health: team=%s pending=%d running=%d total=%d failures=%d queue=%d",
+            team, pending, running, total, recent_failures, lease_queue_depth,
+        )
+        return {
+            "team": team,
+            "pending_tasks": pending,
+            "running_tasks": running,
+            "total_tasks": total,
+            "recent_failures": recent_failures,
+            "lease_queue_depth": lease_queue_depth,
+            "max_concurrency": max_concurrency,
+            "budget_remaining": budget_remaining,
+        }
