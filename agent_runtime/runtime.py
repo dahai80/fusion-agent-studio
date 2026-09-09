@@ -416,7 +416,7 @@ class AgentRuntime(_SafetyApprovalMixin, _CheckpointMixin, _DynamicToolsMixin, _
             yield AgentEvent(type=AgentEventType.ERROR, content=ctx.error)
             return
 
-        tools_schema = self.tools.to_openai_schemas()
+        tools_schema = self.tools.to_openai_schemas(role=getattr(ctx, "role", "all"))
         if any(n.allow_dynamic_tools for n in graph.nodes.values()):
             tools_schema.extend(self._dynamic_tool_schemas())
 

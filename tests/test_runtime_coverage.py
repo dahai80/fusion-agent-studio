@@ -67,7 +67,7 @@ class MockToolRegistry:
         tool.execute = AsyncMock(side_effect=exc)
         self._tools[name] = tool
 
-    def to_openai_schemas(self):
+    def to_openai_schemas(self, role: str = "all"):
         return self._schemas
 
     def get(self, name):

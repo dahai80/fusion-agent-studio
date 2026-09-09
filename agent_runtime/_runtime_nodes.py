@@ -1470,7 +1470,7 @@ class _NodeExecutorsMixin:
                         yield event
                 elif failed_node.type == "llm":
                     model = graph.find_llm_model()
-                    tools_schema = self.tools.to_openai_schemas()
+                    tools_schema = self.tools.to_openai_schemas(role=getattr(ctx, "role", "all"))
                     if any(n.allow_dynamic_tools for n in graph.nodes.values()):
                         tools_schema.extend(self._dynamic_tool_schemas())
                     async for event in self._execute_llm_node(
@@ -1481,7 +1481,7 @@ class _NodeExecutorsMixin:
                     # 审计 P1-16: 原 error_handler 仅重试 tool/llm, rag/planner/verify
                     # 失败后 error_handler 无路径重试 -> 直接放弃. 补齐这三种.
                     model = graph.find_llm_model()
-                    tools_schema = self.tools.to_openai_schemas()
+                    tools_schema = self.tools.to_openai_schemas(role=getattr(ctx, "role", "all"))
                     async for event in self._execute_rag_node(
                         ctx, failed_node, graph, model, tools_schema, ""
                     ):

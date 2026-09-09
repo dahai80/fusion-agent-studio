@@ -43,8 +43,8 @@ class ToolRegistry:
         """Check if a tool is registered."""
         return name in self._tools
 
-    def list_tools(self) -> list[dict[str, Any]]:
-        """List all registered tools as metadata dicts."""
+    def list_tools(self, role: str = "all") -> list[dict[str, Any]]:
+        # M3-1 issue#322: role filter. role="all" (default) = current behavior (return all).
         return [
             {
                 "name": t.name,
@@ -52,11 +52,24 @@ class ToolRegistry:
                 "parameters": t.parameters,
             }
             for t in self._tools.values()
+            if role == "all" or "all" in t.roles or role in t.roles
         ]
 
-    def to_openai_schemas(self) -> list[dict]:
-        """Convert all registered tools to OpenAI function-calling schemas."""
-        return [t.openai_schema() for t in self._tools.values()]
+    def to_openai_schemas(self, role: str = "all") -> list[dict]:
+        # M3-1 issue#322: role filter. role="all" (default) = current behavior (return all).
+        return [
+            t.openai_schema()
+            for t in self._tools.values()
+            if role == "all" or "all" in t.roles or role in t.roles
+        ]
+
+    def tools_for_role(self, role: str) -> list[str]:
+        # M3-1 issue#322: return tool names visible to a role.
+        return [
+            t.name
+            for t in self._tools.values()
+            if role == "all" or "all" in t.roles or role in t.roles
+        ]
 
     @property
     def count(self) -> int:

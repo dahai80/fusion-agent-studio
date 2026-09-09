@@ -27,6 +27,9 @@ class BaseTool(ABC):
     name: str = ""
     description: str = ""
     parameters: dict = field(default_factory=dict)
+    # M3-1 issue#322: role-based tool filtering. Default frozenset({"all"}) = visible
+    # to every role. Tools assign roles = frozenset({"researcher", "imager"}) etc.
+    roles: frozenset = frozenset({"all"})
 
     def __init_subclass__(cls, **kwargs):
         super().__init_subclass__(**kwargs)
