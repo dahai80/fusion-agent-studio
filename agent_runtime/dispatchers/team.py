@@ -167,37 +167,45 @@ class TeamDispatcher(SubDispatcher):
         orch = self._daemon._get_orchestrator()
         pattern = params.get("pattern", "sequential")
         input_text = params.get("input", "")
+        team = params.get("team", "default")
+
+        # M1-3: launch phase 跟踪. active=执行中, finished=正常完成.
+        # 崩溃时残留 active → 启动 reconcile 标记 reconciled.
+        self._daemon.store.set_team_launch_phase(team, "active")
 
         def build(spec):
             graph = self._daemon.store.load_graph(spec["graph_id"])
             return AgentConfig(name=spec.get("name", spec["graph_id"]), graph=graph)
 
         agents = [build(s) for s in params.get("agents", [])]
-        if pattern == "sequential":
-            res = await orch.sequential(agents, input_text)
-        elif pattern == "parallel":
-            res = await orch.parallel(agents, input_text)
-        elif pattern == "handoff":
-            res = await orch.handoff(agents, input_text)
-        elif pattern == "broadcast":
-            res = await orch.broadcast(
-                agents,
-                input_text,
-                merge_strategy=params.get("merge_strategy", "concat"),
-            )
-        elif pattern == "master_worker":
-            res = await orch.master_worker(
-                build(params["supervisor"]), agents, input_text
-            )
-        elif pattern == "supervisor":
-            res = await orch.supervisor(
-                build(params["supervisor"]),
-                agents,
-                input_text,
-                max_rounds=params.get("max_rounds", 5),
-            )
-        else:
-            return {"error": f"unknown pattern: {pattern}"}
+        try:
+            if pattern == "sequential":
+                res = await orch.sequential(agents, input_text)
+            elif pattern == "parallel":
+                res = await orch.parallel(agents, input_text)
+            elif pattern == "handoff":
+                res = await orch.handoff(agents, input_text)
+            elif pattern == "broadcast":
+                res = await orch.broadcast(
+                    agents,
+                    input_text,
+                    merge_strategy=params.get("merge_strategy", "concat"),
+                )
+            elif pattern == "master_worker":
+                res = await orch.master_worker(
+                    build(params["supervisor"]), agents, input_text
+                )
+            elif pattern == "supervisor":
+                res = await orch.supervisor(
+                    build(params["supervisor"]),
+                    agents,
+                    input_text,
+                    max_rounds=params.get("max_rounds", 5),
+                )
+            else:
+                return {"error": f"unknown pattern: {pattern}"}
+        finally:
+            self._daemon.store.set_team_launch_phase(team, "finished")
         return {
             "results": res.results,
             "errors": res.errors,

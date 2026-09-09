@@ -3,13 +3,17 @@ supervisor designate, 3-round circuit breaker, and human break-in."""
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import re
 import threading
 import time
 import uuid
 from dataclasses import dataclass, field
-from typing import Any, Callable
+from typing import TYPE_CHECKING, Any, Callable
+
+if TYPE_CHECKING:
+    from .persistence import AgentStore
 
 logger = logging.getLogger(__name__)
 
@@ -98,16 +102,111 @@ def _parse_mentions(content: str) -> list[str]:
     return MENTION_PATTERN.findall(content)
 
 
+def _message_hash(channel: str, sender: str, content: str, round_number: int) -> str:
+    # sha256 去重: 同 channel+sender+content+round 视为重复 (重试/崩溃恢复场景).
+    raw = f"{channel}|{sender}|{content}|{round_number}"
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
 class Plaza:
-    def __init__(self, max_rounds: int = 3):
+    def __init__(self, max_rounds: int = 3, store: AgentStore | None = None):
         self._max_rounds = max_rounds
         self._channels: dict[str, PlazaChannel] = {}
         self._messages: dict[str, list[PlazaMessage]] = {}
-        self._subscriptions: dict[
-            str, tuple[str, str, Callable[[PlazaMessage], None]]
-        ] = {}
+        self._subscriptions: dict[str, tuple[str, str, Callable[[PlazaMessage], None]]] = {}
         self._lock = threading.Lock()
-        logger.info("Plaza initialized with max_rounds=%d", max_rounds)
+        self._store = store
+        if store is not None:
+            self._load_from_store()
+        logger.info(
+            "Plaza initialized (max_rounds=%d, store=%s, channels=%d)",
+            max_rounds,
+            "on" if store else "off",
+            len(self._channels),
+        )
+
+    def _load_from_store(self) -> None:
+        # 启动: 从 SQLite 加载频道 + 消息进内存缓存. 内存 dict 降为缓存层.
+        if self._store is None:
+            return
+        try:
+            for ch_data in self._store.load_plaza_channels():
+                channel = PlazaChannel(
+                    name=ch_data.get("name", ""),
+                    participants=ch_data.get("participants", []),
+                    max_rounds=ch_data.get("max_rounds", self._max_rounds),
+                    current_round=ch_data.get("current_round", 0),
+                    is_suspended=ch_data.get("suspended", False),
+                )
+                self._channels[channel.name] = channel
+                self._messages[channel.name] = []
+            for msg_data in self._store.load_all_plaza_messages():
+                ch_name = msg_data.get("channel", "")
+                if ch_name not in self._messages:
+                    self._messages[ch_name] = []
+                msg = PlazaMessage(
+                    id=msg_data.get("message_id", ""),
+                    channel=ch_name,
+                    sender=msg_data.get("sender", ""),
+                    content=msg_data.get("payload", {}).get("content", ""),
+                    mentions=msg_data.get("payload", {}).get("mentions", []),
+                    round_number=msg_data.get("payload", {}).get("round_number", 0),
+                    timestamp=msg_data.get("ts", 0.0),
+                    metadata=msg_data.get("payload", {}).get("metadata", {}),
+                )
+                self._messages[ch_name].append(msg)
+            logger.info(
+                "Plaza loaded from store: %d channels, %d messages",
+                len(self._channels),
+                sum(len(v) for v in self._messages.values()),
+            )
+        except Exception:
+            logger.exception("Plaza _load_from_store failed, starting empty cache")
+
+    def _persist_message(self, msg: PlazaMessage) -> bool:
+        # 持久化消息 + 回读验证 + hash 去重. 返回 True=新写入, False=重复跳过.
+        if self._store is None:
+            return True
+        hash_val = _message_hash(msg.channel, msg.sender, msg.content, msg.round_number)
+        payload = {
+            "content": msg.content,
+            "mentions": msg.mentions,
+            "round_number": msg.round_number,
+            "metadata": msg.metadata,
+        }
+        written = self._store.save_plaza_message(
+            message_id=msg.id,
+            channel=msg.channel,
+            sender=msg.sender,
+            ts=msg.timestamp,
+            payload=payload,
+            hash_val=hash_val,
+        )
+        if not written:
+            logger.info("Plaza message dedup skipped (hash=%s): id=%s", hash_val[:12], msg.id)
+            return False
+        # 回读验证: 写后立即确认落盘. 缺失=告警不静默 (源方案 §5.5).
+        if not self._store.verify_plaza_message(msg.id):
+            logger.error(
+                "Plaza message readback VERIFY FAILED: id=%s channel=%s — missing after write",
+                msg.id,
+                msg.channel,
+            )
+        return True
+
+    def _persist_channel(self, channel: PlazaChannel) -> None:
+        if self._store is None:
+            return
+        try:
+            self._store.save_plaza_channel(
+                name=channel.name,
+                participants=channel.participants,
+                max_rounds=channel.max_rounds,
+                current_round=channel.current_round,
+                suspended=channel.is_suspended,
+            )
+        except Exception:
+            logger.exception("Plaza _persist_channel failed: %s", channel.name)
 
     def create_channel(self, name: str, participants: list[str]) -> PlazaChannel:
         with self._lock:
@@ -121,6 +220,7 @@ class Plaza:
             )
             self._channels[name] = channel
             self._messages[name] = []
+            self._persist_channel(channel)
             logger.info(
                 "Plaza channel created: %s with %d participants",
                 name,
@@ -135,9 +235,12 @@ class Plaza:
                 return False
             del self._channels[name]
             self._messages.pop(name, None)
-            subs_to_remove = [
-                sid for sid, (ch, _, _) in self._subscriptions.items() if ch == name
-            ]
+            if self._store is not None:
+                try:
+                    self._store.delete_plaza_channel(name)
+                except Exception:
+                    logger.exception("Plaza delete_channel store fail: %s", name)
+            subs_to_remove = [sid for sid, (ch, _, _) in self._subscriptions.items() if ch == name]
             for sid in subs_to_remove:
                 del self._subscriptions[sid]
             logger.info("Plaza channel deleted: %s", name)
@@ -168,9 +271,7 @@ class Plaza:
 
             if effective_mentions:
                 effective_mentions = [
-                    m
-                    for m in effective_mentions
-                    if m in ch.participants or m == "human"
+                    m for m in effective_mentions if m in ch.participants or m == "human"
                 ]
 
             ch.current_round += 1
@@ -184,9 +285,12 @@ class Plaza:
 
             self._messages[channel].append(msg)
             ch.pending_queue.append(msg)
+            self._persist_message(msg)
+            self._persist_channel(ch)
 
             if self._check_circuit_breaker_unlocked(channel):
                 ch.is_suspended = True
+                self._persist_channel(ch)
                 logger.warning(
                     "Plaza circuit breaker TRIPPED on channel %s at round %d",
                     channel,
@@ -247,9 +351,12 @@ class Plaza:
 
             self._messages[channel].append(msg)
             ch.pending_queue.append(msg)
+            self._persist_message(msg)
+            self._persist_channel(ch)
 
             if self._check_circuit_breaker_unlocked(channel):
                 ch.is_suspended = True
+                self._persist_channel(ch)
                 logger.warning(
                     "Plaza circuit breaker TRIPPED on channel %s at round %d (after designate)",
                     channel,
@@ -288,6 +395,8 @@ class Plaza:
             )
 
             self._messages[channel].append(msg)
+            self._persist_message(msg)
+            self._persist_channel(ch)
             self._notify_subscribers(channel, msg)
 
             logger.info(
