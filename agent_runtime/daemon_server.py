@@ -245,6 +245,7 @@ class DaemonServer:
         self._orchestrator = None
         self._swarm = None
         self._plaza = None
+        self._resource_lease = None
         self._fmp = None
         self._ws_clients: list[asyncio.StreamWriter] = []
         self._ws_server: asyncio.Server | None = None
@@ -358,6 +359,14 @@ class DaemonServer:
             self._plaza = Plaza(store=self.store)
             logger.info("Plaza created (store wired)")
         return self._plaza
+
+    def _get_resource_lease(self):
+        if self._resource_lease is None:
+            from .resource_lease import ResourceLease
+
+            self._resource_lease = ResourceLease(store=self.store)
+            logger.info("ResourceLease created (store wired)")
+        return self._resource_lease
 
     def _get_orchestrator(self):
         if self._orchestrator is None:
@@ -633,6 +642,7 @@ class DaemonServer:
 
         self._log_startup_selfcheck()
         self._reconcile_team_launch_phases()
+        self._reconcile_expired_leases()
 
     def _reconcile_team_launch_phases(self) -> None:
         # M1-3: 启动 reconcile. 扫 team_launch_phases WHERE phase='active'
@@ -657,6 +667,43 @@ class DaemonServer:
             )
         except Exception:
             logger.exception("reconcile: team launch phase reconcile failed")
+
+    def _reconcile_expired_leases(self) -> None:
+        # M1-4: 启动扫过期租约 (daemon 崩溃期间 ttl 到期未释放).
+        # expired → 写证据 + team 告警 (Plaza broadcast) + promote 排队.
+        try:
+            rl = self._get_resource_lease()
+            expired = rl.expiry_sweep()
+            if not expired:
+                logger.info("reconcile: no expired leases (clean start)")
+                return
+            for lease in expired:
+                logger.warning(
+                    "reconcile: lease %s expired during crash (resource=%s task=%s)",
+                    lease.get("lease_id", ""),
+                    lease.get("resource_id", ""),
+                    lease.get("task_id", ""),
+                )
+                # team 告警消息 (非静默回收, §5.3)
+                try:
+                    plaza = self._get_plaza()
+                    channel = f"team_{lease.get('team', 'default')}"
+                    if plaza.get_channel(channel) is None:
+                        plaza.create_channel(channel, ["supervisor", "human"])
+                    plaza.broadcast(
+                        channel=channel,
+                        sender="supervisor",
+                        content=(
+                            f"⚠️ 资源租约过期回收: {lease.get('resource_id','')} "
+                            f"(task={lease.get('task_id','')}, lease={lease.get('lease_id','')}). "
+                            f"请核查该任务执行证据后决定重试/降级."
+                        ),
+                    )
+                except Exception:
+                    logger.warning("reconcile: lease alert broadcast failed")
+            logger.info("reconcile: %d expired lease(s) swept", len(expired))
+        except Exception:
+            logger.exception("reconcile: expired lease sweep failed")
 
     def _log_startup_selfcheck(self) -> None:
         try:
@@ -972,6 +1019,11 @@ class DaemonServer:
             "tool.get_schema": self._handle_tool_get_schema,
             "tool.list": self._handle_tool_list,
             "tool.set_timeout": self._handle_tool_set_timeout,
+            "resource.lease_apply": self._handle_resource_lease_apply,
+            "resource.lease_release": self._handle_resource_lease_release,
+            "resource.list": self._handle_resource_list,
+            "resource.lease_list": self._handle_resource_lease_list,
+            "resource.register": self._handle_resource_register,
         }
 
     def _get_handler(self, method: str):
@@ -2047,6 +2099,59 @@ class DaemonServer:
         bg_task.cancel()
         logger.info("graph.cancel %s (reason=%s)", execution_id, reason)
         return {"execution_id": execution_id, "status": "cancelled", "reason": reason}
+
+    # ── M1-4: ResourceLease RPCs (§5.3) ──
+
+    async def _handle_resource_lease_apply(self, params: dict) -> dict:
+        # lease_apply(resource, task_id, role, ttl) → granted 或 queued(position).
+        # granted 时回写 task.resource_lease_id (task_store 链路).
+        rl = self._get_resource_lease()
+        result = rl.lease_apply(
+            resource_id=params.get("resource_id", ""),
+            task_id=params.get("task_id", ""),
+            owner_role=params.get("owner_role", ""),
+            owner_agent=params.get("owner_agent", ""),
+            ttl=float(params.get("ttl", 1800)),
+            team=params.get("team", "default"),
+        )
+        if result.get("status") == "granted" and result.get("lease_id") and params.get("task_id"):
+            try:
+                self._get_task_store().claim_lease(params["task_id"], result["lease_id"])
+            except Exception as exc:
+                logger.warning("lease_apply task %s claim_lease failed: %s", params["task_id"], exc)
+        return result
+
+    async def _handle_resource_lease_release(self, params: dict) -> dict:
+        rl = self._get_resource_lease()
+        return rl.lease_release(
+            lease_id=params.get("lease_id", ""),
+            reason=params.get("reason", ""),
+        )
+
+    async def _handle_resource_list(self, params: dict) -> dict:
+        rl = self._get_resource_lease()
+        return {"resources": rl.list_resources(team=params.get("team", ""))}
+
+    async def _handle_resource_lease_list(self, params: dict) -> dict:
+        rl = self._get_resource_lease()
+        return {
+            "leases": rl.list_leases(
+                resource_id=params.get("resource_id", ""),
+                status=params.get("status", ""),
+                team=params.get("team", ""),
+            )
+        }
+
+    async def _handle_resource_register(self, params: dict) -> dict:
+        rl = self._get_resource_lease()
+        rl.register_resource(
+            resource_id=params.get("resource_id", ""),
+            kind=params.get("kind", "exclusive"),
+            slots=int(params.get("slots", 1)),
+            description=params.get("description", ""),
+            team=params.get("team", "default"),
+        )
+        return {"status": "ok", "resource_id": params.get("resource_id", "")}
 
     async def _handle_graph_resume(self, params: dict) -> dict:
         # 审计 E-20: 闭合 checkpoint 读路径. 旧版只写不读 (write-only stage),

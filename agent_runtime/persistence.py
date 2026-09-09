@@ -158,6 +158,7 @@ class AgentStore:
         migrations = [
             self._migration_v1_checkpoint_columns,
             self._migration_v2_team_state,
+            self._migration_v3_resource_leases,
         ]
         current = conn.execute("PRAGMA user_version").fetchone()[0]
         for idx, migrate in enumerate(migrations, start=1):
@@ -628,6 +629,271 @@ class AgentStore:
             CREATE INDEX IF NOT EXISTS idx_team_launch_phase
                 ON team_launch_phases(phase);
         """)
+
+    def _migration_v3_resource_leases(self, conn) -> None:
+        # M1-4: 资源注册表 + 租约表 (§5.3). 独占/shared-slot/advisory 三类资源.
+        # lease_apply → granted 或 queued(排队, 不 kill). ttl 到期 → expired + 证据 + 告警.
+        conn.executescript("""
+            CREATE TABLE IF NOT EXISTS resource_registry (
+                resource_id TEXT PRIMARY KEY,
+                kind TEXT NOT NULL,
+                slots INTEGER NOT NULL DEFAULT 1,
+                description TEXT DEFAULT '',
+                team TEXT DEFAULT 'default'
+            );
+            CREATE TABLE IF NOT EXISTS resource_leases (
+                lease_id TEXT PRIMARY KEY,
+                resource_id TEXT NOT NULL,
+                task_id TEXT DEFAULT '',
+                owner_role TEXT DEFAULT '',
+                owner_agent TEXT DEFAULT '',
+                status TEXT NOT NULL DEFAULT 'granted',
+                position INTEGER DEFAULT 0,
+                ttl REAL DEFAULT 0,
+                granted_at REAL NOT NULL,
+                expires_at REAL DEFAULT 0,
+                released_at REAL DEFAULT 0,
+                reason TEXT DEFAULT '',
+                team TEXT DEFAULT 'default'
+            );
+            CREATE INDEX IF NOT EXISTS idx_rlease_resource_status
+                ON resource_leases(resource_id, status);
+            CREATE INDEX IF NOT EXISTS idx_rlease_task
+                ON resource_leases(task_id);
+            CREATE INDEX IF NOT EXISTS idx_rlease_expires
+                ON resource_leases(expires_at);
+        """)
+
+    # ── M1-4 Resource Registry + Lease CRUD ──
+
+    def register_resource(
+        self,
+        resource_id: str,
+        kind: str,
+        slots: int = 1,
+        description: str = "",
+        team: str = "default",
+    ) -> None:
+        # 资源注册表 upsert. kind: exclusive/shared_slot/advisory.
+        with self._cursor() as conn:
+            conn.execute(
+                """INSERT INTO resource_registry
+                       (resource_id, kind, slots, description, team)
+                   VALUES (?, ?, ?, ?, ?)
+                   ON CONFLICT(resource_id) DO UPDATE SET
+                       kind=excluded.kind, slots=excluded.slots,
+                       description=excluded.description, team=excluded.team""",
+                (resource_id, kind, slots, description, team),
+            )
+            conn.commit()
+        logger.info(
+            "resource registered: %s kind=%s slots=%d team=%s",
+            resource_id,
+            kind,
+            slots,
+            team,
+        )
+
+    def unregister_resource(self, resource_id: str) -> bool:
+        with self._cursor() as conn:
+            cursor = conn.execute(
+                "DELETE FROM resource_registry WHERE resource_id=?",
+                (resource_id,),
+            )
+            conn.commit()
+        return cursor.rowcount > 0
+
+    def get_resource(self, resource_id: str) -> dict | None:
+        with self._cursor() as conn:
+            row = conn.execute(
+                "SELECT resource_id, kind, slots, description, team FROM resource_registry WHERE resource_id=?",
+                (resource_id,),
+            ).fetchone()
+        if not row:
+            return None
+        return {
+            "resource_id": row[0],
+            "kind": row[1],
+            "slots": row[2],
+            "description": row[3],
+            "team": row[4],
+        }
+
+    def list_resources(self, team: str = "") -> list[dict]:
+        with self._cursor() as conn:
+            if team:
+                rows = conn.execute(
+                    "SELECT resource_id, kind, slots, description, team FROM resource_registry WHERE team=?",
+                    (team,),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT resource_id, kind, slots, description, team FROM resource_registry"
+                ).fetchall()
+        return [
+            {
+                "resource_id": r[0],
+                "kind": r[1],
+                "slots": r[2],
+                "description": r[3],
+                "team": r[4],
+            }
+            for r in rows
+        ]
+
+    def save_lease(self, lease: dict) -> None:
+        # 租约 upsert (granted/queued/released/expired).
+        with self._cursor() as conn:
+            conn.execute(
+                """INSERT INTO resource_leases
+                       (lease_id, resource_id, task_id, owner_role, owner_agent,
+                        status, position, ttl, granted_at, expires_at,
+                        released_at, reason, team)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                   ON CONFLICT(lease_id) DO UPDATE SET
+                       status=excluded.status, position=excluded.position,
+                       expires_at=excluded.expires_at,
+                       released_at=excluded.released_at, reason=excluded.reason""",
+                (
+                    lease["lease_id"],
+                    lease["resource_id"],
+                    lease.get("task_id", ""),
+                    lease.get("owner_role", ""),
+                    lease.get("owner_agent", ""),
+                    lease.get("status", "granted"),
+                    lease.get("position", 0),
+                    lease.get("ttl", 0),
+                    lease.get("granted_at", time.time()),
+                    lease.get("expires_at", 0),
+                    lease.get("released_at", 0),
+                    lease.get("reason", ""),
+                    lease.get("team", "default"),
+                ),
+            )
+            conn.commit()
+
+    def get_lease(self, lease_id: str) -> dict | None:
+        with self._cursor() as conn:
+            row = conn.execute(
+                """SELECT lease_id, resource_id, task_id, owner_role, owner_agent,
+                          status, position, ttl, granted_at, expires_at,
+                          released_at, reason, team
+                   FROM resource_leases WHERE lease_id=?""",
+                (lease_id,),
+            ).fetchone()
+        if not row:
+            return None
+        return {
+            "lease_id": row[0],
+            "resource_id": row[1],
+            "task_id": row[2],
+            "owner_role": row[3],
+            "owner_agent": row[4],
+            "status": row[5],
+            "position": row[6],
+            "ttl": row[7],
+            "granted_at": row[8],
+            "expires_at": row[9],
+            "released_at": row[10],
+            "reason": row[11],
+            "team": row[12],
+        }
+
+    def list_leases(
+        self, resource_id: str = "", status: str = "", team: str = ""
+    ) -> list[dict]:
+        # 查租约. 可按 resource/status/team 过滤.
+        with self._cursor() as conn:
+            sql = """SELECT lease_id, resource_id, task_id, owner_role, owner_agent,
+                            status, position, ttl, granted_at, expires_at,
+                            released_at, reason, team
+                     FROM resource_leases WHERE 1=1"""
+            params: list = []
+            if resource_id:
+                sql += " AND resource_id=?"
+                params.append(resource_id)
+            if status:
+                sql += " AND status=?"
+                params.append(status)
+            if team:
+                sql += " AND team=?"
+                params.append(team)
+            sql += " ORDER BY granted_at"
+            rows = conn.execute(sql, params).fetchall()
+        return [
+            {
+                "lease_id": r[0],
+                "resource_id": r[1],
+                "task_id": r[2],
+                "owner_role": r[3],
+                "owner_agent": r[4],
+                "status": r[5],
+                "position": r[6],
+                "ttl": r[7],
+                "granted_at": r[8],
+                "expires_at": r[9],
+                "released_at": r[10],
+                "reason": r[11],
+                "team": r[12],
+            }
+            for r in rows
+        ]
+
+    def count_active_leases(self, resource_id: str) -> int:
+        # granted 状态租约数 (shared_slot 槽位判定用).
+        with self._cursor() as conn:
+            row = conn.execute(
+                "SELECT COUNT(*) FROM resource_leases WHERE resource_id=? AND status='granted'",
+                (resource_id,),
+            ).fetchone()
+        return row[0] if row else 0
+
+    def max_queued_position(self, resource_id: str) -> int:
+        # 当前最大排队位置 (新 queued 拿 position+1).
+        with self._cursor() as conn:
+            row = conn.execute(
+                "SELECT COALESCE(MAX(position), 0) FROM resource_leases WHERE resource_id=? AND status='queued'",
+                (resource_id,),
+            ).fetchone()
+        return row[0] if row else 0
+
+    def list_expired_leases(self, now: float) -> list[dict]:
+        # granted 且 expires_at>0 且已过期. (expiry sweep 用)
+        with self._cursor() as conn:
+            rows = conn.execute(
+                """SELECT lease_id, resource_id, task_id, owner_role, owner_agent,
+                          status, position, ttl, granted_at, expires_at,
+                          released_at, reason, team
+                   FROM resource_leases
+                   WHERE status='granted' AND expires_at>0 AND expires_at<=?""",
+                (now,),
+            ).fetchall()
+        return [
+            {
+                "lease_id": r[0],
+                "resource_id": r[1],
+                "task_id": r[2],
+                "owner_role": r[3],
+                "owner_agent": r[4],
+                "status": r[5],
+                "position": r[6],
+                "ttl": r[7],
+                "granted_at": r[8],
+                "expires_at": r[9],
+                "released_at": r[10],
+                "reason": r[11],
+                "team": r[12],
+            }
+            for r in rows
+        ]
+
+    def delete_lease(self, lease_id: str) -> bool:
+        with self._cursor() as conn:
+            cursor = conn.execute(
+                "DELETE FROM resource_leases WHERE lease_id=?", (lease_id,)
+            )
+            conn.commit()
+        return cursor.rowcount > 0
 
     # ── M1-3 Plaza Message CRUD ──
 
