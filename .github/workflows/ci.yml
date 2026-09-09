@@ -28,3 +28,31 @@ jobs:
 
       - name: Test with coverage
         run: pytest tests/ -q --cov=agent_runtime --cov=tools --cov=server --cov-report=term-missing --cov-fail-under=60 --timeout=120
+
+  # M1-7 (#306): proof scripts — concurrent dequeue safety, crash-recovery
+  # reconcile, publish idempotency. M1 exit gate.
+  proof:
+    runs-on: macos-14
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[test,rag]"
+
+      - name: Proof 1 — queue concurrency (4×20, zero dup)
+        run: python tests/proof/prove_queue_concurrency.py
+
+      - name: Proof 2 — crash recovery (SIGKILL + restart reconcile)
+        run: python tests/proof/prove_recovery.py
+
+      - name: Proof 3 — publish idempotent (restart no re-send)
+        run: python tests/proof/prove_publish_idempotent.py
+

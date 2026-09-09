@@ -794,30 +794,40 @@ class TaskStore:
         )
 
     def dequeue(self, team: str, owner_agent: str, task_type: str = "") -> Task | None:
-        # M1-1: 认领 todo 列首个任务 (worker pull 模型). 原子单语句 UPDATE...RETURNING,
-        # SQLite 行锁保护并发认领竞争, 无 RMW 窗口. 写 owner + attempt_token (uuid4).
+        # M1-1/M1-7: 认领 todo 列首个任务 (worker pull 模型). 原子单语句
+        # UPDATE...RETURNING — subquery 选首个 pending 无 owner 任务 + WHERE
+        # status=pending guard + RETURNING task_id. SQLite 写锁保护整个语句,
+        # 无 RMW 窗口, 跨进程安全 (RLock 仅进程内串行, DB 写锁跨进程串行).
+        # RETURNING 仅在行实际被更新 (status 仍 pending) 时返回 task_id,
+        # 否则 None → 跨进程竞争第二个进程正确得到 None.
         if not self._conn or not owner_agent:
             return None
         import uuid
 
         token = uuid.uuid4().hex
         team = team or "default"
+        now = time.time()
         with self._write_lock:
-            # 选首个 pending 无 owner 任务 (priority DESC, created_at ASC).
-            select_sql = (
-                "SELECT task_id FROM tasks WHERE team = ? AND status = ? AND owner_agent = '' "
-                "ORDER BY priority DESC, created_at ASC LIMIT 1"
+            sql = (
+                "UPDATE tasks SET status = ?, owner_agent = ?, attempt_token = ?, "
+                "updated_at = ?, last_run_at = ? "
+                "WHERE task_id = ("
+                "  SELECT task_id FROM tasks "
+                "  WHERE team = ? AND status = ? AND owner_agent = '' "
+                "  ORDER BY priority DESC, created_at ASC LIMIT 1"
+                ") AND status = ? "
+                "RETURNING task_id"
             )
-            row = self._conn.execute(select_sql, (team, TASK_STATUS_PENDING)).fetchone()
+            row = self._conn.execute(
+                sql,
+                (
+                    TASK_STATUS_RUNNING, owner_agent, token, now, now,
+                    team, TASK_STATUS_PENDING, TASK_STATUS_PENDING,
+                ),
+            ).fetchone()
             if row is None:
                 return None
             task_id = row[0]
-            now = time.time()
-            self._conn.execute(
-                "UPDATE tasks SET status = ?, owner_agent = ?, attempt_token = ?, updated_at = ?, last_run_at = ? "
-                "WHERE task_id = ? AND status = ?",
-                (TASK_STATUS_RUNNING, owner_agent, token, now, now, task_id, TASK_STATUS_PENDING),
-            )
             self._append_history(
                 task_id,
                 TASK_STATUS_PENDING,
@@ -901,6 +911,20 @@ class TaskStore:
         task.updated_at = time.time()
         self._save_task(task)
         logger.info("Task %s evidence_ref=%s", task_id, evidence_ref)
+        return True
+
+    def set_review_state(self, task_id: str, state: str) -> bool:
+        # M1-7: 写评审态 (reconcile 标 needs_fix). none/review/needs_fix/approved.
+        if state not in _VALID_REVIEW_STATES:
+            logger.warning("invalid review_state=%s, ignore", state)
+            return False
+        task = self._get_task(task_id)
+        if not task:
+            return False
+        task.review_state = state
+        task.updated_at = time.time()
+        self._save_task(task)
+        logger.info("Task %s review_state=%s", task_id, state)
         return True
 
     def claim_lease(self, task_id: str, lease_id: str) -> bool:
