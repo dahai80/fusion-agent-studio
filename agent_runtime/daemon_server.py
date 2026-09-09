@@ -28,6 +28,7 @@ import subprocess
 import sys
 import time
 import uuid
+from collections import deque
 from pathlib import Path
 from typing import Any
 
@@ -249,6 +250,11 @@ class DaemonServer:
         self._fmp = None
         self._ws_clients: list[asyncio.StreamWriter] = []
         self._ws_server: asyncio.Server | None = None
+        # M1-6: team.events — per-client subscription (id(writer) -> team) +
+        # event ring buffer for Last-Event-ID catch-up + monotonic sequence.
+        self._ws_subscriptions: dict[int, str] = {}
+        self._event_log: deque = deque(maxlen=1000)
+        self._event_seq: int = 0
         self._connector_mgr = None
         self._apikey_mgr = None
         self._style_mgr = None
@@ -1921,6 +1927,7 @@ class DaemonServer:
                         await self._broadcast_event(
                             "execution.progress",
                             {"execution_id": execution_id, "events_count": events_count},
+                            team=team,
                         )
 
             if self._graph_semaphore is not None:
@@ -1942,6 +1949,7 @@ class DaemonServer:
             await self._broadcast_event(
                 "execution.completed",
                 {"execution_id": execution_id, "events_count": events_count},
+                team=team,
             )
 
             # task 回写: completed + artifact_ids + evidence_ref
@@ -1987,6 +1995,7 @@ class DaemonServer:
             await self._broadcast_event(
                 "execution.cancelled",
                 {"execution_id": execution_id, "events_count": events_count},
+                team=team,
             )
             if task_id:
                 try:
@@ -2010,6 +2019,7 @@ class DaemonServer:
             await self._broadcast_event(
                 "execution.failed",
                 {"execution_id": execution_id, "error": error_msg},
+                team=team,
             )
             if task_id:
                 try:
@@ -3016,6 +3026,7 @@ class DaemonServer:
         finally:
             if writer in self._ws_clients:
                 self._ws_clients.remove(writer)
+            self._ws_subscriptions.pop(id(writer), None)
             writer.close()
             logger.info("WS client disconnected: %s", peer)
 
@@ -3049,13 +3060,56 @@ class DaemonServer:
             )
             await writer.drain()
         elif action == "subscribe":
-            _ws_write_frame(writer, json.dumps({"type": "subscribed"}))
+            # M1-6: subscribe to team.events channel. Optional last_event_id
+            # triggers catch-up replay (events with event_id > last_event_id
+            # for the subscribed team).
+            team = msg.get("team", "default")
+            last_event_id = int(msg.get("last_event_id", 0) or 0)
+            self._ws_subscriptions[id(writer)] = team
+            _ws_write_frame(
+                writer,
+                json.dumps({"type": "subscribed", "team": team, "last_event_id": last_event_id}),
+            )
             await writer.drain()
+            missed = self._events_since(last_event_id, team)
+            for ev in missed:
+                _ws_write_frame(writer, json.dumps(ev))
+                await writer.drain()
+            if missed:
+                logger.info(
+                    "WS subscribe team=%s replayed %d events (since %d)",
+                    team,
+                    len(missed),
+                    last_event_id,
+                )
 
-    async def _broadcast_event(self, event_type: str, data: dict) -> None:
+    def _append_event(self, event_type: str, data: dict, team: str = "default") -> dict:
+        # M1-6: monotonic event_id + ring buffer for Last-Event-ID catch-up.
+        self._event_seq += 1
+        event = {
+            "type": event_type,
+            "event_id": self._event_seq,
+            "ts": time.time(),
+            "team": team,
+            **data,
+        }
+        self._event_log.append(event)
+        return event
+
+    def _events_since(self, last_id: int, team: str = "default") -> list:
+        # M1-6: replay events with event_id > last_id for a team (catch-up).
+        if last_id <= 0:
+            return [e for e in self._event_log if e["team"] == team]
+        return [e for e in self._event_log if e["event_id"] > last_id and e["team"] == team]
+
+    async def _broadcast_event(self, event_type: str, data: dict, team: str | None = None) -> None:
+        # M1-6: assign event_id + log to ring buffer + filter by subscription.
+        if team is None:
+            team = data.get("team", "default")
+        event = self._append_event(event_type, data, team)
         if not self._ws_clients:
             return
-        payload = json.dumps({"type": event_type, **data})
+        payload = json.dumps(event)
 
         async def _send(client):
             try:
@@ -3065,11 +3119,15 @@ class DaemonServer:
             except Exception:
                 return client
 
-        results = await asyncio.gather(*[_send(c) for c in self._ws_clients])
+        targets = [c for c in self._ws_clients if self._ws_subscriptions.get(id(c)) == team]
+        if not targets:
+            return
+        results = await asyncio.gather(*[_send(c) for c in targets])
         dead = [r for r in results if r is not None]
         for d in dead:
             if d in self._ws_clients:
                 self._ws_clients.remove(d)
+            self._ws_subscriptions.pop(id(d), None)
 
     # ── MLX helpers ──
 
