@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
-
 from tools.base import BaseTool
 from tools.registry import ToolRegistry
 
