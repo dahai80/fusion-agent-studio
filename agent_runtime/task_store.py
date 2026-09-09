@@ -112,7 +112,22 @@ _TASK_COLUMNS = [
     "resource_lease_id",
     "evidence_ref",
     "team",
+    # M3-2 issue#324: 看板任务依赖. JSON list of task_ids this task waits on.
+    "depends_on",
 ]
+
+
+def _parse_depends_on(raw: str) -> list[str]:
+    # M3-2 issue#324: parse depends_on JSON list from DB row. 容错: 非JSON/非list -> [].
+    if not raw:
+        return []
+    try:
+        parsed = json.loads(raw)
+        if isinstance(parsed, list):
+            return [str(x) for x in parsed]
+    except Exception as e:
+        logger.warning("task_store._parse_depends_on: bad JSON %r: %s", raw, e)
+    return []
 
 
 @dataclass
@@ -148,6 +163,8 @@ class Task:
     resource_lease_id: str = ""
     evidence_ref: str = ""
     team: str = "default"
+    # M3-2 issue#324: 看板任务依赖. task_ids this task waits on (空=无依赖=current behavior).
+    depends_on: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -180,6 +197,7 @@ class Task:
             "resource_lease_id": self.resource_lease_id,
             "evidence_ref": self.evidence_ref,
             "team": self.team,
+            "depends_on": list(self.depends_on),
         }
 
     @classmethod
@@ -236,6 +254,7 @@ class Task:
             resource_lease_id=row[26] if len(row) > 26 and row[26] else "",
             evidence_ref=row[27] if len(row) > 27 and row[27] else "",
             team=row[28] if len(row) > 28 and row[28] else "default",
+            depends_on=_parse_depends_on(row[29] if len(row) > 29 and row[29] else "[]"),
         )
 
 
@@ -311,6 +330,7 @@ class TaskStore:
             self._migration_v1_project_id,
             self._migration_v2_idempotency_key,
             self._migration_v3_team_state,
+            self._migration_v4_depends_on,
         ]
         current = conn.execute("PRAGMA user_version").fetchone()[0]
         for idx, migrate in enumerate(migrations, start=1):
@@ -397,6 +417,18 @@ class TaskStore:
         )
         logger.info("Migrated tasks table: v3 team_state (task_history + idempotency_index)")
 
+    def _migration_v4_depends_on(self, conn) -> None:
+        # M3-2 issue#324: 看板任务依赖. depends_on = JSON list of task_ids.
+        # 幂等: 探列存在再 ALTER.
+        cols = {row[1] for row in conn.execute("PRAGMA table_info(tasks)").fetchall()}
+        if "depends_on" not in cols:
+            conn.execute("ALTER TABLE tasks ADD COLUMN depends_on TEXT DEFAULT '[]'")
+            logger.info("Migrated tasks table: added depends_on column")
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_tasks_depends ON tasks(depends_on) "
+            "WHERE depends_on != '[]'"
+        )
+
     def _load_tasks(self) -> None:
         if not self._conn:
             return
@@ -441,8 +473,8 @@ class TaskStore:
                     project_id, artifact_ids, last_result, last_error, retry_count, max_retries,
                     created_at, updated_at, last_run_at, idempotency_key,
                     review_state, attempt_token, owner_role, owner_agent,
-                    resource_lease_id, evidence_ref, team)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    resource_lease_id, evidence_ref, team, depends_on)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     task.task_id,
                     task.title,
@@ -473,6 +505,7 @@ class TaskStore:
                     task.resource_lease_id,
                     task.evidence_ref,
                     task.team,
+                    json.dumps(task.depends_on, ensure_ascii=False),
                 ),
             )
             self._conn.commit()
@@ -664,6 +697,7 @@ class TaskStore:
         status: str,
         last_result: dict | None = None,
         last_error: str = "",
+        retry_count: int | None = None,
     ) -> bool:
         task = self._get_task(task_id)
         if not task:
@@ -679,6 +713,8 @@ class TaskStore:
             task.last_result = last_result
         if last_error:
             task.last_error = last_error
+        if retry_count is not None:
+            task.retry_count = retry_count
         self._save_task(task)
         logger.info(
             "Task %s status -> %s (result=%d keys, error=%d chars)",
@@ -849,6 +885,18 @@ class TaskStore:
         # 强制从 DB 重载缓存 (UPDATE 不回填 _tasks dict, 旧对象 status 过期).
         self._tasks.pop(task_id, None)
         task = self._get_task(task_id)
+        # M3-2 issue#324: 依赖门禁. 已 dequeue 但依赖未完成 -> 回退 pending.
+        if task and not self.deps_met(task.task_id):
+            with self._write_lock:
+                self._conn.execute(
+                    "UPDATE tasks SET status = ?, owner_agent = '', attempt_token = '', "
+                    "updated_at = ? WHERE task_id = ? AND status = ?",
+                    (TASK_STATUS_PENDING, time.time(), task_id, TASK_STATUS_RUNNING),
+                )
+                self._conn.commit()
+            self._tasks.pop(task_id, None)
+            logger.info("dequeue reverted task %s (deps unmet)", task_id)
+            return None
         if task:
             logger.info(
                 "Task %s dequeued by %s team=%s token=%s",
@@ -858,6 +906,21 @@ class TaskStore:
                 token[:8],
             )
         return task
+
+    def deps_met(self, task_id: str) -> bool:
+        # M3-2 issue#324: 检查 task 的 depends_on 全部 completed. 无依赖 -> True.
+        task = self._get_task(task_id)
+        if not task or not task.depends_on:
+            return True
+        for dep_id in task.depends_on:
+            dep = self._get_task(dep_id)
+            if dep is None or dep.status != TASK_STATUS_COMPLETED:
+                logger.info(
+                    "task %s blocked by dep %s (status=%s)",
+                    task_id, dep_id, dep.status if dep else "missing",
+                )
+                return False
+        return True
 
     def move_task(
         self,

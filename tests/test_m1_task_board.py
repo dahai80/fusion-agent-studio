@@ -179,7 +179,7 @@ class TestMigrationV3:
         store1.close()
         store2 = TaskStore(db_path=db)
         version2 = store2._conn.execute("PRAGMA user_version").fetchone()[0]
-        assert version1 == version2 == 3
+        assert version1 == version2 == 4
         store2.close()
 
 
