@@ -17,12 +17,11 @@ from pathlib import Path
 import pytest
 
 from agent_runtime.persistence import AgentStore
-from agent_runtime.plaza import Plaza, PlazaMessage, PlazaChannel, _message_hash
+from agent_runtime.plaza import Plaza, _message_hash
 from agent_runtime.swarm_router import (
-    SwarmRouter,
-    SwarmAgent,
-    TaskDelegation,
     HandoffContext,
+    SwarmAgent,
+    SwarmRouter,
 )
 
 
@@ -145,7 +144,9 @@ class TestSwarmPersistence:
 
     def test_delegate_persists_delegation(self, store):
         sw = SwarmRouter(store=store)
-        sw.register_agent(SwarmAgent(id="a1", name="alice", capabilities=["cap1"], handoff_targets=["a2"]))
+        sw.register_agent(
+            SwarmAgent(id="a1", name="alice", capabilities=["cap1"], handoff_targets=["a2"])
+        )
         sw.register_agent(SwarmAgent(id="a2", name="bob", capabilities=["cap2"]))
         delegation = sw.delegate("a1", "do thing", capability="cap2")
         assert delegation is not None
@@ -156,7 +157,9 @@ class TestSwarmPersistence:
 
     def test_evaluate_updates_status_persisted(self, store):
         sw = SwarmRouter(store=store)
-        sw.register_agent(SwarmAgent(id="a1", name="alice", capabilities=["cap1"], handoff_targets=["a2"]))
+        sw.register_agent(
+            SwarmAgent(id="a1", name="alice", capabilities=["cap1"], handoff_targets=["a2"])
+        )
         sw.register_agent(SwarmAgent(id="a2", name="bob", capabilities=["cap2"]))
         delegation = sw.delegate("a1", "do thing", capability="cap2")
         sw.evaluate(delegation.id, {"ok": True})
@@ -168,7 +171,9 @@ class TestSwarmPersistence:
 
     def test_delegations_reloaded_from_store(self, store):
         sw = SwarmRouter(store=store)
-        sw.register_agent(SwarmAgent(id="a1", name="alice", capabilities=["cap1"], handoff_targets=["a2"]))
+        sw.register_agent(
+            SwarmAgent(id="a1", name="alice", capabilities=["cap1"], handoff_targets=["a2"])
+        )
         sw.register_agent(SwarmAgent(id="a2", name="bob", capabilities=["cap2"]))
         sw.delegate("a1", "task1", capability="cap2")
         sw.delegate("a1", "task2", capability="cap2")
@@ -247,6 +252,7 @@ class TestMigrationSafety:
         # 模拟老库 (v1): 先建 v1 库, 再开新 AgentStore 应自动迁移 v2
         db_path = tmp_path / "old.db"
         import sqlite3
+
         conn = sqlite3.connect(str(db_path))
         conn.execute("PRAGMA user_version = 1")
         conn.execute(
