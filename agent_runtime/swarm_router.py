@@ -11,7 +11,7 @@ import logging
 import time
 import uuid
 from dataclasses import dataclass, field
-from typing import Any, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from .fmp_router import AgentInfo, FMProtocol
 from .safety import CAT_SHELL_EXEC, SafetyGateway
@@ -299,9 +299,7 @@ class SwarmRouter:
             logger.error("Delegator %s not found", delegator_id)
             return None
         if capability:
-            delegatee = self.find_agent_by_capability(
-                capability, exclude={delegator_id}
-            )
+            delegatee = self.find_agent_by_capability(capability, exclude={delegator_id})
         else:
             targets = [
                 t
@@ -346,9 +344,7 @@ class SwarmRouter:
         from_agent = self._agents.get(from_agent_id)
         to_agent = self._agents.get(to_agent_id)
         if not from_agent or not to_agent:
-            logger.error(
-                "Handoff agents not found: %s → %s", from_agent_id, to_agent_id
-            )
+            logger.error("Handoff agents not found: %s → %s", from_agent_id, to_agent_id)
             return None
         new_hop = context.hop_count + 1
         effective_max = min(from_agent.max_hops, to_agent.max_hops, self.max_hops)
@@ -411,9 +407,7 @@ class SwarmRouter:
         delegation = self._delegations.get(task_id)
         if not delegation:
             return None
-        verdict = self.safety.evaluate_action(
-            CAT_SHELL_EXEC, content=reason, context=task_id
-        )
+        verdict = self.safety.evaluate_action(CAT_SHELL_EXEC, content=reason, context=task_id)
         delegation.status = "escalated"
         delegation.result = {
             "escalated": True,
@@ -439,10 +433,7 @@ class SwarmRouter:
         agent = self._agents.get(delegation.delegatee)
         if not agent or agent.status != "online":
             return self.escalate(task_id, reason="delegatee_agent_offline")
-        if (
-            delegation.hop_count >= agent.max_hops
-            or delegation.hop_count >= self.max_hops
-        ):
+        if delegation.hop_count >= agent.max_hops or delegation.hop_count >= self.max_hops:
             return self.escalate(task_id, reason="max_hops_exceeded")
         return None
 

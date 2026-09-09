@@ -10,7 +10,7 @@ import threading
 import time
 import uuid
 from dataclasses import dataclass, field
-from typing import Any, Callable, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Callable
 
 if TYPE_CHECKING:
     from .persistence import AgentStore
@@ -113,9 +113,7 @@ class Plaza:
         self._max_rounds = max_rounds
         self._channels: dict[str, PlazaChannel] = {}
         self._messages: dict[str, list[PlazaMessage]] = {}
-        self._subscriptions: dict[
-            str, tuple[str, str, Callable[[PlazaMessage], None]]
-        ] = {}
+        self._subscriptions: dict[str, tuple[str, str, Callable[[PlazaMessage], None]]] = {}
         self._lock = threading.Lock()
         self._store = store
         if store is not None:
@@ -242,9 +240,7 @@ class Plaza:
                     self._store.delete_plaza_channel(name)
                 except Exception:
                     logger.exception("Plaza delete_channel store fail: %s", name)
-            subs_to_remove = [
-                sid for sid, (ch, _, _) in self._subscriptions.items() if ch == name
-            ]
+            subs_to_remove = [sid for sid, (ch, _, _) in self._subscriptions.items() if ch == name]
             for sid in subs_to_remove:
                 del self._subscriptions[sid]
             logger.info("Plaza channel deleted: %s", name)
@@ -275,9 +271,7 @@ class Plaza:
 
             if effective_mentions:
                 effective_mentions = [
-                    m
-                    for m in effective_mentions
-                    if m in ch.participants or m == "human"
+                    m for m in effective_mentions if m in ch.participants or m == "human"
                 ]
 
             ch.current_round += 1
