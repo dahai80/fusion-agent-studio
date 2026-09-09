@@ -214,6 +214,7 @@ class DaemonServer:
         # 双进程. 用锁串行化 start/stop/restart 生命周期操作.
         self._mlx_start_lock = asyncio.Lock()
         self._active_executions: dict[str, asyncio.Task] = {}
+        self._active_chains: dict[str, asyncio.Task] = {}
         self._code_tasks: dict[str, dict] = {}
 
         # 审计 E-13: _code_tasks 原无 TTL/无 LRU/无显式删除, 长跑 daemon (launchd
@@ -1994,6 +1995,144 @@ class DaemonServer:
             "session_id": session_id,
             "task_id": task_id,
         }
+
+    async def _run_chain_async(self, chain_id, steps, team, params):
+        # M3-2 issue#324: orchestrator. Create N dependent tasks, execute in dep
+        # order, merge upstream outputs (ctx.variables) into each step input,
+        # step-level retry (fail -> retry only that step, chain blocks).
+        ts = self._get_task_store()
+        rt = self._get_runtime()
+        from .context import AgentContext
+        from .task_store import TASK_STATUS_COMPLETED, TASK_STATUS_FAILED, Task
+        from .variable_manager import VariableManager
+
+        task_ids = []
+        idem_prefix = params.get("idempotency_prefix", chain_id)
+        # 1. create tasks, resolve depends_on indices -> task_ids
+        for idx, step in enumerate(steps):
+            dep_indices = step.get("depends_on", []) or []
+            dep_ids = [task_ids[i] for i in dep_indices if 0 <= i < len(task_ids)]
+            raw_input = step.get("input", {})
+            if isinstance(raw_input, dict):
+                input_str = json.dumps(raw_input, ensure_ascii=False)
+            elif isinstance(raw_input, str):
+                input_str = raw_input
+            else:
+                input_str = json.dumps(raw_input or {}, ensure_ascii=False)
+            task = ts.submit(Task(
+                title=step.get("title", f"chain_step_{idx}"),
+                graph_id=step.get("graph_id", ""),
+                input=input_str,
+                team=team,
+                owner_role=step.get("role", ""),
+                depends_on=dep_ids,
+                max_retries=int(step.get("max_retries", 2) or 2),
+                idempotency_key=f"{idem_prefix}:step{idx}",
+                priority=int(step.get("priority", 0) or 0),
+            ))
+            task_ids.append(task.task_id)
+            logger.info(
+                "chain %s step %d task %s created (deps=%s role=%s)",
+                chain_id, idx, task.task_id, dep_ids, step.get("role", ""),
+            )
+            try:
+                await self._broadcast_event("task.created", {
+                    "task_id": task.task_id,
+                    "chain_id": chain_id,
+                    "graph_id": step.get("graph_id", ""),
+                    "team": team,
+                    "depends_on": dep_ids,
+                    "step": idx,
+                })
+            except Exception as exc:
+                logger.warning("chain %s step %d broadcast failed: %s", chain_id, idx, exc)
+
+        # 2. execute in order, merge artifacts
+        shared_outputs = {}
+        chain_failed = False
+        for idx, (step, tid) in enumerate(zip(steps, task_ids)):
+            if chain_failed:
+                logger.info("chain %s step %d skipped (chain blocked)", chain_id, idx)
+                continue
+            graph_id = step.get("graph_id", "")
+            graph = self.store.load_graph(graph_id)
+            if graph is None:
+                logger.error("chain %s step %d graph not found: %s", chain_id, idx, graph_id)
+                ts.update_status(tid, TASK_STATUS_FAILED, last_error=f"graph not found: {graph_id}")
+                chain_failed = True
+                continue
+            max_retries = int(step.get("max_retries", 2) or 2)
+            step_success = False
+            for attempt in range(max_retries + 1):
+                ts.update_status(tid, "running", retry_count=attempt)
+                exec_ctx = AgentContext(session_id=f"chain-{chain_id}-s{idx}-a{attempt}")
+                exec_ctx.role = step.get("role", "all")
+                exec_ctx.variables = VariableManager()
+                for k, v in shared_outputs.items():
+                    exec_ctx.variables.set(str(k), v)
+                step_input = step.get("input", {})
+                if isinstance(step_input, str):
+                    try:
+                        step_input = json.loads(step_input)
+                    except Exception:
+                        step_input = {}
+                if isinstance(step_input, dict):
+                    for k, v in step_input.items():
+                        exec_ctx.variables.set(str(k), v)
+                try:
+                    if self._graph_semaphore is not None:
+                        async with self._graph_semaphore:
+                            async for _ev in rt.execute_graph(graph, "", context=exec_ctx):
+                                pass
+                    else:
+                        async for _ev in rt.execute_graph(graph, "", context=exec_ctx):
+                            pass
+                    step_outputs = {}
+                    for out_key in step.get("output_keys", []) or []:
+                        val = exec_ctx.variables.get(out_key)
+                        if val is not None:
+                            step_outputs[out_key] = val
+                    shared_outputs.update(step_outputs)
+                    ts.update_status(tid, TASK_STATUS_COMPLETED, last_result={
+                        "chain_id": chain_id,
+                        "step": idx,
+                        "attempt": attempt,
+                        "outputs": step_outputs,
+                    })
+                    step_success = True
+                    logger.info(
+                        "chain %s step %d (%s) completed attempt %d outputs=%s",
+                        chain_id, idx, tid, attempt, list(step_outputs.keys()),
+                    )
+                    break
+                except Exception as exc:
+                    logger.warning(
+                        "chain %s step %d attempt %d failed: %s",
+                        chain_id, idx, attempt, exc,
+                    )
+                    ts.update_status(
+                        tid, "failed",
+                        last_error=str(exc)[:500],
+                        retry_count=attempt,
+                    )
+            if not step_success:
+                ts.update_status(
+                    tid, TASK_STATUS_FAILED,
+                    last_error=f"exhausted {max_retries + 1} attempts",
+                )
+                chain_failed = True
+                logger.error("chain %s blocked at step %d (%s)", chain_id, idx, tid)
+        logger.info("chain %s done: failed=%s steps=%d", chain_id, chain_failed, len(steps))
+        try:
+            await self._broadcast_event("chain.completed", {
+                "chain_id": chain_id,
+                "failed": chain_failed,
+                "task_ids": task_ids,
+                "team": team,
+            })
+        except Exception as exc:
+            logger.warning("chain %s completion broadcast failed: %s", chain_id, exc)
+        self._active_chains.pop(chain_id, None)
 
     async def _run_graph_async(
         self,

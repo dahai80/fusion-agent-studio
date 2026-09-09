@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
+import uuid
 from typing import Callable
 
 from ..daemon_server import MLX_PORT
@@ -51,6 +53,7 @@ class InfraDispatcher(SubDispatcher):
             "task.add_artifacts": self._handle_task_add_artifacts,
             "task.health": self._handle_task_health,
             "task.set_review_state": self._handle_task_set_review_state,
+            "task.run_chain": self._handle_task_run_chain,
             "evidence.list": self._handle_evidence_list,
             "evidence.failure": self._handle_evidence_failure,
             "project.list": self._handle_project_list,
@@ -249,6 +252,7 @@ class InfraDispatcher(SubDispatcher):
             max_retries=int(params.get("max_retries", 0) or 0),
             idempotency_key=params.get("idempotency_key", ""),
             team=params.get("team", "default"),
+            depends_on=params.get("depends_on", []) or [],
         )
         task = store.submit(task)
         # #238: 幂等去重命中 -> 回写 deduped=True, caller 知是旧 task 非新建.
@@ -406,6 +410,23 @@ class InfraDispatcher(SubDispatcher):
             "review_state": review_state,
             "updated_at": updated_at,
         }
+
+    async def _handle_task_run_chain(self, params: dict) -> dict:
+        # M3-2 issue#324: orchestrator-driven task chain. Creates N dependent
+        # tasks, executes sequentially (dep order), merges upstream artifacts,
+        # step-level retry. Returns chain_id immediately; execution in background.
+        chain_id = f"chain_{uuid.uuid4().hex[:12]}"
+        team = params.get("team", "default")
+        steps = params.get("steps", [])
+        if not isinstance(steps, list) or not steps:
+            logger.warning("task.run_chain: empty/invalid steps, skip")
+            return {"chain_id": "", "status": "rejected", "reason": "empty steps"}
+        bg_task = asyncio.create_task(
+            self._daemon._run_chain_async(chain_id, steps, team, params)
+        )
+        self._daemon._active_chains[chain_id] = bg_task
+        logger.info("task.run_chain %s started: %d steps team=%s", chain_id, len(steps), team)
+        return {"chain_id": chain_id, "steps": len(steps), "status": "started", "team": team}
 
     async def _handle_evidence_list(self, params: dict) -> dict:
         # #316: list tasks carrying evidence (evidence_ref non-empty).

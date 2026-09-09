@@ -20,6 +20,7 @@ class _FakeDaemon:
     def __init__(self, store: TaskStore):
         self._store = store
         self.executed: list[dict] = []
+        self._seq = 0
 
     def _get_handler(self, method: str):
         if method == "task.submit":
@@ -35,8 +36,9 @@ class _FakeDaemon:
         return None
 
     async def _task_submit(self, params: dict) -> dict:
+        self._seq += 1
         task = Task(
-            task_id=params.get("task_id", "") or f"run-{int(time.time()*1000)}",
+            task_id=params.get("task_id", "") or f"run-{int(time.time()*1000)}-{self._seq}",
             title=params.get("title", ""),
             description=params.get("description", ""),
             agent_id=params.get("agent_id", ""),
