@@ -648,6 +648,7 @@ class DaemonServer:
         self._log_startup_selfcheck()
         self._reconcile_team_launch_phases()
         self._reconcile_expired_leases()
+        self._reconcile_task_states()
 
     def _reconcile_team_launch_phases(self) -> None:
         # M1-3: 启动 reconcile. 扫 team_launch_phases WHERE phase='active'
@@ -707,6 +708,103 @@ class DaemonServer:
             logger.info("reconcile: %d expired lease(s) swept", len(expired))
         except Exception:
             logger.exception("reconcile: expired lease sweep failed")
+
+    def _reconcile_task_states(self) -> None:
+        # M1-7: 启动证据驱动任务状态恢复. 扫 running 任务 → 读 evidence jsonl
+        # → 有终态证据(completed/failed/canceled)则修正任务状态; 否则标 needs_fix
+        # 留 running (可续). 设计 §M1-3: in_progress 任务按证据判定.
+        try:
+            ts = self._get_task_store()
+            running = ts.list(status="running", limit=500)
+            if not running:
+                logger.info("reconcile: no running tasks (clean start)")
+                return
+            reconciled = 0
+            for t in running:
+                task_id = t.get("task_id", "")
+                ev_ref = t.get("evidence_ref", "")
+                if not ev_ref:
+                    logger.warning(
+                        "reconcile: task %s running but no evidence_ref — mark needs_fix",
+                        task_id,
+                    )
+                    ts.set_review_state(task_id, "needs_fix")
+                    reconciled += 1
+                    continue
+                tail = self._read_evidence_tail_by_path(ev_ref, n=50)
+                if not tail:
+                    logger.warning(
+                        "reconcile: task %s evidence_ref missing file %s — mark needs_fix",
+                        task_id,
+                        ev_ref,
+                    )
+                    ts.set_review_state(task_id, "needs_fix")
+                    reconciled += 1
+                    continue
+                final_ev = None
+                for ev in tail:
+                    et = ev.get("type", "")
+                    if et in (
+                        "execution.completed",
+                        "execution.failed",
+                        "execution.cancelled",
+                    ):
+                        final_ev = ev
+                if final_ev is None:
+                    logger.info(
+                        "reconcile: task %s no terminal evidence — leave running (needs_fix)",
+                        task_id,
+                    )
+                    ts.set_review_state(task_id, "needs_fix")
+                    reconciled += 1
+                    continue
+                ft = final_ev.get("type", "")
+                if ft == "execution.completed":
+                    ts.update_status(
+                        task_id,
+                        "completed",
+                        last_result={
+                            "execution_id": final_ev.get("execution_id", ""),
+                            "events": final_ev.get("events_count", 0),
+                            "artifact_ids": final_ev.get("artifact_ids", []),
+                            "reconciled": True,
+                        },
+                    )
+                    logger.info("reconcile: task %s -> completed (evidence)", task_id)
+                elif ft == "execution.failed":
+                    ts.update_status(
+                        task_id,
+                        "failed",
+                        last_result={
+                            "execution_id": final_ev.get("execution_id", ""),
+                            "error": final_ev.get("error", ""),
+                            "reconciled": True,
+                        },
+                    )
+                    logger.info("reconcile: task %s -> failed (evidence)", task_id)
+                elif ft == "execution.cancelled":
+                    ts.update_status(task_id, "canceled")
+                    logger.info("reconcile: task %s -> canceled (evidence)", task_id)
+                reconciled += 1
+            logger.info("reconcile: %d/%d running task(s) reconciled", reconciled, len(running))
+        except Exception:
+            logger.exception("reconcile: task state reconcile failed")
+
+    def _read_evidence_tail_by_path(self, path: str, n: int = 20) -> list[dict]:
+        # 按完整路径读证据尾部 (reconcile 用 evidence_ref, 不经 execution_id).
+        p = Path(path)
+        if not p.exists():
+            return []
+        try:
+            lines = p.read_text(encoding="utf-8").strip().split("\n")
+            results = []
+            for line in lines[-n:]:
+                if line.strip():
+                    results.append(json.loads(line))
+            return results
+        except Exception:
+            logger.exception("evidence read failed: path=%s", path)
+            return []
 
     def _log_startup_selfcheck(self) -> None:
         try:
@@ -1746,7 +1844,12 @@ class DaemonServer:
 
     def _evidence_dir(self, team: str = "default") -> Path:
         # 证据 jsonl 目录: ~/.fusion-agent-studio/out/<team>/evidence/executions/
-        base = Path.home() / ".fusion-agent-studio" / "out" / (team or "default")
+        # M1-7: FUSION_OUT_DIR env 让 proof 脚本隔离证据目录.
+        out_root = os.environ.get("FUSION_OUT_DIR", "")
+        if out_root:
+            base = Path(out_root) / (team or "default")
+        else:
+            base = Path.home() / ".fusion-agent-studio" / "out" / (team or "default")
         ev_dir = base / "evidence" / "executions"
         ev_dir.mkdir(parents=True, exist_ok=True)
         return ev_dir
@@ -1827,11 +1930,12 @@ class DaemonServer:
         )
         self._active_executions[execution_id] = bg_task
 
-        # task_id 关联时前置 running
+        # task_id 关联时前置 running + 记录 evidence_ref (崩溃恢复靠此链接)
         if task_id:
             try:
                 ts = self._get_task_store()
                 ts.update_status(task_id, "running")
+                ts.set_evidence(task_id, str(self._evidence_path(execution_id, team)))
             except Exception as exc:
                 logger.warning("execute_async set task %s running failed: %s", task_id, exc)
 
@@ -2526,12 +2630,16 @@ class DaemonServer:
 
     def _get_task_store(self):
         # #141: 通用 Task 持久化, 独立 tasks.db. 测试可设 self._task_store 注入临时库.
+        # M1-7: FUSION_TASK_DB env 让 proof 脚本子进程隔离 tasks.db.
         from .task_store import TaskStore
 
         if not hasattr(self, "_task_store") or self._task_store is None:
             import os
 
-            db_path = os.path.expanduser("~/.fusion-agent-studio/tasks.db")
+            db_path = os.environ.get(
+                "FUSION_TASK_DB",
+                os.path.expanduser("~/.fusion-agent-studio/tasks.db"),
+            )
             self._task_store = TaskStore(db_path=db_path)
         return self._task_store
 
@@ -3643,11 +3751,27 @@ class DaemonServer:
 def run_daemon(socket_path: str = ""):
     # #209: 空 → DaemonServer.__init__ 走 _resolve_socket_path (FUSION_SOCKET_DIR
     # opt-in 私有目录, 否则 /tmp/fusion-studio.sock 默认). 显式传值 (测试) 不改.
+    # M1-7: argparse CLI 让 proof 脚本子进程隔离 socket/store/port.
+    import argparse
+
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
     )
-    daemon = DaemonServer(socket_path=socket_path)
+    parser = argparse.ArgumentParser(description="fusion-agent-studio daemon")
+    parser.add_argument("--socket-path", default=socket_path, help="UDS socket path")
+    parser.add_argument("--store-path", default="", help="AgentStore db path (test isolation)")
+    parser.add_argument("--ws-port", type=int, default=WS_PORT, help="WS server port")
+    parser.add_argument("--cluster-port", type=int, default=11457, help="cluster port")
+    parser.add_argument("--http-port", type=int, default=11455, help="HTTP port")
+    args = parser.parse_args()
+    daemon = DaemonServer(
+        socket_path=args.socket_path,
+        ws_port=args.ws_port,
+        cluster_port=args.cluster_port,
+        http_port=args.http_port,
+        store_path=args.store_path,
+    )
     asyncio.run(daemon.run_forever())
 
 
