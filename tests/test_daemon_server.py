@@ -152,9 +152,7 @@ class TestDaemonGraphCRUD:
         )
         graph_id = create_resp["result"]["graph_id"]
 
-        get_resp = await _rpc_call(
-            daemon.socket_path, "graph.get", {"graph_id": graph_id}
-        )
+        get_resp = await _rpc_call(daemon.socket_path, "graph.get", {"graph_id": graph_id})
         assert get_resp["result"]["graph_id"] == graph_id
         assert get_resp["result"]["name"] == "Get Test"
 
@@ -175,9 +173,7 @@ class TestDaemonGraphCRUD:
             },
         )
         graph_id = create_resp["result"]["graph_id"]
-        get_resp = await _rpc_call(
-            daemon.socket_path, "graph.get", {"graph_id": graph_id}
-        )
+        get_resp = await _rpc_call(daemon.socket_path, "graph.get", {"graph_id": graph_id})
         assert get_resp["result"]["agent_id"] == "c65efddbe8c5"
 
     @pytest.mark.asyncio
@@ -197,9 +193,7 @@ class TestDaemonGraphCRUD:
             },
         )
         graph_id = create_resp["result"]["graph_id"]
-        get_resp = await _rpc_call(
-            daemon.socket_path, "graph.get", {"graph_id": graph_id}
-        )
+        get_resp = await _rpc_call(daemon.socket_path, "graph.get", {"graph_id": graph_id})
         assert get_resp["result"]["stop_on_tool_error"] is True
         # update 不传 flag 应回退保持原值 (load→save 保留), 返回字段含 flag.
         upd_resp = await _rpc_call(
@@ -214,9 +208,7 @@ class TestDaemonGraphCRUD:
             "graph.update",
             {"graph_id": graph_id, "stop_on_tool_error": False},
         )
-        get2 = await _rpc_call(
-            daemon.socket_path, "graph.get", {"graph_id": graph_id}
-        )
+        get2 = await _rpc_call(daemon.socket_path, "graph.get", {"graph_id": graph_id})
         assert get2["result"]["stop_on_tool_error"] is False
 
     @pytest.mark.asyncio
@@ -232,21 +224,15 @@ class TestDaemonGraphCRUD:
         )
         graph_id = create_resp["result"]["graph_id"]
 
-        del_resp = await _rpc_call(
-            daemon.socket_path, "graph.delete", {"graph_id": graph_id}
-        )
+        del_resp = await _rpc_call(daemon.socket_path, "graph.delete", {"graph_id": graph_id})
         assert del_resp["result"]["deleted"] is True
 
-        get_resp = await _rpc_call(
-            daemon.socket_path, "graph.get", {"graph_id": graph_id}
-        )
+        get_resp = await _rpc_call(daemon.socket_path, "graph.get", {"graph_id": graph_id})
         assert "error" in get_resp
 
     @pytest.mark.asyncio
     async def test_graph_not_found(self, daemon):
-        resp = await _rpc_call(
-            daemon.socket_path, "graph.get", {"graph_id": "nonexistent"}
-        )
+        resp = await _rpc_call(daemon.socket_path, "graph.get", {"graph_id": "nonexistent"})
         assert "error" in resp
 
     @pytest.mark.asyncio
@@ -267,9 +253,7 @@ class TestDaemonGraphCRUD:
         assert dry["result"]["dry_run"] is True
         assert dry["result"]["would_delete"] == 2
 
-        real = await _rpc_call(
-            daemon.socket_path, "graph.purge_test", {"names": [tag + "a"]}
-        )
+        real = await _rpc_call(daemon.socket_path, "graph.purge_test", {"names": [tag + "a"]})
         assert real["result"]["deleted"] == 2
         after = (await _rpc_call(daemon.socket_path, "graph.list"))["result"]["graphs"]
         ours = sorted(g["name"] for g in after if g["name"].startswith(tag))
@@ -298,6 +282,7 @@ class TestDaemonMLX:
     @pytest.mark.asyncio
     async def test_mlx_status_not_running(self, daemon):
         from agent_runtime.daemon_server import MLX_PORT
+
         resp = await _rpc_call(daemon.socket_path, "mlx.status")
         result = resp["result"]
         assert result["running"] is False
@@ -310,9 +295,7 @@ class TestDaemonMLX:
         assert d.ws_port == 11437, "WS port moved off 11435 (#265) to avoid fusion-memory fm-server"
 
     @pytest.mark.asyncio
-    @pytest.mark.skipif(
-        _MLX_UP, reason="fusion-mlx running; 'not running' path not testable"
-    )
+    @pytest.mark.skipif(_MLX_UP, reason="fusion-mlx running; 'not running' path not testable")
     async def test_mlx_health_not_running(self, daemon):
         resp = await _rpc_call(daemon.socket_path, "mlx.health")
         result = resp["result"]
@@ -352,9 +335,7 @@ class TestDaemonEnvCheck:
     @pytest.mark.asyncio
     async def test_env_repair_returns_structured_not_implemented(self, daemon):
         # #217: env.repair must distinguish "not implemented" from "tried & failed".
-        resp = await _rpc_call(
-            daemon.socket_path, "env.repair", {"item_id": "mlx_server"}
-        )
+        resp = await _rpc_call(daemon.socket_path, "env.repair", {"item_id": "mlx_server"})
         result = resp["result"]
         assert result["status"] == "not_implemented"
         assert result["implemented"] is False
@@ -443,9 +424,7 @@ class TestDaemonMLXInfer:
         assert "messages" in resp["result"]["message"]
 
     @pytest.mark.asyncio
-    @pytest.mark.skipif(
-        _MLX_UP, reason="fusion-mlx running; 'not running' path not testable"
-    )
+    @pytest.mark.skipif(_MLX_UP, reason="fusion-mlx running; 'not running' path not testable")
     async def test_infer_mlx_not_running(self, daemon):
         resp = await _rpc_call(
             daemon.socket_path,
@@ -454,8 +433,7 @@ class TestDaemonMLXInfer:
         )
         assert resp["result"]["status"] == "error"
         assert (
-            "not running" in resp["result"]["message"]
-            or "unreachable" in resp["result"]["message"]
+            "not running" in resp["result"]["message"] or "unreachable" in resp["result"]["message"]
         )
 
 
@@ -487,16 +465,12 @@ class TestDaemonPlanner:
             {"task": "Test task"},
         )
         plan_id = create["result"]["plan"]["id"]
-        resp = await _rpc_call(
-            daemon_stub.socket_path, "planner.get_plan", {"plan_id": plan_id}
-        )
+        resp = await _rpc_call(daemon_stub.socket_path, "planner.get_plan", {"plan_id": plan_id})
         assert resp["result"]["plan"]["id"] == plan_id
 
     @pytest.mark.asyncio
     async def test_planner_get_plan_not_found(self, daemon):
-        resp = await _rpc_call(
-            daemon.socket_path, "planner.get_plan", {"plan_id": "nonexistent"}
-        )
+        resp = await _rpc_call(daemon.socket_path, "planner.get_plan", {"plan_id": "nonexistent"})
         assert resp["result"]["status"] == "error"
 
     @pytest.mark.asyncio
@@ -529,12 +503,8 @@ class TestDaemonPlanner:
 
     @pytest.mark.asyncio
     async def test_planner_list_plans(self, daemon_stub):
-        await _rpc_call(
-            daemon_stub.socket_path, "planner.create_plan", {"task": "List test 1"}
-        )
-        await _rpc_call(
-            daemon_stub.socket_path, "planner.create_plan", {"task": "List test 2"}
-        )
+        await _rpc_call(daemon_stub.socket_path, "planner.create_plan", {"task": "List test 1"})
+        await _rpc_call(daemon_stub.socket_path, "planner.create_plan", {"task": "List test 2"})
         resp = await _rpc_call(daemon_stub.socket_path, "planner.list_plans", {})
         assert len(resp["result"]["plans"]) >= 2
 
@@ -546,9 +516,7 @@ class TestDaemonPlanner:
             {"task": "Cancel test"},
         )
         plan_id = create["result"]["plan"]["id"]
-        resp = await _rpc_call(
-            daemon_stub.socket_path, "planner.cancel_plan", {"plan_id": plan_id}
-        )
+        resp = await _rpc_call(daemon_stub.socket_path, "planner.cancel_plan", {"plan_id": plan_id})
         assert resp["result"]["cancelled"] is True
 
     @pytest.mark.asyncio
@@ -559,9 +527,7 @@ class TestDaemonPlanner:
             {"task": "Step exec test"},
         )
         plan_id = create["result"]["plan"]["id"]
-        await _rpc_call(
-            daemon_stub.socket_path, "planner.approve_plan", {"plan_id": plan_id}
-        )
+        await _rpc_call(daemon_stub.socket_path, "planner.approve_plan", {"plan_id": plan_id})
         step_id = create["result"]["plan"]["steps"][0]["id"]
         resp = await _rpc_call(
             daemon_stub.socket_path,
@@ -578,9 +544,7 @@ class TestDaemonPlanner:
             {"task": "Plan exec test"},
         )
         plan_id = create["result"]["plan"]["id"]
-        await _rpc_call(
-            daemon_stub.socket_path, "planner.approve_plan", {"plan_id": plan_id}
-        )
+        await _rpc_call(daemon_stub.socket_path, "planner.approve_plan", {"plan_id": plan_id})
         resp = await _rpc_call(
             daemon_stub.socket_path, "planner.execute_plan", {"plan_id": plan_id}
         )
@@ -595,9 +559,7 @@ class TestDaemonRAG:
 
     @pytest.mark.asyncio
     async def test_rag_query_returns_result(self, daemon_stub):
-        resp = await _rpc_call(
-            daemon_stub.socket_path, "rag.query", {"query": "test query"}
-        )
+        resp = await _rpc_call(daemon_stub.socket_path, "rag.query", {"query": "test query"})
         result = resp["result"]
         assert "answer" in result
         assert "sources" in result
@@ -646,9 +608,7 @@ class TestDaemonMemory:
             "memory.store",
             {"content": "Recent test", "scope": "recent_test"},
         )
-        resp = await _rpc_call(
-            daemon.socket_path, "memory.list_recent", {"scope": "recent_test"}
-        )
+        resp = await _rpc_call(daemon.socket_path, "memory.list_recent", {"scope": "recent_test"})
         assert len(resp["result"]["entries"]) >= 1
 
     @pytest.mark.asyncio
@@ -664,9 +624,7 @@ class TestDaemonMemory:
 
     @pytest.mark.asyncio
     async def test_memory_get_not_found(self, daemon):
-        resp = await _rpc_call(
-            daemon.socket_path, "memory.get", {"entry_id": "nonexistent"}
-        )
+        resp = await _rpc_call(daemon.socket_path, "memory.get", {"entry_id": "nonexistent"})
         assert resp["result"]["status"] == "error"
 
     @pytest.mark.asyncio
@@ -677,9 +635,7 @@ class TestDaemonMemory:
             {"content": "Delete test", "scope": "del_test"},
         )
         entry_id = store_resp["result"]["entry_id"]
-        resp = await _rpc_call(
-            daemon.socket_path, "memory.delete", {"entry_id": entry_id}
-        )
+        resp = await _rpc_call(daemon.socket_path, "memory.delete", {"entry_id": entry_id})
         assert resp["result"]["deleted"] is True
 
     @pytest.mark.asyncio
@@ -733,9 +689,7 @@ class TestDaemonMemory:
 class TestDaemonSafety:
     @pytest.mark.asyncio
     async def test_safety_check_clean(self, daemon):
-        resp = await _rpc_call(
-            daemon.socket_path, "safety.check", {"content": "Hello world"}
-        )
+        resp = await _rpc_call(daemon.socket_path, "safety.check", {"content": "Hello world"})
         verdict = resp["result"]["verdict"]
         assert verdict["action"] == "allow"
 
@@ -806,16 +760,12 @@ class TestDaemonTemplate:
 
     @pytest.mark.asyncio
     async def test_template_list_with_category(self, daemon):
-        resp = await _rpc_call(
-            daemon.socket_path, "template.list", {"category": "conversation"}
-        )
+        resp = await _rpc_call(daemon.socket_path, "template.list", {"category": "conversation"})
         assert "templates" in resp["result"]
 
     @pytest.mark.asyncio
     async def test_template_get_not_found(self, daemon):
-        resp = await _rpc_call(
-            daemon.socket_path, "template.get", {"template_id": "nonexistent"}
-        )
+        resp = await _rpc_call(daemon.socket_path, "template.get", {"template_id": "nonexistent"})
         assert resp["result"]["status"] == "error"
 
     @pytest.mark.asyncio
@@ -934,12 +884,8 @@ class TestTeamEndpoints:
 
     @pytest.mark.asyncio
     async def test_swarm_handoff(self, daemon):
-        await _rpc_call(
-            daemon.socket_path, "team.swarm_register", {"id": "h1", "name": "a"}
-        )
-        await _rpc_call(
-            daemon.socket_path, "team.swarm_register", {"id": "h2", "name": "b"}
-        )
+        await _rpc_call(daemon.socket_path, "team.swarm_register", {"id": "h1", "name": "a"})
+        await _rpc_call(daemon.socket_path, "team.swarm_register", {"id": "h2", "name": "b"})
         r = await _rpc_call(
             daemon.socket_path,
             "team.swarm_handoff",
@@ -965,9 +911,7 @@ class TestTeamEndpoints:
             "team.plaza_broadcast",
             {"channel": "ch1", "sender": "w1", "content": "hello"},
         )
-        r = await _rpc_call(
-            daemon.socket_path, "team.plaza_messages", {"channel": "ch1"}
-        )
+        r = await _rpc_call(daemon.socket_path, "team.plaza_messages", {"channel": "ch1"})
         assert len(r["result"]["messages"]) >= 1
         r = await _rpc_call(daemon.socket_path, "team.plaza_channels")
         assert "ch1" in r["result"]["channels"]
@@ -979,9 +923,7 @@ class TestTeamEndpoints:
             "team.plaza_create",
             {"name": "ch2", "participants": ["w1"]},
         )
-        r = await _rpc_call(
-            daemon.socket_path, "team.plaza_circuit", {"channel": "ch2"}
-        )
+        r = await _rpc_call(daemon.socket_path, "team.plaza_circuit", {"channel": "ch2"})
         assert r["result"]["tripped"] is False
 
     @pytest.mark.asyncio
@@ -1146,8 +1088,10 @@ class TestDaemonCronRuntime:
         job = cm.get("cron_e2e_test")
         assert job is not None and job.graph_id == graph_id
         result = await daemon._cron_default_handler(job)
-        assert result["status"] == "completed"
-        assert result["events"] >= 1
+        # M1-5: cron 降为触发器. handler 创建 Task → execute_async, 返回 triggered (不再同步 completed).
+        assert result["status"] == "triggered"
+        assert result["task_id"].startswith("task_")
+        assert "execution_id" in result
         await cm.aunregister("cron_e2e_test")
 
     @pytest.mark.asyncio
@@ -1207,9 +1151,7 @@ class TestDispatchStrParamsTolerance:
     @pytest.mark.asyncio
     async def test_str_params_json_object(self, daemon):
         # params='{"limit":5}' 应被解析为 dict -> daemon.status 不崩.
-        resp = await self._rpc_call_str_params(
-            daemon.socket_path, "daemon.status", '{"limit": 5}'
-        )
+        resp = await self._rpc_call_str_params(daemon.socket_path, "daemon.status", '{"limit": 5}')
         assert "result" in resp, resp
 
     @pytest.mark.asyncio

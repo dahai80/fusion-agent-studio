@@ -93,17 +93,13 @@ def test_trigger_input_roundtrip():
 
 
 def test_trigger_event_payload_non_dict_safe():
-    tri = parse_trigger_input(
-        json.dumps({"trigger_id": "x", "event": {"payload": "not-a-dict"}})
-    )
+    tri = parse_trigger_input(json.dumps({"trigger_id": "x", "event": {"payload": "not-a-dict"}}))
     assert tri is not None
     assert tri.event.payload == {}
 
 
 def test_trigger_event_timestamp_coerced():
-    tri = parse_trigger_input(
-        json.dumps({"trigger_id": "x", "event": {"timestamp": "9999"}})
-    )
+    tri = parse_trigger_input(json.dumps({"trigger_id": "x", "event": {"timestamp": "9999"}}))
     assert tri is not None
     assert tri.event.timestamp == 9999
 
@@ -115,6 +111,7 @@ def test_trigger_event_timestamp_coerced():
 async def test_cron_handler_parses_trigger_input(tmp_path, monkeypatch):
     # minimal fake job carrying a schema-shaped input_data
     from agent_runtime.daemon_server import DaemonServer
+    from agent_runtime.task_store import TaskStore
 
     captured = {}
 
@@ -122,6 +119,7 @@ async def test_cron_handler_parses_trigger_input(tmp_path, monkeypatch):
         id = "job_1"
         graph_id = "g1"
         input_data = json.dumps(_VALID_INPUT)
+        next_run = 9000000
 
     d = DaemonServer(
         socket_path="/tmp/none.sock",
@@ -130,15 +128,18 @@ async def test_cron_handler_parses_trigger_input(tmp_path, monkeypatch):
         http_port=0,
         store_path=str(tmp_path / "s.db"),
     )
+    d._task_store = TaskStore(db_path=str(tmp_path / "t.db"))
 
-    async def fake_execute(params):
+    async def fake_execute_async(params):
         captured["variables"] = params.get("variables", {})
-        return {"status": "ok", "events": []}
+        return {"status": "ok", "execution_id": "exec_fake_1"}
 
-    monkeypatch.setattr(d, "_handle_graph_execute", fake_execute)
+    monkeypatch.setattr(d, "_handle_graph_execute_async", fake_execute_async)
 
     result = await d._cron_default_handler(_FakeJob())
-    assert result["status"] == "ok"
+    # M1-5: cron 降为触发器 → triggered (不再返回 execute 结果)
+    assert result["status"] == "triggered"
+    assert result["execution_id"] == "exec_fake_1"
     vars_ = captured["variables"]
     assert vars_["trigger_id"] == "trig-uuid-1"
     assert vars_["context"] == "recent swift edits"
@@ -148,6 +149,7 @@ async def test_cron_handler_parses_trigger_input(tmp_path, monkeypatch):
 @pytest.mark.asyncio
 async def test_cron_handler_falls_back_on_freeform(tmp_path, monkeypatch):
     from agent_runtime.daemon_server import DaemonServer
+    from agent_runtime.task_store import TaskStore
 
     captured = {}
 
@@ -155,6 +157,7 @@ async def test_cron_handler_falls_back_on_freeform(tmp_path, monkeypatch):
         id = "job_2"
         graph_id = "g1"
         input_data = json.dumps({"task_id": "t_legacy", "foo": "bar"})
+        next_run = 9100000
 
     d = DaemonServer(
         socket_path="/tmp/none.sock",
@@ -163,13 +166,15 @@ async def test_cron_handler_falls_back_on_freeform(tmp_path, monkeypatch):
         http_port=0,
         store_path=str(tmp_path / "s.db"),
     )
+    d._task_store = TaskStore(db_path=str(tmp_path / "t.db"))
 
-    async def fake_execute(params):
+    async def fake_execute_async(params):
         captured["variables"] = params.get("variables", {})
-        return {"status": "ok", "events": []}
+        return {"status": "ok", "execution_id": "exec_fake_2"}
 
-    monkeypatch.setattr(d, "_handle_graph_execute", fake_execute)
+    monkeypatch.setattr(d, "_handle_graph_execute_async", fake_execute_async)
 
-    await d._cron_default_handler(_FakeJob())
+    result = await d._cron_default_handler(_FakeJob())
+    assert result["status"] == "triggered"
     # freeform dict (no trigger_id) -> legacy path, task_id threaded through
     assert captured["variables"].get("task_id") == "t_legacy"

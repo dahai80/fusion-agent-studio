@@ -162,6 +162,8 @@ def _ws_write_frame(writer: asyncio.StreamWriter, data: str) -> None:
         frame.extend(struct.pack(">Q", length))
     frame.extend(payload)
     writer.write(bytes(frame))
+
+
 # NetLayer 方案B: 默认经 fusion-gateway :11432 调用 fusion-mlx，不直连 :11434。
 # 保留 FUSION_GATEWAY_URL / FUSION_MLX_PORT 显式覆盖 (可回退直连 11434)。
 _MLX_PORT_DEFAULT = int(os.environ.get("FUSION_MLX_PORT", "11432"))
@@ -176,9 +178,7 @@ def _resolve_mlx_base_url() -> str:
     # 审计 E-18: MLX_BASE_URL 模块级常量 import 时冻结, 改 env 后需重启 daemon.
     # 运行时热切 gateway 走此函数 (每次读 env), 不再依赖冻结常量.
     port = os.environ.get("FUSION_MLX_PORT", str(_MLX_PORT_DEFAULT))
-    return os.environ.get(
-        "FUSION_GATEWAY_URL", f"http://127.0.0.1:{port}/v1"
-    )
+    return os.environ.get("FUSION_GATEWAY_URL", f"http://127.0.0.1:{port}/v1")
 
 
 class DaemonServer:
@@ -203,9 +203,7 @@ class DaemonServer:
         if store_path:
             self._memory_db_path = str(Path(store_path).parent / "memory.db")
         else:
-            self._memory_db_path = str(
-                Path.home() / ".fusion-agent-studio" / "memory.db"
-            )
+            self._memory_db_path = str(Path.home() / ".fusion-agent-studio" / "memory.db")
         self._gateway = LLMGateway()
         self._runtime: AgentRuntime | None = None
         self._mlx_process: subprocess.Popen | None = None
@@ -216,6 +214,7 @@ class DaemonServer:
         self._mlx_start_lock = asyncio.Lock()
         self._active_executions: dict[str, asyncio.Task] = {}
         self._code_tasks: dict[str, dict] = {}
+
         # 审计 E-13: _code_tasks 原无 TTL/无 LRU/无显式删除, 长跑 daemon (launchd
         # 保活) 下线性膨胀至 OOM. 加 TTL 清理 (默认 1h, FUSION_CODE_TASK_TTL 秒)
         # + 容量上限 (默认 1000, FUSION_CODE_TASK_MAX). 完成态任务过期自动删.
@@ -225,6 +224,7 @@ class DaemonServer:
                 return int(raw) if raw else default
             except ValueError:
                 return default
+
         self._code_tasks_ttl = _envint("FUSION_CODE_TASK_TTL", 3600)
         self._code_tasks_max = _envint("FUSION_CODE_TASK_MAX", 1000)
         self._server: asyncio.Server | None = None
@@ -274,9 +274,7 @@ class DaemonServer:
                 for rpc, handler in handlers.items():
                     if handler.__name__ == name:
                         return handler
-        raise AttributeError(
-            f"'{type(self).__name__}' object has no attribute '{name}'"
-        )
+        raise AttributeError(f"'{type(self).__name__}' object has no attribute '{name}'")
 
     def _reap_code_tasks(self) -> None:
         # 审计 E-13: 清理过期/超容的 _code_tasks. 完成态 (completed/cancelled/
@@ -300,8 +298,11 @@ class DaemonServer:
         # 容量上限: 超限删最旧完成态.
         if len(self._code_tasks) > self._code_tasks_max:
             done = sorted(
-                ((t.get("created_at") or 0, tid) for tid, t in self._code_tasks.items()
-                 if t.get("status") not in ("running", "pending")),
+                (
+                    (t.get("created_at") or 0, tid)
+                    for tid, t in self._code_tasks.items()
+                    if t.get("status") not in ("running", "pending")
+                ),
                 key=lambda x: x[0],
             )
             excess = len(self._code_tasks) - self._code_tasks_max
@@ -330,9 +331,7 @@ class DaemonServer:
 
     def _get_chat_engine(self) -> ChatEngine:
         if self._chat_engine is None:
-            self._chat_engine = ChatEngine(
-                runtime=self._get_runtime(), store=self.store
-            )
+            self._chat_engine = ChatEngine(runtime=self._get_runtime(), store=self.store)
             logger.info("ChatEngine created")
         return self._chat_engine
 
@@ -437,9 +436,7 @@ class DaemonServer:
 
             self._workflow_engine = WorkflowEngine(
                 llm_gateway=self._gateway,
-                tool_registry=self._get_runtime()._tool_registry
-                if self._runtime
-                else None,
+                tool_registry=self._get_runtime()._tool_registry if self._runtime else None,
                 orchestrator=self._get_orchestrator(),
                 store=self.store,
             )
@@ -553,9 +550,7 @@ class DaemonServer:
         else:
             self._graph_semaphore = None
 
-        self._server = await asyncio.start_unix_server(
-            self._handle_client, path=self.socket_path
-        )
+        self._server = await asyncio.start_unix_server(self._handle_client, path=self.socket_path)
         # #209: 0o666→0o600. 同 UID (fusion-cli/cron) 仍可连, 低权限恶意进程被挡.
         # 私有目录 (FUSION_SOCKET_DIR) 时目录已 0o700, 双重限流.
         os.chmod(self.socket_path, 0o600)
@@ -628,11 +623,15 @@ class DaemonServer:
         )
 
         if os.environ.get("FUSION_DISABLE_TELEMETRY", "").lower() not in (
-            "1", "true", "yes",
+            "1",
+            "true",
+            "yes",
         ):
             try:
                 self._get_telemetry_engine()
-                logger.info("Telemetry enabled by default (set FUSION_DISABLE_TELEMETRY=1 to disable)")
+                logger.info(
+                    "Telemetry enabled by default (set FUSION_DISABLE_TELEMETRY=1 to disable)"
+                )
             except Exception as e:
                 logger.warning("Telemetry auto-enable failed: %s", e)
 
@@ -662,9 +661,7 @@ class DaemonServer:
                     team,
                 )
                 self.store.set_team_launch_phase(team, "reconciled")
-            logger.info(
-                "reconcile: %d active phase(s) → reconciled", len(active)
-            )
+            logger.info("reconcile: %d active phase(s) → reconciled", len(active))
         except Exception:
             logger.exception("reconcile: team launch phase reconcile failed")
 
@@ -694,8 +691,8 @@ class DaemonServer:
                         channel=channel,
                         sender="supervisor",
                         content=(
-                            f"⚠️ 资源租约过期回收: {lease.get('resource_id','')} "
-                            f"(task={lease.get('task_id','')}, lease={lease.get('lease_id','')}). "
+                            f"⚠️ 资源租约过期回收: {lease.get('resource_id', '')} "
+                            f"(task={lease.get('task_id', '')}, lease={lease.get('lease_id', '')}). "
                             f"请核查该任务执行证据后决定重试/降级."
                         ),
                     )
@@ -778,11 +775,11 @@ class DaemonServer:
                     try:
                         proc.wait(timeout=5)
                     except subprocess.TimeoutExpired:
-                        logger.error(
-                            "MLX subprocess still alive after SIGKILL pid=%s", proc.pid
-                        )
+                        logger.error("MLX subprocess still alive after SIGKILL pid=%s", proc.pid)
             except Exception as e:
-                logger.warning("MLX subprocess stop error pid=%s err=%s", getattr(proc, "pid", "?"), e)
+                logger.warning(
+                    "MLX subprocess stop error pid=%s err=%s", getattr(proc, "pid", "?"), e
+                )
             self._mlx_process = None
         if os.path.exists(self.socket_path):
             os.unlink(self.socket_path)
@@ -820,20 +817,15 @@ class DaemonServer:
         errors: list[str] = []
         if _ws_enabled() and not _ws_token():
             errors.append(
-                "FUSION_ENABLE_WS=1 requires FUSION_WS_TOKEN (D-1 WS auth); "
-                "set token or disable WS"
+                "FUSION_ENABLE_WS=1 requires FUSION_WS_TOKEN (D-1 WS auth); set token or disable WS"
             )
         safety_level = os.environ.get("FUSION_SAFETY_LEVEL", "L1").upper()
         if safety_level not in ("L0", "L1", "L2", "L3"):
-            errors.append(
-                f"FUSION_SAFETY_LEVEL={safety_level!r} invalid (expected L0-L3)"
-            )
+            errors.append(f"FUSION_SAFETY_LEVEL={safety_level!r} invalid (expected L0-L3)")
         if errors:
             for e in errors:
                 logger.error("config validation failed: %s", e)
-            raise RuntimeError(
-                "FUSION config validation failed:\n  - " + "\n  - ".join(errors)
-            )
+            raise RuntimeError("FUSION config validation failed:\n  - " + "\n  - ".join(errors))
         logger.info("FUSION config validated OK (ws=%s safety=%s)", _ws_enabled(), safety_level)
 
     async def run_forever(self) -> None:
@@ -917,14 +909,10 @@ class DaemonServer:
                 params = {}
 
         if "jsonrpc" not in message or message["jsonrpc"] != "2.0":
-            return self._error_response(
-                msg_id, -32600, "Invalid Request: missing jsonrpc 2.0"
-            )
+            return self._error_response(msg_id, -32600, "Invalid Request: missing jsonrpc 2.0")
 
         if not method:
-            return self._error_response(
-                msg_id, -32601, "Method not found: empty method"
-            )
+            return self._error_response(msg_id, -32601, "Method not found: empty method")
 
         handler = self._get_handler(method)
         if handler is None:
@@ -936,6 +924,7 @@ class DaemonServer:
         auth_token = None
         try:
             from .identity_integration import consume_rpc_auth
+
             auth_token = consume_rpc_auth(params)
         except RuntimeError as e:
             logger.warning("rpc auth rejected for %s: %s", method, e)
@@ -958,6 +947,7 @@ class DaemonServer:
             if auth_token is not None:
                 try:
                     from .identity_integration import reset_rpc_auth
+
                     reset_rpc_auth(auth_token)
                 except Exception:
                     pass
@@ -1141,7 +1131,9 @@ class DaemonServer:
             "mlx_attached": self._gateway._default_client is not None,
             "default_model": self._gateway._default_model or "",
             "active_sessions": len(self._active_executions),
-            "uptime": time.time() - self._start_time if hasattr(self, "_start_time") and self._start_time else 0,
+            "uptime": time.time() - self._start_time
+            if hasattr(self, "_start_time") and self._start_time
+            else 0,
             "failed_plugins": self._get_tool_registry().failed_plugins,
         }
 
@@ -1247,20 +1239,18 @@ class DaemonServer:
         # 让 gateway 重部署/节点故障转移热生效, 不需重启 daemon.
         # _attach_mlx_client 内部按当前 env 重解析 base_url/api_key, 这里仅记录前后值.
         before_url = (
-            str(self._gateway._default_client.base_url)
-            if self._gateway._default_client
-            else ""
+            str(self._gateway._default_client.base_url) if self._gateway._default_client else ""
         )
         self._attach_mlx_client()
         after_url = (
-            str(self._gateway._default_client.base_url)
-            if self._gateway._default_client
-            else ""
+            str(self._gateway._default_client.base_url) if self._gateway._default_client else ""
         )
         changed = before_url != after_url
         logger.info(
             "mlx.reconnect: base_url %s -> %s (changed=%s)",
-            before_url, after_url, changed,
+            before_url,
+            after_url,
+            changed,
         )
         return {
             "status": "reconnected",
@@ -1470,9 +1460,7 @@ class DaemonServer:
         if params.get("stable_id"):
             graph.id = graph.stable_id()
             existing = self.store.load_graph(graph.id)
-            logger.info(
-                "graph.create stable_id=%s (existing=%s)", graph.id, bool(existing)
-            )
+            logger.info("graph.create stable_id=%s (existing=%s)", graph.id, bool(existing))
         # #215: 内容 schema 校验. 默认软校验 (只 log, 不拒); strict_validate=true 拒硬错.
         # 硬错 = 结构错 + tool_name 不在 registry + condition_expr 无法解析.
         # warning: = output_mapping/tool_params 未知 key (动态输出/config 注入合法).
@@ -1497,9 +1485,7 @@ class DaemonServer:
                 issues,
             )
         if strict and hard_errors:
-            raise ValueError(
-                f"Graph validation failed (strict_validate): {hard_errors}"
-            )
+            raise ValueError(f"Graph validation failed (strict_validate): {hard_errors}")
         self.store.save_graph(graph)
         logger.info("Created graph %s: %s", graph.id, graph.name)
 
@@ -1570,7 +1556,11 @@ class DaemonServer:
         total_deleted = deleted_by_names + deleted_by_prefix
         logger.info(
             "graph.purge_test: deleted %d (names=%d, prefixes=%d), %d -> %d",
-            total_deleted, deleted_by_names, deleted_by_prefix, before, after,
+            total_deleted,
+            deleted_by_names,
+            deleted_by_prefix,
+            before,
+            after,
         )
         return {
             "deleted": total_deleted,
@@ -1633,9 +1623,7 @@ class DaemonServer:
                 try:
                     from .agent_definition import AgentDefinition
 
-                    defn_path = os.path.join(
-                        str(self._agent_dir(agent_id)), "definition.json"
-                    )
+                    defn_path = os.path.join(str(self._agent_dir(agent_id)), "definition.json")
                     if os.path.exists(defn_path):
                         with open(defn_path) as f:
                             definition = AgentDefinition.from_dict(json.load(f))
@@ -1663,7 +1651,9 @@ class DaemonServer:
                     ts.update_status(task_id, "running")
                     logger.info("graph.execute %s linked task %s -> running", graph_id, task_id)
                 except Exception as exc:
-                    logger.warning("graph.execute %s set task %s running failed: %s", graph_id, task_id, exc)
+                    logger.warning(
+                        "graph.execute %s set task %s running failed: %s", graph_id, task_id, exc
+                    )
 
             # #214: 并发节流. 有 Semaphore 时 acquire 再执行, 超限排队等待 (不拒).
             # 无 Semaphore (默认) 直接执行, 行为不变.
@@ -1676,9 +1666,7 @@ class DaemonServer:
                     context=exec_ctx,
                     token_budget=getattr(self, "_token_budget", None),
                 ):
-                    ev_dict = (
-                        event.to_dict() if hasattr(event, "to_dict") else {"type": str(event)}
-                    )
+                    ev_dict = event.to_dict() if hasattr(event, "to_dict") else {"type": str(event)}
                     events.append(ev_dict)
                     # 收集 artifact_create 工具产物 id, 执行后回写 task.artifact_ids.
                     if (
@@ -1689,12 +1677,11 @@ class DaemonServer:
                         if aid:
                             artifact_ids.append(aid)
                     # #202: count tool errors emitted by stop_on_tool_error cascade stop.
-                    if (
-                        ev_dict.get("type") == "error"
-                        and ev_dict.get("metadata", {}).get("tool_error")
+                    if ev_dict.get("type") == "error" and ev_dict.get("metadata", {}).get(
+                        "tool_error"
                     ):
                         tool_errors.append(
-                            f"{ev_dict.get('name','?')}: {ev_dict.get('content','')[:200]}"
+                            f"{ev_dict.get('name', '?')}: {ev_dict.get('content', '')[:200]}"
                         )
 
             if self._graph_semaphore is not None:
@@ -1704,7 +1691,12 @@ class DaemonServer:
             else:
                 await _run_stream()
 
-            logger.info("Graph %s executed: %d events tool_errors=%d", graph_id, len(events), len(tool_errors))
+            logger.info(
+                "Graph %s executed: %d events tool_errors=%d",
+                graph_id,
+                len(events),
+                len(tool_errors),
+            )
 
             # #141 priority-4: 关联 task 时, 回写 artifact_ids + 完成状态 + last_result.
             if task_id:
@@ -1728,7 +1720,9 @@ class DaemonServer:
                         artifact_ids,
                     )
                 except Exception as exc:
-                    logger.warning("graph.execute %s writeback task %s failed: %s", graph_id, task_id, exc)
+                    logger.warning(
+                        "graph.execute %s writeback task %s failed: %s", graph_id, task_id, exc
+                    )
 
             return {
                 "session_id": session_id or f"sess-{int(time.time())}",
@@ -1882,9 +1876,7 @@ class DaemonServer:
                 try:
                     from .agent_definition import AgentDefinition
 
-                    defn_path = os.path.join(
-                        str(self._agent_dir(agent_id)), "definition.json"
-                    )
+                    defn_path = os.path.join(str(self._agent_dir(agent_id)), "definition.json")
                     if os.path.exists(defn_path):
                         with open(defn_path) as f:
                             definition = AgentDefinition.from_dict(json.load(f))
@@ -1900,9 +1892,7 @@ class DaemonServer:
                     context=exec_ctx,
                     token_budget=getattr(self, "_token_budget", None),
                 ):
-                    ev_dict = (
-                        event.to_dict() if hasattr(event, "to_dict") else {"type": str(event)}
-                    )
+                    ev_dict = event.to_dict() if hasattr(event, "to_dict") else {"type": str(event)}
                     events_count += 1
                     if (
                         ev_dict.get("type") == "tool_result"
@@ -1911,12 +1901,11 @@ class DaemonServer:
                         aid = self._extract_artifact_id(ev_dict.get("content", ""))
                         if aid:
                             artifact_ids.append(aid)
-                    if (
-                        ev_dict.get("type") == "error"
-                        and ev_dict.get("metadata", {}).get("tool_error")
+                    if ev_dict.get("type") == "error" and ev_dict.get("metadata", {}).get(
+                        "tool_error"
                     ):
                         tool_errors.append(
-                            f"{ev_dict.get('name','?')}: {ev_dict.get('content','')[:200]}"
+                            f"{ev_dict.get('name', '?')}: {ev_dict.get('content', '')[:200]}"
                         )
                     # 每 5 个事件写一次进度证据 + 广播
                     if events_count % 5 == 0:
@@ -2171,16 +2160,10 @@ class DaemonServer:
         exec_key, _unregister = self.register_execution("resume", f"{graph_id}:{session_id}")
         try:
             events = []
-            async for event in rt.resume_from_checkpoint(
-                graph, session_id, stream=stream
-            ):
-                ev_dict = (
-                    event.to_dict() if hasattr(event, "to_dict") else {"type": str(event)}
-                )
+            async for event in rt.resume_from_checkpoint(graph, session_id, stream=stream):
+                ev_dict = event.to_dict() if hasattr(event, "to_dict") else {"type": str(event)}
                 events.append(ev_dict)
-            logger.info(
-                "graph.resume %s session=%s events=%d", graph_id, session_id, len(events)
-            )
+            logger.info("graph.resume %s session=%s events=%d", graph_id, session_id, len(events))
             return {
                 "graph_id": graph_id,
                 "session_id": session_id,
@@ -2254,10 +2237,7 @@ class DaemonServer:
     def _get_tool_registry(self):
         from tools import create_default_registry
 
-        if (
-            not hasattr(self, "_cached_tool_registry")
-            or self._cached_tool_registry is None
-        ):
+        if not hasattr(self, "_cached_tool_registry") or self._cached_tool_registry is None:
             self._cached_tool_registry = create_default_registry()
             logger.info(
                 "Cached default tool registry with %d tools",
@@ -2347,9 +2327,7 @@ class DaemonServer:
         except Exception:
             pass
 
-        metrics["mlx_running"] = (
-            self._mlx_process is not None and self._mlx_process.poll() is None
-        )
+        metrics["mlx_running"] = self._mlx_process is not None and self._mlx_process.poll() is None
 
         return metrics
 
@@ -2449,16 +2427,12 @@ class DaemonServer:
                     )
                     from .memory_engine import MemoryEngine
 
-                    self._memory = MemoryEngine(
-                        db_path=self._memory_db_path, gateway=self._gateway
-                    )
+                    self._memory = MemoryEngine(db_path=self._memory_db_path, gateway=self._gateway)
                     logger.info("MemoryEngine created at %s (fallback)", self._memory.db_path)
             else:
                 from .memory_engine import MemoryEngine
 
-                self._memory = MemoryEngine(
-                    db_path=self._memory_db_path, gateway=self._gateway
-                )
+                self._memory = MemoryEngine(db_path=self._memory_db_path, gateway=self._gateway)
                 logger.info("MemoryEngine created at %s", self._memory.db_path)
         return self._memory
 
@@ -2467,8 +2441,14 @@ class DaemonServer:
             from .safety import SafetyGateway, SafetyLevel
 
             level_name = os.environ.get("FUSION_SAFETY_LEVEL", "L1").upper()
-            level = SafetyLevel[level_name] if level_name in SafetyLevel.__members__ else SafetyLevel.L1
-            enable_injection = os.environ.get("FUSION_SAFETY_INJECTION", "0") in ("1", "true", "yes")
+            level = (
+                SafetyLevel[level_name] if level_name in SafetyLevel.__members__ else SafetyLevel.L1
+            )
+            enable_injection = os.environ.get("FUSION_SAFETY_INJECTION", "0") in (
+                "1",
+                "true",
+                "yes",
+            )
             # #252 guard thin-client: FUSION_SAFETY_BACKEND selects judgment engine.
             # "local" (default) = in-process rule engine; "guard" = fusion-guard SSOT;
             # "auto" = guard when /tmp/fusion-guard.sock present, else local fallback.
@@ -2496,9 +2476,7 @@ class DaemonServer:
                 ke = KnowledgeEngine()
             except Exception:
                 ke = None
-                logger.warning(
-                    "KnowledgeEngine unavailable, RAG will run without retrieval"
-                )
+                logger.warning("KnowledgeEngine unavailable, RAG will run without retrieval")
             self._rag = RAGPipeline(knowledge_engine=ke, gateway=self._gateway)
             logger.info(
                 "RAGPipeline created (knowledge=%s, gateway=%s)",
@@ -2531,7 +2509,9 @@ class DaemonServer:
             import os
 
             db_path = os.path.expanduser("~/.fusion-agent-studio/cron.db")
-            self._cron_manager = CronManager(db_path=db_path, default_handler=self._cron_default_handler)
+            self._cron_manager = CronManager(
+                db_path=db_path, default_handler=self._cron_default_handler
+            )
         return self._cron_manager
 
     def _get_task_store(self):
@@ -2546,8 +2526,12 @@ class DaemonServer:
         return self._task_store
 
     async def _cron_default_handler(self, job) -> dict:
+        # M1-5: cron 降为触发器. job 触发 = 创建 Task(idempotency_key=job_id+fire_time)
+        # → graph.execute_async (异步). 不再同步执行 graph (F2 半根因: cron 同步执行 graph
+        # 致客户端 600s 等待). job 失败语义 = 任务创建失败 (不再含执行失败).
         import json as _json
 
+        from .task_store import TRIGGER_CRON, Task
         from .trigger_input import parse_trigger_input
 
         if not getattr(job, "graph_id", ""):
@@ -2557,16 +2541,17 @@ class DaemonServer:
         raw = getattr(job, "input_data", "") or ""
         trigger_id = ""
         if raw:
-            # #240: 优先走冻结 schema 解码 (trigger_id 一等字段透传日志).
             tri = parse_trigger_input(raw)
             if tri is not None:
                 trigger_id = tri.trigger_id
                 logger.info(
                     "Cron job %s trigger_id=%s rule=%s node=%s event_type=%s",
-                    job.id, trigger_id, tri.rule_name, tri.node_id, tri.event.type,
+                    job.id,
+                    trigger_id,
+                    tri.rule_name,
+                    tri.node_id,
+                    tri.event.type,
                 )
-                # schema input 解出后, 把 trigger_id/context 放进 variables 供 DAG 节点消费.
-                # 同时保留原 JSON dict 的其他键 (如 task_id), 向后兼容旧自由格式 input.
                 variables = {"input": raw, "trigger_id": trigger_id, "context": tri.context}
                 try:
                     raw_dict = _json.loads(raw)
@@ -2583,18 +2568,76 @@ class DaemonServer:
                 except Exception as exc:
                     logger.warning("Cron job %s input_data not JSON dict: %s", job.id, exc)
                     variables = {}
-        logger.info("Cron job %s triggering graph.execute %s", job.id, job.graph_id)
-        # #141 priority-4: input_data 可能携带 task_id, 透传让产物回写 task.
-        exec_params = {"graph_id": job.graph_id, "variables": variables}
-        if isinstance(variables, dict) and variables.get("task_id"):
-            exec_params["task_id"] = variables["task_id"]
-        result = await self._handle_graph_execute(exec_params)
-        return {
-            "status": result.get("status", ""),
-            "events": len(result.get("events", [])),
-            "tool_errors": len(result.get("tool_errors", [])),
-            "tool_error_details": result.get("tool_errors", [])[:5],
+
+        # M1-5: 幂等触发. idempotency_key = cron:{job_id}:{fire_time}.
+        # 同一 fire_time 重复触发 (cron 重试/崩溃恢复) → find_by_idempotency 命中 → skip.
+        fire_time = getattr(job, "next_run", 0) or time.time()
+        idem_key = f"cron:{job.id}:{int(fire_time)}"
+        team = "default"
+        if isinstance(variables, dict):
+            team = variables.get("team", "default")
+        ts = self._get_task_store()
+        existing = ts.find_by_idempotency(idem_key)
+        if existing is not None:
+            logger.info(
+                "Cron job %s fire_time=%d deduped (task %s exists)",
+                job.id,
+                int(fire_time),
+                existing.task_id,
+            )
+            return {
+                "status": "deduped",
+                "task_id": existing.task_id,
+                "reason": "idempotency_key exists",
+            }
+
+        task = ts.submit(
+            Task(
+                title=f"cron:{getattr(job, 'name', None) or job.id}",
+                graph_id=job.graph_id,
+                trigger=TRIGGER_CRON,
+                idempotency_key=idem_key,
+                team=team,
+            )
+        )
+        logger.info(
+            "Cron job %s → task %s created (idem=%s)",
+            job.id,
+            task.task_id,
+            idem_key,
+        )
+
+        exec_params = {
+            "graph_id": job.graph_id,
+            "variables": variables,
+            "task_id": task.task_id,
+            "team": team,
         }
+        try:
+            result = await self._handle_graph_execute_async(exec_params)
+            await self._broadcast_event(
+                "task.created",
+                {
+                    "task_id": task.task_id,
+                    "graph_id": job.graph_id,
+                    "trigger": "cron",
+                    "cron_job_id": job.id,
+                    "execution_id": result.get("execution_id", ""),
+                    "team": team,
+                },
+            )
+            return {
+                "status": "triggered",
+                "task_id": task.task_id,
+                "execution_id": result.get("execution_id", ""),
+            }
+        except Exception as exc:
+            logger.exception("Cron job %s execute_async failed: %s", job.id, exc)
+            try:
+                ts.update_status(task.task_id, "failed", last_error=str(exc))
+            except Exception:
+                pass
+            return {"status": "failed", "task_id": task.task_id, "error": str(exc)}
 
     async def _handle_tool_dynamic_register(self, params: dict) -> dict:
         from tools import ToolRegistry
@@ -2618,9 +2661,7 @@ class DaemonServer:
         if isinstance(tool_params, dict):
             for pk, pv in tool_params.items():
                 param_dict[pk] = (
-                    pv
-                    if isinstance(pv, dict)
-                    else {"type": "string", "description": str(pv)}
+                    pv if isinstance(pv, dict) else {"type": "string", "description": str(pv)}
                 )
 
         safe_name = f"Dynamic_{self._SAFE_TOOL_NAME_RE.match(name).group()}"
@@ -2703,9 +2744,7 @@ class DaemonServer:
         if isinstance(tool_params, dict):
             for pk, pv in tool_params.items():
                 param_dict[pk] = (
-                    pv
-                    if isinstance(pv, dict)
-                    else {"type": "string", "description": str(pv)}
+                    pv if isinstance(pv, dict) else {"type": "string", "description": str(pv)}
                 )
 
         # inspect.getsource 对嵌套/缩进 handler 捕获前导缩进, dedent 规整后 exec.
@@ -2758,11 +2797,8 @@ class DaemonServer:
         dyn_cls.parameters = param_dict
         new_tool = dyn_cls()
         self._dynamic_registry.register(new_tool)
-        logger.info(
-            "SDK Python tool registered via daemon: %s (async=%s)", name, is_coro
-        )
+        logger.info("SDK Python tool registered via daemon: %s (async=%s)", name, is_coro)
         return {"status": "ok", "tool": name, "kind": "python"}
-
 
     # ── Memory handlers ──
 
@@ -2844,11 +2880,7 @@ class DaemonServer:
             if result.stderr:
                 output = (output + "\n" + result.stderr) if output else result.stderr
             if result.timed_out:
-                output = (
-                    (output + "\nExecution timed out")
-                    if output
-                    else "Execution timed out"
-                )
+                output = (output + "\nExecution timed out") if output else "Execution timed out"
             logger.info(
                 "_execute_code_task done: task=%s exit=%s success=%s exec_id=%s",
                 task["task_id"],
@@ -2858,9 +2890,7 @@ class DaemonServer:
             )
             return {"output": output, "exit_code": result.exit_code}
         except Exception as exc:
-            logger.error(
-                "_execute_code_task error: task=%s error=%s", task["task_id"], exc
-            )
+            logger.error("_execute_code_task error: task=%s error=%s", task["task_id"], exc)
             return {"output": str(exc), "exit_code": 1}
 
     async def _inject_knowledge_context(
@@ -2911,7 +2941,9 @@ class DaemonServer:
         try:
             header_line = await asyncio.wait_for(reader.readline(), timeout=5.0)
             header_text = header_line.decode("utf-8", errors="replace").strip()
-            is_ws_upgrade = "Upgrade: websocket" in header_text or "upgrade: websocket" in header_text.lower()
+            is_ws_upgrade = (
+                "Upgrade: websocket" in header_text or "upgrade: websocket" in header_text.lower()
+            )
             if is_ws_upgrade:
                 remaining_headers = b""
                 while True:
@@ -2930,9 +2962,7 @@ class DaemonServer:
                 # FUSION_WS_TOKEN (形如 "Bearer <token>"). 不匹配则拒握手.
                 token = _ws_token()
                 if token and ws_proto != f"Bearer {token}":
-                    logger.warning(
-                        "WS handshake rejected: bad/missing token from %s", peer
-                    )
+                    logger.warning("WS handshake rejected: bad/missing token from %s", peer)
                     writer.write(b"HTTP/1.1 401 Unauthorized\r\n\r\n")
                     await writer.drain()
                     writer.close()
@@ -2997,16 +3027,26 @@ class DaemonServer:
             mode = msg.get("mode", "")
             engine = self._get_chat_engine()
             async for ev in engine.send(session_id, message, mode=mode):
-                _ws_write_frame(writer, json.dumps({
-                    "type": "chat_event",
-                    "session_id": session_id,
-                    "event": ev.to_dict(),
-                }))
+                _ws_write_frame(
+                    writer,
+                    json.dumps(
+                        {
+                            "type": "chat_event",
+                            "session_id": session_id,
+                            "event": ev.to_dict(),
+                        }
+                    ),
+                )
                 await writer.drain()
-            _ws_write_frame(writer, json.dumps({
-                "type": "chat_done",
-                "session_id": session_id,
-            }))
+            _ws_write_frame(
+                writer,
+                json.dumps(
+                    {
+                        "type": "chat_done",
+                        "session_id": session_id,
+                    }
+                ),
+            )
             await writer.drain()
         elif action == "subscribe":
             _ws_write_frame(writer, json.dumps({"type": "subscribed"}))
@@ -3153,9 +3193,7 @@ class DaemonServer:
                         "ttl_remaining_seconds": mi.get("ttl_remaining_seconds"),
                         "is_loading": mi.get("is_loading", False),
                         "loading_elapsed_seconds": mi.get("loading_elapsed_seconds"),
-                        "loading_estimated_seconds": mi.get(
-                            "loading_estimated_seconds"
-                        ),
+                        "loading_estimated_seconds": mi.get("loading_estimated_seconds"),
                         "loading_remaining_seconds_estimate": mi.get(
                             "loading_remaining_seconds_estimate"
                         ),
@@ -3181,9 +3219,9 @@ class DaemonServer:
                 entry["ttl_remaining_seconds"] = extra["ttl_remaining_seconds"]
                 entry["loading_elapsed_seconds"] = extra["loading_elapsed_seconds"]
                 entry["loading_estimated_seconds"] = extra["loading_estimated_seconds"]
-                entry["loading_remaining_seconds_estimate"] = (
-                    extra["loading_remaining_seconds_estimate"]
-                )
+                entry["loading_remaining_seconds_estimate"] = extra[
+                    "loading_remaining_seconds_estimate"
+                ]
                 entry["prefilling"] = extra["prefilling"]
                 entry["generating"] = extra["generating"]
 
@@ -3226,13 +3264,10 @@ class DaemonServer:
         # 直连路径 _default_client 已指 11434, 无需重复.
         if self._is_gateway_path():
             mlx_key = self._read_mlx_api_key()
-            direct = FusionMLXClient(
-                base_url="http://127.0.0.1:11434/v1", api_key=mlx_key
-            )
+            direct = FusionMLXClient(base_url="http://127.0.0.1:11434/v1", api_key=mlx_key)
             self._gateway.set_mlx_direct_client(direct)
             logger.info(
-                "MLX direct fallback client attached for gateway path "
-                "(api_key=%s)",
+                "MLX direct fallback client attached for gateway path (api_key=%s)",
                 "set" if mlx_key else "none",
             )
         logger.info(
@@ -3306,9 +3341,7 @@ class DaemonServer:
             return env_key
         candidates = [
             os.path.expanduser("~/.fusion-mlx/settings.json"),
-            os.path.expanduser(
-                "~/Library/Application Support/fusion-mlx/settings.json"
-            ),
+            os.path.expanduser("~/Library/Application Support/fusion-mlx/settings.json"),
         ]
         for path in candidates:
             try:
@@ -3506,9 +3539,7 @@ class DaemonServer:
         tool = registry.get_tool(tool_name)
         if not tool:
             return {"error": f"Tool not found: {tool_name}"}
-        schema = (
-            tool.get_schema() if hasattr(tool, "get_schema") else {"name": tool_name}
-        )
+        schema = tool.get_schema() if hasattr(tool, "get_schema") else {"name": tool_name}
         return {"tool_name": tool_name, "schema": schema}
 
     # ── Agent API handlers (#29, #31) ──
@@ -3537,7 +3568,8 @@ class DaemonServer:
                 # 运维无信号. 记 warning 让权限漂移可诊断 (考虑后续直接 raise).
                 logger.warning(
                     "agent %s definition.json corrupt, falling back to derived default perms: %s",
-                    agent_id, e,
+                    agent_id,
+                    e,
                 )
         return {
             "readKnowledge": bool(manifest.knowledge_base_ids),
