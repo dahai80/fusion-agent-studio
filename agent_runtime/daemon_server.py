@@ -1739,6 +1739,9 @@ class DaemonServer:
             agent_id = params.get("agent_id", "") or getattr(graph, "agent_id", "")
             exec_ctx = AgentContext(session_id=session_id or "")
             exec_ctx.agent_id = agent_id
+            # M3-1 issue#322: role-based tool filtering. params.role wins,
+            # else definition.json "role" field, else "all" (see every tool).
+            exec_ctx.role = params.get("role", "") or ""
             if isinstance(initial_vars, dict):
                 exec_ctx.variables = VariableManager()
                 for k, v in initial_vars.items():
@@ -1759,13 +1762,20 @@ class DaemonServer:
                     defn_path = os.path.join(str(self._agent_dir(agent_id)), "definition.json")
                     if os.path.exists(defn_path):
                         with open(defn_path) as f:
-                            definition = AgentDefinition.from_dict(json.load(f))
+                            defn_raw = json.load(f)
+                        definition = AgentDefinition.from_dict(defn_raw)
                         exec_ctx.tool_configs = AgentRuntime.build_tool_configs(definition)
+                        # M3-1 issue#322: role from definition.json if params didn't set it.
+                        if not exec_ctx.role:
+                            defn_role = defn_raw.get("role", "") or getattr(definition, "role", "")
+                            if defn_role:
+                                exec_ctx.role = defn_role
                         logger.info(
-                            "graph.execute %s loaded tool configs from agent %s (%d)",
+                            "graph.execute %s loaded tool configs from agent %s (%d) role=%s",
                             graph_id,
                             agent_id,
                             len(exec_ctx.tool_configs),
+                            exec_ctx.role or "all",
                         )
                 except Exception as exc:
                     logger.warning(
@@ -1773,6 +1783,9 @@ class DaemonServer:
                         graph_id,
                         exc,
                     )
+            # M3-1 issue#322: normalize empty role to "all" (see every tool).
+            if not exec_ctx.role:
+                exec_ctx.role = "all"
             events = []
             tool_errors: list[str] = []
 

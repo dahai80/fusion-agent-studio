@@ -104,6 +104,8 @@ class AgentContext:
 
     agent_id: str = ""
     session_id: str = ""
+    # M3-1 issue#322: role-based tool filtering. "all" = see every tool (default).
+    role: str = "all"
     messages: list[dict] = field(default_factory=list)
     events: list[AgentEvent] = field(default_factory=list)
     metadata: dict = field(default_factory=dict)
