@@ -647,7 +647,7 @@ class DaemonServer:
 
         self._log_startup_selfcheck()
         self._reconcile_team_launch_phases()
-        self._reconcile_expired_leases()
+        await self._reconcile_expired_leases()
         self._reconcile_task_states()
 
     def _reconcile_team_launch_phases(self) -> None:
@@ -672,7 +672,7 @@ class DaemonServer:
         except Exception:
             logger.exception("reconcile: team launch phase reconcile failed")
 
-    def _reconcile_expired_leases(self) -> None:
+    async def _reconcile_expired_leases(self) -> None:
         # M1-4: 启动扫过期租约 (daemon 崩溃期间 ttl 到期未释放).
         # expired → 写证据 + team 告警 (Plaza broadcast) + promote 排队.
         try:
@@ -688,6 +688,33 @@ class DaemonServer:
                     lease.get("resource_id", ""),
                     lease.get("task_id", ""),
                 )
+                # #319: broadcast resource.lease_expired (+ granted for promoted successor).
+                lease_team = lease.get("team", "default")
+                try:
+                    await self._broadcast_event(
+                        "resource.lease_expired",
+                        {
+                            "lease_id": lease.get("lease_id", ""),
+                            "resource_id": lease.get("resource_id", ""),
+                            "task_id": lease.get("task_id", ""),
+                            "team": lease_team,
+                        },
+                        team=lease_team,
+                    )
+                    promoted_id = lease.get("promoted_lease", "")
+                    if promoted_id:
+                        await self._broadcast_event(
+                            "resource.lease_granted",
+                            {
+                                "lease_id": promoted_id,
+                                "resource_id": lease.get("resource_id", ""),
+                                "team": lease_team,
+                                "promoted_from": "expiry",
+                            },
+                            team=lease_team,
+                        )
+                except Exception as exc:
+                    logger.warning("resource.lease_expired broadcast failed: %s", exc)
                 # team 告警消息 (非静默回收, §5.3)
                 try:
                     plaza = self._get_plaza()
@@ -1230,6 +1257,8 @@ class DaemonServer:
             "running": self._running,
             "socket_path": self.socket_path,
             "ws_port": self.ws_port,
+            "ws_enabled": _ws_enabled(),
+            "ws_token": _ws_token(),
             "cluster_port": self.cluster_port,
             "http_port": self.http_port,
             "mlx_attached": self._gateway._default_client is not None,
@@ -2222,14 +2251,49 @@ class DaemonServer:
                 self._get_task_store().claim_lease(params["task_id"], result["lease_id"])
             except Exception as exc:
                 logger.warning("lease_apply task %s claim_lease failed: %s", params["task_id"], exc)
+        # #319: broadcast resource.lease_granted when a lease is granted.
+        if result.get("status") == "granted" and result.get("lease_id"):
+            try:
+                await self._broadcast_event(
+                    "resource.lease_granted",
+                    {
+                        "lease_id": result.get("lease_id", ""),
+                        "resource_id": params.get("resource_id", ""),
+                        "task_id": params.get("task_id", ""),
+                        "team": params.get("team", "default"),
+                    },
+                    team=params.get("team", "default") or "default",
+                )
+            except Exception as exc:
+                logger.warning("resource.lease_granted broadcast failed: %s", exc)
         return result
 
     async def _handle_resource_lease_release(self, params: dict) -> dict:
         rl = self._get_resource_lease()
-        return rl.lease_release(
+        result = rl.lease_release(
             lease_id=params.get("lease_id", ""),
             reason=params.get("reason", ""),
         )
+        # #319: if release promoted a queued lease, broadcast resource.lease_granted.
+        promoted_id = result.get("promoted_lease", "")
+        if promoted_id:
+            try:
+                promoted = rl.get_lease(promoted_id)
+                team = (promoted or {}).get("team", "default")
+                await self._broadcast_event(
+                    "resource.lease_granted",
+                    {
+                        "lease_id": promoted_id,
+                        "resource_id": (promoted or {}).get("resource_id", ""),
+                        "task_id": (promoted or {}).get("task_id", ""),
+                        "team": team,
+                        "promoted_from": "release",
+                    },
+                    team=team,
+                )
+            except Exception as exc:
+                logger.warning("resource.lease_granted (promoted) broadcast failed: %s", exc)
+        return result
 
     async def _handle_resource_list(self, params: dict) -> dict:
         rl = self._get_resource_lease()

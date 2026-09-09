@@ -570,10 +570,12 @@ class TaskStore:
         agent_id: str = "",
         project_id: str = "",
         limit: int = 100,
+        team: str = "",
     ) -> list[dict]:
+        # #314: team filter — GUI TeamWorkspace fetches only a team's slice.
         self.reap_expired()
         if self._lazy_load and self._conn:
-            return self._list_from_db(status, agent_id, project_id, limit)
+            return self._list_from_db(status, agent_id, project_id, limit, team)
         tasks = list(self._tasks.values())
         if status:
             tasks = [t for t in tasks if t.status == status]
@@ -581,6 +583,8 @@ class TaskStore:
             tasks = [t for t in tasks if t.agent_id == agent_id]
         if project_id:
             tasks = [t for t in tasks if t.project_id == project_id]
+        if team:
+            tasks = [t for t in tasks if t.team == team]
         tasks.sort(key=lambda t: (t.priority, t.created_at), reverse=True)
         if limit > 0:
             tasks = tasks[:limit]
@@ -592,6 +596,7 @@ class TaskStore:
         agent_id: str,
         project_id: str,
         limit: int,
+        team: str = "",
     ) -> list[dict]:
         clauses = []
         params: list[Any] = []
@@ -604,6 +609,9 @@ class TaskStore:
         if project_id:
             clauses.append("project_id = ?")
             params.append(project_id)
+        if team:
+            clauses.append("team = ?")
+            params.append(team)
         where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
         sql = (
             "SELECT "

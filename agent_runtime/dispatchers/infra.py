@@ -50,6 +50,9 @@ class InfraDispatcher(SubDispatcher):
             "task.delete": self._handle_task_delete,
             "task.add_artifacts": self._handle_task_add_artifacts,
             "task.health": self._handle_task_health,
+            "task.set_review_state": self._handle_task_set_review_state,
+            "evidence.list": self._handle_evidence_list,
+            "evidence.failure": self._handle_evidence_failure,
             "project.list": self._handle_project_list,
             "project.tasks": self._handle_project_tasks,
             "hooks.list": self._handle_hooks_list,
@@ -245,6 +248,7 @@ class InfraDispatcher(SubDispatcher):
             project_id=params.get("project_id", ""),
             max_retries=int(params.get("max_retries", 0) or 0),
             idempotency_key=params.get("idempotency_key", ""),
+            team=params.get("team", "default"),
         )
         task = store.submit(task)
         # #238: 幂等去重命中 -> 回写 deduped=True, caller 知是旧 task 非新建.
@@ -291,6 +295,22 @@ class InfraDispatcher(SubDispatcher):
         # #238: deduped 标志透传到 task dict, 区分新建 vs 幂等命中.
         task_dict = task.to_dict()
         task_dict["deduped"] = deduped
+        # #319: broadcast task.created on manual submit (cron path already does).
+        # Skip deduped hits — idempotent re-submit is not a new task creation.
+        if not deduped:
+            try:
+                await self._daemon._broadcast_event(
+                    "task.created",
+                    {
+                        "task_id": task.task_id,
+                        "graph_id": task.graph_id,
+                        "trigger": task.trigger,
+                        "team": task.team,
+                    },
+                    team=task.team,
+                )
+            except Exception as exc:
+                logger.warning("task.created broadcast failed: %s", exc)
         return {"status": "ok", "task": task_dict}
 
     async def _handle_task_list(self, params: dict) -> dict:
@@ -300,6 +320,7 @@ class InfraDispatcher(SubDispatcher):
             agent_id=params.get("agent_id", ""),
             project_id=params.get("project_id", ""),
             limit=int(params.get("limit", 100) or 100),
+            team=params.get("team", ""),
         )
         return {"tasks": tasks, "total": len(tasks)}
 
@@ -351,6 +372,84 @@ class InfraDispatcher(SubDispatcher):
             "total_tasks": total,
             "max_concurrency": max_concurrency,
         }
+
+    async def _handle_task_set_review_state(self, params: dict) -> dict:
+        # #317: expose TaskStore.set_review_state as RPC for GUI ReviewQueue.
+        # #319: broadcast review.requested when transitioning to "review".
+        store = self._daemon._get_task_store()
+        task_id = params.get("task_id", "")
+        review_state = params.get("review_state", "")
+        if not task_id:
+            return {"status": "error", "message": "task_id is required"}
+        ok = store.set_review_state(task_id, review_state)
+        if not ok:
+            return {
+                "status": "error",
+                "message": f"Task not found or invalid review_state: {task_id}/{review_state}",
+            }
+        task = store.get(task_id)
+        updated_at = task.updated_at if task else 0.0
+        team = task.team if task else "default"
+        # #319: review.requested fires only on transition into "review".
+        if review_state == "review":
+            try:
+                await self._daemon._broadcast_event(
+                    "review.requested",
+                    {"task_id": task_id, "team": team},
+                    team=team,
+                )
+            except Exception as exc:
+                logger.warning("review.requested broadcast failed: %s", exc)
+        logger.info("task %s review_state=%s (team=%s)", task_id, review_state, team)
+        return {
+            "task_id": task_id,
+            "review_state": review_state,
+            "updated_at": updated_at,
+        }
+
+    async def _handle_evidence_list(self, params: dict) -> dict:
+        # #316: list tasks carrying evidence (evidence_ref non-empty).
+        # Derives from task store — evidence JSONL path is in evidence_ref.
+        store = self._daemon._get_task_store()
+        team = params.get("team", "")
+        limit = int(params.get("limit", 100) or 100)
+        tasks = store.list(team=team, limit=limit if limit > 0 else 0)
+        evidence = [
+            {
+                "task_id": t["task_id"],
+                "team": t.get("team", "default"),
+                "evidence_ref": t.get("evidence_ref", ""),
+                "status": t.get("status", ""),
+                "review_state": t.get("review_state", "none"),
+                "updated_at": t.get("updated_at", 0.0),
+            }
+            for t in tasks
+            if t.get("evidence_ref")
+        ]
+        return {"evidence": evidence, "total": len(evidence)}
+
+    async def _handle_evidence_failure(self, params: dict) -> dict:
+        # #316: failed/terminal executions = evidence with status in (failed, canceled).
+        from ..task_store import TASK_STATUS_CANCELED, TASK_STATUS_FAILED
+
+        store = self._daemon._get_task_store()
+        team = params.get("team", "")
+        limit = int(params.get("limit", 50) or 50)
+        tasks = store.list(team=team, limit=limit if limit > 0 else 0)
+        terminal = {TASK_STATUS_FAILED, TASK_STATUS_CANCELED}
+        evidence = [
+            {
+                "task_id": t["task_id"],
+                "team": t.get("team", "default"),
+                "evidence_ref": t.get("evidence_ref", ""),
+                "status": t.get("status", ""),
+                "review_state": t.get("review_state", "none"),
+                "updated_at": t.get("updated_at", 0.0),
+            }
+            for t in tasks
+            if t.get("evidence_ref") and t.get("status") in terminal
+        ]
+        return {"evidence": evidence, "total": len(evidence)}
 
     async def _handle_task_cancel(self, params: dict) -> dict:
         store = self._daemon._get_task_store()
