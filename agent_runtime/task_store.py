@@ -47,6 +47,7 @@ def _task_max_concurrency() -> int:
         return 5
     return val if val > 0 else 5
 
+
 # Task 状态机: pending(已提交待触发) -> running(执行中) -> completed/failed/canceled
 TASK_STATUS_PENDING = "pending"
 TASK_STATUS_RUNNING = "running"
@@ -74,17 +75,43 @@ REVIEW_STATE_REVIEW = "review"
 REVIEW_STATE_NEEDS_FIX = "needs_fix"
 REVIEW_STATE_APPROVED = "approved"
 _VALID_REVIEW_STATES = {
-    REVIEW_STATE_NONE, REVIEW_STATE_REVIEW, REVIEW_STATE_NEEDS_FIX, REVIEW_STATE_APPROVED,
+    REVIEW_STATE_NONE,
+    REVIEW_STATE_REVIEW,
+    REVIEW_STATE_NEEDS_FIX,
+    REVIEW_STATE_APPROVED,
 }
 
 # 列读取顺序(显式 SELECT, 保证 from_row 位置稳定, 不受 ALTER 追列影响).
 _TASK_COLUMNS = [
-    "task_id", "title", "description", "agent_id", "graph_id", "trigger",
-    "cron_expression", "run_at", "cron_job_id", "input", "status", "priority",
-    "project_id", "artifact_ids", "last_result", "last_error", "retry_count",
-    "max_retries", "created_at", "updated_at", "last_run_at", "idempotency_key",
-    "review_state", "attempt_token", "owner_role", "owner_agent",
-    "resource_lease_id", "evidence_ref", "team",
+    "task_id",
+    "title",
+    "description",
+    "agent_id",
+    "graph_id",
+    "trigger",
+    "cron_expression",
+    "run_at",
+    "cron_job_id",
+    "input",
+    "status",
+    "priority",
+    "project_id",
+    "artifact_ids",
+    "last_result",
+    "last_error",
+    "retry_count",
+    "max_retries",
+    "created_at",
+    "updated_at",
+    "last_run_at",
+    "idempotency_key",
+    "review_state",
+    "attempt_token",
+    "owner_role",
+    "owner_agent",
+    "resource_lease_id",
+    "evidence_ref",
+    "team",
 ]
 
 
@@ -166,7 +193,9 @@ class Task:
                     artifact_ids = []
             except Exception as e:
                 # 审计 L-3: 静默吞 JSON 解析错 -> 空列表, 调试无法定位坏数据.
-                logger.warning("task_store.from_row: bad artifact_ids JSON (task=%s): %s", row[0], e)
+                logger.warning(
+                    "task_store.from_row: bad artifact_ids JSON (task=%s): %s", row[0], e
+                )
                 artifact_ids = []
         last_result = {}
         if row[14]:
@@ -270,12 +299,8 @@ class TaskStore:
             )
             """
         )
-        self._conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status)"
-        )
-        self._conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_tasks_agent ON tasks(agent_id)"
-        )
+        self._conn.execute("CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status)")
+        self._conn.execute("CREATE INDEX IF NOT EXISTS idx_tasks_agent ON tasks(agent_id)")
         self._conn.commit()
         # 审计 3M-6: schema 版本管理. PRAGMA user_version 门禁有序迁移.
         self._run_schema_migrations(self._conn)
@@ -304,9 +329,7 @@ class TaskStore:
         if "project_id" not in cols:
             conn.execute("ALTER TABLE tasks ADD COLUMN project_id TEXT DEFAULT ''")
             logger.info("Migrated tasks table: added project_id column")
-        conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_tasks_project ON tasks(project_id)"
-        )
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_tasks_project ON tasks(project_id)")
 
     def _migration_v2_idempotency_key(self, conn) -> None:
         # #238: task.submit 幂等去重. ALTER 补 idempotency_key 列 + 唯一索引
@@ -338,9 +361,7 @@ class TaskStore:
             if col_name not in cols:
                 conn.execute(f"ALTER TABLE tasks ADD COLUMN {col_name} {col_def}")
                 logger.info("Migrated tasks table: added %s column", col_name)
-        conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_tasks_team_status ON tasks(team, status)"
-        )
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_tasks_team_status ON tasks(team, status)")
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_tasks_owner ON tasks(owner_agent) WHERE owner_agent != ''"
         )
@@ -484,9 +505,7 @@ class TaskStore:
             if not rows:
                 return 0
             ids = [r[0] for r in rows]
-            self._conn.executemany(
-                "DELETE FROM tasks WHERE task_id = ?", [(tid,) for tid in ids]
-            )
+            self._conn.executemany("DELETE FROM tasks WHERE task_id = ?", [(tid,) for tid in ids])
             self._conn.commit()
             for tid in ids:
                 self._tasks.pop(tid, None)
@@ -513,7 +532,8 @@ class TaskStore:
                 if existing is not None:
                     logger.info(
                         "Task deduped by idempotency_key=%s -> existing %s",
-                        task.idempotency_key, existing.task_id,
+                        task.idempotency_key,
+                        existing.task_id,
                     )
                     self.last_submit_deduped = True
                     return existing
@@ -533,7 +553,10 @@ class TaskStore:
                 self._conn.commit()
         logger.info(
             "Task submitted: %s trigger=%s graph=%s status=%s",
-            task.task_id, task.trigger, task.graph_id, task.status,
+            task.task_id,
+            task.trigger,
+            task.graph_id,
+            task.status,
         )
         return task
 
@@ -583,8 +606,10 @@ class TaskStore:
             params.append(project_id)
         where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
         sql = (
-            "SELECT " + ", ".join(_TASK_COLUMNS)
-            + " FROM tasks" + where
+            "SELECT "
+            + ", ".join(_TASK_COLUMNS)
+            + " FROM tasks"
+            + where
             + " ORDER BY priority DESC, created_at DESC"
         )
         if limit > 0:
@@ -599,10 +624,7 @@ class TaskStore:
         # caller 必须持有 _write_lock (submit 内调用).
         if not self._conn or not key:
             return None
-        sql = (
-            "SELECT " + ", ".join(_TASK_COLUMNS)
-            + " FROM tasks WHERE idempotency_key = ? LIMIT 1"
-        )
+        sql = "SELECT " + ", ".join(_TASK_COLUMNS) + " FROM tasks WHERE idempotency_key = ? LIMIT 1"
         row = self._conn.execute(sql, (key,)).fetchone()
         if row is None:
             return None
@@ -652,7 +674,10 @@ class TaskStore:
         self._save_task(task)
         logger.info(
             "Task %s status -> %s (result=%d keys, error=%d chars)",
-            task_id, status, len(task.last_result), len(task.last_error),
+            task_id,
+            status,
+            len(task.last_result),
+            len(task.last_error),
         )
         return True
 
@@ -712,8 +737,15 @@ class TaskStore:
             for pid, status, cnt in rows:
                 b = buckets.setdefault(
                     pid,
-                    {"project_id": pid, "total": 0, "pending": 0, "running": 0,
-                     "completed": 0, "failed": 0, "canceled": 0},
+                    {
+                        "project_id": pid,
+                        "total": 0,
+                        "pending": 0,
+                        "running": 0,
+                        "completed": 0,
+                        "failed": 0,
+                        "canceled": 0,
+                    },
                 )
                 b["total"] += cnt
                 if status in b:
@@ -725,8 +757,15 @@ class TaskStore:
                     continue
                 b = buckets.setdefault(
                     pid,
-                    {"project_id": pid, "total": 0, "pending": 0, "running": 0,
-                     "completed": 0, "failed": 0, "canceled": 0},
+                    {
+                        "project_id": pid,
+                        "total": 0,
+                        "pending": 0,
+                        "running": 0,
+                        "completed": 0,
+                        "failed": 0,
+                        "canceled": 0,
+                    },
                 )
                 b["total"] += 1
                 if t.status in b:
@@ -760,6 +799,7 @@ class TaskStore:
         if not self._conn or not owner_agent:
             return None
         import uuid
+
         token = uuid.uuid4().hex
         team = team or "default"
         with self._write_lock:
@@ -768,9 +808,7 @@ class TaskStore:
                 "SELECT task_id FROM tasks WHERE team = ? AND status = ? AND owner_agent = '' "
                 "ORDER BY priority DESC, created_at ASC LIMIT 1"
             )
-            row = self._conn.execute(
-                select_sql, (team, TASK_STATUS_PENDING)
-            ).fetchone()
+            row = self._conn.execute(select_sql, (team, TASK_STATUS_PENDING)).fetchone()
             if row is None:
                 return None
             task_id = row[0]
@@ -781,8 +819,13 @@ class TaskStore:
                 (TASK_STATUS_RUNNING, owner_agent, token, now, now, task_id, TASK_STATUS_PENDING),
             )
             self._append_history(
-                task_id, TASK_STATUS_PENDING, TASK_STATUS_RUNNING,
-                REVIEW_STATE_NONE, REVIEW_STATE_NONE, owner_agent, "dequeue claim",
+                task_id,
+                TASK_STATUS_PENDING,
+                TASK_STATUS_RUNNING,
+                REVIEW_STATE_NONE,
+                REVIEW_STATE_NONE,
+                owner_agent,
+                "dequeue claim",
             )
             self._conn.commit()
         # 强制从 DB 重载缓存 (UPDATE 不回填 _tasks dict, 旧对象 status 过期).
@@ -791,7 +834,10 @@ class TaskStore:
         if task:
             logger.info(
                 "Task %s dequeued by %s team=%s token=%s",
-                task_id, owner_agent, team, token[:8],
+                task_id,
+                owner_agent,
+                team,
+                token[:8],
             )
         return task
 
@@ -825,13 +871,24 @@ class TaskStore:
                 task.last_run_at = task.updated_at
             self._save_task(task)
             self._append_history(
-                task_id, from_status, task.status, from_review, task.review_state,
-                actor or "system", reason,
+                task_id,
+                from_status,
+                task.status,
+                from_review,
+                task.review_state,
+                actor or "system",
+                reason,
             )
             self._conn.commit()
         logger.info(
             "Task %s moved %s->%s review %s->%s by %s (%s)",
-            task_id, from_status, task.status, from_review, task.review_state, actor, reason,
+            task_id,
+            from_status,
+            task.status,
+            from_review,
+            task.review_state,
+            actor,
+            reason,
         )
         return task
 
@@ -860,9 +917,13 @@ class TaskStore:
     def list_by_column(self, team: str = "") -> dict[str, list[dict]]:
         # M1-1: 按 derive_column 分组 (GUI 看板用). 推导式列避免双写不一致.
         from .task_board import derive_column
+
         team = team or "default"
         columns: dict[str, list[dict]] = {
-            "todo": [], "in_progress": [], "review": [], "approved": [],
+            "todo": [],
+            "in_progress": [],
+            "review": [],
+            "approved": [],
         }
         if self._lazy_load and self._conn:
             with self._write_lock:
@@ -885,7 +946,9 @@ class TaskStore:
                     continue
                 columns.setdefault(col, []).append(task.to_dict())
         for col in columns:
-            columns[col].sort(key=lambda t: (t.get("priority", 0), t.get("created_at", 0)), reverse=True)
+            columns[col].sort(
+                key=lambda t: (t.get("priority", 0), t.get("created_at", 0)), reverse=True
+            )
         return columns
 
     def find_by_idempotency(self, key: str) -> Task | None:

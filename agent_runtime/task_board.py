@@ -33,15 +33,24 @@ def derive_column(task) -> str:
     # 推导式列 (源方案 §5.1): 避免 status/列双写不一致.
     # task = Task 实例或 dict (含 status/review_state/owner_agent).
     status = task.get("status") if isinstance(task, dict) else getattr(task, "status", "")
-    review_state = task.get("review_state") if isinstance(task, dict) else getattr(task, "review_state", REVIEW_STATE_NONE)
-    owner_agent = task.get("owner_agent") if isinstance(task, dict) else getattr(task, "owner_agent", "")
+    review_state = (
+        task.get("review_state")
+        if isinstance(task, dict)
+        else getattr(task, "review_state", REVIEW_STATE_NONE)
+    )
+    owner_agent = (
+        task.get("owner_agent") if isinstance(task, dict) else getattr(task, "owner_agent", "")
+    )
     if status == TASK_STATUS_CANCELED:
         return COLUMN_ARCHIVED
     if status == TASK_STATUS_PENDING and not owner_agent:
         return COLUMN_TODO
     if status == TASK_STATUS_RUNNING:
         return COLUMN_IN_PROGRESS
-    if status == TASK_STATUS_COMPLETED and review_state in (REVIEW_STATE_REVIEW, REVIEW_STATE_NEEDS_FIX):
+    if status == TASK_STATUS_COMPLETED and review_state in (
+        REVIEW_STATE_REVIEW,
+        REVIEW_STATE_NEEDS_FIX,
+    ):
         return COLUMN_REVIEW
     if status == TASK_STATUS_COMPLETED and review_state == REVIEW_STATE_APPROVED:
         return COLUMN_APPROVED
