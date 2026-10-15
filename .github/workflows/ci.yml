@@ -56,3 +56,27 @@ jobs:
       - name: Proof 3 — publish idempotent (restart no re-send)
         run: python tests/proof/prove_publish_idempotent.py
 
+  # #327: web UI — typecheck + build the union-web shell module. Self-contained:
+  # @fusion/web-ui and @fusion/web-sdk are vendored in web/vendor/@fusion (no
+  # registry/network fetch beyond bun + vite themselves).
+  web:
+    runs-on: macos-14
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Install dependencies
+        working-directory: web
+        run: bun install --frozen-lockfile
+
+      - name: Typecheck
+        working-directory: web
+        run: bun run typecheck
+
+      - name: Build
+        working-directory: web
+        run: bun run build
+

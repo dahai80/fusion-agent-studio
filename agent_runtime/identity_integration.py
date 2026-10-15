@@ -133,6 +133,24 @@ def reset_rpc_auth(token: Any) -> None:
         logger.debug("rpc auth reset failed: %s", e)
 
 
+def bind_tenant_context(claims: dict[str, Any]) -> Any:
+    """#326: bind a TenantContext from already-verified claims.
+
+    Used by the enforcement path in DaemonServer._dispatch (local JWT or
+    identity claims). Returns the contextvar token for reset_rpc_auth, or
+    None when fusion_core is unavailable (pure-local, no identity extra).
+    """
+    try:
+        from fusion_core.tenant.context import from_mapping, set_context
+    except Exception as e:
+        logger.debug("tenant context unavailable (fusion_core absent): %s", e)
+        return None
+    ctx = from_mapping(claims)
+    token = set_context(ctx)
+    logger.debug("rpc auth bound tid=%s", ctx.tenant_id)
+    return token
+
+
 def install_identity_middleware(app: Any) -> bool:
     """Wire install_tenant_middleware on app when identity enabled.
 

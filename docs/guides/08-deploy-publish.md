@@ -8,7 +8,7 @@
 - 导入图（限定目录，防穿越）
 - 发布智能体为 HTTP 聊天端点（`agent.publish`）
 - 发布到本地 marketplace 并安装
-- 用 HTTP API（端口 11455）远程调用
+- 用 HTTP API（端口 11442）远程调用
 - launchd 持久化（生产常驻）
 
 ---
@@ -165,22 +165,22 @@ await rpc("marketplace.uninstall", {"entry_id": "..."})
 
 ## 路径四：HTTP API 远程调用
 
-除了 UDS socket，daemon 还开一个 HTTP API（端口 11455），方便非本机进程 / 容器 / 远程服务调用。
+除了 UDS socket，daemon 还开一个 HTTP API（端口 11442），方便非本机进程 / 容器 / 远程服务调用。
 
 ```bash
 # 健康检查
-curl http://127.0.0.1:11455/health
+curl http://127.0.0.1:11442/health
 
 # 执行图（需鉴权，配 API key 时带 x-api-key 头）
-curl -X POST http://127.0.0.1:11455/v1/graphs/first-graph-001/execute \
+curl -X POST http://127.0.0.1:11442/v1/graphs/first-graph-001/execute \
   -H "Content-Type: application/json" \
   -H "x-api-key: $FUSION_API_KEY" \
   -d '{"input": "巡检磁盘"}'
 ```
 
-> **安全**：HTTP API 默认仅 `127.0.0.1`。WS / SSE 执行端点同样需鉴权（query 参数 `?api_key=...`）。配了 API key 后，未带 key 的请求被拒（401 / WS 4401）。CORS 收紧——任意网页 JS 不能直接打 11455 触发执行。生产环境务必配 `FUSION_API_KEY`。
+> **安全**：HTTP API 默认仅 `127.0.0.1`。WS / SSE 执行端点同样需鉴权（query 参数 `?api_key=...`）。配了 API key 后，未带 key 的请求被拒（401 / WS 4401）。CORS 收紧——任意网页 JS 不能直接打 11442 触发执行。生产环境务必配 `FUSION_API_KEY`。
 
-HTTP 端口在 `daemon_server.py`（默认 11455），WS 默认 11435（需 `FUSION_ENABLE_WS=1` + `FUSION_WS_TOKEN`）。
+HTTP 端口在 `daemon_server.py`（默认 11442），WS 默认 11433（需 `FUSION_ENABLE_WS=1` + `FUSION_WS_TOKEN`）。
 
 ## 持久化：launchd 常驻
 

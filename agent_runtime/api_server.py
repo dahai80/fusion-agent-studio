@@ -11,6 +11,7 @@ User instruction: "对比fusion-agent-studio看还有哪些缺失，尽快补齐
 from __future__ import annotations
 
 import asyncio
+import hmac
 import json
 import logging
 import os
@@ -51,8 +52,8 @@ def _resolve_cors_origins() -> list[str]:
     return [
         "http://127.0.0.1",
         "http://localhost",
-        "http://127.0.0.1:11455",
-        "http://localhost:11455",
+        "http://127.0.0.1:11442",
+        "http://localhost:11442",
     ]
 
 
@@ -61,7 +62,7 @@ app = FastAPI(title="Fusion Agent Studio API", version="0.3.27", lifespan=lifesp
 app.add_middleware(
     CORSMiddleware,
     # 审计 D-6: CORS 收紧. 原 allow_origins=["*"]+allow_credentials=True 是
-    # 反模式, 任意网页 JS 可向 127.0.0.1:11455 发简单请求触发图执行 (RCE).
+    # 反模式, 任意网页 JS 可向 127.0.0.1:11442 发简单请求触发图执行 (RCE).
     # 默认仅允许 localhost origin; FUSION_API_CORS_ORIGINS 可配多源 (逗号分隔).
     # 不再 allow_credentials=True (本地 daemon 无需凭据跨源).
     allow_origins=_resolve_cors_origins(),
@@ -126,6 +127,18 @@ def _get_store() -> AgentStore:
 
 
 def _get_runtime() -> AgentRuntime:
+    # #327: REST/WS/SSE 直调路径曾各自懒建裸 runtime (llm_gateway=empty),
+    # 真实 LLM 节点落到 "No available model" 且静默空输出 (仅 start/think ""
+    # /done, 无 token 事件). daemon 模式下复用 daemon 已接线 runtime
+    # (gateway+safety+memory+telemetry), 与 graph.execute_async 同源.
+    daemon_rt = getattr(_daemon, "_get_runtime", None)
+    if daemon_rt is not None:
+        try:
+            rt = daemon_rt()
+            if rt is not None:
+                return rt
+        except Exception as e:
+            logger.warning("daemon runtime fetch failed, falling back: %s", e)
     global _runtime
     if _runtime is None:
         from tools import create_default_registry
@@ -266,22 +279,60 @@ def _paginate(data: list, page: int = 1, limit: int = 20) -> dict:
     }
 
 
-async def _optional_auth(request: Request) -> dict | None:
+def _static_env_key() -> str:
+    # #327: operator-set static key for gateway/module integration
+    # (FUSION_AGENT_STUDIO_API_KEY). Loopback deployments use a documented
+    # local default (see web/README.md); remote deployments must override.
+    # Falls back to the persisted module key file so launchd-started
+    # daemons (no shell env) keep the same key as gateway config.
+    from .shell_registry import static_module_key
+
+    return static_module_key()
+
+
+def _extract_caller_key(request: Request) -> str:
+    # #327: accept x-api-key (native) or Authorization: Bearer (the gateway
+    # /shell/<id>/ proxy injects the module api_key as a Bearer header).
     api_key = request.headers.get("x-api-key", "")
     if not api_key:
+        authz = request.headers.get("authorization", "")
+        if authz.lower().startswith("bearer "):
+            api_key = authz[7:].strip()
+    return api_key
+
+
+def _check_static_key(api_key: str) -> dict | None:
+    static = _static_env_key()
+    if static and api_key and hmac.compare_digest(static, api_key):
+        return {"valid": True, "key_id": "static-env", "permissions": ["agent:execute", "admin"]}
+    return None
+
+
+def _validate_key_result(api_key: str, client_ip: str = "") -> dict | None:
+    if not api_key:
         return None
+    static = _check_static_key(api_key)
+    if static is not None:
+        return static
     from agent_runtime.apikey_manager import ApiKeyManager
 
     mgr = ApiKeyManager(Path.home() / ".fusion-agent-studio")
-    client_ip = request.client.host if request.client else ""
     result = mgr.validate(api_key, client_ip=client_ip)
     if result.get("valid"):
         return result
     return None
 
 
+async def _optional_auth(request: Request) -> dict | None:
+    api_key = _extract_caller_key(request)
+    if not api_key:
+        return None
+    client_ip = request.client.host if request.client else ""
+    return _validate_key_result(api_key, client_ip=client_ip)
+
+
 async def _require_auth(request: Request) -> dict:
-    api_key = request.headers.get("x-api-key", "")
+    api_key = _extract_caller_key(request)
     if not api_key:
         raise_api_error(ErrorCode.API_KEY_MISSING)
     result = await _optional_auth(request)
@@ -293,6 +344,10 @@ async def _require_auth(request: Request) -> dict:
 def _auth_configured() -> bool:
     # 审计 D-6: 若已配置任意 api-key, 则所有变更端点强制鉴权 (生产模式).
     # 未配置任何 key 时为本地受信模式, 放行 (向后兼容下游 fusion-studio/cli).
+    # #327: FUSION_AGENT_STUDIO_API_KEY (gateway 静态模块 key) 单独配置即视为
+    # 已配置 — 否则 gateway 部署只带静态 key 时端点仍全开放.
+    if _static_env_key():
+        return True
     from agent_runtime.apikey_manager import ApiKeyManager
 
     mgr = ApiKeyManager(Path.home() / ".fusion-agent-studio")
@@ -312,18 +367,17 @@ def _validate_api_key_str(api_key: str) -> dict | None:
     # 返回 validate result dict (含 valid) 或 None (空 key).
     if not api_key:
         return None
-    from agent_runtime.apikey_manager import ApiKeyManager
-
-    mgr = ApiKeyManager(Path.home() / ".fusion-agent-studio")
-    result = mgr.validate(api_key)
-    return result
+    return _validate_key_result(api_key)
 
 
-def _require_auth_qs_or_raise(api_key: str = Query("")) -> dict | None:
+def _require_auth_qs_or_raise(request: Request, api_key: str = Query("")) -> dict | None:
     # 审计 P0-2: SSE (GET) 用 FastAPI Depends, 校验 query-string api_key.
-    # 配置了 key 则必须有效; 否则本地受信放行. 校验失败抛 API_KEY_MISSING/INVALID.
+    # #327: gateway /shell 代理注入 Bearer 头 (EventSource 无法带 query key 的
+    # 嵌入路径), Bearer 与 query 二选一.
     if not _auth_configured():
         return None
+    if not api_key:
+        api_key = _extract_caller_key(request)
     if not api_key:
         raise_api_error(ErrorCode.API_KEY_MISSING)
     result = _validate_api_key_str(api_key)
@@ -797,16 +851,19 @@ async def v1_submit_run(request: Request):
     run_id = task.get("task_id", "")
     logger.info("/v1/runs submitted run_id=%s goal=%r timeout=%s", run_id, goal[:60], timeout)
     # If a graph_id is bound, kick off execution immediately so the run
-    # progresses without waiting for a separate cron tick. Execution is
-    # non-blocking: the graph.execute handler streams events then returns.
+    # progresses without waiting for a separate cron tick. execute_async
+    # backgrounds the graph run (evidence jsonl + task writeback) and returns
+    # in <1s — the HTTP response must not block on a multi-minute LLM run
+    # (the old synchronous graph.execute call held the POST open and timed
+    # clients out).
     if graph_id:
         try:
             await _rpc(
-                "graph.execute",
+                "graph.execute_async",
                 {"graph_id": graph_id, "input": goal, "task_id": run_id},
             )
         except Exception as exc:
-            logger.warning("/v1/runs graph.execute for %s failed (task still queued): %s", run_id, exc)
+            logger.exception("/v1/runs graph.execute_async for %s failed (task still queued): %s", run_id, exc)
     return {"run_id": run_id, "status": task.get("status", "pending"), "deduped": res.get("deduped", False)}
 
 
@@ -1671,7 +1728,22 @@ async def api_v1_chat_notify(req: FSBNotifyRequest):
     return {"status": "ok", "delivered": True, "session_id": session_id}
 
 
-def run_server(host: str = "127.0.0.1", port: int = 11455):
+# ── #327: web/ static UI bundle ──
+# The built web/ package (bun run build inside web/) is served from the repo
+# root at "/" so the gateway /shell/fusion-agent-studio/ proxy (which strips
+# the module prefix) lands on the SPA. Mount LAST: every @app route above
+# wins; only unmatched paths fall through to static files.
+_WEB_DIST = Path(__file__).resolve().parent.parent / "web" / "dist"
+if _WEB_DIST.is_dir():
+    from fastapi.staticfiles import StaticFiles
+
+    app.mount("/", StaticFiles(directory=str(_WEB_DIST), html=True), name="webui")
+    logger.info("web UI dist served at / from %s", _WEB_DIST)
+else:
+    logger.info("web UI dist not found at %s — build web/ (bun install && bun run build)", _WEB_DIST)
+
+
+def run_server(host: str = "127.0.0.1", port: int = 11442):
     import uvicorn
 
     uvicorn.run(app, host=host, port=port, log_level="info")

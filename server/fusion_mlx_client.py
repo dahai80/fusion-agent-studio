@@ -137,14 +137,25 @@ class FusionMLXClient:
         resp.raise_for_status()
         data = resp.json()
 
-        choice = data["choices"][0]
-        message = choice.get("message", {})
+        # Gateway/mlx can return 200 with an error envelope or "choices": null
+        # (e.g. degraded backend) — subscripting None raised TypeError
+        # ('NoneType' object is not subscriptable) and killed the whole
+        # graph.execute. Surface a readable error instead.
+        choices = data.get("choices") or []
+        if not choices:
+            err = data.get("error") or data
+            raise RuntimeError(f"chat/completions returned no choices: {str(err)[:300]}")
+        choice = choices[0]
+        message = choice.get("message") or {}
 
+        # Gateway may serialize absent fields as explicit nulls — dict.get
+        # defaults only fire on MISSING keys, so nulls leaked through as None
+        # and blew up downstream ('NoneType' object is not subscriptable).
         return LLMResponse(
-            content=message.get("content", ""),
-            tool_calls=message.get("tool_calls", []),
-            finish_reason=choice.get("finish_reason", "stop"),
-            usage=data.get("usage", {}),
+            content=message.get("content") or "",
+            tool_calls=message.get("tool_calls") or [],
+            finish_reason=choice.get("finish_reason") or "stop",
+            usage=data.get("usage") or {},
         )
 
     async def list_models(self) -> list[dict[str, Any]]:
@@ -257,15 +268,15 @@ class FusionMLXClient:
 
                 choices = data.get("choices") or [{}]
                 choice = choices[0]
-                delta = choice.get("delta", {})
+                delta = choice.get("delta") or {}
                 finish_reason = choice.get("finish_reason")
                 usage = data.get("usage")
 
                 chunk = StreamChunk(
-                    delta_content=delta.get("content", ""),
-                    delta_tool_calls=delta.get("tool_calls", []),
+                    delta_content=delta.get("content") or "",
+                    delta_tool_calls=delta.get("tool_calls") or [],
                     finish_reason=finish_reason,
-                    usage=usage,
+                    usage=usage or {},
                 )
                 yield chunk
 

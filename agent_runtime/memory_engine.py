@@ -350,6 +350,17 @@ class MemoryEngine:
             self._maybe_summarize()
         return entry.id
 
+    @staticmethod
+    def _fts_sanitize(query: str) -> str:
+        # FTS5 MATCH is a query language: ':' = column filter, '^'/'*'/'-'/
+        # 'OR'/'AND'/'NOT'/parens are operators. Raw user text breaks it
+        # ("smoke: reply" -> "no such column: smoke"). Quote every whitespace
+        # token as a literal phrase (inner quotes doubled) so any input is a
+        # valid all-terms-AND query.
+        return " ".join(
+            '"%s"' % t.replace('"', '""') for t in query.split() if t.strip()
+        )
+
     def recall(
         self,
         query: str,
@@ -366,7 +377,7 @@ class MemoryEngine:
 
         c = self.conn.cursor()
 
-        fts_query = query.replace('"', '""')
+        fts_query = self._fts_sanitize(query)
 
         conditions = []
         params: list[Any] = []

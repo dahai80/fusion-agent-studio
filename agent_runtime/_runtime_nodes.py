@@ -296,6 +296,12 @@ class _NodeExecutorsMixin:
                     delta_tool_calls = chunk.get("delta_tool_calls")
                     finish_reason = chunk.get("finish_reason")
 
+                    # 网关以 error chunk 报错 (无可用 client/流超时等), 曾被静默
+                    # 丢弃 — SSE 只见 think""/done, 无任何 ERROR 事件. 显式抛出,
+                    # 走统一 except 路径让客户端看到失败原因.
+                    if chunk.get("error"):
+                        raise RuntimeError(f"chat_stream error: {chunk['error']}")
+
                     if delta_content:
                         content_parts.append(delta_content)
                         yield AgentEvent(

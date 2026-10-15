@@ -43,7 +43,7 @@ from .runtime import AgentRuntime
 logger = logging.getLogger(__name__)
 
 SOCKET_PATH = "/tmp/fusion-studio.sock"
-WS_PORT = 11437  # #265: moved off 11435 (fusion-memory fm-server default) to avoid EADDRINUSE
+WS_PORT = 11433  # #327: registry fusion-agent-studio-ws; 11435=fm-server, 11437=cowork-sync
 WS_MAGIC = "258EAFA5-E914-47DA-95CA-5AB5DC65B283"
 
 # #209: peer credential constants. macOS LOCAL_PEERCRED (SOL_LOCAL=0).
@@ -113,11 +113,11 @@ def _resolve_socket_path(default: str = SOCKET_PATH) -> str:
 
 
 def _ws_enabled() -> bool:
-    # 审计 D-1: WS TCP 11437 默认关闭. 原 WS 无鉴权不校验 peer-UID, 任意本机
+    # 审计 D-1: WS TCP 默认关闭. 原 WS 无鉴权不校验 peer-UID, 任意本机
     # 进程可经 chat.stream 接管完整 agent 循环 (RCE). 默认关, 显式 env
     # FUSION_ENABLE_WS=1 才起. 起时必须同时设 FUSION_WS_TOKEN 共享密钥,
     # 客户端首帧须携带 Sec-WebSocket-Protocol 头带 token, 否则握手拒.
-    # #265: 端口从 11435 移到 11437, 避开 fusion-memory fm-server 默认 11435.
+    # #327: 端口 11433 (registry); 11435=fm-server, 11437=cowork-sync, 均避开.
     return os.environ.get("FUSION_ENABLE_WS", "").strip().lower() in (
         "1",
         "true",
@@ -188,7 +188,7 @@ class DaemonServer:
         socket_path: str = "",
         ws_port: int = WS_PORT,
         cluster_port: int = 11457,
-        http_port: int = 11455,
+        http_port: int = 11442,
         store_path: str = "",
     ):
         # #209: 空则走 env 感知解析 (FUSION_SOCKET_DIR 私有目录 opt-in), 否则
@@ -205,6 +205,12 @@ class DaemonServer:
             self._memory_db_path = str(Path(store_path).parent / "memory.db")
         else:
             self._memory_db_path = str(Path.home() / ".fusion-agent-studio" / "memory.db")
+        # #326: RPC auth base dir (JWT secret + apikeys index live next to the
+        # store db; test isolation follows the tmp store_path parent).
+        if store_path:
+            self._auth_dir = str(Path(store_path).parent)
+        else:
+            self._auth_dir = str(Path.home() / ".fusion-agent-studio")
         self._gateway = LLMGateway()
         self._runtime: AgentRuntime | None = None
         self._mlx_process: subprocess.Popen | None = None
@@ -615,6 +621,17 @@ class DaemonServer:
             except Exception as e:
                 logger.warning("FastAPI HTTP server failed to start: %s", e)
 
+        # #327: union-web shell 模块注册 + 心跳 (env-gated, 见 shell_registry.py).
+        self._shell_registry_task: asyncio.Task | None = None
+        try:
+            from .shell_registry import shell_registration_enabled, shell_registry_loop
+
+            if shell_registration_enabled():
+                self._shell_registry_task = asyncio.create_task(shell_registry_loop())
+                logger.info("Shell registry loop started (union-web module keepalive)")
+        except Exception as e:
+            logger.warning("Shell registry loop failed to start: %s", e)
+
         self._running = True
         self._start_time = time.time()
         try:
@@ -885,6 +902,8 @@ class DaemonServer:
             await self._ws_server.wait_closed()
         if self._cluster_task and not self._cluster_task.done():
             self._cluster_task.cancel()
+        if getattr(self, "_shell_registry_task", None) and not self._shell_registry_task.done():
+            self._shell_registry_task.cancel()
         if self._mlx_process and self._mlx_process.poll() is None:
             # 审计 P-1: MLX 子进程停机原仅 terminate() 后立即置 None, 不等
             # 进程真正退出 — SIGTERM 后进程仍在收尾, daemon 已认定其停止,
@@ -1050,28 +1069,53 @@ class DaemonServer:
         if handler is None:
             return self._error_response(msg_id, -32601, f"Method not found: {method}")
 
-        # #279: consume `_auth` (jwt/tid) from params when identity is enabled.
-        # Sets a TenantContext for the handler call; rejects invalid JWT with a
-        # 401-style error. No `_auth` (logged-out/legacy) -> current behavior.
+        # #326: server-side auth enforcement on the UDS control plane.
+        # FUSION_AUTH_ENFORCE (default 1): every RPC validates `_auth`
+        # (jwt signature + expiry + tenant); invalid -> JSON-RPC error code
+        # 401 on ANY method (the fusion-studio IPCClient authEnforced probe
+        # sends ping + forged jwt and expects exactly 401); missing -> 401
+        # unless PRE_AUTH_ALLOWLIST (auth.login / ping / discovery).
+        # FUSION_AUTH_ENFORCE=0: legacy #279 behavior (identity-gated only).
         auth_token = None
-        try:
-            from .identity_integration import consume_rpc_auth
+        from .rpc_auth import RpcAuthError, auth_enforcement_enabled
 
-            auth_token = consume_rpc_auth(params)
-        except RuntimeError as e:
-            logger.warning("rpc auth rejected for %s: %s", method, e)
-            return self._error_response(msg_id, -32001, f"Auth rejected: {e}")
-        except Exception as e:
-            # identity_integration import / fusion_core absent -> fail-open (local-dev).
-            logger.debug("rpc auth skipped: %s", e)
+        if auth_enforcement_enabled():
+            from .rpc_auth import authenticate_rpc
 
-        # Strip `_auth` so handlers never see the caller's credentials.
-        if auth_token is not None and isinstance(params, dict):
-            params.pop("_auth", None)
+            allowed, claims, reject_reason = authenticate_rpc(params, method, self._auth_dir)
+            if not allowed:
+                logger.warning("rpc auth rejected for %s: %s", method, reject_reason)
+                return self._error_response(msg_id, 401, f"Auth required: {reject_reason}")
+            if claims is not None:
+                # Strip `_auth` so handlers never see the caller's credentials.
+                if isinstance(params, dict):
+                    params.pop("_auth", None)
+                auth_token = self._bind_tenant_context(claims)
+        else:
+            # Legacy #279 path: consume `_auth` only when identity is enabled.
+            # Sets a TenantContext for the handler call; rejects invalid JWT
+            # with a 401-style error. No `_auth` (logged-out/legacy) -> current behavior.
+            try:
+                from .identity_integration import consume_rpc_auth
+
+                auth_token = consume_rpc_auth(params)
+            except RuntimeError as e:
+                logger.warning("rpc auth rejected for %s: %s", method, e)
+                return self._error_response(msg_id, -32001, f"Auth rejected: {e}")
+            except Exception as e:
+                # identity_integration import / fusion_core absent -> fail-open (local-dev).
+                logger.debug("rpc auth skipped: %s", e)
+            # Strip `_auth` so handlers never see the caller's credentials.
+            if auth_token is not None and isinstance(params, dict):
+                params.pop("_auth", None)
 
         try:
             result = await handler(params)
             return self._success_response(msg_id, result)
+        except RpcAuthError as e:
+            # e.g. auth.login with a bad apikey: auth-phase failure, 401.
+            logger.warning("rpc auth error in %s: %s", method, e.reason)
+            return self._error_response(msg_id, 401, f"Auth required: {e.reason}")
         except Exception as e:
             logger.exception("Handler error for %s", method)
             return self._error_response(msg_id, -32000, str(e))
@@ -1120,6 +1164,7 @@ class DaemonServer:
             "gateway.reconfigure": self._handle_gateway_reconfigure,
             "hardware.metrics": self._handle_hardware_metrics,
             "ping": self._handle_ping,
+            "auth.login": self._handle_auth_login,
             "daemon.ping": self._handle_daemon_ping,
             "daemon.status": self._handle_daemon_status,
             "daemon.shutdown": self._handle_daemon_shutdown,
@@ -1245,10 +1290,30 @@ class DaemonServer:
             "error": {"code": code, "message": message},
         }
 
+    def _bind_tenant_context(self, claims: dict) -> Any:
+        # #326: bind a TenantContext from verified claims for the handler
+        # call (returns a contextvar token for the finally-block reset).
+        # fusion_core absent (pure-local, no identity extra) -> no context.
+        try:
+            from .identity_integration import bind_tenant_context
+
+            return bind_tenant_context(claims)
+        except Exception as e:
+            logger.debug("rpc tenant context not bound: %s", e)
+            return None
+
     # ── Handlers ──
 
     async def _handle_ping(self, params: dict) -> dict:
         return {"pong": True, "timestamp": time.time()}
+
+    async def _handle_auth_login(self, params: dict) -> dict:
+        # #326: local-mode bootstrap — apikey (fk-...) -> locally-signed JWT.
+        # PRE_AUTH_ALLOWLIST covers this method (no `_auth` needed to log in);
+        # a bad key still rejects 401 via the RpcAuthError mapping.
+        from .rpc_auth import auth_login
+
+        return auth_login(params, self._auth_dir)
 
     async def _handle_daemon_ping(self, params: dict) -> dict:
         return {"pong": True, "timestamp": time.time(), "daemon": True}
@@ -3979,7 +4044,7 @@ def run_daemon(socket_path: str = ""):
     parser.add_argument("--store-path", default="", help="AgentStore db path (test isolation)")
     parser.add_argument("--ws-port", type=int, default=WS_PORT, help="WS server port")
     parser.add_argument("--cluster-port", type=int, default=11457, help="cluster port")
-    parser.add_argument("--http-port", type=int, default=11455, help="HTTP port")
+    parser.add_argument("--http-port", type=int, default=11442, help="HTTP port")
     args = parser.parse_args()
     daemon = DaemonServer(
         socket_path=args.socket_path,

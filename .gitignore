@@ -6,6 +6,7 @@ coverage.json
 memory.db
 *.egg-info/
 dist/
+!web/dist/
 build/
 .venv/
 .claude/

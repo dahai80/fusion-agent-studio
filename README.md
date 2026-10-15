@@ -295,8 +295,9 @@ python my_agent.py
 ### Integration
 - ✅ **fusion-mlx** — Apple Silicon optimized model serving
 - ✅ **OpenAI-compatible API** — Works with any OpenAI-compatible backend
-- ✅ **HTTP REST API** — FastAPI on `127.0.0.1:11455` (launched by `start.sh` via the daemon). Routes under both `/v1/*` and `/api/v1/*` (alias) so external clients using either convention resolve. Agent index auto-rebuilt from on-disk manifests on startup.
-- ✅ **fusion-projects** — project_service binds agents via `GET /api/v1/agents` (set `FUSION_AGENT_STUDIO_URL=http://127.0.0.1:11455`)
+- ✅ **HTTP REST API** — FastAPI on `127.0.0.1:11442` (launched by `start.sh` via the daemon). Routes under both `/v1/*` and `/api/v1/*` (alias) so external clients using either convention resolve. Agent index auto-rebuilt from on-disk manifests on startup.
+- ✅ **fusion-projects** — project_service binds agents via `GET /api/v1/agents` (set `FUSION_AGENT_STUDIO_URL=http://127.0.0.1:11442`)
+- ✅ **Web UI (#327)** — union-web shell module under `web/` (React + vendored `@fusion/web-ui`/`@fusion/web-sdk`): workflow list + goal submission with live SSE streaming, run monitor with dashboard tiles, run detail with cancel/replay. Embedded via the fusion-gateway shell at `/shell/fusion-agent-studio/` (module-key auth injected by the gateway proxy), standalone dev server on `:11460`, and the built SPA served by the daemon at `GET /`. See `web/README.md`.
 - ✅ **macOS native** — SwiftUI app with WKWebView canvas integration
 - ✅ **i18n** — English and Chinese UI strings
 
@@ -386,6 +387,11 @@ fusion-agent-studio/
 ├── server/                 # fusion-mlx communication
 │   ├── fusion_mlx_client.py# HTTP client
 │   └── process_manager.py  # Process lifecycle
+├── web/                    # Web UI (#327, union-web shell module)
+│   ├── src/                # React app: workflows / runs / run detail pages
+│   ├── vendor/@fusion/     # Vendored web-ui + web-sdk sources (CI self-contained)
+│   ├── manifest.json       # Shell manifest registered with fusion-gateway
+│   └── dist/               # Built SPA, served by the daemon at GET /
 ├── tests/                  # 1591 tests
 │   ├── test_runtime.py     # Runtime engine tests
 │   ├── test_graph.py       # Graph model tests
@@ -434,6 +440,9 @@ pytest tests/ --cov=agent_runtime --cov=tools --cov=server
 
 # Create a new tool
 python -c "from tools.plugin_manager import PluginManager; from tools.registry import ToolRegistry; pm = PluginManager(ToolRegistry()); pm.create_plugin_template('my_tool')"
+
+# Web UI (bun required) — dev server on :11460, proxies /v1 to daemon :11442
+cd web && bun install && bun run dev
 ```
 
 ### Test Stats
