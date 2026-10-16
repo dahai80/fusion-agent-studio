@@ -2217,6 +2217,7 @@ class DaemonServer:
         artifact_ids: list[str] = []
         tool_errors: list[str] = []
         error_msg = ""
+        stop_reason = ""
         try:
             rt = self._get_runtime()
             from .context import AgentContext
@@ -2243,7 +2244,7 @@ class DaemonServer:
                     logger.warning("execute_async %s tool configs failed: %s", graph_id, exc)
 
             async def _stream():
-                nonlocal events_count
+                nonlocal events_count, stop_reason
                 async for event in rt.execute_graph(
                     graph,
                     input_text,
@@ -2265,6 +2266,11 @@ class DaemonServer:
                         tool_errors.append(
                             f"{ev_dict.get('name', '?')}: {ev_dict.get('content', '')[:200]}"
                         )
+                    # N7 (#344): align stop reason — END event carries ctx.stop_reason.
+                    if ev_dict.get("type") == "end":
+                        stop_reason = (ev_dict.get("metadata") or {}).get("stop_reason", "end_turn")
+                    if ev_dict.get("type") == "error" and not (ev_dict.get("metadata") or {}).get("tool_error"):
+                        stop_reason = "error"
                     # 每 5 个事件写一次进度证据 + 广播
                     if events_count % 5 == 0:
                         self._write_evidence(
@@ -2288,19 +2294,29 @@ class DaemonServer:
             else:
                 await _stream()
 
+            # N7: budget_exceeded path returns without END event — read ctx directly.
+            if not stop_reason:
+                stop_reason = getattr(exec_ctx, "stop_reason", "") or "end_turn"
             # 完成证据
+            if not stop_reason:
+                stop_reason = "end_turn"
             self._write_evidence(
                 execution_id,
                 {
                     "type": "execution.completed",
                     "events_count": events_count,
                     "artifact_ids": artifact_ids,
+                    "stop_reason": stop_reason,
                 },
                 team=team,
             )
             await self._broadcast_event(
                 "execution.completed",
-                {"execution_id": execution_id, "events_count": events_count},
+                {
+                    "execution_id": execution_id,
+                    "events_count": events_count,
+                    "stop_reason": stop_reason,
+                },
                 team=team,
             )
 
@@ -2318,6 +2334,7 @@ class DaemonServer:
                             "events": events_count,
                             "artifact_ids": artifact_ids,
                             "execution_id": execution_id,
+                            "stop_reason": stop_reason,
                         },
                     )
                     ev_path = str(self._evidence_path(execution_id, team))
