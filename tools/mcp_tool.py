@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from typing import Any
 
 from .base import BaseTool
@@ -284,7 +285,29 @@ class MCPTool(BaseTool):
             return f"Error: MCP tool '{self.name}' failed: {e}"
 
     @staticmethod
-    def _format_result(result: dict | Any) -> str:
+    def _output_char_cap() -> int:
+        # N6/#343: per-server output cap, 25k tokens (~4 chars/token).
+        try:
+            return int(os.environ.get("FUSION_MCP_OUTPUT_CAP_TOKENS", "25000")) * 4
+        except ValueError:
+            return 100000
+
+    @classmethod
+    def _format_result(cls, result: dict | Any) -> str:
+        text = cls._format_result_uncapped(result)
+        cap = cls._output_char_cap()
+        if len(text) > cap:
+            logger.warning(
+                "MCP output truncated: %d chars -> %d (cap)", len(text), cap
+            )
+            return (
+                text[:cap]
+                + f"\n[output truncated at {cap // 4} tokens; narrow the query or paginate]"
+            )
+        return text
+
+    @staticmethod
+    def _format_result_uncapped(result: dict | Any) -> str:
         if isinstance(result, dict):
             content = result.get("content", result.get("result", {}).get("content", []))
             if isinstance(content, list):

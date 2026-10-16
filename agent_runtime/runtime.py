@@ -121,6 +121,19 @@ class AgentRuntime(_SafetyApprovalMixin, _CheckpointMixin, _DynamicToolsMixin, _
         # nodes awaiting approval (mirrors _safety_futures pattern).
         self.plan_mode: bool = False
         self._plan_futures: dict[str, asyncio.Future[bool]] = {}
+        # N6/#343 ToolSearch: env-gated lazy tool schema loading. When on,
+        # schemas beyond TOOLSEARCH_INLINE_LIMIT are deferred out of the
+        # prompt; the LLM finds them via the tool_search tool at need.
+        self._toolsearch_enabled = os.environ.get("FUSION_TOOLSEARCH", "") == "1"
+        if self._toolsearch_enabled and self.tools is not None:
+            try:
+                from tools.tool_search import ToolSearchTool
+
+                self.tools.register(ToolSearchTool(lambda: self.tools))
+                logger.info("ToolSearch enabled: tool_search registered")
+            except Exception as e:
+                logger.warning("ToolSearch init failed: %s", e)
+                self._toolsearch_enabled = False
         # #284: pluggable post-action assertion fn for tool nodes. Signature:
         #   (ctx, node, tool_result, frame_b64, frame_w, frame_h) -> str
         # Returns "" on pass, an error message on fail. Set via SDK; None = off.
@@ -501,6 +514,17 @@ class AgentRuntime(_SafetyApprovalMixin, _CheckpointMixin, _DynamicToolsMixin, _
         tools_schema = self.tools.to_openai_schemas(role=getattr(ctx, "role", "all"))
         if any(n.allow_dynamic_tools for n in graph.nodes.values()):
             tools_schema.extend(self._dynamic_tool_schemas())
+        # N6/#343: defer schemas past the inline limit — tool stays callable
+        # by name (registry resolves), schema discoverable via tool_search.
+        if self._toolsearch_enabled:
+            inline_cap = int(os.environ.get("TOOLSEARCH_INLINE_LIMIT", "25"))
+            if len(tools_schema) > inline_cap:
+                deferred = [s["function"]["name"] for s in tools_schema[inline_cap:]]
+                tools_schema = tools_schema[:inline_cap]
+                logger.info(
+                    "ToolSearch deferral: %d schemas deferred (inline cap %d)",
+                    len(deferred), inline_cap,
+                )
 
         current_node_id = graph.start_node_id
         ctx.current_node_id = current_node_id

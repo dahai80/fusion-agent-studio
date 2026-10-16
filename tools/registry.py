@@ -55,6 +55,24 @@ class ToolRegistry:
             if role == "all" or "all" in t.roles or role in t.roles
         ]
 
+    def search_tools(self, query: str, limit: int = 8, role: str = "all") -> list[dict]:
+        # N6/#343: keyword search over names+descriptions for lazy schema
+        # loading — deferred tools stay out of the prompt until found here.
+        q = (query or "").strip().lower()
+        out = []
+        for t in self._tools.values():
+            if role != "all" and "all" not in t.roles and role not in t.roles:
+                continue
+            if not q or q in t.name.lower() or q in (t.description or "").lower():
+                out.append({
+                    "name": t.name,
+                    "description": t.description,
+                    "parameters": t.parameters,
+                })
+                if len(out) >= max(1, limit):
+                    break
+        return out
+
     def to_openai_schemas(self, role: str = "all") -> list[dict]:
         # M3-1 issue#322: role filter. role="all" (default) = current behavior (return all).
         return [
