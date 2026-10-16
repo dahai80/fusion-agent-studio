@@ -206,6 +206,20 @@ class AgentRuntime(_SafetyApprovalMixin, _CheckpointMixin, _DynamicToolsMixin, _
             compactor=self.compactor,
             telemetry_engine=self.telemetry_engine,
         )
+        # PRD N4: subagent protocol. Runner/registry lazy; SubAgentTool
+        # registered only when FUSION_SUBAGENT_TOOLS=1 (env-gated like other
+        # integrations — keeps the default tool surface/prompt size unchanged).
+        self.subagent_runner = None
+        self.subagent_registry = None
+        if os.environ.get("FUSION_SUBAGENT_TOOLS", "").strip() in ("1", "true", "yes") and self.tools is not None:
+            from tools.subagent_tool import SubAgentTool
+
+            from .subagent import SubAgentRegistry, SubAgentRunner
+
+            self.subagent_runner = SubAgentRunner(self)
+            self.subagent_registry = SubAgentRegistry()
+            self.tools.register(SubAgentTool(runner_provider=lambda: self.subagent_runner))
+            logger.info("subagent tool registered (FUSION_SUBAGENT_TOOLS=1)")
         logger.info(
             "harness funnels wired: tool_funnel=%s llm_funnel=%s permissions=%d rules",
             "on",
@@ -322,6 +336,10 @@ class AgentRuntime(_SafetyApprovalMixin, _CheckpointMixin, _DynamicToolsMixin, _
         # 单点根治 dead-wire, 覆盖全部调用点 (daemon/api/orchestrator/sub-graph).
         if token_budget is None:
             token_budget = self._default_token_budget
+        # N8: funnels share the effective budget (tool + LLM admission gates).
+        if token_budget is not None:
+            self.tool_funnel.set_budget_ref(token_budget)
+            self.llm_funnel.set_budget_ref(token_budget)
         ctx = context or AgentContext()
         writer = get_trajectory_writer()
         trace_id = writer.start(

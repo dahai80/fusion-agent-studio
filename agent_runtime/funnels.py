@@ -386,7 +386,7 @@ class ToolFunnel:
 
 
 class LLMFunnel:
-    """Single LLM admission path: lifecycle -> hooks -> compaction -> metering."""
+    """Single LLM admission path: lifecycle -> hooks -> budget -> compaction."""
 
     def __init__(
         self,
@@ -394,17 +394,34 @@ class LLMFunnel:
         lifecycle_bus: LifecycleBus | None = None,
         compactor=None,
         telemetry_engine=None,
+        budget_ref=None,
     ):
         self.hooks = hooks
         self.lifecycle = lifecycle_bus or LifecycleBus()
         self.compactor = compactor
         self.telemetry_engine = telemetry_engine
+        self.budget_ref = budget_ref
         self.calls = 0
+
+    def set_budget_ref(self, budget_ref) -> None:
+        self.budget_ref = budget_ref
 
     async def pre_llm(self, ctx, node_label: str = "", model: str = "", messages: list | None = None) -> tuple[bool, str, list]:
         """Gate the call. Returns (proceed, reason, possibly-compacted messages)."""
         messages = messages or []
         self._emit("agent", "llm_before", {"node": node_label, "model": model, "messages": len(messages)}, ctx)
+        # N8: hard budget cap — exceed = graceful stop + BUDGET_EXCEED signal,
+        # never silent truncation.
+        budget = self.budget_ref
+        if budget is not None and getattr(budget, "is_exceeded", lambda: False)():
+            logger.warning("llm funnel budget exceeded node=%s spent=%s", node_label, getattr(budget, "spent_tokens", "?"))
+            self._emit("agent", "budget_exceed", {"node": node_label, "spent_tokens": getattr(budget, "spent_tokens", 0)}, ctx)
+            if self.hooks is not None:
+                try:
+                    await self.hooks.fire("BUDGET_EXCEED", {"node": node_label, "stage": "pre_llm"}, tool_name="")
+                except Exception as e:
+                    logger.warning("budget_exceed hook error: %s", e)
+            return False, "token budget exceeded", messages
         if self.hooks is not None:
             try:
                 out = await self.hooks.fire("LLM_BEFORE", {"node": node_label, "model": model}, tool_name="")
@@ -429,6 +446,16 @@ class LLMFunnel:
 
     def post_llm(self, ctx, node_label: str = "", model: str = "", usage: dict | None = None, content: str = "") -> None:
         self.calls += 1
+        # N8 metering: feed per-call usage into the wired budget.
+        budget = self.budget_ref
+        if budget is not None and usage:
+            try:
+                budget.record_usage(
+                    int(usage.get("prompt_tokens", 0) or 0),
+                    int(usage.get("completion_tokens", 0) or 0),
+                )
+            except Exception as e:
+                logger.warning("budget record_usage failed: %s", e)
         self._emit("agent", "llm_after", {"node": node_label, "model": model, "usage": usage or {}}, ctx)
         if self.hooks is not None:
             try:
