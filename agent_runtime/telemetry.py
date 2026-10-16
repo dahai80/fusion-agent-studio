@@ -123,11 +123,18 @@ class TelemetryEngine:
             "errors": 0,
             "tokens_prompt": 0,
             "tokens_completion": 0,
+            # N11 #350: long-session SLO counters
+            "compactions": 0,
+            "approvals": 0,
+            "sessions_completed": 0,
         }
         self._latencies: dict[str, list[float]] = {
             "llm_calls": [],
             "tool_calls": [],
             "graph_executions": [],
+            # N11 #350: approval wait + full session duration (seconds)
+            "approvals": [],
+            "sessions": [],
         }
         logger.info("TelemetryEngine initialized")
 
@@ -359,6 +366,43 @@ class TelemetryEngine:
             logger.debug("OTLP export offloaded to executor (async context)")
         else:
             _do_post()
+
+    # N11 #350: long-session SLO recording — session duration, compaction
+    # count, approval latency feed fusion-bench baselines via metrics().
+    def record_slo(self, kind: str, value: float | None = None) -> None:
+        if kind == "compaction":
+            self._counters["compactions"] += 1
+        elif kind == "approval":
+            self._counters["approvals"] += 1
+            if value is not None:
+                self._latencies["approvals"].append(value)
+                self._prune_latencies("approvals")
+        elif kind == "session":
+            self._counters["sessions_completed"] += 1
+            if value is not None:
+                self._latencies["sessions"].append(value)
+                self._prune_latencies("sessions")
+        else:
+            logger.warning("record_slo unknown kind=%s", kind)
+
+    def slo_summary(self) -> dict:
+        avg_latencies = {}
+        for key, vals in self._latencies.items():
+            if vals:
+                avg_latencies[f"avg_{key}_ms"] = sum(vals) / len(vals) * 1000
+                avg_latencies[f"p99_{key}_ms"] = sorted(vals)[int(len(vals) * 0.99)] * 1000
+            else:
+                avg_latencies[f"avg_{key}_ms"] = 0
+                avg_latencies[f"p99_{key}_ms"] = 0
+        return {
+            "sessions_completed": self._counters.get("sessions_completed", 0),
+            "compactions_total": self._counters.get("compactions", 0),
+            "approvals_total": self._counters.get("approvals", 0),
+            "avg_approval_latency_ms": avg_latencies["avg_approvals_ms"],
+            "p99_approval_latency_ms": avg_latencies["p99_approvals_ms"],
+            "avg_session_duration_ms": avg_latencies["avg_sessions_ms"],
+            "p99_session_duration_ms": avg_latencies["p99_sessions_ms"],
+        }
 
     def metrics(self) -> dict:
         avg_latencies = {}

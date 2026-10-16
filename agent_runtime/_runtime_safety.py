@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import time
 from typing import AsyncIterator
 
 from ._runtime_helpers import logger
@@ -66,6 +67,16 @@ class _SafetyApprovalMixin:
         logger.warning("reject_plan_in_graph: no pending future plan_id=%s", plan_id)
         return False
 
+    def _record_approval_slo(self, t0: float) -> None:
+        # N11 #350: approval wait latency into telemetry SLO baselines.
+        engine = getattr(self, "telemetry_engine", None)
+        if engine is None:
+            return
+        try:
+            engine.record_slo("approval", time.time() - t0)
+        except Exception as e:
+            logger.warning("approval SLO record failed: %s", e)
+
     async def _await_safety_approval(
         self, ctx: AgentContext, safety_result, category: str, node_label: str
     ) -> AsyncIterator[AgentEvent] | None:
@@ -85,6 +96,8 @@ class _SafetyApprovalMixin:
 
         loop = asyncio.get_running_loop()
         future: asyncio.Future[bool] = loop.create_future()
+        # N11 #350: approval latency = request -> resolve/reject/timeout.
+        slo_t0 = time.time()
         self._safety_futures[action_id] = future
         # 审计 A-1 Tier1: 登记归属 exec, 异常路径 reap 兜底.
         self._register_exec_future(ctx.session_id, action_id)
@@ -119,8 +132,10 @@ class _SafetyApprovalMixin:
 
         try:
             approved = await asyncio.wait_for(future, timeout=self._safety_timeout)
+            self._record_approval_slo(slo_t0)
         except asyncio.TimeoutError:
             self._safety_futures.pop(action_id, None)
+            self._record_approval_slo(slo_t0)
             logger.warning("Safety approval timed out: action_id=%s", action_id)
             # 审计 P1-21/R-4: headless/CI 无人工审批必挂满 timeout. 原 timeout
             # 路径恒报 ERROR 终止 — 自动化执行 (cron/task) 卡死. 读 env disposition:

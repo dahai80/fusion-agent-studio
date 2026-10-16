@@ -418,6 +418,12 @@ class AgentRuntime(_SafetyApprovalMixin, _CheckpointMixin, _DynamicToolsMixin, _
             status = "error"
             raise
         finally:
+            # N11 #350: session duration feeds SLO baselines.
+            if self.telemetry_engine is not None and getattr(ctx, "started_at", 0):
+                try:
+                    self.telemetry_engine.record_slo("session", time.time() - ctx.started_at)
+                except Exception as e:
+                    logger.warning("session SLO record failed: %s", e)
             if resident is not None:
                 try:
                     summary = resident.summary()
@@ -714,6 +720,9 @@ class AgentRuntime(_SafetyApprovalMixin, _CheckpointMixin, _DynamicToolsMixin, _
                                     len(ctx.messages),
                                     current_node_id,
                                 )
+                                # N11 #350: compaction count feeds SLO baselines.
+                                if self.telemetry_engine is not None:
+                                    self.telemetry_engine.record_slo("compaction")
                         # Hooks 接入点 (M3)
                         ctx.tool_call_chain_count = 0
                         logger.info(
