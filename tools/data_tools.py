@@ -11,6 +11,7 @@ from .base import BaseTool
 
 class JsonParseTool(BaseTool):
     name = "json_parse"
+    readonly = True
     description = "Parse, validate, extract, or transform JSON data"
     parameters = {
         "input": {"type": "string", "description": "JSON string to process"},
@@ -50,6 +51,7 @@ class JsonParseTool(BaseTool):
 
 class CsvParseTool(BaseTool):
     name = "csv_parse"
+    readonly = True
     description = "Parse, filter, or convert CSV data"
     parameters = {
         "input": {"type": "string", "description": "CSV string to process"},
@@ -92,6 +94,7 @@ class CsvParseTool(BaseTool):
 
 class Base64Tool(BaseTool):
     name = "base64"
+    readonly = True
     description = "Encode or decode Base64 data"
     parameters = {
         "input": {"type": "string", "description": "Text to encode or decode"},

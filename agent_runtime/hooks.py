@@ -7,12 +7,25 @@ import logging
 import os
 import re
 import shlex
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
 HOOKS_CONFIG_PATH = Path.home() / ".fusion-agent-studio" / "hooks.json"
+
+_DECORATOR_REGISTRY: list = []
+
+
+def hook(event: str, matcher: str = "*"):
+    def deco(fn):
+        _DECORATOR_REGISTRY.append(
+            HookConfig(event=event, matcher=matcher, type="callback", callback=fn)
+        )
+        return fn
+
+    return deco
 
 
 class HookEvent(str, enum.Enum):
@@ -26,6 +39,18 @@ class HookEvent(str, enum.Enum):
     SUBAGENT_START = "SUBAGENT_START"
     SUBAGENT_STOP = "SUBAGENT_STOP"
     USER_PROMPT_SUBMIT = "USER_PROMPT_SUBMIT"
+    GRAPH_BEFORE = "GRAPH_BEFORE"
+    GRAPH_AFTER = "GRAPH_AFTER"
+    NODE_BEFORE = "NODE_BEFORE"
+    NODE_AFTER = "NODE_AFTER"
+    TOOL_DENY = "TOOL_DENY"
+    LLM_BEFORE = "LLM_BEFORE"
+    LLM_AFTER = "LLM_AFTER"
+    APPROVAL_REQUEST = "APPROVAL_REQUEST"
+    APPROVAL_RESOLVE = "APPROVAL_RESOLVE"
+    COMPACT_BEFORE = "COMPACT_BEFORE"
+    COMPACT_AFTER = "COMPACT_AFTER"
+    BUDGET_EXCEED = "BUDGET_EXCEED"
 
 
 @dataclass
@@ -73,8 +98,27 @@ class HookResult:
 
 
 class HookEngine:
-    def __init__(self):
+    def __init__(
+        self,
+        auto_register_decorators: bool = True,
+        max_fire_ms: float | None = None,
+    ):
         self._hooks: dict[str, list[HookConfig]] = {}
+        self._decorator_consumed = 0
+        if max_fire_ms is None:
+            max_fire_ms = float(os.environ.get("FUSION_HOOK_MAX_MS", "50"))
+        self.max_fire_ms = max_fire_ms
+        if auto_register_decorators:
+            n = self.flush_decorator_registry()
+            if n:
+                logger.info("auto-register %d decorator hooks", n)
+
+    def flush_decorator_registry(self) -> int:
+        pending = _DECORATOR_REGISTRY[self._decorator_consumed:]
+        for cfg in pending:
+            self.register(cfg)
+        self._decorator_consumed += len(pending)
+        return len(pending)
 
     def register(self, hook: HookConfig) -> None:
         self._hooks.setdefault(hook.event, []).append(hook)
@@ -109,7 +153,16 @@ class HookEngine:
         if not matched:
             return HookResult()
         aggregated = HookResult()
-        for h in matched:
+        deadline = time.monotonic() + self.max_fire_ms / 1000
+        for idx, h in enumerate(matched):
+            if time.monotonic() > deadline:
+                logger.warning(
+                    "hook chain budget exceeded event=%s budget_ms=%.1f skipping=%d",
+                    event,
+                    self.max_fire_ms,
+                    len(matched) - idx,
+                )
+                break
             try:
                 res = await self._run(h, payload)
             except Exception as e:

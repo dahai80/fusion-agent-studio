@@ -77,6 +77,7 @@ class TextSearchTool(BaseTool):
     """Search for patterns in text content."""
 
     name = "text_search"
+    readonly = True
     description = "Search for patterns in text using regex or plain text"
     parameters = {
         "text": {

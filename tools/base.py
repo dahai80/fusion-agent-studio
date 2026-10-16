@@ -30,6 +30,11 @@ class BaseTool(ABC):
     # M3-1 issue#322: role-based tool filtering. Default frozenset({"all"}) = visible
     # to every role. Tools assign roles = frozenset({"researcher", "imager"}) etc.
     roles: frozenset = frozenset({"all"})
+    # N2 auto-grading (PRD 1016): readonly tools are auto-allowed by the
+    # permission engine without an explicit allow rule; mutable tools fall to
+    # the permission mode default (ask in default mode). Deny rules and the
+    # content scan always win over this flag.
+    readonly: bool = False
 
     def __init_subclass__(cls, **kwargs):
         super().__init_subclass__(**kwargs)
