@@ -65,6 +65,40 @@ def _mcp_validate_server(server_url: str, stdio_cmd) -> str | None:
 
 
 class McpDispatcher(SubDispatcher):
+    async def _handle_protocol_list(self, params: dict) -> dict:
+        return {"artifacts": self._get_protocol_plane().list(kind=str(params.get("kind", "") or ""))}
+
+    async def _handle_protocol_register(self, params: dict) -> dict:
+        kind = str(params.get("kind", "") or "")
+        name = str(params.get("name", "") or "")
+        if not name:
+            return self._err("name parameter required")
+        try:
+            art = self._get_protocol_plane().register(
+                kind=kind,
+                name=name,
+                origin=str(params.get("origin", "") or ""),
+                readonly=bool(params.get("readonly", False)),
+                extensions=params.get("extensions") or {},
+            )
+        except ValueError as e:
+            return self._err(str(e))
+        return art.to_dict()
+
+    async def _handle_protocol_route(self, params: dict) -> dict:
+        kind = str(params.get("kind", "") or "")
+        name = str(params.get("name", "") or "")
+        return self._get_protocol_plane().governance_route(kind, name)
+
+    def _get_protocol_plane(self):
+        plane = getattr(self._daemon, "_protocol_plane", None)
+        if plane is None:
+            from agent_runtime.protocol_plane import ProtocolPlane
+
+            plane = ProtocolPlane()
+            self._daemon._protocol_plane = plane
+        return plane
+
     def get_handlers(self) -> dict[str, Callable]:
         return {
             "mcp.register_server": self._handle_register_server,
@@ -72,6 +106,9 @@ class McpDispatcher(SubDispatcher):
             "mcp.unregister_server": self._handle_unregister_server,
             "mcp.list_resources": self._handle_list_resources,
             "mcp.list_prompts": self._handle_list_prompts,
+            "protocol.list": self._handle_protocol_list,
+            "protocol.register": self._handle_protocol_register,
+            "protocol.route": self._handle_protocol_route,
         }
 
     def _get_mcp_registry(self):
@@ -110,6 +147,9 @@ class McpDispatcher(SubDispatcher):
                 post_url=params.get("post_url"),
                 env=params.get("env"),
             )
+            plane = self._get_protocol_plane()
+            for tool_name in registered:
+                plane.register(kind="mcp", name=tool_name, origin=server_url or str(stdio_cmd))
             logger.info("mcp.register_server: registered %d tool(s)", len(registered))
             return {"registered": registered, "count": len(registered)}
         except (ValueError, TypeError, OSError, RuntimeError) as e:
@@ -126,6 +166,10 @@ class McpDispatcher(SubDispatcher):
         server_url = params.get("server_url", "")
         if not server_url:
             return self._err("server_url is required")
+        plane = self._get_protocol_plane()
+        for art in plane.list(kind="mcp"):
+            if art["origin"] == server_url:
+                plane.unregister("mcp", art["name"])
         mcp_reg.unregister_server(server_url)
         logger.info("mcp.unregister_server: %s", server_url)
         return {"status": "ok", "unregistered": server_url}
