@@ -12,6 +12,7 @@ from .base import BaseTool
 
 class DateTimeTool(BaseTool):
     name = "date_time"
+    readonly = True
     description = "Get current date/time, format timestamps, or calculate time differences"
     parameters = {
         "operation": {
@@ -37,6 +38,7 @@ class DateTimeTool(BaseTool):
 
 class UuidTool(BaseTool):
     name = "uuid"
+    readonly = True
     description = "Generate UUIDs (universally unique identifiers)"
     parameters = {
         "count": {"type": "integer", "description": "Number of UUIDs to generate", "default": 1},
@@ -55,6 +57,7 @@ class UuidTool(BaseTool):
 
 class HashTool(BaseTool):
     name = "hash"
+    readonly = True
     description = "Compute hash/digest of text using various algorithms"
     parameters = {
         "input": {"type": "string", "description": "Text to hash"},
@@ -83,6 +86,7 @@ class HashTool(BaseTool):
 
 class PathOpsTool(BaseTool):
     name = "path_ops"
+    readonly = True
     description = "Perform filesystem path operations (join, resolve, absolute, parent, filename)"
     parameters = {
         "path": {"type": "string", "description": "Input path"},

@@ -71,6 +71,11 @@ class ToolRegistry:
             if role == "all" or "all" in t.roles or role in t.roles
         ]
 
+    def readonly_tool_names(self) -> set[str]:
+        # N2 auto-grading: names of registered tools annotated readonly=True.
+        # The permission engine auto-allows these without explicit allow rules.
+        return {t.name for t in self._tools.values() if getattr(t, "readonly", False)}
+
     @property
     def count(self) -> int:
         return len(self._tools)

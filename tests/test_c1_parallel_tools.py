@@ -303,7 +303,7 @@ class TestParallelToolCalls:
         events = await _collect(rt, g, "run")
         results = [e.content for e in events if e.type == AgentEventType.TOOL_RESULT]
         assert "slept:safe" in results, "safe tool must still run"
-        blocked = [r for r in results if "SafetyGateway blocked" in r]
+        blocked = [r for r in results if "Blocked by" in r]
         assert blocked, "dangerous parallel tool must be blocked, got: %s" % results
 
     @pytest.mark.asyncio

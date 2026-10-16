@@ -263,6 +263,17 @@ class _NodeExecutorsMixin:
         capability = node.tool_params.get("capability", "")
         effort = node.effort or ""
 
+        # N0 LLMFunnel: single LLM admission (lifecycle llm_before ->
+        # LLM_BEFORE hook -> compaction check). Blocked -> node error.
+        proceed, block_reason, messages = await self.llm_funnel.pre_llm(
+            ctx, node.label or "", model, messages
+        )
+        if not proceed:
+            ctx.error = block_reason
+            logger.warning("llm_funnel blocked node=%s reason=%s", node.label, block_reason)
+            yield AgentEvent(type=AgentEventType.ERROR, content=block_reason)
+            return
+
         # C13: llm.call span — 跨流/非流路径, end 时带 prompt/completion_tokens.
         llm_span = None
         if self.telemetry_engine is not None:
@@ -423,6 +434,10 @@ class _NodeExecutorsMixin:
                 logger.warning("Structured output: could not extract JSON from LLM response")
 
         ctx.add_message("assistant", content, tool_calls=tool_calls or None, usage=usage or None)
+        # N0 LLMFunnel: metering + llm_after lifecycle + LLM_AFTER hook.
+        self.llm_funnel.post_llm(
+            ctx, node.label or "", model, usage=usage or {}, content=content or ""
+        )
 
         # WF-2: truncation detection — unclosed artifact tags
         if content and self.artifact_manager:
@@ -563,30 +578,37 @@ class _NodeExecutorsMixin:
 
                     if func_name == "register_tool":
                         # 审计 P1-3: register_tool 是写操作 (注册动态工具, 其 execute
-                        # 可 exec subprocess). 原在 safety gate (1531) 前 continue 跳过
-                        # L3 检查. 这里补同步 block 检查 (动态工具 _dyn_execute 已补
-                        # 执行级 L3, 此处是注册级防御纵深).
-                        if self.safety_gateway:
-                            sr = self.safety_gateway.evaluate_action(
-                                category="tool_call",
-                                content=f"register_tool({func_args})",
-                                context=f"tool={func_name} node={node.label} path=llm_func_call",
+                        # 可 exec subprocess). N0 ToolFunnel 收编注册级 gate
+                        # (hooks -> permission deny-first -> safety). 动态工具
+                        # _dyn_execute 已补执行级 L3, 此处是注册级防御纵深.
+                        funnel_outcome = await self.tool_funnel.admit(
+                            ctx=ctx,
+                            tool_name="register_tool",
+                            args=func_args,
+                            node_label=node.label,
+                        )
+                        if not funnel_outcome.allowed or funnel_outcome.needs_approval:
+                            reason = funnel_outcome.reason or "denied"
+                            if funnel_outcome.blocked_by == "safety":
+                                result = f"SafetyGateway blocked tool call: {reason}"
+                            else:
+                                result = (
+                                    f"Blocked by {funnel_outcome.blocked_by}: {reason}"
+                                )
+                            logger.warning(
+                                "funnel blocked register_tool node=%s gate=%s reason=%s",
+                                node.label,
+                                funnel_outcome.blocked_by,
+                                reason,
                             )
-                            if sr.action.value == "block" and not sr.requires_approval:
-                                result = f"SafetyGateway blocked tool call: {sr.reason}"
-                                logger.warning(
-                                    "safety blocked register_tool node=%s reason=%s",
-                                    node.label,
-                                    sr.reason,
-                                )
-                                ctx.add_message("tool", result, tool_call_id=tc.get("id", ""))
-                                yield AgentEvent(
-                                    type=AgentEventType.TOOL_RESULT,
-                                    content=result,
-                                    name=func_name,
-                                    node_id=node.label,
-                                )
-                                continue
+                            ctx.add_message("tool", result, tool_call_id=tc.get("id", ""))
+                            yield AgentEvent(
+                                type=AgentEventType.TOOL_RESULT,
+                                content=result,
+                                name=func_name,
+                                node_id=node.label,
+                            )
+                            continue
                         result = self._dynamic_register_tool(func_args)
                         ctx.add_message("tool", result, tool_call_id=tc.get("id", ""))
                         yield AgentEvent(
@@ -598,28 +620,36 @@ class _NodeExecutorsMixin:
                         continue
 
                     if func_name == "unregister_tool":
-                        # 审计 P1-3: unregister_tool 同 register_tool, 补 safety gate.
-                        if self.safety_gateway:
-                            sr = self.safety_gateway.evaluate_action(
-                                category="tool_call",
-                                content=f"unregister_tool({func_args})",
-                                context=f"tool={func_name} node={node.label} path=llm_func_call",
+                        # 审计 P1-3: unregister_tool 同 register_tool, N0 ToolFunnel
+                        # 收编注册级 gate (hooks -> permission deny-first -> safety).
+                        funnel_outcome = await self.tool_funnel.admit(
+                            ctx=ctx,
+                            tool_name="unregister_tool",
+                            args=func_args,
+                            node_label=node.label,
+                        )
+                        if not funnel_outcome.allowed or funnel_outcome.needs_approval:
+                            reason = funnel_outcome.reason or "denied"
+                            if funnel_outcome.blocked_by == "safety":
+                                result = f"SafetyGateway blocked tool call: {reason}"
+                            else:
+                                result = (
+                                    f"Blocked by {funnel_outcome.blocked_by}: {reason}"
+                                )
+                            logger.warning(
+                                "funnel blocked unregister_tool node=%s gate=%s reason=%s",
+                                node.label,
+                                funnel_outcome.blocked_by,
+                                reason,
                             )
-                            if sr.action.value == "block" and not sr.requires_approval:
-                                result = f"SafetyGateway blocked tool call: {sr.reason}"
-                                logger.warning(
-                                    "safety blocked unregister_tool node=%s reason=%s",
-                                    node.label,
-                                    sr.reason,
-                                )
-                                ctx.add_message("tool", result, tool_call_id=tc.get("id", ""))
-                                yield AgentEvent(
-                                    type=AgentEventType.TOOL_RESULT,
-                                    content=result,
-                                    name=func_name,
-                                    node_id=node.label,
-                                )
-                                continue
+                            ctx.add_message("tool", result, tool_call_id=tc.get("id", ""))
+                            yield AgentEvent(
+                                type=AgentEventType.TOOL_RESULT,
+                                content=result,
+                                name=func_name,
+                                node_id=node.label,
+                            )
+                            continue
                         result = self._dynamic_unregister_tool(func_args)
                         ctx.add_message("tool", result, tool_call_id=tc.get("id", ""))
                         yield AgentEvent(
@@ -637,14 +667,71 @@ class _NodeExecutorsMixin:
                         node_id=node.label,
                     )
 
-                    pre = await self._fire_tool_hooks("PRE_TOOL_USE", func_name, func_args)
-                    if pre is not None and pre.decision == "block":
-                        result = f"Blocked by hook: {pre.reason or 'pre_tool_use'}"
-                        logger.info(
-                            "tool blocked by hook tool=%s reason=%s",
+                    # N0 ToolFunnel: single admission chain (hooks -> permission
+                    # deny-first -> safety gateway backend -> budget). Replaces
+                    # the scattered PRE_TOOL_USE hook fire + evaluate_action
+                    # block here (audit D-2 alignment preserved via the funnel).
+                    funnel_outcome = await self.tool_funnel.admit(
+                        ctx=ctx,
+                        tool_name=func_name,
+                        args=func_args,
+                        node_label=node.label,
+                    )
+                    if funnel_outcome.needs_approval:
+                        if funnel_outcome.safety_result is not None:
+                            async for evt in self._await_safety_approval(
+                                ctx, funnel_outcome.safety_result, "tool_call", node.label
+                            ):
+                                yield evt
+                                if evt.type == AgentEventType.ERROR:
+                                    break
+                            if ctx.error:
+                                continue
+                        else:
+                            # Permission ask with no approval backend wired.
+                            result = (
+                                f"Error: tool '{func_name}' requires approval "
+                                f"(permission rule {funnel_outcome.reason}); "
+                                f"no approval backend wired"
+                            )
+                            logger.info(
+                                "funnel permission-ask no backend tool=%s node=%s",
+                                func_name,
+                                node.label,
+                            )
+                            ctx.add_message("tool", result, tool_call_id=tc.get("id", ""))
+                            yield AgentEvent(
+                                type=AgentEventType.TOOL_RESULT,
+                                content=result,
+                                name=func_name,
+                                node_id=node.label,
+                            )
+                            tool_errors.append(f"{func_name}: {result}")
+                            continue
+                    elif not funnel_outcome.allowed:
+                        reason = funnel_outcome.reason or "denied"
+                        gate = funnel_outcome.blocked_by
+                        if gate == "safety":
+                            result = f"SafetyGateway blocked tool call: {reason}"
+                        elif gate == "hook":
+                            result = f"Blocked by hook: {reason}"
+                        elif gate == "permission":
+                            result = f"Permission denied tool call: {reason}"
+                        else:
+                            result = f"Blocked by {gate}: {reason}"
+                        logger.warning(
+                            "funnel blocked llm_func_call tool=%s gate=%s reason=%s",
                             func_name,
-                            pre.reason,
+                            gate,
+                            reason,
                         )
+                        if gate == "safety":
+                            yield AgentEvent(
+                                type=AgentEventType.SAFETY_APPROVAL,
+                                content=reason,
+                                metadata={"action": "blocked", "category": "tool_call"},
+                                node_id=node.label,
+                            )
                         ctx.add_message("tool", result, tool_call_id=tc.get("id", ""))
                         yield AgentEvent(
                             type=AgentEventType.TOOL_RESULT,
@@ -653,53 +740,20 @@ class _NodeExecutorsMixin:
                             node_id=node.label,
                         )
                         continue
-
-                    # 审计 D-2: LLM function-call 路径补 safety gate. 原仅
-                    # tool-node 路径 (2008) 过 evaluate_action, LLM 直接
-                    # 调工具完全绕过 SafetyGateway L3 内容检查 — LLM 可在
-                    # 单轮内串 shell/网络/写入. 在此与 tool-node 路径对齐:
-                    # category=tool_call, block/approval/approved 三态一致.
-                    if self.safety_gateway:
-                        safety_result = self.safety_gateway.evaluate_action(
-                            category="tool_call",
-                            content=f"{func_name}({func_args})",
-                            context=f"tool={func_name} node={node.label} path=llm_func_call",
-                        )
-                        if safety_result.action.value == "block" and not safety_result.requires_approval:
-                            result = f"SafetyGateway blocked tool call: {safety_result.reason}"
-                            logger.warning(
-                                "safety blocked llm_func_call tool=%s node=%s reason=%s",
-                                func_name,
-                                node.label,
-                                safety_result.reason,
-                            )
-                            ctx.add_message("tool", result, tool_call_id=tc.get("id", ""))
+                    else:
+                        if funnel_outcome.safety_result is not None:
                             yield AgentEvent(
                                 type=AgentEventType.SAFETY_APPROVAL,
-                                content=safety_result.reason,
-                                metadata={"action": "blocked", "category": "tool_call"},
-                                node_id=node.label,
-                            )
-                            yield AgentEvent(
-                                type=AgentEventType.TOOL_RESULT,
-                                content=result,
-                                name=func_name,
-                                node_id=node.label,
-                            )
-                            continue
-                        if safety_result.requires_approval:
-                            async for evt in self._await_safety_approval(
-                                ctx, safety_result, "tool_call", node.label
-                            ):
-                                yield evt
-                                if evt.type == AgentEventType.ERROR:
-                                    break
-                        else:
-                            yield AgentEvent(
-                                type=AgentEventType.SAFETY_APPROVAL,
-                                content=safety_result.reason or "approved",
+                                content=funnel_outcome.reason or "approved",
                                 metadata={"action": "approved", "category": "tool_call"},
                                 node_id=node.label,
+                            )
+                        if funnel_outcome.args != func_args:
+                            func_args = funnel_outcome.args
+                            logger.info(
+                                "funnel hook rewrote args tool=%s node=%s",
+                                func_name,
+                                node.label,
                             )
 
                     # C13: tool.call span — 计数+延迟. 在 try 之前初始化,
@@ -1028,38 +1082,38 @@ class _NodeExecutorsMixin:
         #   2. SafetyGateway evaluate_action(category=tool_call) — 内容匹配危险
         #      模式 (rm -rf / / DROP TABLE) -> block; L2/L3 需审批 -> fail-closed
         #      (并行无法 yield 审批流), 返回 error 促使 LLM 回退顺序审批路径.
-        pre = await self._fire_tool_hooks("PRE_TOOL_USE", func_name, func_args)
-        if pre is not None and pre.decision == "block":
-            blocked = f"Blocked by hook: {pre.reason or 'pre_tool_use'}"
-            logger.info(
-                "parallel tool blocked by hook tool=%s reason=%s",
+        # N0 ToolFunnel: parallel admission goes through the same funnel chain
+        # (hooks -> permission -> safety). Parallel cannot pause for approval,
+        # so needs_approval degrades to a sequential-retry error (unchanged).
+        funnel_outcome = await self.tool_funnel.admit(
+            ctx=None,
+            tool_name=func_name,
+            args=func_args,
+            node_label=node.label,
+        )
+        if funnel_outcome.needs_approval:
+            return (
+                f"Error: tool '{func_name}' requires approval; "
+                f"parallel path cannot pause for approval, retry sequentially",
+                True,
+            )
+        if not funnel_outcome.allowed:
+            reason = funnel_outcome.reason or "denied"
+            if funnel_outcome.blocked_by == "safety":
+                blocked = f"SafetyGateway blocked parallel tool: {reason}"
+            elif funnel_outcome.blocked_by == "hook":
+                blocked = f"Blocked by hook: {reason}"
+            else:
+                blocked = f"Blocked by {funnel_outcome.blocked_by}: {reason}"
+            logger.warning(
+                "parallel tool blocked gate=%s tool=%s reason=%s",
+                funnel_outcome.blocked_by,
                 func_name,
-                pre.reason,
+                reason,
             )
             return blocked, True
-        if self.safety_gateway:
-            safety_result = self.safety_gateway.evaluate_action(
-                category="tool_call",
-                content=f"{func_name}({func_args})",
-                context=f"tool={func_name} node={node.label} path=parallel",
-            )
-            if safety_result.action.value == "block":
-                # 内容匹配危险模式 (rm -rf / / DROP TABLE) 或无 policy
-                # fail-closed: 并行路径硬 block, 不可审批 (并行无审批流).
-                blocked = f"SafetyGateway blocked parallel tool: {safety_result.reason}"
-                logger.warning(
-                    "safety blocked parallel tool=%s node=%s reason=%s",
-                    func_name,
-                    node.label,
-                    safety_result.reason,
-                )
-                return blocked, True
-            if safety_result.requires_approval:
-                return (
-                    f"Error: tool '{func_name}' requires approval; "
-                    f"parallel path cannot pause for approval, retry sequentially",
-                    True,
-                )
+        if funnel_outcome.args != func_args:
+            func_args = funnel_outcome.args
         try:
             tool = self.tools.get(func_name)
             if tool is None:
@@ -1164,34 +1218,68 @@ class _NodeExecutorsMixin:
             )
             return
 
-        if self.safety_gateway:
-            safety_result = self.safety_gateway.evaluate_action(
-                category="tool_call",
-                content=f"{node.tool_name}({params})",
-                context=f"tool={node.tool_name} node={node.label}",
-            )
-            if safety_result.action.value == "block" and not safety_result.requires_approval:
-                ctx.error = f"SafetyGateway blocked tool call: {safety_result.reason}"
-                yield AgentEvent(
-                    type=AgentEventType.SAFETY_APPROVAL,
-                    content=safety_result.reason,
-                    metadata={"action": "blocked", "category": "tool_call"},
-                )
-                yield AgentEvent(type=AgentEventType.ERROR, content=ctx.error)
-                return
-            if safety_result.requires_approval:
+        # N0 ToolFunnel: tool-node admission via the single chain (hooks ->
+        # permission deny-first -> safety backend -> budget). Event contract
+        # preserved: SAFETY_APPROVAL blocked/approved, approval future flow.
+        funnel_outcome = await self.tool_funnel.admit(
+            ctx=ctx,
+            tool_name=node.tool_name,
+            args=params,
+            node_label=node.label,
+        )
+        if funnel_outcome.needs_approval:
+            if funnel_outcome.safety_result is not None:
                 async for evt in self._await_safety_approval(
-                    ctx, safety_result, "tool_call", node.label
+                    ctx, funnel_outcome.safety_result, "tool_call", node.label
                 ):
                     yield evt
                     if evt.type == AgentEventType.ERROR:
                         return
             else:
+                ctx.error = (
+                    f"Permission denied tool call: tool '{node.tool_name}' requires "
+                    f"approval ({funnel_outcome.reason}); no approval backend wired"
+                )
+                logger.info(
+                    "funnel permission-ask no backend tool-node=%s", node.label
+                )
+                yield AgentEvent(type=AgentEventType.ERROR, content=ctx.error)
+                return
+        elif not funnel_outcome.allowed:
+            reason = funnel_outcome.reason or "denied"
+            gate = funnel_outcome.blocked_by
+            if gate == "safety":
+                ctx.error = f"SafetyGateway blocked tool call: {reason}"
+            elif gate == "hook":
+                ctx.error = f"Blocked by hook: {reason}"
+            elif gate == "permission":
+                ctx.error = f"Permission denied tool call: {reason}"
+            else:
+                ctx.error = f"Blocked by {gate}: {reason}"
+            logger.warning(
+                "funnel blocked tool-node tool=%s gate=%s reason=%s",
+                node.tool_name,
+                gate,
+                reason,
+            )
+            if gate == "safety":
                 yield AgentEvent(
                     type=AgentEventType.SAFETY_APPROVAL,
-                    content=safety_result.reason or "approved",
+                    content=reason,
+                    metadata={"action": "blocked", "category": "tool_call"},
+                )
+            yield AgentEvent(type=AgentEventType.ERROR, content=ctx.error)
+            return
+        else:
+            if funnel_outcome.safety_result is not None:
+                yield AgentEvent(
+                    type=AgentEventType.SAFETY_APPROVAL,
+                    content=funnel_outcome.reason or "approved",
                     metadata={"action": "approved", "category": "tool_call"},
                 )
+            if funnel_outcome.args != params:
+                params = funnel_outcome.args
+                logger.info("funnel hook rewrote tool-node args node=%s", node.label)
 
         try:
             tool = self.tools.get(node.tool_name)

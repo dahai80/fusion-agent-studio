@@ -96,7 +96,10 @@ class AgentRuntime(_SafetyApprovalMixin, _CheckpointMixin, _DynamicToolsMixin, _
         # graph.execute/llm.call/tool.call span, end_span 增计数+延迟.
         self.telemetry_engine = telemetry_engine
         self.compactor = None
-        self.hooks = None
+        # N1: hook engine wiring point. Backing attr + property below —
+        # assigning rt.hooks = HookEngine() propagates to both funnels so
+        # late daemon wiring (daemon_server._get_hooks) stays in sync.
+        self._hooks_engine = None
         self._tool_call_chain_count = 0
         # 审计 P3-1: 连续 checkpoint 失败计数迁 per-exec ctx.checkpoint_fail_count
         # (原 singleton, 并发执行互踩致阈值误判). 见 _save_checkpoint.
@@ -166,11 +169,72 @@ class AgentRuntime(_SafetyApprovalMixin, _CheckpointMixin, _DynamicToolsMixin, _
         if hasattr(self.llm_gateway, "set_compactor"):
             self.llm_gateway.set_compactor(self.compactor)
 
+        # N0 harness funnels (PRD 1016): single tool/LLM admission paths +
+        # append-only lifecycle event source. Built after llm_gateway so the
+        # LLMFunnel can carry the compactor; hooks wire late via the
+        # AgentRuntime.hooks property (daemon attaches HookEngine post-init).
+        from .funnels import LifecycleBus, LLMFunnel, ToolFunnel
+        from .permissions import PermissionEngine
+
+        # Registry may be a mock in tests — tolerate missing annotation API.
+        def _ro_names() -> set:
+            if self.tools is None:
+                return set()
+            fn = getattr(self.tools, "readonly_tool_names", None)
+            return set(fn()) if callable(fn) else set()
+
+        self.lifecycle_bus = LifecycleBus(
+            jsonl_dir=os.environ.get("FUSION_LIFECYCLE_JSONL_DIR", "") or None
+        )
+        self.permission_engine = PermissionEngine(
+            readonly_tools=_ro_names(),
+            plan_readonly_tools=set(self._plan_readonly_tools),
+        )
+        # readonly set may grow (dynamic/plugin tools) — funnel re-reads via
+        # callable so late registrations are honored.
+        _ro = _ro_names()
+        self.tool_funnel = ToolFunnel(
+            hooks=self._hooks_engine,
+            permissions=self.permission_engine,
+            lifecycle_bus=self.lifecycle_bus,
+            readonly_tools=lambda: _ro_names() | set(_ro),
+            safety_gateway=self.safety_gateway,
+        )
+        self.llm_funnel = LLMFunnel(
+            hooks=self._hooks_engine,
+            lifecycle_bus=self.lifecycle_bus,
+            compactor=self.compactor,
+            telemetry_engine=self.telemetry_engine,
+        )
+        logger.info(
+            "harness funnels wired: tool_funnel=%s llm_funnel=%s permissions=%d rules",
+            "on",
+            "on",
+            self.permission_engine.rules_count(),
+        )
+
         logger.info(
             "AgentRuntime init, mlx_client=%s, llm_gateway=%s",
             "provided" if mlx_client else "none",
             "provided" if llm_gateway else ("auto-from-mlx" if mlx_client else "empty"),
         )
+
+    # N1: late hook-engine wiring — daemon sets rt.hooks = HookEngine() after
+    # construction; the property keeps both funnels pointing at the same
+    # engine so funnel admission and hooks.* RPCs share one registry.
+    @property
+    def hooks(self):
+        return self._hooks_engine
+
+    @hooks.setter
+    def hooks(self, value):
+        self._hooks_engine = value
+        tool_funnel = getattr(self, "tool_funnel", None)
+        if tool_funnel is not None:
+            tool_funnel.hooks = value
+        llm_funnel = getattr(self, "llm_funnel", None)
+        if llm_funnel is not None:
+            llm_funnel.hooks = value
 
     def set_tool_configs(self, definition: Any) -> None:
         # 声明式工具配置注入 (#125): 从 AgentDefinition.tools[].config 构建

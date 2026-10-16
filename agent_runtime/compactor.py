@@ -1,9 +1,68 @@
 from __future__ import annotations
 
+import asyncio
 import logging
-from dataclasses import dataclass
+import re
+from dataclasses import dataclass, field
 
 logger = logging.getLogger(__name__)
+
+_RETENTION_HEADER = "[Retention List]"
+
+
+@dataclass
+class RetentionList:
+    todos: list[str] = field(default_factory=list)
+    interfaces: list[str] = field(default_factory=list)
+    constraints: list[str] = field(default_factory=list)
+    active_tasks: list[str] = field(default_factory=list)
+
+    @classmethod
+    def from_messages(cls, messages: list[dict], max_per_section: int = 20) -> RetentionList:
+        rl = cls()
+        for m in messages:
+            content = m.get("content") or ""
+            if not isinstance(content, str):
+                content = str(content)
+            for raw in content.splitlines():
+                line = raw.strip()
+                if not line or len(line) > 200:
+                    continue
+                if "TODO" in line or "待办" in line:
+                    rl._add(rl.todos, line, max_per_section)
+                if re.match(r"^\s*(async def |def |class )\w+", line) or "接口" in line:
+                    rl._add(rl.interfaces, line, max_per_section)
+                if "constraint" in line.lower() or "约束" in line:
+                    rl._add(rl.constraints, line, max_per_section)
+                if "pending" in line.lower() or "in_progress" in line or "进行中" in line:
+                    rl._add(rl.active_tasks, line, max_per_section)
+        logger.info(
+            "retention extracted todos=%d interfaces=%d constraints=%d tasks=%d",
+            len(rl.todos),
+            len(rl.interfaces),
+            len(rl.constraints),
+            len(rl.active_tasks),
+        )
+        return rl
+
+    def _add(self, bucket: list[str], item: str, cap: int) -> None:
+        if len(bucket) < cap and item not in bucket:
+            bucket.append(item)
+
+    def non_empty(self) -> bool:
+        return bool(self.todos or self.interfaces or self.constraints or self.active_tasks)
+
+    def render(self) -> str:
+        lines = [f"{_RETENTION_HEADER} (kept verbatim across compaction)"]
+        if self.todos:
+            lines.append("TODOs: " + "; ".join(self.todos))
+        if self.interfaces:
+            lines.append("Interfaces: " + "; ".join(self.interfaces))
+        if self.constraints:
+            lines.append("Constraints: " + "; ".join(self.constraints))
+        if self.active_tasks:
+            lines.append("Active tasks: " + "; ".join(self.active_tasks))
+        return "\n".join(lines)
 
 
 @dataclass
@@ -16,6 +75,7 @@ class CompactionConfig:
     tool_result_head: int = 200
     tool_result_tail: int = 100
     tool_result_max_lines: int = 50
+    retention_max_per_section: int = 20
 
     def warning_threshold(self) -> int:
         return self.context_window - self.warning_buffer
@@ -33,10 +93,14 @@ class Compactor:
         config: CompactionConfig | None = None,
         llm_gateway=None,
         memory_engine=None,
+        lifecycle_bus=None,
+        hooks=None,
     ):
         self.config = config or CompactionConfig()
         self.llm_gateway = llm_gateway
         self.memory_engine = memory_engine
+        self.lifecycle_bus = lifecycle_bus
+        self.hooks = hooks
 
     def _persist_summary(self, summary: str, original_count: int) -> None:
         if self.memory_engine is None or not summary:
@@ -72,6 +136,27 @@ class Compactor:
         return "none"
 
     def compact(self, messages: list[dict], level: str = "warning") -> list[dict]:
+        logger.info("compaction phase=1 trigger level=%s", level)
+        payload = {"level": level, "before_msgs": len(messages)}
+        if level != "none":
+            self._fire_compact_before(payload)
+            self._emit_lifecycle("compact_before", payload)
+        rl = RetentionList()
+        if level != "none":
+            logger.info("compaction phase=2 summarize")
+            try:
+                rl = RetentionList.from_messages(
+                    messages, self.config.retention_max_per_section
+                )
+            except Exception as exc:
+                logger.warning("retention extraction failed: %s", exc)
+            logger.info(
+                "compaction phase=3 retention extracted todos=%d interfaces=%d constraints=%d tasks=%d",
+                len(rl.todos),
+                len(rl.interfaces),
+                len(rl.constraints),
+                len(rl.active_tasks),
+            )
         before_tokens = self.estimate_tokens(messages)
         msgs = self._microcompact(list(messages))
         if self.estimate_tokens(msgs) >= self.config.warning_threshold():
@@ -83,6 +168,16 @@ class Compactor:
             msgs = self._hard_compact(msgs)
         after_tokens = self.estimate_tokens(msgs)
         logger.info(
+            "compaction phase=4 drop before_msgs=%d after_msgs=%d before_tok=%d after_tok=%d",
+            len(messages),
+            len(msgs),
+            before_tokens,
+            after_tokens,
+        )
+        if level != "none" and rl.non_empty():
+            msgs = self._inject_retention(msgs, rl)
+            logger.info("compaction phase=5 retention injected")
+        logger.info(
             "compact level=%s before_msgs=%d after_msgs=%d before_tok=%d after_tok=%d",
             level,
             len(messages),
@@ -90,7 +185,49 @@ class Compactor:
             before_tokens,
             after_tokens,
         )
+        if level != "none":
+            self._emit_lifecycle("compact_after", {**payload, "after_msgs": len(msgs)})
         return msgs
+
+    def _fire_compact_before(self, payload: dict) -> None:
+        if self.hooks is None:
+            return
+        try:
+            try:
+                asyncio.get_running_loop()
+            except RuntimeError:
+                logger.debug("COMPACT_BEFORE skipped: no running event loop")
+                return
+            asyncio.ensure_future(self.hooks.fire("COMPACT_BEFORE", payload))
+        except Exception as exc:
+            logger.warning("COMPACT_BEFORE hook dispatch failed: %s", exc)
+
+    def _emit_lifecycle(self, event: str, payload: dict) -> None:
+        if self.lifecycle_bus is None:
+            return
+        try:
+            self.lifecycle_bus.emit("agent", event, payload, session_id="")
+        except Exception as exc:
+            logger.warning("lifecycle %s emit failed: %s", event, exc)
+
+    def _inject_retention(self, messages: list[dict], rl: RetentionList) -> list[dict]:
+        out = [
+            m
+            for m in messages
+            if not (
+                m.get("role") == "system"
+                and str(m.get("content") or "").startswith(_RETENTION_HEADER)
+            )
+        ]
+        retention_msg = {"role": "system", "content": rl.render()}
+        idx = 0
+        for i, m in enumerate(out):
+            if m.get("role") == "system":
+                idx = i + 1
+            else:
+                break
+        logger.info("retention injected at index=%d", idx)
+        return out[:idx] + [retention_msg] + out[idx:]
 
     def reactive_strip(self, messages: list[dict]) -> list[dict]:
         system_msgs, rest = self._partition(messages)

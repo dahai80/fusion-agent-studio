@@ -88,6 +88,7 @@ class FileReadTool(BaseTool):
     """Read the contents of a file."""
 
     name = "file_read"
+    readonly = True
     description = "Read the contents of a file at the given path"
     parameters = {
         "path": {
@@ -209,6 +210,7 @@ class FileListTool(BaseTool):
     """List files and directories at a given path."""
 
     name = "file_list"
+    readonly = True
     description = "List files and directories at the given path"
     parameters = {
         "path": {
@@ -427,6 +429,7 @@ class FileGrepTool(BaseTool):
     """Recursively search file contents under a directory for a pattern."""
 
     name = "file_grep"
+    readonly = True
     description = (
         "Recursively search file contents under a directory for a regex or plain "
         "pattern. Returns file:line:match entries with optional context lines."
@@ -550,6 +553,7 @@ class FileGlobTool(BaseTool):
     """Recursively find files matching a glob pattern."""
 
     name = "file_glob"
+    readonly = True
     description = (
         "Recursively find files matching a glob pattern under a directory. "
         "Returns a sorted list of matching file paths (directories excluded)."
