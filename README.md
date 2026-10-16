@@ -42,6 +42,11 @@ pip install -e ".[rag]"
 # NOTE: fusion-plugins-ecosystem is not on PyPI — install from the fusion monorepo
 pip install -e ".[plugins]"
 
+# With the shared harness kernel (fusion-harness: funnels/hooks/permissions/compactor)
+# NOTE: fusion-harness is not on PyPI — install from the fusion monorepo (`pip install -e fusion-harness`)
+# Without it, in-tree kernel fallbacks are used automatically (#357)
+pip install -e ".[harness]"
+
 # Run tests
 pip install -e ".[test]"
 pytest tests/
