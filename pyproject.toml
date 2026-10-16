@@ -1,6 +1,6 @@
 [project]
 name = "fusion-agent-studio"
-version = "0.8.10"
+version = "0.8.11"
 description = "Fusion-MLX Agent Studio — Local Agent Development Platform for Apple Silicon"
 requires-python = ">=3.11"
 dependencies = [
@@ -23,6 +23,12 @@ dependencies = [
 identity = [
     "fusion-identity>=0.1.0",
     "fusion-core>=0.1.0",
+]
+# #357: canonical harness kernel shared with fusion-cowork / fusion-code.
+# fusion-harness is a local sibling package (not on PyPI); install with
+# `.[harness]`. Shims fall back to in-tree copies when absent (CI-safe).
+harness = [
+    "fusion-harness>=0.1.0",
 ]
 test = [
     "pytest>=8.0.0",
