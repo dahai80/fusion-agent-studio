@@ -93,6 +93,9 @@ class AgentDispatcher(SubDispatcher):
             "skill.execute": self._handle_skill_execute,
             "research.adaptive": self._handle_research_adaptive,
             "agent.get_soul": self._handle_agent_get_soul,
+        "agent.resolve_persona": self._handle_agent_resolve_persona,
+        "agent.get_persona_layer": self._handle_agent_get_persona_layer,
+        "agent.set_persona_layer": self._handle_agent_set_persona_layer,
             "agent.update_soul": self._handle_agent_update_soul,
             "agent.submit_code_task": self._handle_agent_submit_code_task,
             "agent.task_status": self._handle_agent_task_status,
@@ -877,6 +880,44 @@ class AgentDispatcher(SubDispatcher):
             "sufficient": sufficient,
             "findings": findings,
         }
+
+    async def _handle_agent_resolve_persona(self, params: dict) -> dict:
+        from agent_runtime.persona import resolve_persona
+
+        result = resolve_persona(
+            agent_id=str(params.get("agent_id", "") or ""),
+            tenant_id=str(params.get("tenant_id", "") or ""),
+            team_id=str(params.get("team_id", "") or ""),
+            run_override=str(params.get("run_override", "") or ""),
+            fallback=str(params.get("fallback", "") or ""),
+        )
+        logger.info(
+            "agent.resolve_persona agent=%s layers=%s conflicts=%d",
+            params.get("agent_id", ""), result["layers_applied"], len(result["conflicts"]),
+        )
+        return result
+
+    async def _handle_agent_get_persona_layer(self, params: dict) -> dict:
+        from agent_runtime.persona import load_layer
+
+        layer = str(params.get("layer", "") or "")
+        try:
+            content = load_layer(layer, name=str(params.get("name", "") or ""))
+        except ValueError as e:
+            return {"status": "error", "message": str(e)}
+        return {"layer": layer, "content": content}
+
+    async def _handle_agent_set_persona_layer(self, params: dict) -> dict:
+        from agent_runtime.persona import save_layer
+
+        layer = str(params.get("layer", "") or "")
+        content = str(params.get("content", "") or "")
+        try:
+            path = save_layer(layer, content, name=str(params.get("name", "") or ""))
+        except ValueError as e:
+            return {"status": "error", "message": str(e)}
+        logger.info("agent.set_persona_layer layer=%s path=%s", layer, path)
+        return {"layer": layer, "path": str(path)}
 
     async def _handle_agent_get_soul(self, params: dict) -> dict:
         agent_id = params.get("agent_id", "")

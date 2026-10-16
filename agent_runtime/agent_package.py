@@ -43,15 +43,42 @@ SOURCES_FILE = "sources.json"
 AGENTS_ROOT = Path.home() / ".fusion-agent-studio" / "agents"
 
 
-def resolve_soul_prompt(agent_id: str, fallback: str = "") -> str:
+def resolve_soul_prompt(
+    agent_id: str,
+    fallback: str = "",
+    tenant_id: str = "",
+    team_id: str = "",
+    run_override: str = "",
+) -> str:
     """C16: 统一 soul.md 加载 — 各执行路径 (chat/workflow/session/langgraph) 共用.
 
     给定 agent_id, 加载 ~/.fusion-agent-studio/agents/<agent_id>/.fusion-agent/soul.md
     (soul.md 优先, 空则回退 manifest.system_prompt). agent_id 空或包不存在 -> fallback.
     返回解析后的 system_prompt (永不抛异常, 缺失即 fallback).
+    N16 #355: tenant_id/team_id/run_override 任一非空时走 persona 分层合并
+    (global < tenant < team < agent < run), 否则保持原单文件快路径.
     """
     if not agent_id:
         return fallback
+    if tenant_id or team_id or run_override:
+        try:
+            from .persona import resolve_persona
+
+            res = resolve_persona(
+                agent_id=agent_id,
+                tenant_id=tenant_id,
+                team_id=team_id,
+                run_override=run_override,
+                fallback=fallback,
+            )
+            if res["persona"]:
+                logger.info(
+                    "resolve_soul_prompt: persona stack agent=%s layers=%s conflicts=%d",
+                    agent_id, res["layers_applied"], len(res["conflicts"]),
+                )
+            return res["persona"]
+        except Exception as e:
+            logger.warning("resolve_soul_prompt: persona stack failed agent=%s: %s", agent_id, e)
     agent_dir = AGENTS_ROOT / agent_id
     try:
         pkg = AgentPackage(agent_dir)
