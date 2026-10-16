@@ -19,6 +19,7 @@ import { SafetyPage } from './pages/studio/SafetyPage';
 import { SkillsPage } from './pages/studio/SkillsPage';
 import { TeamPage } from './pages/studio/TeamPage';
 import { ToolsPage } from './pages/studio/ToolsPage';
+import { WorkflowCanvasPage } from './pages/studio/WorkflowCanvasPage';
 import { embeddedParam, isEmbedded } from './sdk';
 
 // Hash router (no router dep). Studio pages (#330/#331 step-1 migration from
@@ -39,7 +40,8 @@ type StudioRoute =
     | 'skills'
     | 'marketplace'
     | 'chat'
-    | 'aiagent';
+    | 'aiagent'
+    | 'canvas';
 
 type Route =
     | { name: 'workflows' }
@@ -63,6 +65,7 @@ const STUDIO_ROUTES: ReadonlySet<string> = new Set<StudioRoute>([
     'marketplace',
     'chat',
     'aiagent',
+    'canvas',
 ]);
 
 function parseHash(): Route {
@@ -105,6 +108,8 @@ function StudioPage(props: { tab: StudioRoute }) {
             return <MarketplacePage />;
         case 'chat':
             return <ChatPage />;
+        case 'canvas':
+            return <WorkflowCanvasPage />;
         case 'aiagent':
             return <AiAgentPage />;
         default:
