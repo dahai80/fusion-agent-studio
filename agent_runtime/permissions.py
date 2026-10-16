@@ -43,6 +43,9 @@ class PermissionRule:
     layer: str = "global"
     description: str = ""
     created_at: float = 0.0
+    # R2 (#347): role scoping (#323 roles metadata). Empty = applies to all
+    # roles; "all" in roles = same. ctx.role outside roles -> rule skipped.
+    roles: list[str] = field(default_factory=list)
 
     def matches(self, tool_name: str) -> bool:
         if not self.tool or self.tool == "*":
@@ -53,6 +56,11 @@ class PermissionRule:
             logger.warning("invalid rule regex tool=%r error=%s", self.tool, exc)
             return False
 
+    def matches_role(self, ctx_role: str) -> bool:
+        if not self.roles or "all" in self.roles:
+            return True
+        return ctx_role in self.roles
+
     def to_dict(self) -> dict:
         return {
             "action": self.action,
@@ -61,6 +69,7 @@ class PermissionRule:
             "layer": self.layer,
             "description": self.description,
             "created_at": self.created_at,
+            "roles": list(self.roles),
         }
 
     @classmethod
@@ -77,6 +86,7 @@ class PermissionRule:
             layer=layer,
             description=str(data.get("description", "")),
             created_at=float(data.get("created_at", 0.0)),
+            roles=list(data.get("roles") or []),
         )
 
 
@@ -208,6 +218,9 @@ class PermissionEngine:
         for layer in _RULE_SCAN_ORDER:
             for rule in self._rules_by_layer[layer]:
                 if not rule.matches(tool_name):
+                    continue
+                # R2: role-scoped rules only apply to matching ctx roles.
+                if not rule.matches_role(getattr(ctx, "role", "all") if ctx is not None else "all"):
                     continue
                 if rule.action == "deny":
                     logger.info("rule deny tool=%s layer=%s pattern=%s", tool_name, layer, rule.tool)
