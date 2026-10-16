@@ -2615,7 +2615,26 @@ class DaemonServer:
         if "stop_on_tool_error" in params:
             graph.stop_on_tool_error = bool(params["stop_on_tool_error"])
 
+        # N13 #352: single graph JSON schema — graph.update accepts the same
+        # Record-style graph_data payload as graph.create (nodes keyed by id,
+        # edges list) in addition to the flat nodes/edges list form.
+        graph_data = params.get("graph_data")
         nodes_data = params.get("nodes")
+        edges_data = params.get("edges")
+        if isinstance(graph_data, dict):
+            if "name" in graph_data:
+                graph.name = graph_data["name"]
+            if "description" in graph_data:
+                graph.description = graph_data["description"]
+            if nodes_data is None:
+                nodes_data = graph_data.get("nodes")
+            if edges_data is None:
+                edges_data = graph_data.get("edges")
+        if isinstance(nodes_data, dict):
+            nodes_data = [
+                {"id": nid, **(n if isinstance(n, dict) else {})}
+                for nid, n in nodes_data.items()
+            ]
         if nodes_data is not None:
             graph.nodes.clear()
             graph.edges.clear()
@@ -2626,7 +2645,6 @@ class DaemonServer:
                 node_config = self._node_config_from_payload(n)
                 graph.add_node(nid, node_config)
 
-        edges_data = params.get("edges")
         if edges_data is not None:
             graph.edges.clear()
             for e in edges_data:
