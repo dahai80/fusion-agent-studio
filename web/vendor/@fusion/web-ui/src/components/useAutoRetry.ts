@@ -35,6 +35,9 @@ export function useAutoRetry<T>(
                 if (runId !== runIdRef.current) return;
                 setData(result);
                 setAttempt(0);
+                // #19: success must clear loading or loading-gated pages
+                // (data ? content : skeleton) stay on the skeleton forever.
+                setLoading(false);
             } catch (err) {
                 if (runId !== runIdRef.current) return;
                 const status = (err as { status?: number }).status;

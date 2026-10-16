@@ -115,7 +115,21 @@ export function AgentsPage() {
                         rowKey={(a) => a.id ?? a.agent_id ?? ''}
                         pageSize={15}
                         columns={[
-                            { key: 'name', header: t('名称', 'Name'), render: (a) => a.name },
+                            {
+                                key: 'name',
+                                header: t('名称', 'Name'),
+                                render: (a) => (
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            window.location.hash = `#/agents/${a.id ?? a.agent_id}`;
+                                        }}
+                                        className="text-left font-medium text-text-primary hover:underline"
+                                    >
+                                        {a.name}
+                                    </button>
+                                ),
+                            },
                             {
                                 key: 'description',
                                 header: t('描述', 'Description'),
