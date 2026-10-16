@@ -85,12 +85,55 @@ class ApiKeyManager:
     def __init__(self, base_path: str | Path):
         self.base_path = Path(base_path)
         self._keys: dict[str, ApiKeyConfig] = {}
+        self._migrate_legacy_index()
         self._load_index()
         self._ensure_bootstrap_key()
 
     @property
     def index_path(self) -> Path:
         return self.base_path / APIKEYS_INDEX
+
+    def _migrate_legacy_index(self) -> None:
+        # Bug fix (acceptance F-x): daemon and api_server historically used two
+        # base paths (~/.fusion-agent-studio vs .../apikeys), splitting the key
+        # index in two — keys created via UDS RPC were 401 on REST validation.
+        # Merge a legacy root-level index into this manager's index (by id),
+        # keep the file, and leave a marker so the merge runs once.
+        legacy = Path.home() / ".fusion-agent-studio" / APIKEYS_INDEX
+        if legacy == self.index_path or not legacy.exists():
+            return
+        try:
+            with open(legacy, "r", encoding="utf-8") as f:
+                legacy_keys = [ApiKeyConfig.from_dict(e) for e in json.load(f)]
+        except (json.JSONDecodeError, OSError, TypeError) as exc:
+            logger.warning("legacy apikeys index unreadable at %s: %s", legacy, exc)
+            return
+        existing: dict[str, ApiKeyConfig] = {}
+        if self.index_path.exists():
+            try:
+                with open(self.index_path, "r", encoding="utf-8") as f:
+                    for e in json.load(f):
+                        cfg = ApiKeyConfig.from_dict(e)
+                        existing[cfg.id] = cfg
+            except (json.JSONDecodeError, OSError, TypeError) as exc:
+                logger.warning("apikey index unreadable at %s: %s", self.index_path, exc)
+        added = 0
+        for cfg in legacy_keys:
+            if cfg.id not in existing:
+                existing[cfg.id] = cfg
+                added += 1
+        if added == 0:
+            return
+        self._keys = existing
+        try:
+            self.index_path.parent.mkdir(parents=True, exist_ok=True)
+            os.chmod(self.index_path.parent, 0o700)
+            with open(self.index_path, "w", encoding="utf-8") as f:
+                json.dump([c.to_dict() for c in self._keys.values()], f, ensure_ascii=False, indent=2)
+            os.chmod(self.index_path, 0o600)
+            logger.info("migrated %d legacy apikey entries from %s to %s", added, legacy, self.index_path)
+        except OSError as exc:
+            logger.error("legacy apikey index migration failed: %s", exc)
 
     def _load_index(self) -> None:
         if self.index_path.exists():

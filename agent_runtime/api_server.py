@@ -316,7 +316,7 @@ def _validate_key_result(api_key: str, client_ip: str = "") -> dict | None:
         return static
     from agent_runtime.apikey_manager import ApiKeyManager
 
-    mgr = ApiKeyManager(Path.home() / ".fusion-agent-studio")
+    mgr = ApiKeyManager(Path.home() / ".fusion-agent-studio" / "apikeys")
     result = mgr.validate(api_key, client_ip=client_ip)
     if result.get("valid"):
         return result
@@ -350,7 +350,7 @@ def _auth_configured() -> bool:
         return True
     from agent_runtime.apikey_manager import ApiKeyManager
 
-    mgr = ApiKeyManager(Path.home() / ".fusion-agent-studio")
+    mgr = ApiKeyManager(Path.home() / ".fusion-agent-studio" / "apikeys")
     return bool(mgr.list_keys())
 
 
@@ -1186,7 +1186,7 @@ async def v1_list_api_keys(request: Request):
     await _require_auth(request)
     from agent_runtime.apikey_manager import ApiKeyManager
 
-    mgr = ApiKeyManager(Path.home() / ".fusion-agent-studio")
+    mgr = ApiKeyManager(Path.home() / ".fusion-agent-studio" / "apikeys")
     return {"data": mgr.list_keys()}
 
 
@@ -1199,7 +1199,7 @@ async def v1_create_api_key(request: Request):
         raise_api_error(ErrorCode.PARAM_REQUIRED, param="name")
     from agent_runtime.apikey_manager import ApiKeyManager
 
-    mgr = ApiKeyManager(Path.home() / ".fusion-agent-studio")
+    mgr = ApiKeyManager(Path.home() / ".fusion-agent-studio" / "apikeys")
     result = mgr.create(
         name=name,
         permissions=body.get("permissions"),
@@ -1222,7 +1222,7 @@ async def v1_revoke_api_key(key_id: str, request: Request):
     await _require_auth(request)
     from agent_runtime.apikey_manager import ApiKeyManager
 
-    mgr = ApiKeyManager(Path.home() / ".fusion-agent-studio")
+    mgr = ApiKeyManager(Path.home() / ".fusion-agent-studio" / "apikeys")
     result = mgr.revoke(key_id)
     _get_audit_logger().log_action(
         actor_id="api",
@@ -1239,7 +1239,7 @@ async def v1_rotate_api_key(key_id: str, request: Request):
     await _require_auth(request)
     from agent_runtime.apikey_manager import ApiKeyManager
 
-    mgr = ApiKeyManager(Path.home() / ".fusion-agent-studio")
+    mgr = ApiKeyManager(Path.home() / ".fusion-agent-studio" / "apikeys")
     result = mgr.rotate(key_id)
     _get_audit_logger().log_action(
         actor_id="api",
