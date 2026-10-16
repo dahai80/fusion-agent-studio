@@ -31,7 +31,7 @@ class _FakeDaemon:
             return self._task_list
         if method == "task.cancel":
             return self._task_cancel
-        if method == "graph.execute":
+        if method == "graph.execute_async":
             return self._graph_execute
         return None
 

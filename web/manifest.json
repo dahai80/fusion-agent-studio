@@ -1,0 +1,15 @@
+{
+    "id": "fusion-agent-studio",
+    "title": "Agent 工作流",
+    "title_en": "Agent Workflows",
+    "description": "Agent graph orchestration: workflows, runs, live streaming execution.",
+    "description_en": "Agent graph orchestration: workflows, runs, live streaming execution.",
+    "version": "0.1.0",
+    "path": "/studio",
+    "icon": "Workflow",
+    "entry": "/shell/fusion-agent-studio/",
+    "health": "http://127.0.0.1:11432/shell/fusion-agent-studio/v1/health",
+    "backend": "http://127.0.0.1:11432/shell/fusion-agent-studio/",
+    "devices": ["desktop"],
+    "category": "platform"
+}

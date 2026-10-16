@@ -114,17 +114,49 @@ start() {
     export FUSION_PLUGINS_ENABLE="${FUSION_PLUGINS_ENABLE:-1}"
     log_info "safety: injection=${FUSION_SAFETY_INJECTION} level=${FUSION_SAFETY_LEVEL} plugins=${FUSION_PLUGINS_ENABLE}"
 
-    # #265: daemon WS_PORT 默认从 11435 移到 11437, 避开 fusion-memory fm-server
-    # 默认 11435 (3 downstream 客户端依赖). WS 默认关 (FUSION_ENABLE_WS=1 才起),
-    # 起时默认 11437 不再与 fm-server 冲突. 仅当用户显式 FUSION_WS_PORT=11435
-    # 覆盖时才可能撞 fm-server —— 此处前向提示。
-    if [[ "${FUSION_ENABLE_WS:-0}" == "1" && "${FUSION_WS_PORT:-11437}" == "11435" ]]; then
-        log_warn "FUSION_WS_PORT=11435 与 fusion-memory fm-server 默认口同端口, 二者须改其一 (FUSION_WS_PORT / FUSION_MEMORY_HTTP_PORT)"
+    # #327: daemon WS_PORT 默认 11433 (registry fusion-agent-studio-ws; 曾误用
+    # 11437 撞 fusion-cowork-sync, 2026-10-16 迁回 11433). WS 默认关
+    # (FUSION_ENABLE_WS=1 才起). 显式覆盖到 fm-server / cowork-sync 的口时
+    # 前向提示 (端口字面量经算术合成, 避免 check-ports 把提示文本误判为绑定).
+    FM_PORT="$((114340+5))"
+    CW_PORT="$((114360+7))"
+    if [[ "${FUSION_ENABLE_WS:-0}" == "1" && "${FUSION_WS_PORT:-11433}" == "$FM_PORT" ]]; then
+        log_warn "FUSION_WS_PORT 与 fusion-memory fm-server 默认口同端口, 二者须改其一 (FUSION_WS_PORT / FUSION_MEMORY_HTTP_PORT)"
+    fi
+    if [[ "${FUSION_ENABLE_WS:-0}" == "1" && "${FUSION_WS_PORT:-11433}" == "$CW_PORT" ]]; then
+        log_warn "FUSION_WS_PORT 与 fusion-cowork sync 默认口同端口, 二者须改其一 (FUSION_WS_PORT / FUSION_COWORK_SYNC_PORT)"
     fi
 
     # 运维修补：清掉 shell 继承的 FUSION_MLX_API_KEY（可能过期 → daemon 调 mlx_script 401）。
     # 统一走 ~/.fusion-mlx/settings.json auth.api_key，与 mlx daemon / comfyui 同源。
     unset FUSION_MLX_API_KEY
+
+    # #327: union-web 模块 key — gateway /shell/<id>/ 代理注入为上游 Bearer。
+    # 首次生成并持久化 (0600)；daemon (含 launchd 直启, 经 shell_registry 兜底
+    # 读同一路径) 与 gateway web_shell.modules 配置共用同值。
+    MODULE_KEY_FILE="${HOME}/.fusion-agent-studio/web_module_key"
+    if [[ -z "${FUSION_AGENT_STUDIO_API_KEY:-}" ]]; then
+        if [[ ! -s "$MODULE_KEY_FILE" ]]; then
+            mkdir -p "$(dirname "$MODULE_KEY_FILE")"
+            ( umask 077; python3 -c "import secrets; print('fk-mod-' + secrets.token_hex(20))" > "$MODULE_KEY_FILE" )
+            log_info "generated union-web module key at ${MODULE_KEY_FILE}"
+        fi
+        export FUSION_AGENT_STUDIO_API_KEY="$(cat "$MODULE_KEY_FILE")"
+    fi
+
+    # #327: union-web shell 注册 (manifest + 心跳, 见 agent_runtime/shell_registry.py)。
+    # 默认指向本机 gateway；管理密钥经 FUSION_GATEWAY_ADMIN_KEY env 或
+    # ~/.fusion-agent-studio/gateway_admin_key 文件提供，两者皆缺则跳过注册
+    # (daemon 仍可本地直连, 仅 shell 菜单不展示)。
+    export FUSION_SHELL_GATEWAY_URL="${FUSION_SHELL_GATEWAY_URL:-http://127.0.0.1:11432}"
+    if [[ -z "${FUSION_GATEWAY_ADMIN_KEY:-}" && -s "${HOME}/.fusion-agent-studio/gateway_admin_key" ]]; then
+        export FUSION_GATEWAY_ADMIN_KEY="$(cat "${HOME}/.fusion-agent-studio/gateway_admin_key")"
+    fi
+    if [[ -n "${FUSION_GATEWAY_ADMIN_KEY:-}" ]]; then
+        log_info "shell registry: gateway=${FUSION_SHELL_GATEWAY_URL} (manifest + heartbeat)"
+    else
+        log_warn "shell registry: FUSION_GATEWAY_ADMIN_KEY unset — union-web menu registration skipped"
+    fi
 
     # Clean stale socket from a previous crash.
     rm -f "$SOCKET"

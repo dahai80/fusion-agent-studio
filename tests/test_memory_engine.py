@@ -108,6 +108,33 @@ class TestMemoryEngineRecall:
         results = engine.recall("importance", min_importance=5)
         assert all(r.importance >= 5 for r in results)
 
+    # #327 e2e: raw user text reaches FTS5 MATCH via recall_relevant during
+    # graph.execute. ':'/'('/')'/'OR' are FTS5 query operators — unquoted
+    # input raises sqlite3.OperationalError ("no such column: <word>"). The
+    # sanitizer must quote every token so any goal text is a valid query.
+    def test_recall_fts_syntax_survives_colon(self, engine):
+        engine.store("e2e ui smoke test memory")
+        results = engine.recall("e2e ui smoke: reply with the single word ok")
+        assert isinstance(results, list)
+
+    def test_recall_fts_syntax_survives_parens_and_operators(self, engine):
+        engine.store("memory about (parenthesized) OR NOT things")
+        for q in [
+            "query (with parens",
+            "unbalanced ) paren",
+            "A OR B",
+            "NOT this",
+            'quote " inside',
+            "star * caret ^ dash -",
+        ]:
+            results = engine.recall(q)
+            assert isinstance(results, list)
+
+    def test_recall_fts_sanitize_quotes_tokens(self):
+        assert MemoryEngine._fts_sanitize("a: b") == '"a:" "b"'
+        assert MemoryEngine._fts_sanitize('say "hi"') == '"say" """hi"""'
+        assert MemoryEngine._fts_sanitize("  ") == ""
+
 
 class TestMemoryEngineListRecent:
     def test_list_recent(self, engine):
