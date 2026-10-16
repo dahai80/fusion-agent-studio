@@ -125,6 +125,11 @@ class Compactor:
                 total += len(fn.get("name", "")) + len(fn.get("arguments", ""))
         return max(1, total // 4)
 
+    def summarize_messages(self, messages: list[dict]) -> str:
+        # N12: public summarizer for fork summary-resume (deterministic
+        # extraction, same path as hard compaction).
+        return self._summarize(messages)
+
     def should_compact(self, messages: list[dict]) -> str:
         tokens = self.estimate_tokens(messages)
         if tokens >= self.config.error_threshold():

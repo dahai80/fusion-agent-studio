@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import time
 import uuid
@@ -83,28 +84,75 @@ class SessionManager:
             "provided" if gateway else "none",
         )
 
-    async def fork(self, session_id: str, input_text: str = "") -> BackgroundSession:
-        ctx = None
+    async def fork(
+        self,
+        session_id: str,
+        input_text: str = "",
+        summarize: bool = False,
+    ) -> BackgroundSession:
+        # N12 (#346): deep-copy fork — seed the forked context with the parent
+        # session's message history (chat session messages, else latest
+        # checkpoint state). summarize=True replaces long history with a
+        # compact summary (N3 compactor summarizer, deterministic extraction).
+        parent_messages: list[dict] = []
+        summarized = False
         if self.store:
             try:
-                sessions = self.store.list_sessions()
-                for s in sessions:
-                    if s.get("id") == session_id:
-                        ctx = AgentContext()
-                        break
+                chat = self.store.load_chat_session(session_id)
+                if chat is not None and chat.messages:
+                    parent_messages = [
+                        m.to_dict() if hasattr(m, "to_dict") else dict(m)
+                        for m in chat.messages
+                    ]
             except Exception as e:
-                logger.warning("Failed to load session %s for fork: %s", session_id, e)
+                logger.warning("fork: chat session load failed %s: %s", session_id, e)
+            if not parent_messages:
+                try:
+                    cp = self.store.load_latest_checkpoint(session_id=session_id)
+                    if cp is not None:
+                        state = json.loads(cp.context_json or "{}")
+                        msgs = state.get("messages") or []
+                        parent_messages = [dict(m) for m in msgs]
+                except Exception as cp_err:
+                    logger.warning(
+                        "fork: checkpoint fallback load failed %s: %s",
+                        session_id, cp_err,
+                    )
+        if summarize and parent_messages:
+            try:
+                from .compactor import Compactor
+
+                summary = Compactor().summarize_messages(parent_messages)
+                parent_messages = [{"role": "system", "content": summary}]
+                summarized = True
+                logger.info(
+                    "fork: summary-resume applied, %d msgs -> 1 summary",
+                    len(parent_messages),
+                )
+            except Exception as e:
+                logger.warning("fork: summarize failed, keeping full history: %s", e)
+
+        ctx = None
+        if parent_messages:
+            ctx = AgentContext()
+            ctx.messages = parent_messages
 
         bg = BackgroundSession(
             forked_from=session_id,
             input_text=input_text,
+            metadata={
+                "fork_mode": "summary" if summarized else ("deep_copy" if ctx else "fresh"),
+            },
         )
         self._sessions[bg.id] = bg
 
         task = asyncio.create_task(self._run_background(bg, input_text, ctx))
         bg._task = task
         self._tasks[bg.id] = task
-        logger.info("Forked background session %s from %s", bg.id, session_id)
+        logger.info(
+            "Forked background session %s from %s mode=%s parent_msgs=%d",
+            bg.id, session_id, bg.metadata.get("fork_mode"), len(parent_messages),
+        )
         return bg
 
     async def _run_background(
@@ -133,7 +181,7 @@ class SessionManager:
                     pass
 
             if graph is None:
-                from .graph import AgentGraph, NodeConfig, NodeType
+                from .graph import AgentGraph, NodeConfig
 
                 graph = AgentGraph(name=f"bg_{bg.id}")
                 start_id = "start"
@@ -157,16 +205,16 @@ class SessionManager:
                             bg_agent_id,
                             e,
                         )
-                graph.add_node(start_id, NodeConfig(type=NodeType.START, label="Start"))
+                graph.add_node(start_id, NodeConfig(type="start", label="Start"))
                 graph.add_node(
                     llm_id,
                     NodeConfig(
-                        type=NodeType.LLM,
+                        type="llm",
                         label="LLM",
                         system_prompt=bg_soul,
                     ),
                 )
-                graph.add_node(end_id, NodeConfig(type=NodeType.END, label="End"))
+                graph.add_node(end_id, NodeConfig(type="end", label="End"))
                 graph.add_edge(start_id, llm_id)
                 graph.add_edge(llm_id, end_id)
 

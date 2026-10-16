@@ -3872,7 +3872,7 @@ class DaemonServer:
         input_text = params.get("input", "")
         if not isinstance(input_text, str):
             input_text = json.dumps(input_text, ensure_ascii=False)
-        bg_session = await mgr.fork(session_id, input_text)
+        bg_session = await mgr.fork(session_id, input_text, summarize=bool(params.get("summarize", False)))
         logger.info("session.fork: from=%s fork=%s", session_id, bg_session.id)
         return bg_session.to_dict()
 
