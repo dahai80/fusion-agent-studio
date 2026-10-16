@@ -383,12 +383,32 @@ class AgentRuntime(_SafetyApprovalMixin, _CheckpointMixin, _DynamicToolsMixin, _
             except Exception as e:
                 logger.warning("telemetry start_span graph.execute failed: %s", e)
         status = "completed"
+        # N14 #353: resident reviewer — verify node with resident:true upgrades
+        # to a standing reviewer on the event stream (deterministic checks).
+        resident = None
+        try:
+            from .resident_reviewer import build_resident_reviewer, graph_has_resident_verify
+
+            if graph_has_resident_verify(graph):
+                resident = build_resident_reviewer(graph)
+                logger.info("resident reviewer attached graph=%s", graph.name)
+        except ImportError as e:
+            logger.warning("resident reviewer unavailable: %s", e)
         try:
             async for event in self._execute_graph_inner(
                 graph, initial_input, ctx, token_budget, stream=stream,
                 max_iterations=max_iterations,
             ):
                 writer.record_event(ctx.session_id, event.to_dict())
+                if resident is not None:
+                    for finding in resident.observe(event):
+                        yield AgentEvent(
+                            type=AgentEventType.VERIFY,
+                            content=f"[resident] {finding.kind}: {finding.detail}",
+                            name="resident_reviewer",
+                            node_id=finding.node_id,
+                            metadata={"resident": True, **finding.to_dict()},
+                        )
                 if event.type == AgentEventType.ERROR:
                     status = "error"
                 if event.type == AgentEventType.START:
@@ -398,6 +418,19 @@ class AgentRuntime(_SafetyApprovalMixin, _CheckpointMixin, _DynamicToolsMixin, _
             status = "error"
             raise
         finally:
+            if resident is not None:
+                try:
+                    summary = resident.summary()
+                    if ctx.variables is not None:
+                        ctx.variables.set("review_findings", summary["findings"])
+                        ctx.variables.set("review_counts", summary["counts"])
+                    logger.info(
+                        "resident review complete graph=%s findings=%s",
+                        graph.name,
+                        summary["counts"],
+                    )
+                except Exception as e:
+                    logger.warning("resident review summary failed: %s", e)
             try:
                 # 审计 P1-9/P0-1: 统一用 ctx (context or AgentContext()), 不再 context or ctx.
                 # 之前传 context 给 inner 致轨迹-ctx 与执行-ctx 是两个对象 (context=None 时双建),
