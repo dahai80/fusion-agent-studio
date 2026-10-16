@@ -116,6 +116,10 @@ class AgentContext:
     started_at: float = 0.0
     finished_at: float = 0.0
     error: str = ""
+    # N7 (#344): terminal stop reason — end_turn | budget_exceeded |
+    # max_iterations | error | cancelled. Aligned across runtime, END
+    # event metadata, background execution payloads, and task writeback.
+    stop_reason: str = ""
     # 审计 A-1 Tier2: per-exec 状态迁出 singleton. 并发执行互不踩.
     # C6 plan-as-mode: read-only explore 门禁, per-exec.
     plan_mode: bool = False
@@ -225,6 +229,7 @@ class AgentContext:
             "started_at": self.started_at,
             "finished_at": self.finished_at,
             "error": self.error,
+            "stop_reason": self.stop_reason,
             "plan_mode": self.plan_mode,
             "tool_call_chain_count": self.tool_call_chain_count,
             "variables": var_snapshot,
@@ -246,6 +251,7 @@ class AgentContext:
             started_at=data.get("started_at", 0.0),
             finished_at=data.get("finished_at", 0.0),
             error=data.get("error", ""),
+            stop_reason=data.get("stop_reason", ""),
             plan_mode=data.get("plan_mode", False),
             tool_call_chain_count=data.get("tool_call_chain_count", 0),
         )

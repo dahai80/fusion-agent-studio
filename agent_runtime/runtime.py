@@ -596,6 +596,7 @@ class AgentRuntime(_SafetyApprovalMixin, _CheckpointMixin, _DynamicToolsMixin, _
                             content=f"Token budget exceeded: {token_budget.spent_tokens}/{token_budget.max_tokens}",
                             metadata=token_budget.status(),
                         )
+                        ctx.stop_reason = "budget_exceeded"
                         ctx.finished_at = time.time()
                         return
 
@@ -617,6 +618,8 @@ class AgentRuntime(_SafetyApprovalMixin, _CheckpointMixin, _DynamicToolsMixin, _
                                 ctx.iteration_count,
                                 current_node_id,
                             )
+                            if not ctx.stop_reason:
+                                ctx.stop_reason = "max_iterations"
                             break
                         # Compaction 接入点 (M2): 超阈值先压缩再回灌
                         if self.compactor is not None:
@@ -775,7 +778,13 @@ class AgentRuntime(_SafetyApprovalMixin, _CheckpointMixin, _DynamicToolsMixin, _
                 current_node_id = next_id
 
             elif node.type == "end":
-                yield AgentEvent(type=AgentEventType.END, content="Graph execution complete")
+                if not ctx.stop_reason:
+                    ctx.stop_reason = "end_turn"
+                yield AgentEvent(
+                    type=AgentEventType.END,
+                    content="Graph execution complete",
+                    metadata={"stop_reason": ctx.stop_reason},
+                )
                 ctx.finished_at = time.time()
                 await self._auto_store_memory(ctx, graph)
                 # Issue #175: lifecycle hook — session end (clean completion).
@@ -800,6 +809,8 @@ class AgentRuntime(_SafetyApprovalMixin, _CheckpointMixin, _DynamicToolsMixin, _
                 return
 
         if ctx.is_max_iterations_reached():
+            if not ctx.stop_reason:
+                ctx.stop_reason = "max_iterations"
             ctx.error = "Max iterations exceeded"
             yield AgentEvent(type=AgentEventType.ERROR, content=ctx.error)
             # Issue #175: lifecycle hook — stop (iteration cap reached).
