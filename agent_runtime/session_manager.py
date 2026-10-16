@@ -197,7 +197,10 @@ class SessionManager:
                         from .agent_package import resolve_soul_prompt
 
                         bg_soul = resolve_soul_prompt(
-                            bg_agent_id, fallback=bg_soul
+                            bg_agent_id,
+                            fallback=bg_soul,
+                            tenant_id=str(bg.metadata.get("tenant_id", "") or ""),
+                            team_id=str(bg.metadata.get("team_id", "") or ""),
                         )
                     except Exception as e:
                         logger.warning(

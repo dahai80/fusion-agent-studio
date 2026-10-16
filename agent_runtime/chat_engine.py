@@ -567,8 +567,12 @@ class ChatEngine:
             from .agent_package import resolve_soul_prompt
 
             agent_id = self._resolve_session_agent_id(session)
+            meta = getattr(session, "metadata", None) or {}
             soul_prompt = resolve_soul_prompt(
-                agent_id, fallback="You are a helpful assistant."
+                agent_id,
+                fallback="You are a helpful assistant.",
+                tenant_id=str(meta.get("tenant_id", "") or ""),
+                team_id=str(meta.get("team_id", "") or ""),
             )
             graph.add_node(
                 "start",
@@ -712,7 +716,12 @@ class ChatEngine:
         try:
             from .agent_package import resolve_soul_prompt
 
-            soul = resolve_soul_prompt(agent_id)
+            meta = getattr(session, "metadata", None) or {}
+            soul = resolve_soul_prompt(
+                agent_id,
+                tenant_id=str(meta.get("tenant_id", "") or ""),
+                team_id=str(meta.get("team_id", "") or ""),
+            )
         except Exception as e:
             logger.warning("chat soul resolve failed for agent=%s: %s", agent_id, e)
             return history
