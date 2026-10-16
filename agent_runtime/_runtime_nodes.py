@@ -2272,6 +2272,21 @@ class _NodeExecutorsMixin:
             yield AgentEvent(type=AgentEventType.ERROR, content="Verification engine not available")
             return
 
+        # N14 #353: resident mode — the node becomes a standing reviewer on the
+        # event stream (attached in _run_with_trajectory); no one-shot verify.
+        if node.tool_params.get("resident"):
+            ctx.variables.set("verify_resident", True)
+            logger.info("verify node %s in resident mode (standing reviewer)", node.label)
+            yield AgentEvent(
+                type=AgentEventType.VERIFY,
+                content="Resident reviewer active: watching event stream for "
+                "untraceable conclusions and graph-code mismatch",
+                name="resident_reviewer",
+                node_id=node.label,
+                metadata={"resident": True},
+            )
+            return
+
         task = node.tool_params.get("task", "")
         if not task:
             for msg in reversed(ctx.messages):

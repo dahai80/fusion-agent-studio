@@ -116,7 +116,7 @@ await rpc("agent.delete", {"agent_id": AGENT_ID})   # 删除
 | `error_handler` | 错误处理，设 `max_retries`/`retry_delay` |
 | `rag` | 知识库检索增强 |
 | `planner` | 计划-确认-执行（可阻塞审批） |
-| `verify` | 对抗式验证 |
+| `verify` | 对抗式验证；`tool_params: {"resident": true}` 可升级为常驻评审（N14），监听事件流自动标记不可追溯结论与图-代码不符，发现项写入 `review_findings` 变量并以 VERIFY 事件输出 |
 
 ### 创建图
 
