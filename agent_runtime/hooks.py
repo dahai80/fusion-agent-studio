@@ -10,5 +10,6 @@ try:
     KERNEL_SOURCE = "fusion-harness"
 except ImportError:
     from ._hooks_local import *  # noqa: F401,F403
+    from ._hooks_local import _DECORATOR_REGISTRY  # noqa: F401
 
     KERNEL_SOURCE = "local"
