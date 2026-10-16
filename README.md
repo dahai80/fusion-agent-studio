@@ -297,7 +297,7 @@ python my_agent.py
 - ✅ **OpenAI-compatible API** — Works with any OpenAI-compatible backend
 - ✅ **HTTP REST API** — FastAPI on `127.0.0.1:11442` (launched by `start.sh` via the daemon). Routes under both `/v1/*` and `/api/v1/*` (alias) so external clients using either convention resolve. Agent index auto-rebuilt from on-disk manifests on startup.
 - ✅ **fusion-projects** — project_service binds agents via `GET /api/v1/agents` (set `FUSION_AGENT_STUDIO_URL=http://127.0.0.1:11442`)
-- ✅ **Web UI (#327)** — union-web shell module under `web/` (React + vendored `@fusion/web-ui`/`@fusion/web-sdk`): workflow list + goal submission with live SSE streaming, run monitor with dashboard tiles, run detail with cancel/replay. Embedded via the fusion-gateway shell at `/shell/fusion-agent-studio/` (module-key auth injected by the gateway proxy), standalone dev server on `:11460`, and the built SPA served by the daemon at `GET /`. See `web/README.md`.
+- ✅ **Web UI (#327, #330/#331)** — union-web shell module under `web/` (React + vendored `@fusion/web-ui`/`@fusion/web-sdk`): workflow list + JSON create/edit, run monitor, run detail, plus the migrated AgentStudio console (#330/#331) — Agents/AgentDetail CRUD, Dashboard, Team (swarm/plaza/orchestrate), Memory, Safety, Connectors, Apikeys, Cron, Hooks, Tools (dynamic register), Skills, Marketplace, Chat, and the AIAgent per-token SSE chat with Logs/Events debug tabs. Studio pages talk through the deny-by-default `POST /v1/rpc` allowlist bridge; agent streaming uses `GET /v1/agents/{id}/execute/stream`. Embedded via the fusion-gateway shell at `/shell/fusion-agent-studio/` (module-key auth injected by the gateway proxy), standalone dev server on `:11460`, and the built SPA served by the daemon at `GET /`. See `web/README.md`.
 - ✅ **macOS native** — SwiftUI app with WKWebView canvas integration
 - ✅ **i18n** — English and Chinese UI strings
 
@@ -388,7 +388,7 @@ fusion-agent-studio/
 │   ├── fusion_mlx_client.py# HTTP client
 │   └── process_manager.py  # Process lifecycle
 ├── web/                    # Web UI (#327, union-web shell module)
-│   ├── src/                # React app: workflows / runs / run detail pages
+│   ├── src/                # React app: studio console (15 tabs) + workflows / runs pages
 │   ├── vendor/@fusion/     # Vendored web-ui + web-sdk sources (CI self-contained)
 │   ├── manifest.json       # Shell manifest registered with fusion-gateway
 │   └── dist/               # Built SPA, served by the daemon at GET /

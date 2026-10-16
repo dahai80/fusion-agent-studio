@@ -10,24 +10,172 @@ import {
     useAutoRetry,
 } from '@fusion/web-ui';
 import { useState } from 'react';
-import { type GraphItem, api } from '../api';
+import { type GraphItem, api, rpc } from '../api';
 import { PageHeader } from '../components/PageHeader';
 import { StreamPanel } from '../components/StreamPanel';
+import { JsonEditor, parseJson } from '../components/ui/JsonEditor';
+import { Modal } from '../components/ui/Modal';
 import { useT } from '../i18n';
 import { sdk } from '../sdk';
 
+// Minimal valid graph skeleton pre-filled in the create/edit JSON editor.
+// Node payloads use the {id, type, config?} shape consumed by
+// daemon graph.create/_node_config_from_payload (#297 nested-config merge).
+const GRAPH_SKELETON = JSON.stringify(
+    {
+        nodes: [
+            { id: 'start', type: 'start' },
+            { id: 'llm-1', type: 'llm', config: { prompt: '{{input}}' } },
+            { id: 'end', type: 'end' },
+        ],
+        edges: [
+            { source_id: 'start', target_id: 'llm-1' },
+            { source_id: 'llm-1', target_id: 'end' },
+        ],
+    },
+    null,
+    4
+);
+
+interface GraphGetResult {
+    graph_id: string;
+    name: string;
+    description: string;
+    nodes: Record<string, Record<string, unknown>>;
+    edges: Array<Record<string, unknown>>;
+}
+
 // Workflows (agent graphs) list + per-graph quick actions: submit a tracked
 // run (task store) or a live streaming test (SSE). Four states per spec S1.
+// #331: create / edit / delete via graph.* RPC bridge (POST /v1/rpc).
 export function WorkflowsPage() {
     const t = useT();
     const [selected, setSelected] = useState<GraphItem | null>(null);
     const [goal, setGoal] = useState('');
     const [goalError, setGoalError] = useState<string | null>(null);
     const [streaming, setStreaming] = useState(false);
+    const [editorOpen, setEditorOpen] = useState(false);
+    const [editingGraph, setEditingGraph] = useState<GraphItem | null>(null);
+    const [wfName, setWfName] = useState('');
+    const [wfDesc, setWfDesc] = useState('');
+    const [wfJson, setWfJson] = useState(GRAPH_SKELETON);
+    const [wfError, setWfError] = useState<string | null>(null);
+    const [saving, setSaving] = useState(false);
     const { data, error, loading, attempt, manualRetry } = useAutoRetry(
         () => api.graphs(1, 200),
         []
     );
+
+    const openCreate = () => {
+        setEditingGraph(null);
+        setWfName('');
+        setWfDesc('');
+        setWfJson(GRAPH_SKELETON);
+        setWfError(null);
+        setEditorOpen(true);
+    };
+
+    const openEdit = async (g: GraphItem) => {
+        setEditingGraph(g);
+        setWfName(g.name || '');
+        setWfDesc(g.description || '');
+        setWfJson('');
+        setWfError(null);
+        setEditorOpen(true);
+        try {
+            const res = await rpc<GraphGetResult>('graph.get', { graph_id: g.graph_id });
+            const nodes = Object.entries(res.nodes ?? {}).map(([id, n]) => ({ id, ...n }));
+            setWfJson(JSON.stringify({ nodes, edges: res.edges ?? [] }, null, 4));
+        } catch (e) {
+            console.warn('[web] graph.get prefill failed, using row data fallback', e);
+            const fallback = {
+                nodes: Object.entries(g.graph_data.nodes ?? {}).map(([id, n]) => ({ id, ...n })),
+                edges: (g.graph_data.edges ?? []) as Array<Record<string, unknown>>,
+            };
+            setWfJson(JSON.stringify(fallback, null, 4));
+        }
+    };
+
+    const submitEditor = async () => {
+        if (!wfName.trim()) {
+            setWfError(t('请输入名称', 'name required'));
+            return;
+        }
+        const parsed = parseJson(wfJson);
+        if (!parsed.ok) {
+            setWfError(parsed.error);
+            return;
+        }
+        const body = parsed.data as { nodes?: unknown; edges?: unknown };
+        if (
+            !body ||
+            typeof body !== 'object' ||
+            !Array.isArray(body.nodes) ||
+            !Array.isArray(body.edges)
+        ) {
+            setWfError(
+                t('JSON 须包含 nodes 和 edges 数组', 'JSON must contain nodes and edges arrays')
+            );
+            return;
+        }
+        setSaving(true);
+        try {
+            if (editingGraph) {
+                await rpc('graph.update', {
+                    graph_id: editingGraph.graph_id,
+                    name: wfName.trim(),
+                    description: wfDesc.trim(),
+                    nodes: body.nodes,
+                    edges: body.edges,
+                });
+                sdk.toast.show({
+                    level: 'success',
+                    message: t('工作流已更新', 'workflow updated'),
+                });
+            } else {
+                await rpc('graph.create', {
+                    name: wfName.trim(),
+                    description: wfDesc.trim(),
+                    nodes: body.nodes,
+                    edges: body.edges,
+                });
+                sdk.toast.show({
+                    level: 'success',
+                    message: t('工作流已创建', 'workflow created'),
+                });
+            }
+            setEditorOpen(false);
+            manualRetry();
+        } catch (e) {
+            setWfError((e as Error).message);
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    const deleteGraph = async (g: GraphItem) => {
+        const ok = window.confirm(
+            t(
+                `确认删除工作流「${g.name || g.graph_id}」？`,
+                `Delete workflow "${g.name || g.graph_id}"?`
+            )
+        );
+        if (!ok) return;
+        try {
+            await rpc('graph.delete', { graph_id: g.graph_id });
+            sdk.toast.show({
+                level: 'success',
+                message: t('工作流已删除', 'workflow deleted'),
+            });
+            if (selected?.graph_id === g.graph_id) setSelected(null);
+            manualRetry();
+        } catch (e) {
+            sdk.toast.show({
+                level: 'error',
+                message: `${t('删除失败', 'delete failed')}: ${(e as Error).message}`,
+            });
+        }
+    };
 
     const submitRun = async () => {
         if (!selected) return;
@@ -61,6 +209,15 @@ export function WorkflowsPage() {
                     `${rows.length} 个 agent 图`,
                     `${rows.length} agent graph${rows.length === 1 ? '' : 's'}`
                 )}
+                actions={
+                    <button
+                        type="button"
+                        onClick={() => void openCreate()}
+                        className="rounded-md border border-border px-4 py-2 text-sm text-text-primary hover:bg-bg-muted"
+                    >
+                        {t('新建工作流', 'New workflow')}
+                    </button>
+                }
             />
             <div className="px-4 pt-3">
                 {loading && attempt === 0 && rows.length === 0 ? (
@@ -116,6 +273,28 @@ export function WorkflowsPage() {
                                     <span className="text-text-secondary">
                                         {g.description || '-'}
                                     </span>
+                                ),
+                            },
+                            {
+                                key: 'actions',
+                                header: t('操作', 'Actions'),
+                                render: (g) => (
+                                    <div className="flex items-center gap-2">
+                                        <button
+                                            type="button"
+                                            className="text-brand hover:underline"
+                                            onClick={() => void openEdit(g)}
+                                        >
+                                            {t('编辑', 'Edit')}
+                                        </button>
+                                        <button
+                                            type="button"
+                                            className="text-error hover:underline"
+                                            onClick={() => void deleteGraph(g)}
+                                        >
+                                            {t('删除', 'Delete')}
+                                        </button>
+                                    </div>
                                 ),
                             },
                         ]}
@@ -192,6 +371,52 @@ export function WorkflowsPage() {
                     ) : null}
                 </div>
             ) : null}
+            <Modal
+                open={editorOpen}
+                title={
+                    editingGraph
+                        ? t('编辑工作流', 'Edit workflow')
+                        : t('新建工作流', 'New workflow')
+                }
+                onClose={() => setEditorOpen(false)}
+                footer={
+                    <div className="flex items-center justify-end gap-2">
+                        <button
+                            type="button"
+                            onClick={() => setEditorOpen(false)}
+                            className="rounded-md border border-border px-4 py-2 text-sm text-text-primary hover:bg-bg-muted"
+                        >
+                            {t('取消', 'Cancel')}
+                        </button>
+                        <SubmitButton
+                            label={editingGraph ? t('保存', 'Save') : t('创建', 'Create')}
+                            busyLabel={t('保存中…', 'saving…')}
+                            disabled={saving}
+                            onAction={submitEditor}
+                        />
+                    </div>
+                }
+            >
+                <FormField label={t('名称', 'Name')} required htmlFor="wf-name">
+                    <TextInput
+                        id="wf-name"
+                        value={wfName}
+                        onChange={setWfName}
+                        placeholder={t('例如：新闻摘要工作流', 'e.g. news digest workflow')}
+                    />
+                </FormField>
+                <FormField label={t('描述', 'Description')} htmlFor="wf-desc">
+                    <TextInput
+                        id="wf-desc"
+                        value={wfDesc}
+                        onChange={setWfDesc}
+                        placeholder={t('可选', 'optional')}
+                    />
+                </FormField>
+                <FormField label={t('图定义 (JSON)', 'Graph definition (JSON)')} error={wfError}>
+                    <JsonEditor value={wfJson} onChange={setWfJson} rows={10} />
+                </FormField>
+            </Modal>
         </div>
     );
 }

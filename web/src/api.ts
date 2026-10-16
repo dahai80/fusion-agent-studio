@@ -86,6 +86,32 @@ async function postJson<T>(path: string, body?: unknown): Promise<T> {
 
 const B = () => apiBase();
 
+// #330: allowlisted RPC bridge (POST /v1/rpc). Dispatcher handlers return
+// {"status":"error","message":...} with HTTP 200 — callers must check .status
+// and surface the message; 2xx alone is NOT success.
+export class RpcError extends Error {
+    status: string;
+
+    constructor(message: string, status = 'error') {
+        super(message);
+        this.status = status;
+    }
+}
+
+export async function rpc<T = Record<string, unknown>>(
+    method: string,
+    params: Record<string, unknown> = {}
+): Promise<T> {
+    const res = await postJson<T & { status?: string; message?: string }>('/v1/rpc', {
+        method,
+        params,
+    });
+    if (res && res.status === 'error') {
+        throw new RpcError(res.message || method, 'error');
+    }
+    return res;
+}
+
 export const api = {
     dashboard: () => getJson<DashboardData>(`${B()}/v1/dashboard`),
     graphs: (page = 1, limit = 50) =>
