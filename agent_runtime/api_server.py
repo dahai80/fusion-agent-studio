@@ -1522,6 +1522,69 @@ async def v1_execute_graph_stream(graph_id: str, input: str = ""):
     )
 
 
+@app.get(
+    "/v1/agents/{agent_id}/execute/stream",
+    dependencies=[Depends(_require_auth_qs_or_raise)],
+)
+async def v1_execute_agent_stream(agent_id: str, input: str = ""):
+    """#330: per-token SSE for agent execution — EventSource GET, auth via
+    gateway-injected Bearer or ?api_key= (same posture as graph SSE).
+    Reuses the ad-hoc graph built from the agent manifest."""
+    from agent_runtime.dispatchers.agent import build_agent_adhoc_graph
+
+    daemon = _daemon_or_503()
+    graph, manifest = await build_agent_adhoc_graph(daemon, agent_id, input)
+    if graph is None:
+        raise_api_error(ErrorCode.AGENT_NOT_FOUND, param="agent_id")
+    _get_store().save_graph(graph)
+    rt = _get_runtime()
+    budget = daemon.token_budget_ref if daemon is not None else None
+    sem = daemon.graph_semaphore if daemon is not None else None
+    agent_max_iter = manifest.max_iterations if manifest.max_iterations else None
+
+    async def event_generator():
+        logger.info("SSE agent stream start for %s", agent_id)
+        _unreg = None
+        if daemon is not None:
+            try:
+                _, _unreg = daemon.register_execution("sse_agent", agent_id)
+            except Exception:
+                _unreg = None
+        try:
+
+            async def _sse_stream():
+                async for event in rt.execute_graph_stream(
+                    graph, input, max_iterations=agent_max_iter, token_budget=budget
+                ):
+                    ev_dict = (
+                        event.to_dict() if hasattr(event, "to_dict") else {"type": str(event)}
+                    )
+                    yield f"data: {json.dumps(ev_dict, ensure_ascii=False)}\n\n"
+
+            if sem is not None:
+                async with sem:
+                    logger.info("SSE agent execute %s acquired concurrency slot", agent_id)
+                    async for chunk in _sse_stream():
+                        yield chunk
+            else:
+                async for chunk in _sse_stream():
+                    yield chunk
+        except Exception as e:
+            logger.exception("SSE agent stream error for %s", agent_id)
+            yield f"data: {json.dumps({'type': 'error', 'message': str(e)}, ensure_ascii=False)}\n\n"
+        finally:
+            if _unreg is not None:
+                _unreg()
+        yield f"data: {json.dumps({'type': 'done'}, ensure_ascii=False)}\n\n"
+        logger.info("SSE agent stream end for %s", agent_id)
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
 @app.get("/agents/published")
 async def list_published_agents():
     return await v1_list_published_agents()
@@ -1726,6 +1789,21 @@ async def api_v1_chat_notify(req: FSBNotifyRequest):
         )
     logger.info("chat.notify delivered ws=%s session=%s run=%s", req.workspaceId, session_id, run_id)
     return {"status": "ok", "delivered": True, "session_id": session_id}
+
+
+# ── #330: allowlisted RPC bridge for the web module ──
+# Single POST /v1/rpc endpoint dispatching GUI-facing RPC methods through the
+# daemon handler registry (same resolution as /v1/runs). Deny-by-default
+# allowlist lives in agent_runtime/rpc_bridge.py. Registered BEFORE the web
+# dist mount so the API route wins.
+from agent_runtime.rpc_bridge import register_rpc_bridge
+
+register_rpc_bridge(
+    app,
+    _rpc,
+    _require_auth_if_configured,
+    audit=lambda **kw: _get_audit_logger().log_action(**kw),
+)
 
 
 # ── #327: web/ static UI bundle ──

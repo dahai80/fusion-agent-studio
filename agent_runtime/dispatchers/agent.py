@@ -16,6 +16,66 @@ from .base import SubDispatcher
 logger = logging.getLogger(__name__)
 
 
+async def build_agent_adhoc_graph(daemon, agent_id: str, input_text: str):
+    """Build the start→llm→tools ad-hoc graph an agent executes as.
+
+    Shared by agent.execute_stream (RPC, aggregated events) and the #330
+    agent SSE route (true per-token streaming). Returns (graph, manifest) or
+    (None, None) when the agent does not exist.
+    """
+    from ..agent_package import AgentPackage
+
+    agent_dir = daemon._agent_dir(agent_id)
+    pkg = AgentPackage(agent_dir)
+    if not pkg.exists:
+        return None, None
+
+    graph_config = pkg.to_graph_config()
+    manifest = pkg.load_manifest()
+
+    effective_prompt = graph_config.get("system_prompt", manifest.system_prompt)
+
+    if manifest.knowledge_base_ids:
+        kb_context = await daemon._inject_knowledge_context(
+            manifest.knowledge_base_ids, input_text, manifest.rag_strategy
+        )
+        if kb_context:
+            effective_prompt = f"{effective_prompt}\n\n{kb_context}"
+
+    if manifest.style:
+        style_mgr = daemon._get_style_manager()
+        style_result = style_mgr.apply(effective_prompt, manifest.style)
+        if "system_prompt" in style_result:
+            effective_prompt = style_result["system_prompt"]
+
+    graph = AgentGraph(name=manifest.name or agent_id)
+    graph.description = manifest.description
+
+    start_id = "start"
+    llm_id = "llm-1"
+    start_node = NodeConfig(type="start", label="Start")
+    llm_node = NodeConfig(
+        type="llm",
+        label="Agent LLM",
+        model=manifest.model,
+        system_prompt=effective_prompt,
+    )
+    graph.add_node(start_id, start_node)
+    graph.add_node(llm_id, llm_node)
+    graph.add_edge(start_id, llm_id)
+
+    for i, tool_name in enumerate(manifest.tools):
+        tool_id = f"tool-{i + 1}"
+        tool_node = NodeConfig(type="tool", label=tool_name)
+        graph.add_node(tool_id, tool_node)
+        if i == 0:
+            graph.add_edge(llm_id, tool_id)
+        else:
+            graph.add_edge(f"tool-{i}", tool_id)
+
+    return graph, manifest
+
+
 class AgentDispatcher(SubDispatcher):
     def get_handlers(self) -> dict[str, Callable]:
         return {
@@ -1162,55 +1222,10 @@ class AgentDispatcher(SubDispatcher):
         input_text = params.get("input", "")
         if not agent_id:
             return {"status": "error", "message": "agent_id parameter required"}
-        from ..agent_package import AgentPackage
 
-        agent_dir = self._daemon._agent_dir(agent_id)
-        pkg = AgentPackage(agent_dir)
-        if not pkg.exists:
+        graph, manifest = await build_agent_adhoc_graph(self._daemon, agent_id, input_text)
+        if graph is None:
             return {"status": "error", "message": f"Agent not found: {agent_id}"}
-
-        graph_config = pkg.to_graph_config()
-        manifest = pkg.load_manifest()
-
-        effective_prompt = graph_config.get("system_prompt", manifest.system_prompt)
-
-        if manifest.knowledge_base_ids:
-            kb_context = await self._daemon._inject_knowledge_context(
-                manifest.knowledge_base_ids, input_text, manifest.rag_strategy
-            )
-            if kb_context:
-                effective_prompt = f"{effective_prompt}\n\n{kb_context}"
-
-        if manifest.style:
-            style_mgr = self._daemon._get_style_manager()
-            style_result = style_mgr.apply(effective_prompt, manifest.style)
-            if "system_prompt" in style_result:
-                effective_prompt = style_result["system_prompt"]
-
-        graph = AgentGraph(name=manifest.name or agent_id)
-        graph.description = manifest.description
-
-        start_id = "start"
-        llm_id = "llm-1"
-        start_node = NodeConfig(type="start", label="Start")
-        llm_node = NodeConfig(
-            type="llm",
-            label="Agent LLM",
-            model=manifest.model,
-            system_prompt=effective_prompt,
-        )
-        graph.add_node(start_id, start_node)
-        graph.add_node(llm_id, llm_node)
-        graph.add_edge(start_id, llm_id)
-
-        for i, tool_name in enumerate(manifest.tools):
-            tool_id = f"tool-{i + 1}"
-            tool_node = NodeConfig(type="tool", label=tool_name)
-            graph.add_node(tool_id, tool_node)
-            if i == 0:
-                graph.add_edge(llm_id, tool_id)
-            else:
-                graph.add_edge(f"tool-{i}", tool_id)
 
         self._daemon.store.save_graph(graph)
         rt = self._daemon._get_runtime()

@@ -83,15 +83,36 @@ gateway restart. The gateway admin key is read from
 src/
   sdk.ts               createShellSdk() instance + embedded helpers
   i18n.ts              useLang()/useT() (zh/en) via sdk.i18n
-  api.ts               typed client over daemon /v1 via sdk.http
-  App.tsx              hash router: #/workflows, #/runs, #/runs/:id
-  pages/WorkflowsPage  graph table, goal submit, live SSE test
+  api.ts               typed client over daemon /v1 via sdk.http + rpc() bridge
+  App.tsx              hash router: #/agents, #/workflows, #/runs, #/runs/:id,
+                       #/studio/<tab> (15 studio tabs via StudioNav)
+  pages/WorkflowsPage  graph table + JSON create/edit (graph.* RPC), goal submit
   pages/RunsPage       dashboard tiles + runs table, 5 s visibility-aware poll
   pages/RunDetailPage  TaskProgress, KV info, cancel w/ confirm, replay
-  components/StreamPanel  EventSource SSE panel (tokens, timer, stop/rerun)
+  pages/studio/        AgentStudio + AIAgent console (issues #330/#331):
+                       Agents/AgentDetail (agent.* CRUD, soul/skills/versions),
+                       Dashboard (overview+mlx+usage+audit), Team (swarm/plaza/
+                       orchestrate), Memory, Safety, Connectors, Apikeys, Cron,
+                       Hooks, Tools (dynamic register), Skills (skill.execute+
+                       research.adaptive), Marketplace, Chat (chat.* sessions),
+                       AiAgentPage (per-token SSE via /v1/agents/{id}/execute/
+                       stream + Logs/Events debug tabs)
+  components/StudioNav      horizontal studio tab bar
+  components/StreamPanel    EventSource SSE panel (tokens, timer, stop/rerun)
+  components/ui/            Modal/Tabs/Textarea/Switch/JsonEditor primitives
 manifest.json          shell manifest (registered with the gateway)
 vendor/@fusion/        vendored web-ui + web-sdk sources (see below)
 ```
+
+## RPC bridge (#330)
+
+Studio pages talk to the daemon through `POST /v1/rpc` — a deny-by-default
+allowlisted JSON-RPC bridge over the existing dispatcher surface
+(`agent_runtime/rpc_bridge.py`). Only explicitly allowlisted methods dispatch;
+mutating methods are audit-logged as `web.rpc.{method}`. Agent streaming uses
+the dedicated `GET /v1/agents/{agent_id}/execute/stream` SSE endpoint (#331)
+that reuses the ad-hoc agent graph builder and accepts `?api_key=` or Bearer
+(EventSource GET constraint).
 
 ## Vendored dependencies
 
