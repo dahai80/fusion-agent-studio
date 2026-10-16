@@ -49,6 +49,10 @@ WEB_RPC_ALLOWLIST: frozenset[str] = frozenset(
         "permission.list",
         "permission.update",
         "skill.execute",
+    "skills.list",
+    "skills.load",
+    "skills.install",
+    "skills.delete",
         "research.adaptive",
         # memory
         "memory.store",
