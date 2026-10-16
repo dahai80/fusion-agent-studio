@@ -6,6 +6,7 @@ template search with filtering, and one-click install.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import time
@@ -34,6 +35,9 @@ class MarketEntry:
     downloads: int = 0
     created_at: float = 0.0
     updated_at: float = 0.0
+    # N17 #356: air-gapped integrity — sha256 over canonical graph_data,
+    # stamped at publish, verified at install (tampered package refuses).
+    sha256: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -49,6 +53,7 @@ class MarketEntry:
             "downloads": self.downloads,
             "created_at": self.created_at,
             "updated_at": self.updated_at,
+            "sha256": self.sha256,
         }
 
     @classmethod
@@ -66,6 +71,7 @@ class MarketEntry:
             downloads=data.get("downloads", 0),
             created_at=data.get("created_at", 0.0),
             updated_at=data.get("updated_at", 0.0),
+            sha256=data.get("sha256", ""),
         )
 
 
@@ -98,7 +104,14 @@ class AgentMarketplace:
             json.dump([e.to_dict() for e in self._index.values()], f, indent=2)
         logger.debug("Saved marketplace index: %d entries", len(self._index))
 
+    @staticmethod
+    def compute_signature(graph_data: dict[str, Any]) -> str:
+        payload = json.dumps(graph_data, sort_keys=True, ensure_ascii=False)
+        return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
     def publish(self, entry: MarketEntry) -> str:
+        if not entry.sha256:
+            entry.sha256 = self.compute_signature(entry.graph_data)
         if not entry.id:
             entry.id = str(uuid.uuid4())[:8]
         now = time.time()
@@ -218,10 +231,20 @@ class AgentMarketplace:
     def install(
         self, entry_id: str, target_dir: Path | str | None = None
     ) -> Path | None:
+        entry = self._index.get(entry_id)
+        if entry is None:
+            logger.error("Entry not found: %s", entry_id)
+            return None
+        # N17 #356: verify air-gapped integrity before install.
+        expected = self.compute_signature(entry.graph_data)
+        if entry.sha256 and entry.sha256 != expected:
+            logger.error(
+                "install refused: signature mismatch entry=%s expected=%s got=%s",
+                entry_id, expected, entry.sha256,
+            )
+            return None
         result = self.export_agent(entry_id, target_dir or self.store_dir / "installed")
         if result:
-            entry = self._index.get(entry_id)
-            if entry:
-                entry.downloads += 1
-                self._save_index()
+            entry.downloads += 1
+            self._save_index()
         return result
