@@ -124,6 +124,7 @@ class AgentRuntime(_SafetyApprovalMixin, _CheckpointMixin, _DynamicToolsMixin, _
         # N6/#343 ToolSearch: env-gated lazy tool schema loading. When on,
         # schemas beyond TOOLSEARCH_INLINE_LIMIT are deferred out of the
         # prompt; the LLM finds them via the tool_search tool at need.
+        self._memory_tools_registered = False
         self._toolsearch_enabled = os.environ.get("FUSION_TOOLSEARCH", "") == "1"
         if self._toolsearch_enabled and self.tools is not None:
             try:
@@ -354,6 +355,7 @@ class AgentRuntime(_SafetyApprovalMixin, _CheckpointMixin, _DynamicToolsMixin, _
             self.tool_funnel.set_budget_ref(token_budget)
             self.llm_funnel.set_budget_ref(token_budget)
         ctx = context or AgentContext()
+        self._ensure_memory_tools()
         writer = get_trajectory_writer()
         trace_id = writer.start(
             session_id=ctx.session_id,
@@ -492,8 +494,18 @@ class AgentRuntime(_SafetyApprovalMixin, _CheckpointMixin, _DynamicToolsMixin, _
         )
 
         if self.memory_engine and initial_input:
-            mem_ctx = await asyncio.to_thread(self.memory_engine.recall_relevant, initial_input, 5)
+            # N15/#354: recall injection token budget hard cap — memory must
+            # not crowd out working context.
+            inject_cap = self._memory_inject_tokens()
+            mem_ctx = await asyncio.to_thread(
+                self.memory_engine.recall_relevant, initial_input, 5
+            )
             if mem_ctx:
+                if len(mem_ctx) > inject_cap:
+                    mem_ctx = mem_ctx[:inject_cap]
+                    logger.info(
+                        "memory injection truncated to %d chars (budget)", inject_cap
+                    )
                 ctx.add_message("system", f"[Relevant memory]: {mem_ctx}")
                 logger.info("Auto-loaded memory for input")
 
@@ -846,6 +858,27 @@ class AgentRuntime(_SafetyApprovalMixin, _CheckpointMixin, _DynamicToolsMixin, _
 
         ctx.finished_at = time.time()
         await self._auto_store_memory(ctx, graph)
+
+    def _memory_inject_tokens(self) -> int:
+        # N15: recall injection budget (chars ~ 4x tokens hard cap).
+        try:
+            return int(os.environ.get("FUSION_MEMORY_INJECT_TOKENS", "2000")) * 4
+        except ValueError:
+            return 8000
+
+    def _ensure_memory_tools(self) -> None:
+        # N15/#354: memory tool group registered once when engine wired.
+        if self._memory_tools_registered or self.memory_engine is None or self.tools is None:
+            return
+        try:
+            from tools.memory_tools import create_memory_tools
+
+            for t in create_memory_tools(lambda: self.memory_engine):
+                self.tools.register(t)
+            self._memory_tools_registered = True
+            logger.info("memory tool group registered (4 tools)")
+        except Exception as e:
+            logger.warning("memory tools registration failed: %s", e)
 
     def _register_exec_future(self, exec_id: str, key: str) -> None:
         # 审计 A-1 Tier1: future 创建时登记归属 exec_id, 供 reap 索引.

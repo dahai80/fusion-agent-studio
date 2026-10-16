@@ -23,6 +23,8 @@ class MemoryDispatcher(SubDispatcher):
             "memory.recall_relevant": self._handle_memory_recall_relevant,
             "memory.auto_forget": self._handle_memory_auto_forget,
             "memory.backend": self._handle_memory_backend,
+            "memory.pack_export": self._handle_memory_pack_export,
+            "memory.pack_import": self._handle_memory_pack_import,
         }
 
     async def _handle_memory_store(self, params: dict) -> dict:
@@ -120,6 +122,24 @@ class MemoryDispatcher(SubDispatcher):
             max_entries=max_entries, min_importance=min_importance
         )
         return {"removed": removed}
+
+    async def _handle_memory_pack_export(self, params: dict) -> dict:
+        from agent_runtime.memory_pack import export_pack
+
+        out_dir = params.get("out_dir", "")
+        if not out_dir:
+            return {"status": "error", "message": "out_dir parameter required"}
+        mem = self._daemon._get_memory()
+        return export_pack(mem, out_dir, scope=params.get("scope", ""))
+
+    async def _handle_memory_pack_import(self, params: dict) -> dict:
+        from agent_runtime.memory_pack import import_pack
+
+        in_dir = params.get("in_dir", "")
+        if not in_dir:
+            return {"status": "error", "message": "in_dir parameter required"}
+        mem = self._daemon._get_memory()
+        return import_pack(mem, in_dir, scope=params.get("scope", ""))
 
     async def _handle_memory_backend(self, params: dict) -> dict:
         # issue #246 后续: 暴露当前记忆后端 (fusion_memory adapter 或 legacy sqlite),
