@@ -123,6 +123,9 @@ WEB_RPC_ALLOWLIST: frozenset[str] = frozenset(
         "analytics.agent_usage",
         "audit.list",
         "mlx.status",
+        # N11 #350: session SLO telemetry (read-only)
+        "telemetry.metrics",
+        "telemetry.session_slo",
         # marketplace
         "marketplace.list_categories",
         "marketplace.search",
