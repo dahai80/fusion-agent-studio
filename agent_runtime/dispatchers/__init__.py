@@ -13,6 +13,7 @@ from .memory import MemoryDispatcher
 from .planner import PlannerDispatcher
 from .plugin import PluginDispatcher
 from .safety import SafetyDispatcher
+from .subagent import SubAgentDispatcher
 from .team import TeamDispatcher
 from .trainer import TrainerDispatcher
 from .workflow import WorkflowDispatcher
@@ -34,4 +35,5 @@ __all__ = [
     "PluginDispatcher",
     "ArtifactDispatcher",
     "TrainerDispatcher",
+    "SubAgentDispatcher",
 ]

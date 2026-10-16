@@ -1217,6 +1217,7 @@ class DaemonServer:
             PlannerDispatcher,
             PluginDispatcher,
             SafetyDispatcher,
+            SubAgentDispatcher,
             TeamDispatcher,
             TrainerDispatcher,
             WorkflowDispatcher,
@@ -1242,6 +1243,7 @@ class DaemonServer:
             McpDispatcher(self),
             PluginDispatcher(self),
             TrainerDispatcher(self),
+            SubAgentDispatcher(self),
         ]
 
     async def _handle_context_compact(self, params: dict) -> dict:

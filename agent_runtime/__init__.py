@@ -61,6 +61,7 @@ from .fmp_router import (
     MessageDedup,
     TurnManager,
 )
+from .funnels import LifecycleBus, LLMFunnel, ToolFunnel
 from .fusion_code_bridge import CodeResult, CodeTask, FusionCodeBridge
 from .fusion_memory_adapter import FusionMemoryAdapter
 from .graph import AgentGraph, Edge, NodeConfig, NodeType
@@ -90,6 +91,7 @@ from .orchestrator import (
     MultiAgentOrchestrator,
     OrchestrationResult,
 )
+from .permissions import PermissionEngine, PermissionMode, PermissionRule
 from .persistence import AgentStore, Checkpoint
 from .planner import ExecutionPlan, PlannerEngine, PlanStep
 from .plaza import Plaza, PlazaChannel, PlazaMessage
@@ -122,6 +124,7 @@ from .safety import (
     SafetyVerdict,
 )
 from .sub_graph import SubGraphRegistry
+from .subagent import SubAgentRegistry, SubAgentReport, SubAgentRunner, SubAgentSpec
 from .swarm_router import SwarmAgent, SwarmRouter, TaskDelegation
 from .token_budget import TokenBudget
 from .triggers import CronExecution, CronJob, CronManager, Webhook, WebhookManager
@@ -150,6 +153,10 @@ __all__ = [
     "JsonSchemaValidator",
     "PromptTemplateManager",
     "SubGraphRegistry",
+    "SubAgentRegistry",
+    "SubAgentReport",
+    "SubAgentRunner",
+    "SubAgentSpec",
     "AgentManifest",
     "AgentPackage",
     "MemoryEngine",
@@ -263,4 +270,10 @@ __all__ = [
     "WebhookManager",
     "CronManager",
     "TokenBudget",
+    "LifecycleBus",
+    "LLMFunnel",
+    "ToolFunnel",
+    "PermissionEngine",
+    "PermissionMode",
+    "PermissionRule",
 ]
