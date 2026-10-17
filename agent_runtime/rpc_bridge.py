@@ -126,6 +126,9 @@ WEB_RPC_ALLOWLIST: frozenset[str] = frozenset(
         # N11 #350: session SLO telemetry (read-only)
         "telemetry.metrics",
         "telemetry.session_slo",
+        # R4 #351: governance page — budget caps (set is mutating, audited)
+        "budget.status",
+        "budget.set",
         # marketplace
         "marketplace.list_categories",
         "marketplace.search",

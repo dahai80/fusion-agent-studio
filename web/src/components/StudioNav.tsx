@@ -8,6 +8,7 @@ export const STUDIO_TABS: Array<{ key: string; label: string; labelEn: string }>
     { key: 'agents', label: 'Agents', labelEn: 'Agents' },
     { key: 'workflows', label: '工作流', labelEn: 'Workflows' },
     { key: 'canvas', label: '画布', labelEn: 'Canvas' },
+    { key: 'governance', label: '治理', labelEn: 'Governance' },
     { key: 'dashboard', label: '仪表盘', labelEn: 'Dashboard' },
     { key: 'team', label: '团队', labelEn: 'Team' },
     { key: 'memory', label: '记忆', labelEn: 'Memory' },

@@ -12,6 +12,7 @@ import { ChatPage } from './pages/studio/ChatPage';
 import { ConnectorsPage } from './pages/studio/ConnectorsPage';
 import { CronPage } from './pages/studio/CronPage';
 import { DashboardPage } from './pages/studio/DashboardPage';
+import { GovernancePage } from './pages/studio/GovernancePage';
 import { HooksPage } from './pages/studio/HooksPage';
 import { MarketplacePage } from './pages/studio/MarketplacePage';
 import { MemoryPage } from './pages/studio/MemoryPage';
@@ -41,7 +42,8 @@ type StudioRoute =
     | 'marketplace'
     | 'chat'
     | 'aiagent'
-    | 'canvas';
+    | 'canvas'
+    | 'governance';
 
 type Route =
     | { name: 'workflows' }
@@ -66,6 +68,7 @@ const STUDIO_ROUTES: ReadonlySet<string> = new Set<StudioRoute>([
     'chat',
     'aiagent',
     'canvas',
+    'governance',
 ]);
 
 function parseHash(): Route {
@@ -110,6 +113,8 @@ function StudioPage(props: { tab: StudioRoute }) {
             return <ChatPage />;
         case 'canvas':
             return <WorkflowCanvasPage />;
+        case 'governance':
+            return <GovernancePage />;
         case 'aiagent':
             return <AiAgentPage />;
         default:
