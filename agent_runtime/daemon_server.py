@@ -1914,6 +1914,28 @@ class DaemonServer:
                 len(tool_errors),
             )
 
+            # N9 #348: run artifact versioned triple (graph + env + conversation).
+            run_artifact_id = ""
+            try:
+                from .run_artifacts import record_run_artifact
+
+                run_rec = record_run_artifact(
+                    graph,
+                    exec_ctx.messages,
+                    run_id=session_id or exec_ctx.session_id,
+                    metadata={
+                        "graph_id": graph_id,
+                        "task_id": task_id,
+                        "source": "graph.execute",
+                        "events": len(events),
+                        "tool_errors": len(tool_errors),
+                    },
+                )
+                if run_rec:
+                    run_artifact_id = run_rec["artifact_id"]
+            except Exception as exc:
+                logger.warning("graph.execute %s run artifact failed: %s", graph_id, exc)
+
             # #141 priority-4: 关联 task 时, 回写 artifact_ids + 完成状态 + last_result.
             if task_id:
                 try:
@@ -1927,6 +1949,7 @@ class DaemonServer:
                             "session_id": session_id or f"sess-{int(time.time())}",
                             "events": len(events),
                             "artifact_ids": artifact_ids,
+                            "run_artifact_id": run_artifact_id,
                         },
                     )
                     logger.info(
@@ -2302,12 +2325,36 @@ class DaemonServer:
             # 完成证据
             if not stop_reason:
                 stop_reason = "end_turn"
+            # N9 #348: run artifact versioned triple (graph + env + conversation).
+            run_artifact_id = ""
+            try:
+                from .run_artifacts import record_run_artifact
+
+                run_rec = record_run_artifact(
+                    graph,
+                    exec_ctx.messages,
+                    run_id=session_id or exec_ctx.session_id,
+                    metadata={
+                        "graph_id": graph_id,
+                        "task_id": task_id,
+                        "execution_id": execution_id,
+                        "team": team,
+                        "source": "graph.execute_async",
+                        "events": events_count,
+                        "stop_reason": stop_reason,
+                    },
+                )
+                if run_rec:
+                    run_artifact_id = run_rec["artifact_id"]
+            except Exception as exc:
+                logger.warning("execute_async %s run artifact failed: %s", execution_id, exc)
             self._write_evidence(
                 execution_id,
                 {
                     "type": "execution.completed",
                     "events_count": events_count,
                     "artifact_ids": artifact_ids,
+                    "run_artifact_id": run_artifact_id,
                     "stop_reason": stop_reason,
                 },
                 team=team,
@@ -2337,6 +2384,7 @@ class DaemonServer:
                             "artifact_ids": artifact_ids,
                             "execution_id": execution_id,
                             "stop_reason": stop_reason,
+                            "run_artifact_id": run_artifact_id,
                         },
                     )
                     ev_path = str(self._evidence_path(execution_id, team))

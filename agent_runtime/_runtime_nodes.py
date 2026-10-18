@@ -31,6 +31,19 @@ from .variable_manager import VariableManager
 class _NodeExecutorsMixin:
 
     @staticmethod
+    def _thinking_visible(ctx: AgentContext, node: NodeConfig) -> bool:
+        # N9 #348: run-level ctx var AND node-level opt-out. Default visible.
+        if not node.tool_params.get("thinking", True):
+            return False
+        if ctx.variables is None:
+            return True
+        try:
+            return bool(ctx.variables.get("show_thinking", True))
+        except Exception as exc:
+            logger.debug("thinking visibility check failed: %s", exc)
+            return True
+
+    @staticmethod
     def _detect_unclosed_artifacts(content: str) -> list[str]:
         opens = re.findall(r'<artifact[^>]*\bid=["\']([^"\']+)["\']', content)
         closes = re.findall(r"</artifact>", content)
@@ -319,6 +332,17 @@ class _NodeExecutorsMixin:
                             type=AgentEventType.TOKEN,
                             content=delta_content,
                             node_id=node.label,
+                        )
+
+                    # N9 #348: thinking channel — separate event type so GUIs
+                    # can toggle visibility without losing the answer stream.
+                    delta_reasoning = chunk.get("delta_reasoning") or ""
+                    if delta_reasoning and self._thinking_visible(ctx, node):
+                        yield AgentEvent(
+                            type=AgentEventType.THINKING_TOKEN,
+                            content=delta_reasoning,
+                            node_id=node.label,
+                            metadata={"channel": "thinking"},
                         )
 
                     if delta_tool_calls:

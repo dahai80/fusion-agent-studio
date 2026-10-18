@@ -29,6 +29,7 @@ class LLMResponse:
         "prompt_tokens": 0,
         "completion_tokens": 0,
     })
+    reasoning: str = ""
 
 
 @dataclass
@@ -39,6 +40,18 @@ class StreamChunk:
     delta_tool_calls: list[dict] = field(default_factory=list)
     finish_reason: str | None = None
     usage: dict | None = None
+    delta_reasoning: str = ""
+
+
+def _reasoning_delta(delta: dict) -> str:
+    # N9 (#348): thinking channel — servers expose reasoning under different
+    # keys (vLLM/DeepSeek `reasoning_content`, mlx-lm `reasoning`, some
+    # OpenAI-compatible shims `thinking`). Accept all, deterministic order.
+    for key in ("reasoning_content", "reasoning", "thinking"):
+        value = delta.get(key)
+        if isinstance(value, str) and value:
+            return value
+    return ""
 
 
 @dataclass
@@ -156,6 +169,7 @@ class FusionMLXClient:
             tool_calls=message.get("tool_calls") or [],
             finish_reason=choice.get("finish_reason") or "stop",
             usage=data.get("usage") or {},
+            reasoning=_reasoning_delta(message),
         )
 
     async def list_models(self) -> list[dict[str, Any]]:
@@ -277,6 +291,7 @@ class FusionMLXClient:
                     delta_tool_calls=delta.get("tool_calls") or [],
                     finish_reason=finish_reason,
                     usage=usage or {},
+                    delta_reasoning=_reasoning_delta(delta),
                 )
                 yield chunk
 

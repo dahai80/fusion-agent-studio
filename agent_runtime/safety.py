@@ -447,12 +447,19 @@ class SafetyGateway:
         return True
 
     def get_pending_actions(self) -> list[dict[str, Any]]:
+        from .permission_cards import build_card
+
         with self._lock:
-            return [
+            actions = [
                 {"action_id": aid, **{k: v for k, v in info.items() if k != "request"}}
                 for aid, info in self._pending_action_approvals.items()
                 if info["status"] == "pending"
             ]
+        for action in actions:
+            card = build_card(action)
+            action["card_type"] = card["card_type"]
+            action["card"] = card
+        return actions
 
     def check(self, content: str, context: str = "") -> SafetyVerdict:
         if self.enable_injection:

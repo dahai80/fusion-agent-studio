@@ -73,6 +73,9 @@ class InfraDispatcher(SubDispatcher):
             "audit.list": self._handle_audit_list,
             "system.offline_status": self._handle_system_offline_status,
             "system.set_offline": self._handle_system_set_offline,
+            "run_artifact.list": self._handle_run_artifact_list,
+            "run_artifact.get": self._handle_run_artifact_get,
+            "run_artifact.versions": self._handle_run_artifact_versions,
         }
 
     async def _handle_telemetry_configure(self, params: dict) -> dict:
@@ -867,3 +870,63 @@ class InfraDispatcher(SubDispatcher):
         self._daemon._offline_mode = bool(enabled)
         logger.info("system.set_offline: offline=%s", self._daemon._offline_mode)
         return {"offline": self._daemon._offline_mode}
+
+    async def _handle_run_artifact_list(self, params: dict) -> dict:
+        from ..run_artifacts import get_run_artifact_store
+
+        limit = int(params.get("limit", 50) or 50)
+        name = str(params.get("name", "") or "")
+        store = get_run_artifact_store()
+        records = store.list(limit=0)
+        if name:
+            records = [r for r in records if r.get("name") == name]
+        total = len(records)
+        records = records[:limit]
+        # List view: drop full conversation/graph bodies to keep payload small.
+        summaries = []
+        for rec in records:
+            summaries.append(
+                {
+                    "artifact_id": rec.get("artifact_id", ""),
+                    "name": rec.get("name", ""),
+                    "run_id": rec.get("run_id", ""),
+                    "version": rec.get("version", 0),
+                    "created_at": rec.get("created_at", 0),
+                    "message_count": (rec.get("conversation") or {}).get("count", 0),
+                    "graph_nodes": len((rec.get("graph") or {}).get("nodes") or {}),
+                    "graph_edges": len((rec.get("graph") or {}).get("edges") or []),
+                    "metadata": rec.get("metadata", {}),
+                }
+            )
+        logger.info("run_artifact.list name=%s total=%d returned=%d", name, total, len(summaries))
+        return {"artifacts": summaries, "total": total}
+
+    async def _handle_run_artifact_get(self, params: dict) -> dict:
+        from ..run_artifacts import get_run_artifact_store
+
+        artifact_id = str(params.get("artifact_id", "") or "")
+        if not artifact_id:
+            raise ValueError("artifact_id required")
+        record = get_run_artifact_store().get(artifact_id)
+        if record is None:
+            raise ValueError(f"artifact not found: {artifact_id}")
+        return record
+
+    async def _handle_run_artifact_versions(self, params: dict) -> dict:
+        from ..run_artifacts import get_run_artifact_store
+
+        name = str(params.get("name", "") or "")
+        if not name:
+            raise ValueError("name required")
+        records = get_run_artifact_store().versions(name)
+        summaries = [
+            {
+                "artifact_id": r.get("artifact_id", ""),
+                "name": r.get("name", ""),
+                "version": r.get("version", 0),
+                "run_id": r.get("run_id", ""),
+                "created_at": r.get("created_at", 0),
+            }
+            for r in records
+        ]
+        return {"name": name, "versions": summaries, "total": len(summaries)}

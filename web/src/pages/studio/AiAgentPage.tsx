@@ -10,6 +10,7 @@ import {
 import { useEffect, useRef, useState } from 'react';
 import { apiBase, rpc } from '../../api';
 import { PageHeader } from '../../components/PageHeader';
+import { Switch } from '../../components/ui/Switch';
 import { Tabs } from '../../components/ui/Tabs';
 import { Textarea } from '../../components/ui/Textarea';
 import { useT } from '../../i18n';
@@ -60,6 +61,8 @@ export function AiAgentPage() {
     const [messages, setMessages] = useState<ChatMessage[]>([]);
     const [input, setInput] = useState('');
     const [streaming, setStreaming] = useState(false);
+    const [showThinking, setShowThinking] = useState(true);
+    const [thinkingText, setThinkingText] = useState('');
     const [logs, setLogs] = useState<string[]>([]);
     const [events, setEvents] = useState<SseFrame[]>([]);
     const abortRef = useRef<AbortController | null>(null);
@@ -110,10 +113,11 @@ export function AiAgentPage() {
         }
         setInput('');
         setMessages((prev) => [...prev, { role: 'user', content: text }]);
+        setThinkingText('');
         setStreaming(true);
         const ctrl = new AbortController();
         abortRef.current = ctrl;
-        const qs = new URLSearchParams({ input: text });
+        const qs = new URLSearchParams({ input: text, thinking: showThinking ? '1' : '0' });
         const cfgKey = import.meta.env.VITE_API_KEY as string | undefined;
         if (cfgKey) qs.set('api_key', cfgKey);
         try {
@@ -159,6 +163,8 @@ export function AiAgentPage() {
                             throw new Error(obj.message ?? obj.content ?? 'stream error');
                         } else if (type === 'token') {
                             appendAssistant(frameDelta(obj));
+                        } else if (type === 'thinking_token') {
+                            setThinkingText((prev) => prev + frameDelta(obj));
                         }
                         if (done) break;
                     }
@@ -222,6 +228,26 @@ export function AiAgentPage() {
             <div className="px-4 pt-3">
                 {tab === 'chat' ? (
                     <div className="flex flex-col gap-3">
+                        <div className="flex items-center justify-end">
+                            <Switch
+                                checked={showThinking}
+                                onChange={setShowThinking}
+                                label={t('显示思考', 'Show thinking')}
+                            />
+                        </div>
+                        {showThinking && thinkingText ? (
+                            <details
+                                open
+                                className="rounded-md border border-border bg-bg-muted p-3 text-xs text-text-secondary"
+                            >
+                                <summary className="cursor-pointer">
+                                    {t('思考通道', 'Thinking channel')}
+                                </summary>
+                                <pre className="mt-2 max-h-40 overflow-y-auto whitespace-pre-wrap font-mono">
+                                    {thinkingText}
+                                </pre>
+                            </details>
+                        ) : null}
                         <div
                             ref={chatRef}
                             className="h-80 overflow-y-auto rounded-md border border-border bg-bg p-3"
