@@ -330,10 +330,11 @@ class AgentRuntime(_SafetyApprovalMixin, _CheckpointMixin, _DynamicToolsMixin, _
         context: AgentContext | None = None,
         token_budget: TokenBudget | None = None,
         max_iterations: int | None = None,
+        show_thinking: bool | None = None,
     ) -> AsyncIterator[AgentEvent]:
         async for event in self._run_with_trajectory(
             graph, initial_input, context, token_budget,
-            stream=True, max_iterations=max_iterations,
+            stream=True, max_iterations=max_iterations, show_thinking=show_thinking,
         ):
             yield event
 
@@ -345,6 +346,7 @@ class AgentRuntime(_SafetyApprovalMixin, _CheckpointMixin, _DynamicToolsMixin, _
         token_budget: TokenBudget | None = None,
         stream: bool = False,
         max_iterations: int | None = None,
+        show_thinking: bool | None = None,
     ) -> AsyncIterator[AgentEvent]:
         # 审计 P0-3: 调用点未传 token_budget 时回退 runtime 实例默认预算.
         # 单点根治 dead-wire, 覆盖全部调用点 (daemon/api/orchestrator/sub-graph).
@@ -355,6 +357,11 @@ class AgentRuntime(_SafetyApprovalMixin, _CheckpointMixin, _DynamicToolsMixin, _
             self.tool_funnel.set_budget_ref(token_budget)
             self.llm_funnel.set_budget_ref(token_budget)
         ctx = context or AgentContext()
+        # N9 #348: thinking channel visibility — run-level override seeds
+        # ctx vars; nodes may still opt out via tool_params.thinking=false.
+        if show_thinking is not None:
+            self._seed_ctx_variables(ctx)
+            ctx.variables.set("show_thinking", bool(show_thinking))
         self._ensure_memory_tools()
         writer = get_trajectory_writer()
         trace_id = writer.start(

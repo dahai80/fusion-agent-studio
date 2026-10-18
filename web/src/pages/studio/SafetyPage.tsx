@@ -1,6 +1,5 @@
 import { createPoller } from '@fusion/web-sdk';
 import {
-    DataTable,
     EmptyState,
     ErrorState,
     FormField,
@@ -25,7 +24,25 @@ interface SafetyAction {
     level?: string;
     status?: string;
     created_at?: number;
+    card_type?: string;
+    card?: {
+        card_type?: string;
+        diff?: string;
+        original?: string;
+        proposed?: string;
+        requires_diff?: boolean;
+    };
 }
+
+// N9 (#348): Permission Cards — four approval card classes.
+const CARD_META: Record<string, { zh: string; en: string; accent: string }> = {
+    folder: { zh: '文件夹', en: 'Folder', accent: 'border-warning text-warning' },
+    code: { zh: '代码', en: 'Code', accent: 'border-brand text-brand' },
+    network: { zh: '网络', en: 'Network', accent: 'border-running text-running' },
+    remote: { zh: '远程', en: 'Remote', accent: 'border-error text-error' },
+};
+
+const CARD_ORDER = ['folder', 'code', 'network', 'remote'];
 
 interface SafetyVerdict {
     level?: string;
@@ -128,6 +145,7 @@ function PendingSection() {
     const [actions, setActions] = useState<SafetyAction[]>([]);
     const [pollError, setPollError] = useState('');
     const [loaded, setLoaded] = useState(false);
+    const [cardFilter, setCardFilter] = useState('');
 
     const refresh = async () => {
         try {
@@ -162,62 +180,110 @@ function PendingSection() {
         }
     };
 
+    const counts = CARD_ORDER.reduce<Record<string, number>>((acc, key) => {
+        acc[key] = actions.filter((a) => (a.card_type ?? a.card?.card_type) === key).length;
+        return acc;
+    }, {});
+    const visible = cardFilter
+        ? actions.filter((a) => (a.card_type ?? a.card?.card_type) === cardFilter)
+        : actions;
+
     return (
-        <div className="px-4">
+        <div className="flex flex-col gap-3 px-4">
+            <div className="flex flex-wrap gap-2">
+                <button
+                    type="button"
+                    onClick={() => setCardFilter('')}
+                    className={`rounded-md border px-2.5 py-1 text-xs ${
+                        cardFilter === ''
+                            ? 'border-brand text-brand'
+                            : 'border-border text-text-secondary'
+                    }`}
+                >
+                    {t('全部', 'All')} ({actions.length})
+                </button>
+                {CARD_ORDER.map((key) => (
+                    <button
+                        key={key}
+                        type="button"
+                        onClick={() => setCardFilter(key)}
+                        className={`rounded-md border px-2.5 py-1 text-xs ${
+                            cardFilter === key
+                                ? `${CARD_META[key].accent}`
+                                : 'border-border text-text-secondary'
+                        }`}
+                    >
+                        {t(CARD_META[key].zh, CARD_META[key].en)} ({counts[key] ?? 0})
+                    </button>
+                ))}
+            </div>
             {pollError ? (
                 <ErrorState message={pollError} retryLabel={t('重试', 'Retry')} onRetry={refresh} />
             ) : !loaded ? (
                 <SkeletonLines rows={3} />
-            ) : actions.length === 0 ? (
+            ) : visible.length === 0 ? (
                 <EmptyState title={t('无待审动作', 'no pending actions')} />
             ) : (
-                <DataTable<SafetyAction>
-                    rows={actions}
-                    rowKey={(a) => a.action_id}
-                    pageSize={15}
-                    columns={[
-                        {
-                            key: 'action_id',
-                            header: t('动作', 'Action'),
-                            render: (a) => <span className="font-mono text-xs">{a.action_id}</span>,
-                        },
-                        {
-                            key: 'category',
-                            header: t('类别', 'Category'),
-                            render: (a) => a.category ?? '-',
-                        },
-                        {
-                            key: 'content',
-                            header: t('内容', 'Content'),
-                            render: (a) => (
-                                <span className="line-clamp-2 text-sm">{a.content ?? '-'}</span>
-                            ),
-                        },
-                        { key: 'level', header: t('级别', 'Level'), render: (a) => a.level ?? '-' },
-                        {
-                            key: 'actions',
-                            header: '',
-                            render: (a) => (
-                                <div className="flex gap-2">
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
+                    {visible.map((a) => {
+                        const cardType = a.card_type ?? a.card?.card_type ?? 'code';
+                        const meta = CARD_META[cardType] ?? CARD_META.code;
+                        const diff = a.card?.diff;
+                        return (
+                            <div
+                                key={a.action_id}
+                                className={`flex flex-col gap-2 rounded-card border-l-4 border border-border bg-bg-elevated p-3 ${meta.accent.split(' ')[0]}`}
+                            >
+                                <div className="flex items-center justify-between">
+                                    <span
+                                        className={`text-xs font-medium ${meta.accent.split(' ')[1]}`}
+                                    >
+                                        {t(meta.zh, meta.en)}
+                                    </span>
+                                    <span className="rounded bg-bg px-1.5 py-0.5 text-[10px] text-text-secondary">
+                                        {a.level ?? '-'}
+                                    </span>
+                                </div>
+                                <div className="text-xs text-text-secondary">
+                                    {t('类别', 'Category')}:{' '}
+                                    <span className="font-mono">{a.category ?? '-'}</span>
+                                </div>
+                                <div className="line-clamp-4 whitespace-pre-wrap text-sm text-text-primary">
+                                    {a.content || '-'}
+                                </div>
+                                <div className="font-mono text-[10px] text-text-muted">
+                                    {a.action_id}
+                                </div>
+                                {diff ? (
+                                    <details>
+                                        <summary className="cursor-pointer text-xs text-text-secondary">
+                                            {t('查看差异', 'View diff')}
+                                        </summary>
+                                        <pre className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap rounded bg-bg p-2 font-mono text-[11px] text-text-secondary">
+                                            {diff}
+                                        </pre>
+                                    </details>
+                                ) : null}
+                                <div className="mt-auto flex gap-2">
                                     <button
                                         type="button"
                                         onClick={() => act(a.action_id, true)}
-                                        className="text-xs text-success hover:underline"
+                                        className="rounded border border-success/40 px-2.5 py-1 text-xs text-success hover:bg-success/10"
                                     >
                                         {t('批准', 'Approve')}
                                     </button>
                                     <button
                                         type="button"
                                         onClick={() => act(a.action_id, false)}
-                                        className="text-xs text-error hover:underline"
+                                        className="rounded border border-error/40 px-2.5 py-1 text-xs text-error hover:bg-error/10"
                                     >
                                         {t('拒绝', 'Reject')}
                                     </button>
                                 </div>
-                            ),
-                        },
-                    ]}
-                />
+                            </div>
+                        );
+                    })}
+                </div>
             )}
         </div>
     );

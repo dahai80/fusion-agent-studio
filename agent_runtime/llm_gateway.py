@@ -701,6 +701,7 @@ class LLMGateway:
                             "delta_tool_calls": chunk.delta_tool_calls,
                             "finish_reason": chunk.finish_reason,
                             "usage": chunk.usage,
+                            "delta_reasoning": getattr(chunk, "delta_reasoning", ""),
                         }
                 finally:
                     # 兜底: 任何路径退出 (异常/正常) 都尝试关闭流, 防连接泄漏.

@@ -129,6 +129,10 @@ WEB_RPC_ALLOWLIST: frozenset[str] = frozenset(
         # R4 #351: governance page — budget caps (set is mutating, audited)
         "budget.status",
         "budget.set",
+        # N9 #348: run artifact versioned triple (read-only)
+        "run_artifact.list",
+        "run_artifact.get",
+        "run_artifact.versions",
         # marketplace
         "marketplace.list_categories",
         "marketplace.search",

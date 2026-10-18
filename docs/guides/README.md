@@ -23,6 +23,7 @@
 | 07 | [程序化集成（SDK）](./07-sdk-programmatic.md) | Python SDK 建模、query 流式、注册自定义工具 |
 | 08 | [部署与发布](./08-deploy-publish.md) | 导出包、发布到 marketplace、HTTP API 端点、launchd 持久化 |
 | 09 | [切换记忆后端](./09-memory-backend.md) | 把记忆存储切到 fusion-memory、查后端、降级与端口冲突 |
+| 10 | [GUI 对标三件](./10-gui-parity.md) | 四类权限卡、思考通道开关、运行产物版本化三元组 |
 
 ## 通用约定（所有文档共用）
 

@@ -49,6 +49,24 @@ interface Metrics {
     latencies: Record<string, number>;
 }
 
+// N9 (#348): run artifact versioned triple — graph + environment + conversation.
+interface RunArtifactSummary {
+    artifact_id: string;
+    name: string;
+    run_id: string;
+    version: number;
+    created_at: number;
+    message_count: number;
+    graph_nodes: number;
+    graph_edges: number;
+}
+
+interface RunArtifactRecord extends RunArtifactSummary {
+    graph?: unknown;
+    environment?: unknown;
+    conversation?: { count: number; messages: unknown[] };
+}
+
 function BudgetTab() {
     const t = useT();
     const { data, error, loading, attempt, manualRetry } = useAutoRetry(
@@ -295,6 +313,133 @@ function EventsTab() {
     );
 }
 
+function ArtifactsTab() {
+    const t = useT();
+    const list = useAutoRetry(
+        () => rpc<{ artifacts: RunArtifactSummary[] }>('run_artifact.list', {}),
+        []
+    );
+    const [selected, setSelected] = useState<RunArtifactRecord | null>(null);
+    const [detailError, setDetailError] = useState('');
+
+    const open = async (artifactId: string) => {
+        setDetailError('');
+        try {
+            const rec = await rpc<RunArtifactRecord>('run_artifact.get', {
+                artifact_id: artifactId,
+            });
+            setSelected(rec);
+        } catch (e) {
+            setDetailError((e as Error).message);
+        }
+    };
+
+    if (list.loading) return <SkeletonLines />;
+    if (list.error)
+        return (
+            <ErrorState
+                message={String(list.error)}
+                retrying={list.attempt}
+                onRetry={list.manualRetry}
+            />
+        );
+    const artifacts = list.data?.artifacts ?? [];
+    if (artifacts.length === 0) return <EmptyState title={t('暂无运行产物', 'no run artifacts')} />;
+
+    return (
+        <div className="space-y-3">
+            <DataTable<RunArtifactSummary>
+                rows={artifacts}
+                rowKey={(a) => a.artifact_id}
+                pageSize={10}
+                columns={[
+                    {
+                        key: 'name',
+                        header: t('图 / 名称', 'Graph / name'),
+                        render: (a) => <span className="text-sm">{a.name}</span>,
+                    },
+                    {
+                        key: 'version',
+                        header: t('版本', 'Version'),
+                        render: (a) => <span className="font-mono text-xs">v{a.version}</span>,
+                    },
+                    {
+                        key: 'shape',
+                        header: t('图规模', 'Graph shape'),
+                        render: (a) => (
+                            <span className="text-xs text-text-secondary">
+                                {a.graph_nodes} nodes / {a.graph_edges} edges
+                            </span>
+                        ),
+                    },
+                    {
+                        key: 'messages',
+                        header: t('对话条数', 'Messages'),
+                        render: (a) => <span className="font-mono text-xs">{a.message_count}</span>,
+                    },
+                    {
+                        key: 'created',
+                        header: t('时间', 'Created'),
+                        render: (a) => (
+                            <span className="text-xs text-text-secondary">
+                                {a.created_at
+                                    ? new Date(a.created_at * 1000).toLocaleString()
+                                    : '-'}
+                            </span>
+                        ),
+                    },
+                    {
+                        key: 'open',
+                        header: '',
+                        render: (a) => (
+                            <button
+                                type="button"
+                                className="text-xs text-brand hover:underline"
+                                onClick={() => void open(a.artifact_id)}
+                            >
+                                {t('查看三元组', 'Open triple')}
+                            </button>
+                        ),
+                    },
+                ]}
+            />
+            {detailError ? <ErrorState message={detailError} /> : null}
+            {selected ? (
+                <div className="rounded border border-border bg-bg-elevated p-3">
+                    <div className="mb-2 flex items-center justify-between">
+                        <span className="text-sm font-medium">
+                            {selected.name} · v{selected.version}
+                        </span>
+                        <button
+                            type="button"
+                            className="text-xs text-text-secondary hover:text-text-primary"
+                            onClick={() => setSelected(null)}
+                        >
+                            {t('关闭', 'Close')}
+                        </button>
+                    </div>
+                    <div className="grid gap-2 md:grid-cols-3">
+                        {(
+                            [
+                                ['graph', t('图定义', 'Graph definition')],
+                                ['environment', t('环境快照', 'Environment snapshot')],
+                                ['conversation', t('对话留档', 'Conversation archive')],
+                            ] as const
+                        ).map(([key, label]) => (
+                            <div key={key} className="rounded border border-border bg-bg p-2">
+                                <div className="mb-1 text-xs text-text-secondary">{label}</div>
+                                <pre className="max-h-60 overflow-auto whitespace-pre-wrap font-mono text-[11px] text-text-secondary">
+                                    {JSON.stringify(selected[key] ?? null, null, 2)}
+                                </pre>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            ) : null}
+        </div>
+    );
+}
+
 export function GovernancePage() {
     const t = useT();
     const [tab, setTab] = useState('budget');
@@ -309,6 +454,7 @@ export function GovernancePage() {
                     { key: 'budget', label: t('预算', 'Budget') },
                     { key: 'permissions', label: t('权限', 'Permissions') },
                     { key: 'events', label: t('事件', 'Events') },
+                    { key: 'artifacts', label: t('产物', 'Artifacts') },
                 ]}
                 active={tab}
                 onChange={setTab}
@@ -317,6 +463,7 @@ export function GovernancePage() {
                 {tab === 'budget' && <BudgetTab />}
                 {tab === 'permissions' && <PermissionsTab />}
                 {tab === 'events' && <EventsTab />}
+                {tab === 'artifacts' && <ArtifactsTab />}
             </div>
         </div>
     );

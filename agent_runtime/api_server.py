@@ -1469,7 +1469,7 @@ async def ws_execute(websocket: WebSocket, graph_id: str):
     "/v1/graphs/{graph_id}/execute/stream",
     dependencies=[Depends(_require_auth_qs_or_raise)],
 )
-async def v1_execute_graph_stream(graph_id: str, input: str = ""):
+async def v1_execute_graph_stream(graph_id: str, input: str = "", thinking: bool = True):
     """Server-Sent Events stream — pushes per-token TOKEN events as they arrive.
 
     Real streaming: connects execute_graph_stream (stream=True) so LLM nodes
@@ -1492,7 +1492,9 @@ async def v1_execute_graph_stream(graph_id: str, input: str = ""):
             _, _unreg = daemon.register_execution("sse", graph_id)
         try:
             async def _sse_stream():
-                async for event in rt.execute_graph_stream(graph, input, token_budget=budget):
+                async for event in rt.execute_graph_stream(
+                    graph, input, token_budget=budget, show_thinking=thinking
+                ):
                     ev_dict = (
                         event.to_dict() if hasattr(event, "to_dict") else {"type": str(event)}
                     )
@@ -1526,7 +1528,7 @@ async def v1_execute_graph_stream(graph_id: str, input: str = ""):
     "/v1/agents/{agent_id}/execute/stream",
     dependencies=[Depends(_require_auth_qs_or_raise)],
 )
-async def v1_execute_agent_stream(agent_id: str, input: str = ""):
+async def v1_execute_agent_stream(agent_id: str, input: str = "", thinking: bool = True):
     """#330: per-token SSE for agent execution — EventSource GET, auth via
     gateway-injected Bearer or ?api_key= (same posture as graph SSE).
     Reuses the ad-hoc graph built from the agent manifest."""
@@ -1554,7 +1556,11 @@ async def v1_execute_agent_stream(agent_id: str, input: str = ""):
 
             async def _sse_stream():
                 async for event in rt.execute_graph_stream(
-                    graph, input, max_iterations=agent_max_iter, token_budget=budget
+                    graph,
+                    input,
+                    max_iterations=agent_max_iter,
+                    token_budget=budget,
+                    show_thinking=thinking,
                 ):
                     ev_dict = (
                         event.to_dict() if hasattr(event, "to_dict") else {"type": str(event)}
