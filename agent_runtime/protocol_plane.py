@@ -28,6 +28,38 @@ PROTOCOL_KINDS = ("mcp", "skill", "plugin")
 # skill.execute which is itself funnel/permission-gated at the runtime.
 GOVERNANCE_CHAIN = ("hooks", "permission", "budget")
 
+X_FUSION_PREFIX = "x-fusion-"
+
+
+def read_extensions(fields) -> dict:
+    # N17 #390: read x-fusion-* extension fields from an MCP tool schema or
+    # header map. Missing/unknown fields degrade to an empty dict.
+    out: dict = {}
+    if not fields:
+        return out
+    items = fields.items() if hasattr(fields, "items") else ()
+    for key, value in items:
+        lowered = str(key).lower()
+        if lowered.startswith(X_FUSION_PREFIX):
+            out[lowered[len(X_FUSION_PREFIX):]] = value
+    return out
+
+
+def write_extensions(extensions: dict | None) -> dict:
+    # N17 #390: publish fusion extensions without forking the wire format.
+    return {
+        f"{X_FUSION_PREFIX}{key}": value
+        for key, value in (extensions or {}).items()
+        if value is not None
+    }
+
+
+def merge_headers(headers: dict | None, extensions: dict | None) -> dict:
+    # Explicit x-fusion-* headers win over derived extensions.
+    merged = write_extensions(extensions)
+    merged.update(headers or {})
+    return merged
+
 
 @dataclass
 class ProtocolArtifact:
@@ -82,6 +114,50 @@ class ProtocolPlane:
         if kind:
             rows = [r for r in rows if r["kind"] == kind]
         return sorted(rows, key=lambda r: (r["kind"], r["name"]))
+
+    def ensure(self, kind: str, name: str, origin: str = "",
+               readonly: bool = False, extensions: dict | None = None) -> ProtocolArtifact:
+        # N17 #390: execution entry points call ensure() so every runnable
+        # artifact is registered on the governance plane before it executes.
+        art = self.get(kind, name)
+        if art is None:
+            return self.register(
+                kind=kind, name=name, origin=origin,
+                readonly=readonly, extensions=extensions or {},
+            )
+        if extensions:
+            art.extensions.update(extensions)
+        if origin and not art.origin:
+            art.origin = origin
+        return art
+
+    def require(self, kind: str, name: str) -> ProtocolArtifact:
+        # Strict mode (FUSION_PROTOCOL_STRICT=1) refuses unregistered
+        # artifacts; default mode auto-registers at the owning layer.
+        import os
+
+        strict = os.environ.get("FUSION_PROTOCOL_STRICT", "").strip().lower() in (
+            "1", "true", "yes", "on",
+        )
+        art = self.get(kind, name)
+        if art is None and strict:
+            raise ValueError(f"protocol artifact not registered: {kind}/{name}")
+        if art is None:
+            art = self.ensure(kind, name)
+        return art
+
+    def check_chain(self, hooks=None, permissions=None, budget=None) -> dict:
+        # N17 #390: report which governance stages are actually armed.
+        present = {
+            "hooks": hooks is not None,
+            "permission": permissions is not None,
+            "budget": budget is not None,
+        }
+        return {
+            "chain": list(GOVERNANCE_CHAIN),
+            "armed": present,
+            "missing": [name for name in GOVERNANCE_CHAIN if not present[name]],
+        }
 
     def governance_route(self, kind: str, name: str) -> dict:
         art = self.get(kind, name)

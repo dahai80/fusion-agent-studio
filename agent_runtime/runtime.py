@@ -338,6 +338,14 @@ class AgentRuntime(_SafetyApprovalMixin, _CheckpointMixin, _DynamicToolsMixin, _
         ):
             yield event
 
+    async def _fire_observability_hook(self, event: str, payload: dict) -> None:
+        if self.hooks is None:
+            return
+        try:
+            await self.hooks.fire(event, payload)
+        except Exception as e:
+            logger.warning("observability hook error event=%s err=%s", event, e)
+
     async def _run_with_trajectory(
         self,
         graph: AgentGraph,
@@ -357,6 +365,10 @@ class AgentRuntime(_SafetyApprovalMixin, _CheckpointMixin, _DynamicToolsMixin, _
             self.tool_funnel.set_budget_ref(token_budget)
             self.llm_funnel.set_budget_ref(token_budget)
         ctx = context or AgentContext()
+        # N8 #391: expose graph identity so funnel metering can charge the
+        # graph-level budget cap. Explicit caller graph_id wins.
+        if not getattr(ctx, "graph_id", ""):
+            ctx.graph_id = getattr(graph, "id", "") or ""
         # N9 #348: thinking channel visibility — run-level override seeds
         # ctx vars; nodes may still opt out via tool_params.thinking=false.
         if show_thinking is not None:
@@ -438,6 +450,15 @@ class AgentRuntime(_SafetyApprovalMixin, _CheckpointMixin, _DynamicToolsMixin, _
                         )
                 if event.type == AgentEventType.ERROR:
                     status = "error"
+                    await self._fire_observability_hook(
+                        "ERROR",
+                        {"node": event.node_id, "content": event.content},
+                    )
+                elif event.type == AgentEventType.CHECKPOINT:
+                    await self._fire_observability_hook(
+                        "CHECKPOINT",
+                        {"node": event.node_id, "content": event.content},
+                    )
                 if event.type == AgentEventType.START:
                     writer.record_iteration(ctx.session_id, getattr(ctx, "iteration_count", 0))
                 yield event

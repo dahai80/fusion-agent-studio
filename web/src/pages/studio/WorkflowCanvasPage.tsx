@@ -19,6 +19,7 @@ import {
     addEdge,
     useEdgesState,
     useNodesState,
+    useReactFlow,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -43,7 +44,16 @@ const PORT_COLOR: Record<string, string> = {
     fan: '#0ea5e9',
 };
 
-type FusionNodeData = { label: string; nodeType: string; config: ServerNode };
+type FusionNodeData = {
+    label: string;
+    nodeType: string;
+    config: ServerNode;
+    pinned?: boolean;
+    breakpoint?: boolean;
+};
+
+const CANVAS_GRAPH_KEY = 'fusion.canvas.graphId';
+const PIN_KEY_PREFIX = 'fusion.canvas.pins.';
 
 function FusionNode(props: { data: FusionNodeData; selected?: boolean }) {
     const { data, selected } = props;
@@ -64,7 +74,11 @@ function FusionNode(props: { data: FusionNodeData; selected?: boolean }) {
                     style={{ backgroundColor: PORT_COLOR[inP], width: 12, height: 12 }}
                 />
             )}
-            <div className="font-medium text-text-primary">{data.label}</div>
+            <div className="font-medium text-text-primary flex items-center gap-1">
+                {data.label}
+                {data.pinned ? <span title="data pinned">📌</span> : null}
+                {data.breakpoint ? <span title="breakpoint">⏸</span> : null}
+            </div>
             <div className="text-[10px] text-text-secondary mt-0.5 flex items-center gap-1">
                 <span className="rounded bg-brand/10 text-brand px-1">{data.nodeType}</span>
                 {data.config.tool_name ? <span>· {String(data.config.tool_name)}</span> : null}
@@ -122,6 +136,83 @@ function CanvasInner() {
     const [govEvents, setGovEvents] = useState<GovEvent[]>([]);
     const [activeNodes, setActiveNodes] = useState<Record<string, string>>({});
     const esRef = useRef<EventSource | null>(null);
+    const [pins, setPins] = useState<Record<string, { output: string; ts: number }>>({});
+    const [budget, setBudget] = useState<Record<string, number> | null>(null);
+    const [pending, setPending] = useState<Array<Record<string, unknown>>>([]);
+    const [connectMenu, setConnectMenu] = useState<{
+        x: number;
+        y: number;
+        from: string;
+        query: string;
+    } | null>(null);
+    const [historyLen, setHistoryLen] = useState(0);
+    const historyRef = useRef<Array<{ nodes: Node[]; edges: Edge[] }>>([]);
+    const historyIndexRef = useRef(-1);
+    const nodesRef = useRef<Node[]>([]);
+    const edgesRef = useRef<Edge[]>([]);
+    const { screenToFlowPosition } = useReactFlow();
+
+    useEffect(() => {
+        nodesRef.current = nodes;
+    }, [nodes]);
+    useEffect(() => {
+        edgesRef.current = edges;
+    }, [edges]);
+
+    // N13 (#386): undo/redo — snapshot the pre-mutation graph state.
+    const pushHistory = useCallback(() => {
+        const hist = historyRef.current.slice(0, historyIndexRef.current + 1);
+        hist.push({ nodes: nodesRef.current, edges: edgesRef.current });
+        historyRef.current = hist;
+        historyIndexRef.current = hist.length - 1;
+        setHistoryLen(hist.length);
+    }, []);
+
+    const restoreHistory = useCallback(
+        (index: number) => {
+            const entry = historyRef.current[index];
+            if (!entry) return;
+            historyIndexRef.current = index;
+            setHistoryLen(historyRef.current.length);
+            setNodes(entry.nodes);
+            setEdges(entry.edges);
+        },
+        [setNodes, setEdges]
+    );
+
+    const undo = useCallback(() => {
+        if (historyIndexRef.current <= 0) return;
+        restoreHistory(historyIndexRef.current - 1);
+    }, [restoreHistory]);
+
+    const redo = useCallback(() => {
+        if (historyIndexRef.current >= historyRef.current.length - 1) return;
+        restoreHistory(historyIndexRef.current + 1);
+    }, [restoreHistory]);
+
+    useEffect(() => {
+        const onKey = (ev: KeyboardEvent) => {
+            if (!(ev.metaKey || ev.ctrlKey) || ev.key.toLowerCase() !== 'z') return;
+            ev.preventDefault();
+            if (ev.shiftKey) redo();
+            else undo();
+        };
+        window.addEventListener('keydown', onKey);
+        return () => window.removeEventListener('keydown', onKey);
+    }, [undo, redo]);
+
+    const refreshGovernance = useCallback(async () => {
+        try {
+            const [b, p] = await Promise.all([
+                rpc<Record<string, number>>('budget.status', {}),
+                rpc<{ actions?: Array<Record<string, unknown>> }>('safety.get_pending_actions', {}),
+            ]);
+            setBudget(b ?? null);
+            setPending(p?.actions ?? []);
+        } catch (e) {
+            console.warn('[canvas] governance refresh failed', e);
+        }
+    }, []);
 
     const showToast = useCallback((msg: string) => {
         setToast(msg);
@@ -142,22 +233,51 @@ function CanvasInner() {
             try {
                 const res = await rpc<{ graph?: GraphJson }>('graph.get', { graph_id: id });
                 const g = res.graph || (res as unknown as GraphJson);
+                const rfNodes = toRfNodes(g);
+                const rfEdges = toRfEdges(g).map((e) => ({
+                    ...e,
+                    markerEnd: { type: MarkerType.ArrowClosed },
+                }));
                 setGraph(g);
-                setNodes(toRfNodes(g));
-                setEdges(
-                    toRfEdges(g).map((e) => ({
-                        ...e,
-                        markerEnd: { type: MarkerType.ArrowClosed },
-                    }))
-                );
+                setNodes(rfNodes);
+                setEdges(rfEdges);
                 setGovEvents([]);
                 setActiveNodes({});
+                nodesRef.current = rfNodes;
+                edgesRef.current = rfEdges;
+                historyRef.current = [{ nodes: rfNodes, edges: rfEdges }];
+                historyIndexRef.current = 0;
+                setHistoryLen(1);
+                try {
+                    const raw = window.localStorage.getItem(`${PIN_KEY_PREFIX}${id}`);
+                    setPins(
+                        raw
+                            ? (JSON.parse(raw) as Record<string, { output: string; ts: number }>)
+                            : {}
+                    );
+                } catch {
+                    setPins({});
+                }
+                void refreshGovernance();
             } catch (e) {
                 showToast(`${t('加载工作流失败', 'Failed to load workflow')}: ${String(e)}`);
             }
         },
-        [setNodes, setEdges, showToast, t]
+        [setNodes, setEdges, showToast, t, refreshGovernance]
     );
+
+    useEffect(() => {
+        try {
+            const preselected = window.sessionStorage.getItem(CANVAS_GRAPH_KEY);
+            if (preselected) {
+                window.sessionStorage.removeItem(CANVAS_GRAPH_KEY);
+                setGraphId(preselected);
+                void loadGraph(preselected);
+            }
+        } catch {
+            // storage unavailable
+        }
+    }, [loadGraph]);
 
     const onNodesChange = useCallback(
         (changes: NodeChange[]) => {
@@ -176,9 +296,75 @@ function CanvasInner() {
                 showToast(`${t('连接被拒绝', 'Connection rejected')}: ${check.reason}`);
                 return;
             }
+            pushHistory();
             setEdges((eds) => addEdge({ ...c, markerEnd: { type: MarkerType.ArrowClosed } }, eds));
         },
-        [graph, edges, setEdges, showToast, t]
+        [graph, edges, setEdges, showToast, t, pushHistory]
+    );
+
+    // N13: drag from a source handle onto empty canvas opens a searchable
+    // node palette; picking a type creates the node and connects it.
+    const onConnectEnd = useCallback(
+        (
+            event: MouseEvent | TouchEvent,
+            connectionState: { fromNode?: Node | null; toNode?: Node | null }
+        ) => {
+            if (!connectionState?.fromNode || connectionState.toNode) return;
+            const point = 'clientX' in event ? event : event.changedTouches?.[0];
+            if (!point) return;
+            setConnectMenu({
+                x: point.clientX,
+                y: point.clientY,
+                from: connectionState.fromNode.id,
+                query: '',
+            });
+        },
+        []
+    );
+
+    const addNodeFromMenu = useCallback(
+        (nodeType: string) => {
+            if (!connectMenu) return;
+            const id = `${nodeType}_${Math.random().toString(36).slice(2, 6)}`;
+            const position = screenToFlowPosition({ x: connectMenu.x, y: connectMenu.y });
+            const serverEdges = edges.map((e) => ({ source_id: e.source, target_id: e.target }));
+            const check = canConnect(graph, connectMenu.from, id, serverEdges);
+            const newNode: Node = {
+                id,
+                type: 'fusionNode',
+                position,
+                data: { label: id, nodeType, config: { type: nodeType, label: id } },
+            };
+            pushHistory();
+            setNodes((ns) => [...ns, newNode]);
+            if (check.ok) {
+                setEdges((eds) =>
+                    addEdge(
+                        {
+                            id: `${connectMenu.from}-${id}`,
+                            source: connectMenu.from,
+                            target: id,
+                            markerEnd: { type: MarkerType.ArrowClosed },
+                        },
+                        eds
+                    )
+                );
+            } else {
+                showToast(`${t('节点已添加但未连线', 'Node added without edge')}: ${check.reason}`);
+            }
+            setConnectMenu(null);
+        },
+        [
+            connectMenu,
+            edges,
+            graph,
+            pushHistory,
+            setNodes,
+            setEdges,
+            screenToFlowPosition,
+            showToast,
+            t,
+        ]
     );
 
     const selectedNode = useMemo(
@@ -189,23 +375,26 @@ function CanvasInner() {
     const updateSelectedConfig = useCallback(
         (patch: Partial<FusionNodeData>) => {
             if (!selectedId) return;
+            pushHistory();
             setNodes((ns) =>
                 ns.map((n) => (n.id === selectedId ? { ...n, data: { ...n.data, ...patch } } : n))
             );
         },
-        [selectedId, setNodes]
+        [selectedId, setNodes, pushHistory]
     );
 
     const removeSelected = useCallback(() => {
         if (!selectedId) return;
+        pushHistory();
         setNodes((ns) => ns.filter((n) => n.id !== selectedId));
         setEdges((es) => es.filter((e) => e.source !== selectedId && e.target !== selectedId));
         setSelectedId('');
-    }, [selectedId, setNodes, setEdges]);
+    }, [selectedId, setNodes, setEdges, pushHistory]);
 
     const addNode = useCallback(
         (nodeType: string) => {
             const id = `${nodeType}_${Math.random().toString(36).slice(2, 6)}`;
+            pushHistory();
             setNodes((ns) => [
                 ...ns,
                 {
@@ -216,7 +405,7 @@ function CanvasInner() {
                 },
             ]);
         },
-        [setNodes]
+        [setNodes, pushHistory]
     );
 
     const save = useCallback(async () => {
@@ -238,60 +427,105 @@ function CanvasInner() {
         }
     }, [graphId, graph, nodes, edges, showToast, t]);
 
-    const runWithStream = useCallback(async () => {
-        if (!graphId || running) return;
-        setRunning(true);
-        setGovEvents([]);
-        setActiveNodes({});
-        const qs = new URLSearchParams({ input: 'canvas run' });
-        const cfgKey = import.meta.env.VITE_API_KEY as string | undefined;
-        if (cfgKey) qs.set('api_key', cfgKey);
-        const es = new EventSource(
-            `${apiBase()}/v1/graphs/${encodeURIComponent(graphId)}/execute/stream?${qs.toString()}`
-        );
-        esRef.current = es;
-        es.onmessage = (ev) => {
+    const runWithStream = useCallback(
+        async (opts: { fromNode?: string } = {}) => {
+            if (!graphId || running) return;
+            setRunning(true);
+            setGovEvents([]);
+            setActiveNodes({});
+            void refreshGovernance();
+            const qs = new URLSearchParams({ input: 'canvas run' });
+            if (opts.fromNode) qs.set('from_node', opts.fromNode);
+            const breakpointNode = nodes.find((n) => (n.data as FusionNodeData).breakpoint);
+            if (breakpointNode) qs.set('stop_after', breakpointNode.id);
+            const cfgKey = import.meta.env.VITE_API_KEY as string | undefined;
+            if (cfgKey) qs.set('api_key', cfgKey);
+            const es = new EventSource(
+                `${apiBase()}/v1/graphs/${encodeURIComponent(graphId)}/execute/stream?${qs.toString()}`
+            );
+            esRef.current = es;
+            es.onmessage = (ev) => {
+                try {
+                    const data = JSON.parse(ev.data) as SseFrame;
+                    if (data.type === 'done') {
+                        es.close();
+                        setRunning(false);
+                        setGovEvents((prev) => [
+                            ...prev,
+                            {
+                                ts: Date.now(),
+                                kind: 'done',
+                                nodeId: '',
+                                detail: data.message || 'ok',
+                            },
+                        ]);
+                        return;
+                    }
+                    const kind = data.type || 'event';
+                    const nodeId = data.node_id || '';
+                    if (nodeId) {
+                        setActiveNodes((m) => ({ ...m, [nodeId]: kind }));
+                        // N13 pin: capture node output snapshot for reuse.
+                        const isPinned = nodesRef.current.some(
+                            (n) => n.id === nodeId && (n.data as FusionNodeData).pinned
+                        );
+                        if (isPinned && (kind === 'result' || kind === 'tool_result')) {
+                            const output = (data.content || '').slice(0, 4000);
+                            setPins((prev) => {
+                                const next = { ...prev, [nodeId]: { output, ts: Date.now() } };
+                                try {
+                                    window.localStorage.setItem(
+                                        `${PIN_KEY_PREFIX}${graphId}`,
+                                        JSON.stringify(next)
+                                    );
+                                } catch {
+                                    // storage full/unavailable
+                                }
+                                return next;
+                            });
+                        }
+                    }
+                    setGovEvents((prev) =>
+                        [
+                            ...prev,
+                            {
+                                ts: Date.now(),
+                                kind,
+                                nodeId,
+                                detail: (data.content || data.name || '').slice(0, 120),
+                            },
+                        ].slice(-200)
+                    );
+                } catch {
+                    // ignore malformed frames
+                }
+            };
+            es.onerror = () => {
+                es.close();
+                setRunning(false);
+            };
+        },
+        [graphId, running, nodes, refreshGovernance]
+    );
+
+    useEffect(() => {
+        if (!running) return;
+        const timer = window.setInterval(() => void refreshGovernance(), 5000);
+        return () => window.clearInterval(timer);
+    }, [running, refreshGovernance]);
+
+    const decide = useCallback(
+        async (actionId: string, approve: boolean) => {
             try {
-                const data = JSON.parse(ev.data) as SseFrame;
-                if (data.type === 'done') {
-                    es.close();
-                    setRunning(false);
-                    setGovEvents((prev) => [
-                        ...prev,
-                        {
-                            ts: Date.now(),
-                            kind: 'done',
-                            nodeId: '',
-                            detail: data.message || 'ok',
-                        },
-                    ]);
-                    return;
-                }
-                const kind = data.type || 'event';
-                const nodeId = data.node_id || '';
-                if (nodeId) {
-                    setActiveNodes((m) => ({ ...m, [nodeId]: kind }));
-                }
-                setGovEvents((prev) =>
-                    [
-                        ...prev,
-                        {
-                            ts: Date.now(),
-                            kind,
-                            nodeId,
-                            detail: (data.content || data.name || '').slice(0, 120),
-                        },
-                    ].slice(-200)
-                );
-            } catch {
-                // ignore malformed frames
+                await rpc(approve ? 'safety.approve' : 'safety.reject', { action_id: actionId });
+                showToast(approve ? t('已批准', 'Approved') : t('已拒绝', 'Rejected'));
+                void refreshGovernance();
+            } catch (e) {
+                showToast(`${t('审批失败', 'Approval failed')}: ${String(e)}`);
             }
-        };
-        es.onerror = () => {
-            es.close();
-            setRunning(false);
-        };
-    }, [graphId, running]);
+        },
+        [refreshGovernance, showToast, t]
+    );
 
     useEffect(() => () => esRef.current?.close(), []);
 
@@ -343,6 +577,26 @@ function CanvasInner() {
                 >
                     {running ? t('运行中…', 'Running…') : t('运行并监视', 'Run & watch')}
                 </button>
+                <div className="flex gap-1 pt-1">
+                    <button
+                        type="button"
+                        className="flex-1 rounded border border-border px-1 py-0.5 text-[10px] disabled:opacity-40"
+                        disabled={historyIndexRef.current <= 0}
+                        onClick={undo}
+                        title="Cmd/Ctrl+Z"
+                    >
+                        ↶ {t('撤销', 'Undo')}
+                    </button>
+                    <button
+                        type="button"
+                        className="flex-1 rounded border border-border px-1 py-0.5 text-[10px] disabled:opacity-40"
+                        disabled={historyIndexRef.current >= historyLen - 1}
+                        onClick={redo}
+                        title="Cmd/Ctrl+Shift+Z"
+                    >
+                        ↷ {t('重做', 'Redo')}
+                    </button>
+                </div>
             </div>
             <div className="flex-1 relative">
                 <ReactFlow
@@ -352,6 +606,8 @@ function CanvasInner() {
                     onNodesChange={onNodesChange}
                     onEdgesChange={onEdgesChange}
                     onConnect={guardConnect}
+                    onConnectEnd={onConnectEnd}
+                    onNodeDragStart={pushHistory}
                     fitView
                 >
                     <Background variant={BackgroundVariant.Dots} gap={16} size={1} />
@@ -361,6 +617,43 @@ function CanvasInner() {
                 {toast && (
                     <div className="absolute top-2 left-1/2 -translate-x-1/2 rounded bg-error px-3 py-1 text-xs text-white shadow">
                         {toast}
+                    </div>
+                )}
+                {connectMenu && (
+                    <div
+                        className="absolute z-10 w-52 rounded border border-border bg-bg-elevated p-2 shadow-lg"
+                        style={{ left: connectMenu.x, top: connectMenu.y }}
+                    >
+                        <input
+                            autoFocus
+                            className="mb-1 w-full rounded border border-border bg-bg px-1 py-0.5 text-xs"
+                            placeholder={t('搜索节点类型…', 'Search node type…')}
+                            value={connectMenu.query}
+                            onChange={(e) =>
+                                setConnectMenu({ ...connectMenu, query: e.target.value })
+                            }
+                        />
+                        <div className="max-h-40 space-y-0.5 overflow-y-auto">
+                            {NODE_TYPES.filter((nt) =>
+                                nt.includes(connectMenu.query.trim().toLowerCase())
+                            ).map((nt) => (
+                                <button
+                                    type="button"
+                                    key={nt}
+                                    className="block w-full rounded px-1 py-0.5 text-left text-[10px] hover:bg-bg-muted"
+                                    onClick={() => addNodeFromMenu(nt)}
+                                >
+                                    + {nt}
+                                </button>
+                            ))}
+                        </div>
+                        <button
+                            type="button"
+                            className="mt-1 w-full rounded border border-border px-1 py-0.5 text-[10px]"
+                            onClick={() => setConnectMenu(null)}
+                        >
+                            {t('取消', 'Cancel')}
+                        </button>
                     </div>
                 )}
             </div>
@@ -415,6 +708,42 @@ function CanvasInner() {
                                 }}
                             />
                         </div>
+                        <label className="flex items-center gap-1">
+                            <input
+                                type="checkbox"
+                                checked={Boolean(selectedNode.data.pinned)}
+                                onChange={(e) => updateSelectedConfig({ pinned: e.target.checked })}
+                            />
+                            {t('固定数据 (pin)', 'Pin data')}
+                        </label>
+                        <label className="flex items-center gap-1">
+                            <input
+                                type="checkbox"
+                                checked={Boolean(selectedNode.data.breakpoint)}
+                                onChange={(e) =>
+                                    updateSelectedConfig({ breakpoint: e.target.checked })
+                                }
+                            />
+                            {t('断点 (运行到此暂停)', 'Breakpoint (pause here)')}
+                        </label>
+                        {pins[selectedNode.id] ? (
+                            <div className="rounded border border-border bg-bg p-1">
+                                <div className="text-text-secondary">
+                                    {t('已固定输出', 'Pinned output')}
+                                </div>
+                                <pre className="max-h-24 overflow-auto whitespace-pre-wrap text-[9px]">
+                                    {pins[selectedNode.id].output}
+                                </pre>
+                            </div>
+                        ) : null}
+                        <button
+                            type="button"
+                            className="w-full rounded border border-brand px-2 py-1 text-brand disabled:opacity-40"
+                            disabled={running || !graphId}
+                            onClick={() => void runWithStream({ fromNode: selectedNode.id })}
+                        >
+                            {t('从此节点重跑下游', 'Rerun downstream from here')}
+                        </button>
                         <button
                             type="button"
                             className="rounded border border-error px-2 py-1 text-error"
@@ -431,6 +760,51 @@ function CanvasInner() {
                 <div className="text-sm font-medium pt-2">
                     {t('治理事件流', 'Governance events')}
                 </div>
+                {budget ? (
+                    <div className="rounded border border-border bg-bg-elevated px-2 py-1 text-[10px] text-text-secondary">
+                        {t('预算余量', 'Budget remaining')}:{' '}
+                        <span className="text-brand">{String(budget.remaining ?? '∞')}</span> /{' '}
+                        {String(budget.max_tokens ?? '∞')}
+                    </div>
+                ) : null}
+                {pending.length > 0 ? (
+                    <div className="space-y-1">
+                        <div className="text-[10px] text-text-secondary">
+                            {t('待审批', 'Pending approvals')} ({pending.length})
+                        </div>
+                        {pending.map((action, i) => {
+                            const actionId = String(
+                                action.action_id ?? action.id ?? action.request_id ?? `pending-${i}`
+                            );
+                            return (
+                                <div
+                                    key={actionId}
+                                    className="rounded border border-warning/40 bg-bg-elevated px-1.5 py-1 text-[10px]"
+                                >
+                                    <div className="text-text-primary">
+                                        {String(action.category ?? action.tool ?? 'action')}
+                                    </div>
+                                    <div className="mt-1 flex gap-1">
+                                        <button
+                                            type="button"
+                                            className="rounded bg-brand px-1.5 py-0.5 text-white"
+                                            onClick={() => void decide(actionId, true)}
+                                        >
+                                            {t('批准', 'Approve')}
+                                        </button>
+                                        <button
+                                            type="button"
+                                            className="rounded border border-error px-1.5 py-0.5 text-error"
+                                            onClick={() => void decide(actionId, false)}
+                                        >
+                                            {t('拒绝', 'Deny')}
+                                        </button>
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </div>
+                ) : null}
                 {Object.keys(activeNodes).length > 0 && (
                     <div className="flex flex-wrap gap-1">
                         {Object.entries(activeNodes).map(([nid, kind]) => (

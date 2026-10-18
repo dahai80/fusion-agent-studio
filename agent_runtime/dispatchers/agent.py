@@ -97,6 +97,8 @@ class AgentDispatcher(SubDispatcher):
         "agent.resolve_persona": self._handle_agent_resolve_persona,
         "agent.get_persona_layer": self._handle_agent_get_persona_layer,
         "agent.set_persona_layer": self._handle_agent_set_persona_layer,
+        "agent.import_agents_md": self._handle_agent_import_agents_md,
+        "agent.export_agents_md": self._handle_agent_export_agents_md,
             "agent.update_soul": self._handle_agent_update_soul,
             "agent.submit_code_task": self._handle_agent_submit_code_task,
             "agent.task_status": self._handle_agent_task_status,
@@ -637,6 +639,15 @@ class AgentDispatcher(SubDispatcher):
         if not skill_def:
             return {"status": "error", "message": f"Skill not found: {skill_name}"}
 
+        # N17 #390: agent-package skills are protocol artifacts too; strict
+        # mode refuses execution unless the skill is registered.
+        plane_getter = getattr(self._daemon, "_get_protocol_plane", None)
+        if plane_getter is not None:
+            try:
+                plane_getter().ensure("skill", skill_name, origin=f"agent:{agent_id}")
+            except ValueError as e:
+                return {"status": "error", "message": str(e)}
+
         system_prompt = skill_def.get("system_prompt", skill_def.get("systemPrompt", ""))
         steps = skill_def.get("steps", [])
         results = []
@@ -992,6 +1003,28 @@ class AgentDispatcher(SubDispatcher):
             return {"status": "error", "message": str(e)}
         logger.info("agent.set_persona_layer layer=%s path=%s", layer, path)
         return {"layer": layer, "path": str(path)}
+
+    async def _handle_agent_import_agents_md(self, params: dict) -> dict:
+        from agent_runtime.persona import import_agents_md
+
+        src_dir = str(params.get("src_dir", "") or "")
+        if not src_dir:
+            return {"status": "error", "message": "src_dir parameter required"}
+        result = import_agents_md(src_dir)
+        logger.info(
+            "agent.import_agents_md src=%s imported=%d errors=%d",
+            src_dir, len(result["imported"]), len(result["errors"]),
+        )
+        return result
+
+    async def _handle_agent_export_agents_md(self, params: dict) -> dict:
+        from agent_runtime.persona import export_agents_md
+
+        agent_id = str(params.get("agent_id", "") or "")
+        dest_dir = str(params.get("dest_dir", "") or "")
+        if not agent_id or not dest_dir:
+            return {"status": "error", "message": "agent_id and dest_dir required"}
+        return export_agents_md(agent_id, dest_dir)
 
     async def _handle_agent_get_soul(self, params: dict) -> dict:
         agent_id = params.get("agent_id", "")

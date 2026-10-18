@@ -542,7 +542,10 @@ class _NodeExecutorsMixin:
                         node_id=node.label,
                     )
                 results = await asyncio.gather(
-                    *(self._exec_parallel_tool(node, fn, fa) for fn, fa, _tcid in parsed_calls)
+                    *(
+                        self._exec_parallel_tool(ctx, node, fn, fa)
+                        for fn, fa, _tcid in parsed_calls
+                    )
                 )
                 for (fn, fa, tcid), res in zip(parsed_calls, results):
                     result_str, is_error = res
@@ -947,10 +950,28 @@ class _NodeExecutorsMixin:
                                 node_id=node.label,
                             )
 
+                    # 审计 P-2: self-repair retry is a separate LLM call and
+                    # must pass the same LLMFunnel (budget -> hooks ->
+                    # compaction), not dial the gateway raw.
+                    retry_messages = messages + ctx.messages[-_MAX_RETRY_CONTEXT_MESSAGES:]
+                    proceed, block_reason, retry_messages = await self.llm_funnel.pre_llm(
+                        ctx, node.label or "", model, retry_messages
+                    )
+                    if not proceed:
+                        ctx.error = block_reason
+                        logger.warning(
+                            "llm_funnel blocked self-repair node=%s reason=%s",
+                            node.label,
+                            block_reason,
+                        )
+                        yield AgentEvent(
+                            type=AgentEventType.ERROR, content=block_reason, node_id=node.label
+                        )
+                        return
                     try:
                         gw_resp = await asyncio.wait_for(
                             self.llm_gateway.chat(
-                                messages=messages + ctx.messages[-_MAX_RETRY_CONTEXT_MESSAGES:],
+                                messages=retry_messages,
                                 model=model,
                                 capability=node.tool_params.get("capability", ""),
                                 tools=tools_schema if tools_schema else None,
@@ -971,6 +992,13 @@ class _NodeExecutorsMixin:
 
                     retry_content = gw_resp.content
                     retry_tool_calls = gw_resp.tool_calls or []
+                    self.llm_funnel.post_llm(
+                        ctx,
+                        node.label or "",
+                        model,
+                        usage=getattr(gw_resp, "usage", None) or {},
+                        content=retry_content or "",
+                    )
                     ctx.add_message("assistant", retry_content, tool_calls=retry_tool_calls or None)
 
                     if not retry_tool_calls:
@@ -1096,7 +1124,7 @@ class _NodeExecutorsMixin:
                         break
 
     async def _exec_parallel_tool(
-        self, node: NodeConfig, func_name: str, func_args: dict
+        self, ctx: AgentContext, node: NodeConfig, func_name: str, func_args: dict
     ) -> tuple[str, bool]:
         # C1 并行工具执行: 验参 + 配置默认 + execute, 返回 (result_str, is_error)。
         # 审计 E-3/P0-3: 旧并行路径跳过 PRE_TOOL_USE hook + SafetyGateway L3 内容
@@ -1109,8 +1137,11 @@ class _NodeExecutorsMixin:
         # N0 ToolFunnel: parallel admission goes through the same funnel chain
         # (hooks -> permission -> safety). Parallel cannot pause for approval,
         # so needs_approval degrades to a sequential-retry error (unchanged).
+        # 审计 P-1: parallel admission MUST carry the real node ctx. Passing
+        # ctx=None silently disabled the plan gate (ctx.plan_mode) and every
+        # role-scoped rule (ctx.role) on this path.
         funnel_outcome = await self.tool_funnel.admit(
-            ctx=None,
+            ctx=ctx,
             tool_name=func_name,
             args=func_args,
             node_label=node.label,

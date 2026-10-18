@@ -21,8 +21,17 @@ DANGEROUS_PATTERNS = (
     r"mkfs",
     r"sudo\s+rm",
     r"curl\s+[^|]*\|\s*(ba)?sh",
+    r"wget\s+[^|]*\|\s*(ba)?sh",
     r"shutil\.rmtree\(\s*['\"]/(etc|usr|bin|sbin|var|System)",
+    r"chmod\s+777\s+/",
+    r"dd\s+if=.+\s+of=/dev/",
+    r":\(\)\s*\{.*\};\s*:",
+    r"git\s+push\s+--force(\s|$)",
+    r"eval\s+['\"].*(curl|wget)",
 )
+
+_LOOPBACK_HOSTS = ("localhost", "127.0.0.1", "::1", "[::1]")
+_URL_RE = re.compile(r"https?://([^/\s'\"]+)")
 
 _VALID_ACTIONS = ("deny", "ask", "allow")
 _VALID_LAYERS = ("global", "graph", "node")
@@ -31,8 +40,38 @@ _RULE_SCAN_ORDER = ("node", "graph", "global")
 
 class PermissionMode(str, Enum):
     DEFAULT = "default"
+    PLAN = "plan"
     APPROVED = "approved"
     BYPASS = "bypass"
+
+
+def _paths_in_args(args: Any) -> list[str]:
+    out: list[str] = []
+
+    def _walk(obj: Any) -> None:
+        if isinstance(obj, dict):
+            for value in obj.values():
+                _walk(value)
+        elif isinstance(obj, (list, tuple, set)):
+            for item in obj:
+                _walk(item)
+        elif isinstance(obj, str) and ("/" in obj or obj in (".", "~")):
+            out.append(obj)
+
+    _walk(args)
+    return out
+
+
+def _loopback_only(args: Any) -> bool:
+    blob = _serialize_args(args)
+    hosts = _URL_RE.findall(blob)
+    if not hosts:
+        return False
+    for host in hosts:
+        hostname = host.split(":")[0].lower()
+        if hostname not in _LOOPBACK_HOSTS:
+            return False
+    return True
 
 
 @dataclass
@@ -60,6 +99,19 @@ class PermissionRule:
         if not self.roles or "all" in self.roles:
             return True
         return ctx_role in self.roles
+
+    def matches_scope(self, args: Any) -> bool:
+        # path_scope restricts the rule to tool args whose paths live under one
+        # of the scopes. Rules without scopes always match.
+        if not self.path_scope:
+            return True
+        paths = _paths_in_args(args)
+        if not paths:
+            return True
+        for path in paths:
+            if any(str(path).startswith(scope) for scope in self.path_scope):
+                return True
+        return False
 
     def to_dict(self) -> dict:
         return {
@@ -141,14 +193,33 @@ class PermissionEngine:
             "graph": [],
             "node": [],
         }
+        # A3 metering: auto-allow reasons counted so the noise reduction can be
+        # measured rather than asserted.
+        self._stats: dict[str, int] = {
+            "auto_allow_readonly": 0,
+            "auto_allow_loopback": 0,
+            "asks": 0,
+            "denies": 0,
+            "rule_hits": 0,
+        }
         for rule in rules or []:
             self.add_rule(rule, layer=rule.layer)
         try:
             loaded = self.load_file_rules(PERMISSIONS_FILE)
             if loaded:
-                logger.info("loaded %d global permission rules from %s", loaded, PERMISSIONS_FILE)
+                logger.info("loaded %d permission rules from %s", loaded, PERMISSIONS_FILE)
         except Exception as exc:
             logger.warning("failed to load permission file %s: %s", PERMISSIONS_FILE, exc)
+        if not self.is_armed():
+            # 审计 P-14: unarmed engine used to pass through silently. Keep the
+            # legacy default for compatibility but make it loud and opt-outable
+            # (FUSION_PERMISSION_PASSTHROUGH=0 turns passthrough into ask).
+            if self.passthrough_enabled():
+                logger.warning(
+                    "permission engine is UNARMED (no rules, mode=default): "
+                    "tools pass through. Set FUSION_PERMISSION_MODE or add rules "
+                    "to arm it; set FUSION_PERMISSION_PASSTHROUGH=0 to require approval."
+                )
 
     @staticmethod
     def _normalize_mode(mode: PermissionMode | str) -> PermissionMode:
@@ -191,12 +262,12 @@ class PermissionEngine:
         if self.mode == PermissionMode.BYPASS:
             return PermissionDecision("allow", rule_source="mode:bypass")
 
-        if (
-            ctx is not None
-            and getattr(ctx, "plan_mode", False)
-            and not readonly_hint
-            and tool_name not in self._plan_readonly_tools
-        ):
+        # O2: plan is a first-class mode, not only a runtime flag on ctx.
+        plan_active = self.mode == PermissionMode.PLAN or bool(
+            ctx is not None and getattr(ctx, "plan_mode", False)
+        )
+        if plan_active and not readonly_hint and tool_name not in self._plan_readonly_tools:
+            self._stats["denies"] += 1
             return PermissionDecision(
                 "deny",
                 rule_source="plan_mode",
@@ -207,6 +278,7 @@ class PermissionEngine:
         for pattern in DANGEROUS_PATTERNS:
             if re.search(pattern, blob, re.IGNORECASE):
                 logger.warning("content scan blocked tool=%s pattern=%s", tool_name, pattern)
+                self._stats["denies"] += 1
                 return PermissionDecision(
                     "deny",
                     rule_source="content_scan",
@@ -222,8 +294,12 @@ class PermissionEngine:
                 # R2: role-scoped rules only apply to matching ctx roles.
                 if not rule.matches_role(getattr(ctx, "role", "all") if ctx is not None else "all"):
                     continue
+                if not rule.matches_scope(args):
+                    continue
+                self._stats["rule_hits"] += 1
                 if rule.action == "deny":
                     logger.info("rule deny tool=%s layer=%s pattern=%s", tool_name, layer, rule.tool)
+                    self._stats["denies"] += 1
                     return PermissionDecision(
                         "deny",
                         rule_source=f"rule:{layer}:{rule.tool}",
@@ -250,24 +326,53 @@ class PermissionEngine:
             )
 
         if readonly_hint:
+            self._stats["auto_allow_readonly"] += 1
             return PermissionDecision(
                 "allow",
                 rule_source="heuristic_readonly",
                 reason="readonly tool auto-allow",
             )
 
+        # A3: loopback-only network targets auto-allow (no approval noise for
+        # local services). FUSION_PERMISSION_A3=0 disables the heuristic.
+        if os.environ.get("FUSION_PERMISSION_A3", "1").strip().lower() not in (
+            "0",
+            "false",
+            "no",
+            "off",
+        ) and _loopback_only(args):
+            self._stats["auto_allow_loopback"] += 1
+            return PermissionDecision(
+                "allow",
+                rule_source="heuristic_loopback",
+                reason="loopback-only network target auto-allow",
+            )
+
         if self.mode == PermissionMode.APPROVED:
             return PermissionDecision("allow", rule_source="mode:approved")
-        if not self.is_armed():
+        if not self.is_armed() and self.passthrough_enabled():
             # Strangler compat: no rules + DEFAULT mode -> legacy behavior
             # (allow; approval semantics stay with SafetyGateway). Plan gate
             # and content scan above remain active regardless.
             return PermissionDecision("allow", rule_source="legacy_passthrough")
+        self._stats["asks"] += 1
         return PermissionDecision(
             "ask",
             rule_source="mode:default",
             reason="default mode requires approval",
         )
+
+    @staticmethod
+    def passthrough_enabled() -> bool:
+        return os.environ.get("FUSION_PERMISSION_PASSTHROUGH", "1").strip().lower() not in (
+            "0",
+            "false",
+            "no",
+            "off",
+        )
+
+    def stats(self) -> dict:
+        return {**self._stats, "rules": self.rules_count(), "armed": self.is_armed()}
 
     def is_armed(self) -> bool:
         # Strangler-compat: an unarmed engine (no rules, DEFAULT mode) is a
@@ -291,13 +396,30 @@ class PermissionEngine:
         return sum(len(rules) for rules in self._rules_by_layer.values())
 
     def save_to_file(self, path: Optional[Path] = None) -> bool:
+        # 审计 P-5: persist ALL three layers (global/graph/node) so layered
+        # rules survive restarts. Each rule keeps its layer in its own dict.
         target = Path(path) if path else PERMISSIONS_FILE
         try:
             target.parent.mkdir(parents=True, exist_ok=True)
-            payload = {"rules": [rule.to_dict() for rule in self._rules_by_layer["global"]]}
+            rules = [
+                rule.to_dict()
+                for layer in _VALID_LAYERS
+                for rule in self._rules_by_layer[layer]
+            ]
+            payload = {
+                "rules": [r for r in rules if r["layer"] == "global"],
+                "graph_rules": [r for r in rules if r["layer"] == "graph"],
+                "node_rules": [r for r in rules if r["layer"] == "node"],
+            }
             target.write_text(json.dumps(payload, ensure_ascii=False, indent=4), encoding="utf-8")
             os.chmod(target, 0o600)
-            logger.info("saved %d global rules to %s", len(payload["rules"]), target)
+            logger.info(
+                "saved permission rules global=%d graph=%d node=%d to %s",
+                len(payload["rules"]),
+                len(payload["graph_rules"]),
+                len(payload["node_rules"]),
+                target,
+            )
             return True
         except OSError as exc:
             logger.error("failed to save permissions to %s: %s", target, exc)
@@ -311,6 +433,13 @@ class PermissionEngine:
         try:
             payload = json.loads(target.read_text(encoding="utf-8"))
             entries = payload.get("rules", []) if isinstance(payload, dict) else []
+            # Backward compatible: older files only had "rules" (global).
+            if isinstance(payload, dict):
+                entries = (
+                    list(entries)
+                    + list(payload.get("graph_rules", []) or [])
+                    + list(payload.get("node_rules", []) or [])
+                )
             count = 0
             for entry in entries:
                 try:
@@ -318,7 +447,7 @@ class PermissionEngine:
                 except (TypeError, ValueError) as exc:
                     logger.warning("skip malformed rule in %s: %s", target, exc)
                     continue
-                self._rules_by_layer["global"].append(rule)
+                self._rules_by_layer[rule.layer].append(rule)
                 count += 1
             logger.info("loaded %d rules from %s", count, target)
             return count

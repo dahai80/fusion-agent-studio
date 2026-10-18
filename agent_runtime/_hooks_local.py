@@ -17,6 +17,15 @@ HOOKS_CONFIG_PATH = Path.home() / ".fusion-agent-studio" / "hooks.json"
 
 _DECORATOR_REGISTRY: list = []
 
+# 审计 P-3: 安全门事件在异常/超预算时必须 fail-closed. 跳过不等于放行。
+FAIL_CLOSED_EVENTS = frozenset(
+    {
+        "PRE_TOOL_USE",
+        "POST_TOOL_USE",
+        "TOOL_DENY",
+    }
+)
+
 
 def hook(event: str, matcher: str = "*"):
     def deco(fn):
@@ -51,6 +60,12 @@ class HookEvent(str, enum.Enum):
     COMPACT_BEFORE = "COMPACT_BEFORE"
     COMPACT_AFTER = "COMPACT_AFTER"
     BUDGET_EXCEED = "BUDGET_EXCEED"
+    # N8 #391: terminal/observability events that had no hook trigger.
+    ERROR = "ERROR"
+    CHECKPOINT = "CHECKPOINT"
+    TEAM_MESSAGE = "TEAM_MESSAGE"
+    # N16 #390: persona file hot reload.
+    PERSONA_RELOADED = "PERSONA_RELOADED"
 
 
 @dataclass
@@ -156,11 +171,29 @@ class HookEngine:
         deadline = time.monotonic() + self.max_fire_ms / 1000
         for idx, h in enumerate(matched):
             if time.monotonic() > deadline:
+                skipped = len(matched) - idx
+                if event in FAIL_CLOSED_EVENTS:
+                    # 审计 P-3: 安全门事件预算耗尽必须 block —— 跳过剩余
+                    # PRE_TOOL_USE 等于把工具调用直接放行.
+                    logger.warning(
+                        "hook chain budget exceeded event=%s budget_ms=%.1f skipped=%d fail_closed=true",
+                        event,
+                        self.max_fire_ms,
+                        skipped,
+                    )
+                    return HookResult(
+                        continue_loop=False,
+                        decision="block",
+                        reason=(
+                            f"hook chain budget exceeded ({self.max_fire_ms}ms) with "
+                            f"{skipped} security hook(s) unrun (fail-closed)"
+                        ),
+                    )
                 logger.warning(
                     "hook chain budget exceeded event=%s budget_ms=%.1f skipping=%d",
                     event,
                     self.max_fire_ms,
-                    len(matched) - idx,
+                    skipped,
                 )
                 break
             try:
@@ -208,10 +241,7 @@ class HookEngine:
                 hook.command,
                 hook.event,
             )
-            fail_closed = hook.event in (
-                HookEvent.PRE_TOOL_USE.value,
-                HookEvent.POST_TOOL_USE.value,
-            )
+            fail_closed = hook.event in FAIL_CLOSED_EVENTS
             if fail_closed:
                 return HookResult(
                     continue_loop=False,
@@ -230,10 +260,7 @@ class HookEngine:
         # 安全门, hook 超时或输出畸形时不应静默放行 (原默认 approve), 否则安全
         # hook 崩溃即变 no-op. 改为 fail-closed: block + 留日志. 其余事件
         # (SESSION_*/STOP/...) 维持 fail-open approve, 因其非安全门.
-        fail_closed = hook.event in (
-            HookEvent.PRE_TOOL_USE.value,
-            HookEvent.POST_TOOL_USE.value,
-        )
+        fail_closed = hook.event in FAIL_CLOSED_EVENTS
         try:
             stdout, _ = await asyncio.wait_for(
                 proc.communicate(stdin_data), timeout=hook.timeout

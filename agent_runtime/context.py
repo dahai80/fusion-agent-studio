@@ -104,6 +104,8 @@ class AgentContext:
 
     agent_id: str = ""
     session_id: str = ""
+    # N8 #391: graph identity for graph-level token budget accounting.
+    graph_id: str = ""
     # M3-1 issue#322: role-based tool filtering. "all" = see every tool (default).
     role: str = "all"
     messages: list[dict] = field(default_factory=list)
@@ -219,6 +221,7 @@ class AgentContext:
         return {
             "agent_id": self.agent_id,
             "session_id": self.session_id,
+            "graph_id": self.graph_id,
             "messages": self.messages,
             "events": [e.to_dict() for e in self.events],
             "metadata": self.metadata,
@@ -241,6 +244,7 @@ class AgentContext:
         ctx = cls(
             agent_id=data.get("agent_id", ""),
             session_id=data.get("session_id", ""),
+            graph_id=data.get("graph_id", ""),
             messages=data.get("messages", []),
             events=events,
             metadata=data.get("metadata", {}),

@@ -2,12 +2,26 @@
 
 from __future__ import annotations
 
+import inspect
 import logging
-from typing import Callable
+from typing import Any, Callable
 
 from .base import SubDispatcher
 
 logger = logging.getLogger(__name__)
+
+
+def _supported_kwargs(fn: Callable, kwargs: dict[str, Any]) -> dict[str, Any]:
+    # N15 #390: local MemoryEngine grew tenant/team/decay params while the
+    # fusion-memory adapter did not. Drop unsupported keywords instead of
+    # pinning every caller to the newer signature.
+    try:
+        sig = inspect.signature(fn)
+    except (TypeError, ValueError):
+        return kwargs
+    if any(p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()):
+        return kwargs
+    return {k: v for k, v in kwargs.items() if k in sig.parameters}
 
 
 class MemoryDispatcher(SubDispatcher):
@@ -22,6 +36,9 @@ class MemoryDispatcher(SubDispatcher):
             "memory.count": self._handle_memory_count,
             "memory.recall_relevant": self._handle_memory_recall_relevant,
             "memory.auto_forget": self._handle_memory_auto_forget,
+            "memory.decay_sweep": self._handle_memory_decay_sweep,
+            "memory.cleanup_suggestions": self._handle_memory_cleanup_suggestions,
+            "memory.conflicts": self._handle_memory_conflicts,
             "memory.backend": self._handle_memory_backend,
             "memory.pack_export": self._handle_memory_pack_export,
             "memory.pack_import": self._handle_memory_pack_import,
@@ -32,44 +49,77 @@ class MemoryDispatcher(SubDispatcher):
         if not content:
             return {"status": "error", "message": "content parameter required"}
         mem = self._daemon._get_memory()
-        entry_id = mem.store(
-            content=content,
-            scope=params.get("scope", "default"),
-            tags=params.get("tags", ""),
-            importance=params.get("importance", 5),
-            metadata=params.get("metadata"),
-            tier=params.get("tier", ""),
-            memory_type=params.get("memory_type", ""),
+        scope = params.get("scope", "default")
+        tenant_id = params.get("tenant_id", "")
+        team_id = params.get("team_id", "")
+        entry_id = mem.store(**_supported_kwargs(mem.store, {
+            "content": content,
+            "scope": scope,
+            "tags": params.get("tags", ""),
+            "importance": params.get("importance", 5),
+            "metadata": params.get("metadata"),
+            "tier": params.get("tier", ""),
+            "memory_type": params.get("memory_type", ""),
+            "tenant_id": tenant_id,
+            "team_id": team_id,
+        }))
+        self._audit_write(
+            "memory.store",
+            entry_id,
+            {"scope": scope, "tenant_id": tenant_id, "team_id": team_id},
         )
         logger.info(
-            "memory.store: entry_id=%s scope=%s",
+            "memory.store: entry_id=%s scope=%s tenant=%s team=%s",
             entry_id,
-            params.get("scope", "default"),
+            scope,
+            tenant_id,
+            team_id,
         )
         return {"entry_id": entry_id}
+
+    def _audit_write(self, action: str, resource_id: str, details: dict) -> None:
+        # N15 #390: memory writes are auditable (who/when/which scope).
+        get_audit = getattr(self._daemon, "_get_audit_logger", None)
+        if get_audit is None:
+            return
+        try:
+            get_audit().log_action(
+                actor_id=str(details.get("actor_id", "rpc") or "rpc"),
+                action=action,
+                resource_type="memory",
+                resource_id=resource_id,
+                details=details,
+                result="success",
+            )
+        except Exception as e:
+            logger.warning("memory audit log failed action=%s id=%s err=%s", action, resource_id, e)
 
     async def _handle_memory_recall(self, params: dict) -> dict:
         query = params.get("query", "")
         mem = self._daemon._get_memory()
-        entries = mem.recall(
-            query=query,
-            scope=params.get("scope", ""),
-            limit=params.get("limit", 10),
-            min_importance=params.get("min_importance", 0),
-            tier=params.get("tier", ""),
-            memory_type=params.get("memory_type", ""),
-        )
+        entries = mem.recall(**_supported_kwargs(mem.recall, {
+            "query": query,
+            "scope": params.get("scope", ""),
+            "limit": params.get("limit", 10),
+            "min_importance": params.get("min_importance", 0),
+            "tier": params.get("tier", ""),
+            "memory_type": params.get("memory_type", ""),
+            "tenant_id": params.get("tenant_id", ""),
+            "team_id": params.get("team_id", ""),
+        }))
         return {"entries": [e.to_dict() for e in entries]}
 
     async def _handle_memory_list_recent(self, params: dict) -> dict:
         mem = self._daemon._get_memory()
-        entries = mem.list_recent(
-            scope=params.get("scope", ""),
-            limit=params.get("limit", 20),
-            min_importance=params.get("min_importance", 0),
-            tier=params.get("tier", ""),
-            memory_type=params.get("memory_type", ""),
-        )
+        entries = mem.list_recent(**_supported_kwargs(mem.list_recent, {
+            "scope": params.get("scope", ""),
+            "limit": params.get("limit", 20),
+            "min_importance": params.get("min_importance", 0),
+            "tier": params.get("tier", ""),
+            "memory_type": params.get("memory_type", ""),
+            "tenant_id": params.get("tenant_id", ""),
+            "team_id": params.get("team_id", ""),
+        }))
         return {"entries": [e.to_dict() for e in entries]}
 
     async def _handle_memory_get(self, params: dict) -> dict:
@@ -84,6 +134,8 @@ class MemoryDispatcher(SubDispatcher):
         entry_id = params.get("entry_id", "")
         mem = self._daemon._get_memory()
         deleted = mem.delete(entry_id)
+        if deleted:
+            self._audit_write("memory.delete", entry_id, {"tenant_id": params.get("tenant_id", "")})
         return {"deleted": deleted}
 
     async def _handle_memory_delete_scope(self, params: dict) -> dict:
@@ -92,15 +144,21 @@ class MemoryDispatcher(SubDispatcher):
             return {"status": "error", "message": "scope parameter required"}
         mem = self._daemon._get_memory()
         count = mem.delete_scope(scope)
+        self._audit_write(
+            "memory.delete_scope", scope,
+            {"tenant_id": params.get("tenant_id", ""), "deleted_count": count},
+        )
         return {"deleted_count": count}
 
     async def _handle_memory_count(self, params: dict) -> dict:
         mem = self._daemon._get_memory()
-        count = mem.count(
-            scope=params.get("scope", ""),
-            tier=params.get("tier", ""),
-            memory_type=params.get("memory_type", ""),
-        )
+        count = mem.count(**_supported_kwargs(mem.count, {
+            "scope": params.get("scope", ""),
+            "tier": params.get("tier", ""),
+            "memory_type": params.get("memory_type", ""),
+            "tenant_id": params.get("tenant_id", ""),
+            "team_id": params.get("team_id", ""),
+        }))
         return {"count": count}
 
     async def _handle_memory_recall_relevant(self, params: dict) -> dict:
@@ -121,7 +179,58 @@ class MemoryDispatcher(SubDispatcher):
         removed = mem.auto_forget(
             max_entries=max_entries, min_importance=min_importance
         )
+        if removed:
+            self._audit_write("memory.auto_forget", "bulk", {"removed": removed})
         return {"removed": removed}
+
+    async def _handle_memory_decay_sweep(self, params: dict) -> dict:
+        mem = self._daemon._get_memory()
+        sweep = getattr(mem, "sweep", None)
+        if sweep is None:
+            return {"status": "error", "message": "memory backend has no sweep support"}
+        result = sweep(**_supported_kwargs(sweep, {
+            "dry_run": bool(params.get("dry_run", True)),
+            "threshold": float(params.get("threshold", 0.5)),
+            "max_age_days": float(params.get("max_age_days", 0)),
+            "half_life_days": float(params.get("half_life_days", 14.0)),
+            "scope": params.get("scope", ""),
+            "tenant_id": params.get("tenant_id", ""),
+            "team_id": params.get("team_id", ""),
+            "tier": params.get("tier", ""),
+            "memory_type": params.get("memory_type", ""),
+            "include_summaries": bool(params.get("include_summaries", False)),
+        }))
+        if result.get("deleted"):
+            self._audit_write("memory.decay_sweep", "bulk", {"deleted": result["deleted"]})
+        return result
+
+    async def _handle_memory_cleanup_suggestions(self, params: dict) -> dict:
+        mem = self._daemon._get_memory()
+        suggest = getattr(mem, "cleanup_suggestions", None)
+        if suggest is None:
+            return {"status": "error", "message": "memory backend has no sweep support"}
+        return suggest(**_supported_kwargs(suggest, {
+            "threshold": float(params.get("threshold", 0.5)),
+            "max_age_days": float(params.get("max_age_days", 0)),
+            "half_life_days": float(params.get("half_life_days", 14.0)),
+            "scope": params.get("scope", ""),
+            "tenant_id": params.get("tenant_id", ""),
+            "team_id": params.get("team_id", ""),
+        }))
+
+    async def _handle_memory_conflicts(self, params: dict) -> dict:
+        mem = self._daemon._get_memory()
+        detect = getattr(mem, "detect_conflicts", None)
+        if detect is None:
+            return {"status": "error", "message": "memory backend has no conflict support"}
+        conflicts = detect(**_supported_kwargs(detect, {
+            "scope": params.get("scope", ""),
+            "tenant_id": params.get("tenant_id", ""),
+            "team_id": params.get("team_id", ""),
+            "limit": int(params.get("limit", 200)),
+            "threshold": float(params.get("threshold", 0.6)),
+        }))
+        return {"conflicts": conflicts, "count": len(conflicts)}
 
     async def _handle_memory_pack_export(self, params: dict) -> dict:
         from agent_runtime.memory_pack import export_pack

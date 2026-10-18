@@ -33,7 +33,100 @@ class TeamDispatcher(SubDispatcher):
             "team.set_limits": self._handle_team_set_limits,
             "team.get_limits": self._handle_team_get_limits,
             "team.health": self._handle_team_health,
+            # #389: durable roster + mailbox (survive restarts).
+            "team.roster_register": self._handle_team_roster_register,
+            "team.roster_list": self._handle_team_roster_list,
+            "team.roster_status": self._handle_team_roster_status,
+            "team.mailbox_send": self._handle_team_mailbox_send,
+            "team.mailbox_broadcast": self._handle_team_mailbox_broadcast,
+            "team.mailbox_inbox": self._handle_team_mailbox_inbox,
+            "team.mailbox_ack": self._handle_team_mailbox_ack,
+            "team.mailbox_stats": self._handle_team_mailbox_stats,
         }
+
+    def _roster(self):
+        if getattr(self, "_roster_store", None) is None:
+            from ..durable_roster import DurableRoster
+
+            self._roster_store = DurableRoster()
+        return self._roster_store
+
+    def _mailbox(self):
+        if getattr(self, "_mailbox_store", None) is None:
+            from ..durable_roster import Mailbox
+
+            self._mailbox_store = Mailbox()
+        return self._mailbox_store
+
+    async def _handle_team_roster_register(self, params: dict) -> dict:
+        return self._roster().register(
+            params.get("agent_id", ""),
+            name=params.get("name", ""),
+            team=params.get("team", ""),
+            capabilities=params.get("capabilities") or [],
+            status=params.get("status", "idle"),
+        )
+
+    async def _handle_team_roster_list(self, params: dict) -> dict:
+        return {"agents": self._roster().list(params.get("team", ""))}
+
+    async def _handle_team_roster_status(self, params: dict) -> dict:
+        ok = self._roster().set_status(params.get("agent_id", ""), params.get("status", "idle"))
+        return {"ok": ok}
+
+    async def _handle_team_mailbox_send(self, params: dict) -> dict:
+        msg = self._mailbox().send(
+            sender=params.get("sender", ""),
+            recipient=params.get("recipient", ""),
+            body=params.get("body", ""),
+            kind=params.get("kind", "message"),
+            team=params.get("team", ""),
+        )
+        await self._fire_team_message(
+            kind="mailbox",
+            sender=params.get("sender", ""),
+            recipient=params.get("recipient", ""),
+            content=str(params.get("body", ""))[:500],
+        )
+        return {"message": msg}
+
+    async def _handle_team_mailbox_broadcast(self, params: dict) -> dict:
+        msgs = self._mailbox().broadcast(
+            sender=params.get("sender", ""),
+            team=params.get("team", ""),
+            body=params.get("body", ""),
+        )
+        return {"messages": msgs, "count": len(msgs)}
+
+    async def _handle_team_mailbox_inbox(self, params: dict) -> dict:
+        msgs = self._mailbox().inbox(
+            params.get("recipient", ""),
+            unread_only=bool(params.get("unread_only", True)),
+            limit=int(params.get("limit", 100)),
+        )
+        return {"messages": msgs, "count": len(msgs)}
+
+    async def _handle_team_mailbox_ack(self, params: dict) -> dict:
+        ok = self._mailbox().ack(params.get("recipient", ""), params.get("message_id", ""))
+        return {"ok": ok}
+
+    async def _handle_team_mailbox_stats(self, params: dict) -> dict:
+        return self._mailbox().stats()
+
+    async def _fire_team_message(self, kind: str, sender: str = "", content: str = "", **extra) -> None:
+        # N8 #391: TEAM_MESSAGE hook — observe inter-agent traffic without
+        # blocking the dispatcher (hook failures are logged, never raised).
+        get_hooks = getattr(self._daemon, "_get_hooks", None)
+        if get_hooks is None:
+            return
+        try:
+            hooks = get_hooks()
+            await hooks.fire(
+                "TEAM_MESSAGE",
+                {"kind": kind, "sender": sender, "content": content, **extra},
+            )
+        except Exception as e:
+            logger.warning("team message hook error kind=%s err=%s", kind, e)
 
     async def _handle_team_swarm_register(self, params: dict) -> dict:
         from ..swarm_router import SwarmAgent
@@ -109,6 +202,12 @@ class TeamDispatcher(SubDispatcher):
             params.get("content", ""),
             mentions=params.get("mentions"),
         )
+        await self._fire_team_message(
+            kind="broadcast",
+            channel=params["channel"],
+            sender=params["sender"],
+            content=params.get("content", ""),
+        )
         return {"message": self._daemon._serialize(msg)}
 
     async def _handle_team_plaza_messages(self, params: dict) -> dict:
@@ -151,6 +250,12 @@ class TeamDispatcher(SubDispatcher):
             mention_targets=params.get("mention_targets"),
             priority=params.get("priority", 5),
             round_number=params.get("round_number", 0),
+        )
+        await self._fire_team_message(
+            kind="fmp",
+            sender="fmp",
+            recipient=params.get("recipient", ""),
+            content=str(params.get("payload", ""))[:500],
         )
         return {"message": self._daemon._serialize(msg)}
 

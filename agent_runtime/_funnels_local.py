@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import threading
 import time
 from collections import deque
@@ -32,6 +33,15 @@ from .permissions import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _require_permissions() -> bool:
+    return os.environ.get("FUSION_FUNNEL_REQUIRE_PERMISSIONS", "").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    )
 
 
 class EventDomain(str, Enum):
@@ -236,6 +246,22 @@ class ToolFunnel:
         # engine's plan gate (ctx.plan_mode + not readonly -> deny).
         readonly = self._readonly_names()
         perm_decision: PermissionDecision | None = None
+        if self.permissions is None:
+            # N8 #391: an absent engine is a wiring bug, never a silent allow.
+            # Default is loud passthrough (backward compat); deployments that
+            # require enforcement set FUSION_FUNNEL_REQUIRE_PERMISSIONS=1.
+            if _require_permissions():
+                _mark("permission", "deny", "permission engine absent (fail-closed)")
+                logger.error(
+                    "tool funnel has no permission engine tool=%s fail_closed=true",
+                    tool_name,
+                )
+                return self._deny(
+                    ctx, tool_name, args, "permission",
+                    log, "permission engine absent (fail-closed)",
+                )
+            self._warn_no_permissions()
+            _mark("permission", "skip", "permission engine absent (unarmed passthrough)")
         if self.permissions is not None:
             try:
                 perm_decision = self.permissions.evaluate(
@@ -293,7 +319,9 @@ class ToolFunnel:
         budget = None
         if self.budget_ref is not None:
             budget = self.budget_ref
-        if budget is not None and getattr(budget, "is_exceeded", lambda: False)():
+        if budget is not None and _budget_exceeded(
+            budget, getattr(ctx, "graph_id", "") or ""
+        ):
             _mark("budget", "deny", "token budget exceeded")
             return self._deny(ctx, tool_name, args, "budget", log, "token budget exceeded")
 
@@ -306,6 +334,15 @@ class ToolFunnel:
                 "rule_source": perm_decision.rule_source,
             })
         return out
+
+    def _warn_no_permissions(self) -> None:
+        if getattr(self, "_no_permissions_warned", False):
+            return
+        self._no_permissions_warned = True
+        logger.warning(
+            "tool funnel permission engine absent — tool calls pass without "
+            "permission checks (set FUSION_FUNNEL_REQUIRE_PERMISSIONS=1 to fail closed)"
+        )
 
     def _readonly_names(self) -> set:
         # Support both static sets and a callable provider (registry may gain
@@ -385,6 +422,14 @@ class ToolFunnel:
         )
 
 
+def _budget_exceeded(budget, graph_id: str = "") -> bool:
+    try:
+        return bool(budget.is_exceeded(graph_id))
+    except TypeError:
+        # Legacy/stub budgets only implement the zero-arg form.
+        return bool(budget.is_exceeded())
+
+
 class LLMFunnel:
     """Single LLM admission path: lifecycle -> hooks -> budget -> compaction."""
 
@@ -413,7 +458,8 @@ class LLMFunnel:
         # N8: hard budget cap — exceed = graceful stop + BUDGET_EXCEED signal,
         # never silent truncation.
         budget = self.budget_ref
-        if budget is not None and getattr(budget, "is_exceeded", lambda: False)():
+        graph_id = getattr(ctx, "graph_id", "") or ""
+        if budget is not None and _budget_exceeded(budget, graph_id):
             logger.warning("llm funnel budget exceeded node=%s spent=%s", node_label, getattr(budget, "spent_tokens", "?"))
             self._emit("agent", "budget_exceed", {"node": node_label, "spent_tokens": getattr(budget, "spent_tokens", 0)}, ctx)
             if self.hooks is not None:
@@ -438,7 +484,11 @@ class LLMFunnel:
             if level != "none":
                 self._emit("agent", "compact_before", {"level": level, "messages": len(messages)}, ctx)
                 try:
-                    messages = self.compactor.compact(messages, level)
+                    compact_async = getattr(self.compactor, "compact_async", None)
+                    if callable(compact_async):
+                        messages = await compact_async(messages, level)
+                    else:
+                        messages = self.compactor.compact(messages, level)
                 except Exception as e:
                     logger.warning("compaction failed, continuing with original: %s", e)
                 self._emit("agent", "compact_after", {"level": level, "messages": len(messages)}, ctx)
@@ -449,11 +499,13 @@ class LLMFunnel:
         # N8 metering: feed per-call usage into the wired budget.
         budget = self.budget_ref
         if budget is not None and usage:
+            graph_id = getattr(ctx, "graph_id", "") or ""
+            prompt_tokens = int(usage.get("prompt_tokens", 0) or 0)
+            completion_tokens = int(usage.get("completion_tokens", 0) or 0)
             try:
-                budget.record_usage(
-                    int(usage.get("prompt_tokens", 0) or 0),
-                    int(usage.get("completion_tokens", 0) or 0),
-                )
+                budget.record_usage(prompt_tokens, completion_tokens, graph_id=graph_id)
+            except TypeError:
+                budget.record_usage(prompt_tokens, completion_tokens)
             except Exception as e:
                 logger.warning("budget record_usage failed: %s", e)
         self._emit("agent", "llm_after", {"node": node_label, "model": model, "usage": usage or {}}, ctx)

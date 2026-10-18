@@ -27,6 +27,7 @@ class InfraDispatcher(SubDispatcher):
             "telemetry.list_spans": self._handle_telemetry_list_spans,
             "telemetry.metrics": self._handle_telemetry_metrics,
             "telemetry.session_slo": self._handle_telemetry_session_slo,
+            "telemetry.session_slo_export": self._handle_telemetry_session_slo_export,
             "connector.list": self._handle_connector_list,
             "connector.create": self._handle_connector_create,
             "connector.get": self._handle_connector_get,
@@ -116,6 +117,11 @@ class InfraDispatcher(SubDispatcher):
         # N11 #350: long-session SLO baselines (fusion-bench feed).
         engine = self._daemon._get_telemetry_engine()
         return engine.slo_summary()
+
+    async def _handle_telemetry_session_slo_export(self, params: dict) -> dict:
+        # #387: durable JSONL baseline for fusion-bench pull/ingest.
+        engine = self._daemon._get_telemetry_engine()
+        return engine.export_slo(params.get("path") or None)
 
     async def _handle_connector_list(self, params: dict) -> dict:
         mgr = self._daemon._get_connector_manager()

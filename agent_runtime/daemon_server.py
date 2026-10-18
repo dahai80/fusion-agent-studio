@@ -38,6 +38,7 @@ from .graph import AgentGraph, NodeConfig
 from .llm_gateway import LLMGateway
 from .persistence import AgentStore
 from .rag_pipeline import RAGPipeline
+from .resident_reviewer import runtime_review_enabled as _runtime_review_enabled
 from .runtime import AgentRuntime
 
 logger = logging.getLogger(__name__)
@@ -407,6 +408,40 @@ class DaemonServer:
             rt.compactor = Compactor(memory_engine=rt.memory_engine)
         return rt.compactor
 
+    def _get_protocol_plane(self):
+        # N17 #390: single shared protocol plane for mcp/skill/plugin layers.
+        if getattr(self, "_protocol_plane", None) is None:
+            from .protocol_plane import ProtocolPlane
+
+            self._protocol_plane = ProtocolPlane()
+            logger.info("ProtocolPlane created")
+        return self._protocol_plane
+
+    def _start_persona_watcher(self) -> None:
+        raw = os.environ.get("FUSION_PERSONA_WATCH", "1").strip().lower()
+        if raw in ("0", "false", "no", "off"):
+            logger.info("persona watcher disabled via FUSION_PERSONA_WATCH=0")
+            return
+        from .persona import PersonaWatcher
+
+        loop = asyncio.get_running_loop()
+
+        async def _notify(paths: list[str]) -> None:
+            try:
+                await self._get_hooks().fire("PERSONA_RELOADED", {"paths": paths})
+            except Exception as e:
+                logger.warning("PERSONA_RELOADED hook failed: %s", e)
+
+        def _on_change(paths: list[str]) -> None:
+            asyncio.run_coroutine_threadsafe(_notify(paths), loop)
+
+        try:
+            self._persona_watcher = PersonaWatcher(on_change=_on_change)
+            self._persona_watcher.start()
+        except Exception as e:
+            logger.warning("persona watcher start failed: %s", e)
+            self._persona_watcher = None
+
     def _get_hooks(self):
         rt = self._get_runtime()
         if rt.hooks is None:
@@ -562,6 +597,11 @@ class DaemonServer:
             )
         else:
             self._graph_semaphore = None
+
+        # N16 #390: persona hot reload is on by default; FUSION_PERSONA_WATCH=0
+        # disables the poller.
+        self._persona_watcher = None
+        self._start_persona_watcher()
 
         self._server = await asyncio.start_unix_server(self._handle_client, path=self.socket_path)
         # #209: 0o666→0o600. 同 UID (fusion-cli/cron) 仍可连, 低权限恶意进程被挡.
@@ -890,6 +930,9 @@ class DaemonServer:
                         "E-15 drain timed out after 10s, %d executions still running",
                         sum(1 for t in pending if not t.done()),
                     )
+        if getattr(self, "_persona_watcher", None) is not None:
+            self._persona_watcher.stop()
+            self._persona_watcher = None
         if hasattr(self, "_cron_manager") and self._cron_manager:
             self._cron_manager.close()
         if hasattr(self, "_vector_strategy") and self._vector_strategy:
@@ -1338,6 +1381,16 @@ class DaemonServer:
             if hasattr(self, "_start_time") and self._start_time
             else 0,
             "failed_plugins": self._get_tool_registry().failed_plugins,
+            # 审计 N6: env-gated surfaces must be observable so GUI can state
+            # whether outbound MCP discover and ToolSearch are on.
+            "capabilities": {
+                "toolsearch": os.environ.get("FUSION_TOOLSEARCH", "") == "1",
+                "mcp_outbound": True,
+                "subagent_tools": os.environ.get("FUSION_SUBAGENT_TOOLS", "").strip()
+                in ("1", "true", "yes"),
+                "runtime_review": _runtime_review_enabled(),
+                "ws": _ws_enabled(),
+            },
         }
 
     async def _handle_daemon_shutdown(self, params: dict) -> dict:

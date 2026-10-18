@@ -195,6 +195,36 @@ class AgentGraph:
     def add_edge(self, source_id: str, target_id: str, label: str = "") -> None:
         self.edges.append(Edge(source_id=source_id, target_id=target_id, label=label))
 
+    def downstream_subgraph(self, node_id: str) -> "AgentGraph | None":
+        # #386: downstream rerun — execute node_id plus every reachable
+        # descendant, reusing the same node configs and identity.
+        if node_id not in self.nodes:
+            return None
+        keep = {node_id}
+        frontier = [node_id]
+        while frontier:
+            current = frontier.pop()
+            for edge in self.edges:
+                if edge.source_id == current and edge.target_id not in keep:
+                    keep.add(edge.target_id)
+                    frontier.append(edge.target_id)
+        sub = AgentGraph(
+            id=self.id,
+            name=self.name,
+            description=self.description,
+            nodes={nid: self.nodes[nid] for nid in keep},
+            start_node_id=node_id,
+            version=self.version,
+            agent_id=self.agent_id,
+            plan_mode=self.plan_mode,
+            stop_on_tool_error=self.stop_on_tool_error,
+        )
+        sub.edges = [e for e in self.edges if e.source_id in keep and e.target_id in keep]
+        logger.info(
+            "downstream subgraph node=%s nodes=%d edges=%d", node_id, len(keep), len(sub.edges)
+        )
+        return sub
+
     def get_node(self, node_id: str) -> NodeConfig | None:
         return self.nodes.get(node_id)
 
