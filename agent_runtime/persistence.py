@@ -222,8 +222,12 @@ class AgentStore:
             return None
         return AgentGraph.from_json(row["data"])
 
-    def list_graphs(self) -> list[dict[str, Any]]:
-        """List all saved graphs with metadata + node_count."""
+    def list_graphs(self, dedupe_names: bool = False) -> list[dict[str, Any]]:
+        """List all saved graphs with metadata + node_count.
+
+        dedupe_names: keep only the newest row per graph name for display;
+        each kept entry gains duplicate_count (rows hidden behind it).
+        """
         with self._cursor() as conn:
             rows = conn.execute(
                 "SELECT id, name, description, data, version, created_at, updated_at FROM graphs ORDER BY updated_at DESC"
@@ -239,7 +243,22 @@ class AgentStore:
                 d["node_count"] = 0
                 d["edge_count"] = 0
             results.append(d)
-        return results
+        if not dedupe_names:
+            return results
+        kept: dict[str, dict[str, Any]] = {}
+        counts: dict[str, int] = {}
+        for entry in results:
+            name = entry.get("name", "")
+            counts[name] = counts.get(name, 0) + 1
+            if name not in kept:
+                kept[name] = entry
+        for name, entry in kept.items():
+            entry["duplicate_count"] = counts[name] - 1
+        deduped = [e for e in results if kept.get(e.get("name", "")) is e]
+        logger.debug(
+            "list_graphs dedupe: %d -> %d entries", len(results), len(deduped)
+        )
+        return deduped
 
     def delete_graph(self, graph_id: str) -> bool:
         """Delete a graph by ID. Returns True if deleted."""

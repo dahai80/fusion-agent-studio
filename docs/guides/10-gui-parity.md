@@ -77,6 +77,24 @@ await rpc("run_artifact.versions", {"name": "my_graph"})    # 同名各版本
 
 Web Governance 页「产物 / Artifacts」页签列出运行记录，点击「查看三元组」并排展示三块内容。
 
+## 4. 列表去重与测试残留清理（#335）
+
+`graph.list` / `agent.list` 默认按名称去重：保留最新一条，其余隐藏并返回 `duplicate_count`。需要完整清单时传 `dedupe=false`。
+
+```python
+await rpc("graph.list", {})                  # 去重视图
+await rpc("graph.list", {"dedupe": False})   # 原始全量
+```
+
+批量清理测试残留（鉴权同其他 mutating RPC，先 `auth.login`）：
+
+```python
+await rpc("graph.purge_test", {"names": ["TestDeployGraph"], "prefixes": ["e2e-"], "dry_run": True})
+await rpc("agent.purge_test", {"prefixes": ["c12_"], "names": ["PyBot"], "dry_run": True})
+```
+
+去掉 `dry_run` 后执行；按名称精确匹配或前缀匹配，只删命中项。
+
 ## 验证
 
 ```bash

@@ -14,6 +14,7 @@ No LLM calls — Rule 5: decisions are deterministic, not model-routed.
 from __future__ import annotations
 
 import logging
+import os
 import re
 import time
 from dataclasses import dataclass
@@ -27,6 +28,7 @@ CONCLUSION_MARKERS = re.compile(
 TOKEN_RE = re.compile(r"[A-Za-z0-9一-鿿]{4,}")
 EVIDENCE_CAP = 5000
 DISTINCTIVE_LEN = 4
+RUNTIME_REVIEW_ENV = "FUSION_RUNTIME_REVIEW"
 
 
 @dataclass
@@ -53,8 +55,9 @@ def _distinct_tokens(text: str) -> set[str]:
 
 
 class ResidentReviewer:
-    def __init__(self, graph: Any):
+    def __init__(self, graph: Any, level: str = "resident"):
         self.graph = graph
+        self.level = level
         self._edges: set[tuple[str, str]] = set()
         self._known_ids: set[str] = set()
         nodes = getattr(graph, "nodes", None) or {}
@@ -153,6 +156,7 @@ class ResidentReviewer:
     def summary(self) -> dict[str, Any]:
         return {
             "resident": True,
+            "level": self.level,
             "findings": [f.to_dict() for f in self.findings],
             "counts": {
                 "graph_mismatch": sum(1 for f in self.findings if f.kind == "graph_mismatch"),
@@ -176,3 +180,14 @@ def graph_has_resident_verify(graph: Any) -> bool:
 
 def build_resident_reviewer(graph: Any) -> ResidentReviewer:
     return ResidentReviewer(graph)
+
+
+def runtime_review_enabled() -> bool:
+    # N10 #349: runtime-level standing review, on by default; set
+    # FUSION_RUNTIME_REVIEW=0 to disable (e.g. debugging event volume).
+    value = os.environ.get(RUNTIME_REVIEW_ENV, "1").strip().lower()
+    return value not in ("0", "false", "off", "no")
+
+
+def build_runtime_reviewer(graph: Any) -> ResidentReviewer:
+    return ResidentReviewer(graph, level="runtime")

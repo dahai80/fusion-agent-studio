@@ -393,12 +393,23 @@ class AgentRuntime(_SafetyApprovalMixin, _CheckpointMixin, _DynamicToolsMixin, _
         # N14 #353: resident reviewer — verify node with resident:true upgrades
         # to a standing reviewer on the event stream (deterministic checks).
         resident = None
+        runtime_review = None
         try:
-            from .resident_reviewer import build_resident_reviewer, graph_has_resident_verify
+            from .resident_reviewer import (
+                build_resident_reviewer,
+                build_runtime_reviewer,
+                graph_has_resident_verify,
+                runtime_review_enabled,
+            )
 
             if graph_has_resident_verify(graph):
                 resident = build_resident_reviewer(graph)
                 logger.info("resident reviewer attached graph=%s", graph.name)
+            # N10 #349: runtime-level standing review when no resident verify
+            # node exists (resident mode is the stronger node-level variant).
+            if resident is None and runtime_review_enabled():
+                runtime_review = build_runtime_reviewer(graph)
+                logger.info("runtime reviewer attached graph=%s", graph.name)
         except ImportError as e:
             logger.warning("resident reviewer unavailable: %s", e)
         try:
@@ -415,6 +426,15 @@ class AgentRuntime(_SafetyApprovalMixin, _CheckpointMixin, _DynamicToolsMixin, _
                             name="resident_reviewer",
                             node_id=finding.node_id,
                             metadata={"resident": True, **finding.to_dict()},
+                        )
+                if runtime_review is not None:
+                    for finding in runtime_review.observe(event):
+                        yield AgentEvent(
+                            type=AgentEventType.VERIFY,
+                            content=f"[runtime] {finding.kind}: {finding.detail}",
+                            name="runtime_reviewer",
+                            node_id=finding.node_id,
+                            metadata={"level": "runtime", **finding.to_dict()},
                         )
                 if event.type == AgentEventType.ERROR:
                     status = "error"
@@ -444,6 +464,19 @@ class AgentRuntime(_SafetyApprovalMixin, _CheckpointMixin, _DynamicToolsMixin, _
                     )
                 except Exception as e:
                     logger.warning("resident review summary failed: %s", e)
+            if runtime_review is not None:
+                try:
+                    summary = runtime_review.summary()
+                    if ctx.variables is not None:
+                        ctx.variables.set("runtime_review_findings", summary["findings"])
+                        ctx.variables.set("runtime_review_counts", summary["counts"])
+                    logger.info(
+                        "runtime review complete graph=%s findings=%s",
+                        graph.name,
+                        summary["counts"],
+                    )
+                except Exception as e:
+                    logger.warning("runtime review summary failed: %s", e)
             try:
                 # 审计 P1-9/P0-1: 统一用 ctx (context or AgentContext()), 不再 context or ctx.
                 # 之前传 context 给 inner 致轨迹-ctx 与执行-ctx 是两个对象 (context=None 时双建),
