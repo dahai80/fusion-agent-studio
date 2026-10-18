@@ -16,6 +16,8 @@ import logging
 import sys
 from typing import Any
 
+from .protocol_plane import write_extensions
+
 logger = logging.getLogger(__name__)
 
 MCP_PROTOCOL_VERSION = "2024-11-05"
@@ -36,9 +38,11 @@ class MCPServer:
                 "name": meta["name"],
                 "description": meta.get("description", ""),
                 "inputSchema": {"type": "object", "properties": params},
-                "x-fusion-origin": "fusion-agent-studio",
-                "x-fusion-readonly": bool(getattr(tool, "readonly", False)),
             }
+            schema.update(write_extensions({
+                "origin": "fusion-agent-studio",
+                "readonly": bool(getattr(tool, "readonly", False)),
+            }))
             out.append(schema)
         return out
 

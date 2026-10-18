@@ -28,8 +28,23 @@ class SkillsDispatcher(SubDispatcher):
             self._daemon._skills_store = cached
         return cached
 
+    def _plane(self):
+        getter = getattr(self._daemon, "_get_protocol_plane", None)
+        if getter is not None:
+            return getter()
+        from ..protocol_plane import ProtocolPlane
+
+        plane = getattr(self._daemon, "_protocol_plane", None)
+        if plane is None:
+            plane = ProtocolPlane()
+            self._daemon._protocol_plane = plane
+        return plane
+
     async def _handle_list(self, params: dict) -> dict:
         skills = self._store().list_skills()
+        # N17 #390: discovery syncs the skill layer onto the protocol plane.
+        for skill in skills:
+            self._plane().ensure("skill", skill["name"], origin="skills-store")
         logger.info("skills.list count=%d", len(skills))
         return {"status": "ok", "skills": skills}
 
@@ -52,6 +67,7 @@ class SkillsDispatcher(SubDispatcher):
             out = self._store().install_skill(name, str(content))
         except (ValueError, OSError) as e:
             return {"status": "error", "message": str(e)}
+        self._plane().ensure("skill", out["name"], origin="skills-store")
         logger.info("skills.install name=%s", out["name"])
         return {"status": "ok", **out}
 
@@ -62,5 +78,6 @@ class SkillsDispatcher(SubDispatcher):
         ok = self._store().uninstall_skill(name)
         if not ok:
             return {"status": "error", "message": f"skill not found: {name}"}
+        self._plane().unregister("skill", name)
         logger.info("skills.delete name=%s", name)
         return {"status": "ok", "name": name}

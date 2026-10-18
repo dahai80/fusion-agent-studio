@@ -26,6 +26,9 @@ logger = logging.getLogger(__name__)
 _FORK_MESSAGE_WINDOW = 20
 _CONTROL_FLOW_TOOL_NAMES = ("register_tool", "unregister_tool")
 
+# #389: explicit nesting limit. A subagent may not spawn another subagent.
+MAX_SUBAGENT_DEPTH = 1
+
 
 @dataclass
 class SubAgentSpec:
@@ -309,6 +312,24 @@ class SubAgentRunner:
                 team=spec.team,
             )
 
+        parent_depth = int(getattr(self.parent_runtime, "_sub_graph_depth", 0) or 0)
+        if parent_depth >= MAX_SUBAGENT_DEPTH:
+            logger.warning(
+                "subagent depth limit hit name=%s depth=%d max=%d",
+                spec.name,
+                parent_depth,
+                MAX_SUBAGENT_DEPTH,
+            )
+            return SubAgentReport(
+                name=spec.name,
+                ok=False,
+                report="",
+                error=(
+                    f"subagent nesting depth {parent_depth} >= "
+                    f"MAX_SUBAGENT_DEPTH={MAX_SUBAGENT_DEPTH}"
+                ),
+                team=spec.team,
+            )
         sub_ctx = self._build_sub_context(spec, parent_ctx)
         seeded_count = len(sub_ctx.messages)
 
@@ -318,7 +339,13 @@ class SubAgentRunner:
             max_iterations=max(1, spec.max_turns),
             safety_gateway=getattr(self.parent_runtime, "safety_gateway", None),
         )
-        sub_runtime._sub_graph_depth = 999
+        # #389: explicit depth semantics — one subagent level only. Nested
+        # SubAgentRunner calls hit the MAX_SUBAGENT_DEPTH guard above; the
+        # sub-graph gate is additionally pinned past its own limit so a
+        # subagent can never recurse through __sub_graph__ either.
+        from ._runtime_helpers import _max_sub_graph_depth
+
+        sub_runtime._sub_graph_depth = max(parent_depth + 1, _max_sub_graph_depth())
         budget: TokenBudget | None = None
         if spec.budget_tokens > 0:
             budget = TokenBudget(max_tokens=spec.budget_tokens)

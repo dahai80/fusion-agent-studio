@@ -6,10 +6,10 @@
 
 Run, build, and orchestrate AI agents entirely on your Mac — no cloud, no API fees, no data leaving your device.
 
-[![Version](https://img.shields.io/badge/v0.3.49-blue.svg)]()
+[![Version](https://img.shields.io/badge/v0.9.0-blue.svg)]()
 [![Python](https://img.shields.io/badge/Python-3.11+-3776AB.svg)](https://www.python.org/)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/Tests-2246-success.svg)](tests/)
+[![Tests](https://img.shields.io/badge/Tests-3050-success.svg)](tests/)
 
 **[中文文档](README_CN.md)** · [Quick Start](#quick-start) · [Architecture](#architecture) · [Documentation](docs/) · [Examples](examples/) · **[Guided Tutorials](docs/guides/README.md)**
 
@@ -299,6 +299,19 @@ python my_agent.py
 - ✅ **L-3/L-4/M-1/M-2/M-3** — silent JSON-swallow logging; dead `Task.session_id` field deleted; MLX list/health logging; checkpointer log escalation after 3 consecutive fails.
 - Tests: `tests/test_audit_0825_fixes.py` (21) + `tests/test_hooks.py` D-7 fail-closed/fail-open.
 
+### Migration 1018 Hardening (v0.9.0) — #381-#391
+- ✅ **#381 parallel tool-call context** — every parallel tool branch now receives the real `ExecutionContext`; plan mode and role rules can no longer be bypassed by `ctx=None`.
+- ✅ **#382 single LLM entry** — self-heal retries, `chat_engine`, and `workflow_engine` route through `LLMFunnel`; `llm_gateway` direct calls remain only inside the funnel.
+- ✅ **#383 hook budget fail-closed** — when the `max_fire_ms` budget is exhausted, any hook skipped at `PRE_TOOL_USE`/`POST_TOOL_USE` denies the action instead of falling through.
+- ✅ **#384 permissions** — plan mode is an independent mode (`FUSION_PLAN_MODE`), graph/node rules persist in SQLite, A3 rule noise is metered, and rule checks are armed by default.
+- ✅ **#385 compaction** — real 45-minute session proof (`tests/proof/prove_long_session_compaction.py`) and summaries produced through the local MLX server.
+- ✅ **#386 canvas** — JSON topology editing removed from `WorkflowsPage`; the React Flow canvas gains undo/redo, connect-end node search, breakpoints, pinned nodes, and `from_node`/`stop_after` debug runs.
+- ✅ **#387 SLO consumption** — `telemetry.export_slo` appends schema-versioned JSONL (`FUSION_SLO_BASELINE_PATH`) for `fusion-bench` ingestion; RPC surface `telemetry.session_slo_export`.
+- ✅ **#388 MCP funnel** — `mcp.list_resources`/`mcp.list_prompts` pass through `ToolFunnel` like every other tool path.
+- ✅ **#389 subagents** — explicit `MAX_SUBAGENT_DEPTH` guard, durable roster + mailbox (`agent_runtime/durable_roster.py`, SQLite WAL), wired to team RPCs.
+- ✅ **#390 memory/persona/protocol** — tenant/team isolation, decay sweep + cleanup suggestions + conflict detection, memory write auditing, agents.md import/export, frontmatter declarations, persona hot reload (`PERSONA_RELOADED`), `x-fusion-*` extension fields, strict protocol plane, plugin package/install/uninstall.
+- ✅ **#391 hooks/budget** — `ERROR`, `CHECKPOINT`, `TEAM_MESSAGE`, `PERSONA_RELOADED` events (26 total), day-level and graph-level budgets, and an explicit deny when `permissions=None` while enforcement is armed.
+
 ### Integration
 - ✅ **fusion-mlx** — Apple Silicon optimized model serving
 - ✅ **OpenAI-compatible API** — Works with any OpenAI-compatible backend
@@ -453,7 +466,7 @@ cd web && bun install && bun run dev
 ```
 
 ### Test Stats
-- **2144 tests**, 0 failures
+- **3050 tests**, 0 failures
 - **94%+ statement coverage**
 - **Python 3.11+** compatible
 - **16 business scenario integration tests** covering: agent lifecycle (create→configure→execute→delete), skill management, soul management, marketplace (publish→search→install), memory (store→recall→delete), safety (check→evaluate→policy), planner, deploy export/import, templates, graph CRUD, agent filtering, env health, RAG, ping

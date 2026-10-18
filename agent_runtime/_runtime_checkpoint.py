@@ -63,6 +63,21 @@ class _CheckpointMixin:
                 graph.name, ctx.current_node_id, len(pending),
             )
             ctx.checkpoint_fail_count = 0
+            # N8 #391: checkpoint hook trigger (auto-save path).
+            hooks = getattr(self, "hooks", None)
+            if hooks is not None:
+                try:
+                    await hooks.fire(
+                        "CHECKPOINT",
+                        {
+                            "graph": graph.name,
+                            "session_id": ctx.session_id,
+                            "node": ctx.current_node_id,
+                            "pending_tool_calls": len(pending),
+                        },
+                    )
+                except Exception as hook_err:
+                    logger.warning("checkpoint hook error: %s", hook_err)
         except Exception as e:
             ctx.checkpoint_fail_count += 1
             # 审计 M-3: 持续失败 (DB 满/锁/schema 不匹配) 仅 warning 但执行照常,

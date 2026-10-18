@@ -32,6 +32,7 @@ class PluginManager:
         self.plugin_dir = Path(plugin_dir)
         self.plugin_dir.mkdir(parents=True, exist_ok=True)
         self._loaded: dict[str, str] = {}  # plugin_name -> file_path
+        self._loaded_tools: dict[str, list[str]] = {}  # plugin_name -> tool names
         self._failed: dict[str, str] = {}  # plugin_name -> error (显式化加载失败, 见 issue #164)
 
     def discover(self) -> list[dict[str, Any]]:
@@ -82,7 +83,9 @@ class PluginManager:
                 if isinstance(attr, type) and issubclass(attr, BaseTool) and attr is not BaseTool:
                     tool = attr()
                     self.registry.register(tool)
+                    self.registry.plugin_tools.add(tool.name)
                     self._loaded[name] = str(plugin_path)
+                    self._loaded_tools.setdefault(name, []).append(tool.name)
                     logger.info("Loaded plugin: %s -> %s", name, tool.name)
                     return tool
             logger.warning("No BaseTool subclass found in plugin: %s", name)
@@ -119,15 +122,77 @@ class PluginManager:
             )
         return tools
 
-    def unload(self, name: str) -> None:
-        """Unload a plugin by name."""
-        if name in self._loaded:
-            # Find the tool name from the registry
-            for tool_name in list(self.registry._tools.keys()):
-                # We can't easily map back, so just unload all from this plugin
-                pass
-            self._loaded.pop(name, None)
-            logger.info("Unloaded plugin: %s", name)
+    def unload(self, name: str) -> bool:
+        """Unload a plugin by name and drop its tools from the registry."""
+        if name not in self._loaded:
+            return False
+        for tool_name in self._loaded_tools.get(name, []):
+            self.registry.unregister(tool_name)
+            self.registry.plugin_tools.discard(tool_name)
+            logger.info("Unloaded plugin tool: %s (plugin=%s)", tool_name, name)
+        self._loaded.pop(name, None)
+        self._loaded_tools.pop(name, None)
+        logger.info("Unloaded plugin: %s", name)
+        return True
+
+    def tool_names_for(self, name: str) -> list[str]:
+        return list(self._loaded_tools.get(name, []))
+
+    def install_local(self, source_path: str | Path, name: str = "") -> BaseTool:
+        # N17 #390: minimal local install — copy a plugin file into the plugin
+        # directory and load it. Remote installs stay out of scope.
+        import shutil
+
+        src = Path(source_path).expanduser()
+        if not src.is_file() or src.suffix != ".py":
+            raise ValueError("source must be an existing .py file")
+        plugin_name = name or src.stem
+        if not _SAFE_TOOL_NAME_RE.match(plugin_name):
+            raise ValueError(f"unsafe plugin name: {plugin_name}")
+        dest = self.plugin_dir / f"{plugin_name}.py"
+        if src.resolve() != dest.resolve():
+            shutil.copyfile(src, dest)
+        tool = self.load_plugin(plugin_name)
+        if tool is None:
+            raise ValueError(f"plugin loaded no BaseTool: {plugin_name}")
+        logger.info("plugin installed name=%s path=%s tool=%s", plugin_name, dest, tool.name)
+        return tool
+
+    def uninstall(self, name: str) -> bool:
+        if not _SAFE_TOOL_NAME_RE.match(name):
+            raise ValueError(f"unsafe plugin name: {name}")
+        path = self.plugin_dir / f"{name}.py"
+        removed = self.unload(name)
+        if path.is_file():
+            path.unlink()
+            removed = True
+        logger.info("plugin uninstalled name=%s path=%s", name, path)
+        return removed
+
+    def package(self, name: str, dest_dir: str | Path) -> Path:
+        # N17 #390: minimal plugin package = zip(plugin file + manifest).
+        import json
+        import zipfile
+
+        if not _SAFE_TOOL_NAME_RE.match(name):
+            raise ValueError(f"unsafe plugin name: {name}")
+        src = self.plugin_dir / f"{name}.py"
+        if not src.is_file():
+            raise ValueError(f"plugin not found: {name}")
+        out_dir = Path(dest_dir).expanduser()
+        out_dir.mkdir(parents=True, exist_ok=True)
+        out = out_dir / f"{name}.fusion-plugin.zip"
+        manifest = {
+            "name": name,
+            "format": "fusion-plugin/1",
+            "tools": self.tool_names_for(name),
+            "files": [src.name],
+        }
+        with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as zf:
+            zf.write(src, src.name)
+            zf.writestr("plugin.json", json.dumps(manifest, ensure_ascii=False, indent=2))
+        logger.info("plugin packaged name=%s path=%s", name, out)
+        return out
 
     def create_plugin_template(self, name: str, description: str = "") -> Path:
         """Create a boilerplate plugin file for users to customize."""

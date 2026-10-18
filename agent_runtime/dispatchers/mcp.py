@@ -65,6 +65,40 @@ def _mcp_validate_server(server_url: str, stdio_cmd) -> str | None:
 
 
 class McpDispatcher(SubDispatcher):
+    async def _admit_mcp_rpc(self, tool_name: str, params: dict) -> dict | None:
+        # 审计 N6: list_resources/prompts 原直连 transport, 完全绕过
+        # ToolFunnel (hooks/permission/budget/审计). 收进单一准入链.
+        daemon = self._daemon
+        get_runtime = getattr(daemon, "_get_runtime", None)
+        if not callable(get_runtime):
+            logger.warning("mcp %s: daemon has no runtime, funnel skipped", tool_name)
+            return None
+        runtime = get_runtime()
+        funnel = getattr(runtime, "tool_funnel", None)
+        if funnel is None:
+            logger.warning("mcp %s: runtime has no tool_funnel, funnel skipped", tool_name)
+            return None
+        from ..context import AgentContext
+
+        outcome = await funnel.admit(
+            ctx=AgentContext(),
+            tool_name=tool_name,
+            args=params,
+            node_label=tool_name,
+        )
+        if outcome.needs_approval:
+            logger.warning("mcp %s requires approval, RPC path has no approver", tool_name)
+            return self._err(f"{tool_name} requires approval ({outcome.reason})")
+        if not outcome.allowed:
+            logger.warning(
+                "mcp %s blocked gate=%s reason=%s",
+                tool_name,
+                outcome.blocked_by,
+                outcome.reason,
+            )
+            return self._err(f"Blocked by {outcome.blocked_by}: {outcome.reason}")
+        return None
+
     async def _handle_protocol_list(self, params: dict) -> dict:
         return {"artifacts": self._get_protocol_plane().list(kind=str(params.get("kind", "") or ""))}
 
@@ -91,6 +125,9 @@ class McpDispatcher(SubDispatcher):
         return self._get_protocol_plane().governance_route(kind, name)
 
     def _get_protocol_plane(self):
+        getter = getattr(self._daemon, "_get_protocol_plane", None)
+        if getter is not None:
+            return getter()
         plane = getattr(self._daemon, "_protocol_plane", None)
         if plane is None:
             from agent_runtime.protocol_plane import ProtocolPlane
@@ -149,7 +186,12 @@ class McpDispatcher(SubDispatcher):
             )
             plane = self._get_protocol_plane()
             for tool_name in registered:
-                plane.register(kind="mcp", name=tool_name, origin=server_url or str(stdio_cmd))
+                extensions = mcp_reg.tool_extensions(tool_name)
+                plane.register(
+                    kind="mcp", name=tool_name,
+                    origin=server_url or str(stdio_cmd),
+                    extensions=extensions,
+                )
             logger.info("mcp.register_server: registered %d tool(s)", len(registered))
             return {"registered": registered, "count": len(registered)}
         except (ValueError, TypeError, OSError, RuntimeError) as e:
@@ -175,6 +217,9 @@ class McpDispatcher(SubDispatcher):
         return {"status": "ok", "unregistered": server_url}
 
     async def _handle_list_resources(self, params: dict) -> dict:
+        denied = await self._admit_mcp_rpc("mcp.list_resources", params)
+        if denied is not None:
+            return denied
         from tools.mcp_tool import MCPRegistry
 
         mcp_reg = self._get_mcp_registry()
@@ -204,6 +249,9 @@ class McpDispatcher(SubDispatcher):
             await transport.close()
 
     async def _handle_list_prompts(self, params: dict) -> dict:
+        denied = await self._admit_mcp_rpc("mcp.list_prompts", params)
+        if denied is not None:
+            return denied
         from tools.mcp_tool import MCPRegistry
 
         mcp_reg = self._get_mcp_registry()

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import re
 from dataclasses import dataclass, field
 
@@ -140,7 +141,72 @@ class Compactor:
             return "manual"
         return "none"
 
-    def compact(self, messages: list[dict], level: str = "warning") -> list[dict]:
+    async def compact_async(self, messages: list[dict], level: str = "warning") -> list[dict]:
+        # A5: summarization runs on the local MLX server when a gateway is
+        # wired. The sync pipeline is offloaded to a thread so the event loop
+        # stays free; any failure degrades to the deterministic extractor.
+        if self.llm_gateway is not None and level != "none" and self._mlx_enabled():
+            return await asyncio.to_thread(self._compact_blocking, messages, level)
+        return self.compact(messages, level)
+
+    @staticmethod
+    def _mlx_enabled() -> bool:
+        return os.environ.get("FUSION_COMPACT_MLX", "1").strip().lower() not in (
+            "0",
+            "false",
+            "no",
+            "off",
+        )
+
+    def _compact_blocking(self, messages: list[dict], level: str) -> list[dict]:
+        return self.compact(messages, level, summarize=self._summarize_via_mlx)
+
+    def _summarize_via_mlx(self, messages: list[dict], hard: bool = False) -> str:
+        try:
+            prompt = self._summary_prompt(messages, hard)
+            resp = asyncio.run(
+                self.llm_gateway.chat(
+                    messages=[{"role": "user", "content": prompt}],
+                    model="default",
+                    max_tokens=400,
+                    temperature=0.2,
+                )
+            )
+            content = getattr(resp, "content", "") or ""
+            if not content and isinstance(resp, dict):
+                content = resp.get("content", "") or ""
+            content = str(content).strip()
+            if content:
+                logger.info("compaction summary via local mlx chars=%d", len(content))
+                return "[Compacted prior context]\n" + content
+            logger.warning("mlx compaction summary empty, falling back to deterministic")
+        except Exception as exc:
+            logger.warning("mlx compaction summary failed, deterministic fallback: %s", exc)
+        return self._summarize(messages, hard)
+
+    @staticmethod
+    def _summary_prompt(messages: list[dict], hard: bool) -> str:
+        lines = []
+        for m in messages[:80]:
+            role = m.get("role", "")
+            content = m.get("content") or ""
+            if not isinstance(content, str):
+                content = str(content)
+            if content:
+                lines.append(f"{role}: {content[:400]}")
+        body = "\n".join(lines)[:12000]
+        return (
+            "Summarize this agent conversation for continuation. Keep concrete "
+            "decisions, file paths, interfaces, constraints and open TODOs. "
+            "Be terse, use bullet lines.\n\n" + body
+        )
+
+    def compact(
+        self,
+        messages: list[dict],
+        level: str = "warning",
+        summarize=None,
+    ) -> list[dict]:
         logger.info("compaction phase=1 trigger level=%s", level)
         payload = {"level": level, "before_msgs": len(messages)}
         if level != "none":
@@ -165,12 +231,12 @@ class Compactor:
         before_tokens = self.estimate_tokens(messages)
         msgs = self._microcompact(list(messages))
         if self.estimate_tokens(msgs) >= self.config.warning_threshold():
-            msgs = self._smart_truncate(msgs)
+            msgs = self._smart_truncate(msgs, summarize)
         if (
             level == "error"
             and self.estimate_tokens(msgs) >= self.config.error_threshold()
         ):
-            msgs = self._hard_compact(msgs)
+            msgs = self._hard_compact(msgs, summarize)
         after_tokens = self.estimate_tokens(msgs)
         logger.info(
             "compaction phase=4 drop before_msgs=%d after_msgs=%d before_tok=%d after_tok=%d",
@@ -276,7 +342,7 @@ class Compactor:
         logger.debug("truncate_tool dropped=%d", dropped)
         return {**m, "content": f"{head}\n...[truncated {dropped} chars]...\n{tail}"}
 
-    def _smart_truncate(self, messages: list[dict]) -> list[dict]:
+    def _smart_truncate(self, messages: list[dict], summarize=None) -> list[dict]:
         system_msgs, rest = self._partition(messages)
         rounds = self._split_rounds(rest)
         keep = self.config.keep_recent_rounds
@@ -285,7 +351,7 @@ class Compactor:
         dropped = rounds[: len(rounds) - keep]
         kept = rounds[len(rounds) - keep :]
         dropped_msgs = [m for r in dropped for m in r]
-        summary = self._summarize(dropped_msgs)
+        summary = (summarize or self._summarize)(dropped_msgs)
         self._persist_summary(summary, len(dropped_msgs))
         logger.info(
             "smart_truncate dropped_rounds=%d kept_rounds=%d", len(dropped), len(kept)
@@ -296,7 +362,7 @@ class Compactor:
             + [m for r in kept for m in r]
         )
 
-    def _hard_compact(self, messages: list[dict]) -> list[dict]:
+    def _hard_compact(self, messages: list[dict], summarize=None) -> list[dict]:
         system_msgs, rest = self._partition(messages)
         rounds = self._split_rounds(rest)
         if len(rounds) <= 1:
@@ -304,7 +370,7 @@ class Compactor:
         dropped = rounds[: len(rounds) - 1]
         kept = rounds[-1:]
         dropped_msgs = [m for r in dropped for m in r]
-        summary = self._summarize(dropped_msgs, hard=True)
+        summary = (summarize or self._summarize)(dropped_msgs, hard=True)
         self._persist_summary(summary, len(dropped_msgs))
         logger.info(
             "hard_compact dropped_rounds=%d kept_rounds=%d", len(dropped), len(kept)

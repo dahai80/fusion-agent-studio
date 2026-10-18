@@ -15,9 +15,9 @@ def dec_guard():
     hooks_mod._DECORATOR_REGISTRY[:] = saved
 
 
-def test_hook_event_22_members_and_new_names():
+def test_hook_event_26_members_and_new_names():
     members = list(HookEvent)
-    assert len(members) == 22
+    assert len(members) == 26
     names = {m.value for m in members}
     for expected in (
         "SESSION_START",
@@ -42,6 +42,10 @@ def test_hook_event_22_members_and_new_names():
         "PRE_TOOL_USE",
         "POST_TOOL_USE",
         "POST_TOOL_USE_FAILURE",
+        "ERROR",
+        "CHECKPOINT",
+        "TEAM_MESSAGE",
+        "PERSONA_RELOADED",
     ):
         assert expected in names, f"missing hook event {expected}"
 

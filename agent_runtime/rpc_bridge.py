@@ -43,6 +43,8 @@ WEB_RPC_ALLOWLIST: frozenset[str] = frozenset(
         "agent.resolve_persona",
         "agent.get_persona_layer",
         "agent.set_persona_layer",
+        "agent.import_agents_md",
+        "agent.export_agents_md",
         "agent.list_skills",
         "agent.add_skill",
         "agent.delete_skill",
@@ -67,6 +69,9 @@ WEB_RPC_ALLOWLIST: frozenset[str] = frozenset(
         "memory.delete_scope",
         "memory.count",
         "memory.auto_forget",
+        "memory.decay_sweep",
+        "memory.cleanup_suggestions",
+        "memory.conflicts",
         "memory.backend",
         # safety
         "safety.check",
@@ -118,7 +123,16 @@ WEB_RPC_ALLOWLIST: frozenset[str] = frozenset(
         "team.plaza_break_in",
         "team.plaza_create",
         "team.plaza_broadcast",
+        "team.roster_register",
+        "team.roster_list",
+        "team.roster_status",
+        "team.mailbox_send",
+        "team.mailbox_broadcast",
+        "team.mailbox_inbox",
+        "team.mailbox_ack",
+        "team.mailbox_stats",
         # dashboard / ops (read-only)
+        "daemon.status",
         "dashboard.overview",
         "analytics.agent_usage",
         "audit.list",
@@ -128,6 +142,7 @@ WEB_RPC_ALLOWLIST: frozenset[str] = frozenset(
         "telemetry.session_slo",
         # R4 #351: governance page — budget caps (set is mutating, audited)
         "budget.status",
+        "telemetry.session_slo_export",
         "budget.set",
         # N9 #348: run artifact versioned triple (read-only)
         "run_artifact.list",

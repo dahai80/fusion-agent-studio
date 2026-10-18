@@ -1469,7 +1469,13 @@ async def ws_execute(websocket: WebSocket, graph_id: str):
     "/v1/graphs/{graph_id}/execute/stream",
     dependencies=[Depends(_require_auth_qs_or_raise)],
 )
-async def v1_execute_graph_stream(graph_id: str, input: str = "", thinking: bool = True):
+async def v1_execute_graph_stream(
+    graph_id: str,
+    input: str = "",
+    thinking: bool = True,
+    from_node: str = "",
+    stop_after: str = "",
+):
     """Server-Sent Events stream — pushes per-token TOKEN events as they arrive.
 
     Real streaming: connects execute_graph_stream (stream=True) so LLM nodes
@@ -1479,6 +1485,13 @@ async def v1_execute_graph_stream(graph_id: str, input: str = "", thinking: bool
     graph = _get_store().load_graph(graph_id)
     if graph is None:
         raise_api_error(ErrorCode.AGENT_NOT_FOUND, param="graph_id")
+    # #386: downstream rerun executes the node and its reachable descendants.
+    if from_node:
+        sub = graph.downstream_subgraph(from_node)
+        if sub is None:
+            raise_api_error(ErrorCode.PARAM_INVALID, param="from_node")
+        graph = sub
+        logger.info("SSE downstream rerun graph=%s from=%s", graph_id, from_node)
     rt = _get_runtime()
     # 审计 P2-5/P2-6/P0-3: SSE 直调 rt 绕过 daemon 注册/节流/预算, 与 WS 同补.
     daemon = _daemon
@@ -1492,13 +1505,29 @@ async def v1_execute_graph_stream(graph_id: str, input: str = "", thinking: bool
             _, _unreg = daemon.register_execution("sse", graph_id)
         try:
             async def _sse_stream():
-                async for event in rt.execute_graph_stream(
+                agen = rt.execute_graph_stream(
                     graph, input, token_budget=budget, show_thinking=thinking
-                ):
-                    ev_dict = (
-                        event.to_dict() if hasattr(event, "to_dict") else {"type": str(event)}
-                    )
-                    yield f"data: {json.dumps(ev_dict, ensure_ascii=False)}\n\n"
+                )
+                stop_types = {"result", "tool_result", "end", "error", "verify"}
+                try:
+                    async for event in agen:
+                        ev_dict = (
+                            event.to_dict() if hasattr(event, "to_dict") else {"type": str(event)}
+                        )
+                        yield f"data: {json.dumps(ev_dict, ensure_ascii=False)}\n\n"
+                        if (
+                            stop_after
+                            and ev_dict.get("node_id") == stop_after
+                            and ev_dict.get("type") in stop_types
+                        ):
+                            logger.info(
+                                "SSE breakpoint hit graph=%s node=%s", graph_id, stop_after
+                            )
+                            break
+                finally:
+                    aclose = getattr(agen, "aclose", None)
+                    if aclose is not None:
+                        await aclose()
 
             if sem is not None:
                 async with sem:

@@ -24,6 +24,7 @@
 | 08 | [部署与发布](./08-deploy-publish.md) | 导出包、发布到 marketplace、HTTP API 端点、launchd 持久化 |
 | 09 | [切换记忆后端](./09-memory-backend.md) | 把记忆存储切到 fusion-memory、查后端、降级与端口冲突 |
 | 10 | [GUI 对标三件](./10-gui-parity.md) | 四类权限卡、思考通道开关、运行产物版本化三元组 |
+| 11 | [记忆治理、人设与团队](./11-memory-persona-team.md) | 记忆隔离/衰减/冲突、人设分层热重载、agents.md 互转、roster/mailbox、SLO 导出 |
 
 ## 通用约定（所有文档共用）
 

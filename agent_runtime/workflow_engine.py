@@ -8,8 +8,10 @@ import time
 import uuid
 from dataclasses import dataclass, field
 from enum import Enum
+from types import SimpleNamespace
 
 from .context import AgentContext, AgentEventType
+from .funnels import LLMFunnel
 
 logger = logging.getLogger(__name__)
 
@@ -166,12 +168,22 @@ class WorkflowEngine:
         self._active_tasks: dict[str, asyncio.Task] = {}
         self._workflow_concurrency_limit = self._parse_workflow_concurrency()
         self._workflow_semaphore: asyncio.Semaphore | None = None
+        # 审计 P-2: single LLM admission path for the direct (no-graph) call.
+        self.llm_funnel = LLMFunnel()
         logger.info(
             "WorkflowEngine init, llm_gateway=%s, orchestrator=%s, store=%s",
             "provided" if llm_gateway else "none",
             "provided" if orchestrator else "none",
             "provided" if store else "none",
         )
+
+    def _get_llm_funnel(self):
+        # Lazy so engines built via __new__ in tests still get a funnel.
+        funnel = getattr(self, "llm_funnel", None)
+        if funnel is None:
+            funnel = LLMFunnel()
+            self.llm_funnel = funnel
+        return funnel
 
     @staticmethod
     def _parse_workflow_concurrency() -> int | None:
@@ -782,6 +794,18 @@ class WorkflowEngine:
                     messages.append({"role": "system", "content": system_prompt})
                 messages.append({"role": "user", "content": input_text})
 
+                # 审计 P-2: workflow direct path must pass LLMFunnel
+                # (lifecycle llm_before/llm_after + budget + hooks).
+                fctx = SimpleNamespace(session_id=f"workflow:{agent_name}", plan_mode=False, role="all")
+                funnel = self._get_llm_funnel()
+                proceed, block_reason, messages = await funnel.pre_llm(
+                    fctx, f"workflow.{agent_name}", "default", messages
+                )
+                if not proceed:
+                    logger.warning(
+                        "workflow llm blocked agent=%s reason=%s", agent_name, block_reason
+                    )
+                    raise RuntimeError(f"LLM funnel blocked: {block_reason}")
                 response = await self.llm_gateway.chat(
                     messages=messages, temperature=0.3, max_tokens=2048
                 )
@@ -796,6 +820,13 @@ class WorkflowEngine:
                     content = response.get("content", "")
                 # 审计 P2-14: gateway 直连路径从 response.usage 真实 token 记账.
                 _record_tokens(getattr(response, "usage", None))
+                funnel.post_llm(
+                    fctx,
+                    f"workflow.{agent_name}",
+                    "default",
+                    usage=getattr(response, "usage", None) or {},
+                    content=content,
+                )
                 logger.info(
                     "LLM call for agent %s, output len=%d", agent_name, len(content)
                 )

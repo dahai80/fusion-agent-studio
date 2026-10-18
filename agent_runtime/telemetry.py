@@ -404,6 +404,31 @@ class TelemetryEngine:
             "p99_session_duration_ms": avg_latencies["p99_sessions_ms"],
         }
 
+    def export_slo(self, path: str | None = None) -> dict:
+        # #387: producer-side baseline export for fusion-bench consumption.
+        # One JSONL record per call: schema version + timestamp + summary.
+        import json
+        import os
+
+        target = path or os.environ.get(
+            "FUSION_SLO_BASELINE_PATH",
+            os.path.join(
+                os.path.expanduser("~"), ".fusion-agent-studio", "slo_baselines.jsonl"
+            ),
+        )
+        record = {"schema": 1, "ts": time.time(), **self.slo_summary()}
+        try:
+            parent = os.path.dirname(target)
+            if parent:
+                os.makedirs(parent, exist_ok=True)
+            with open(target, "a", encoding="utf-8") as f:
+                f.write(json.dumps(record, ensure_ascii=False) + "\n")
+            logger.info("SLO baseline exported records_path=%s", target)
+            return {"path": target, "record": record}
+        except OSError as e:
+            logger.error("SLO baseline export failed path=%s err=%s", target, e)
+            return {"path": target, "error": str(e), "record": record}
+
     def metrics(self) -> dict:
         avg_latencies = {}
         for key, vals in self._latencies.items():

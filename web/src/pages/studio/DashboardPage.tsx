@@ -37,6 +37,7 @@ interface DashboardData {
     mlx?: { status?: MlxStatus };
     usage?: { usage?: AgentUsage[] };
     audit?: { entries?: AuditEntry[]; audit?: AuditEntry[] };
+    daemon?: { capabilities?: Record<string, boolean> };
 }
 
 const prettify = (key: string) => key.replaceAll('_', ' ').replace(/^\w/, (c) => c.toUpperCase());
@@ -46,13 +47,14 @@ const isNumeric = (v: unknown) => typeof v === 'number' && Number.isFinite(v);
 export function DashboardPage() {
     const t = useT();
     const { data, error, loading, attempt, manualRetry } = useAutoRetry(async () => {
-        const [overview, mlx, usage, audit] = await Promise.all([
+        const [overview, mlx, usage, audit, daemon] = await Promise.all([
             rpc<DashboardData['overview']>('dashboard.overview', {}),
             rpc<DashboardData['mlx']>('mlx.status', {}),
             rpc<DashboardData['usage']>('analytics.agent_usage', { limit: 10 }),
             rpc<DashboardData['audit']>('audit.list', { limit: 15 }),
+            rpc<DashboardData['daemon']>('daemon.status', {}),
         ]);
-        return { overview, mlx, usage, audit };
+        return { overview, mlx, usage, audit, daemon };
     }, []);
 
     const ov = data?.overview?.overview ?? data?.overview ?? {};
@@ -65,6 +67,7 @@ export function DashboardPage() {
         (data?.audit as unknown as { data?: AuditEntry[] })?.data ??
         [];
     const statEntries = Object.entries(ov).filter(([, v]) => isNumeric(v));
+    const capabilities = Object.entries(data?.daemon?.capabilities ?? {});
 
     const model = st.model_name ?? st.model;
     const memory = st.memory_used ?? st.memory;
@@ -125,6 +128,22 @@ export function DashboardPage() {
                                 ) : null}
                             </div>
                         </section>
+                        {capabilities.length > 0 ? (
+                            <section>
+                                <h3 className="mb-2 text-sm font-medium text-text-primary">
+                                    {t('能力开关', 'Capabilities')}
+                                </h3>
+                                <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+                                    {capabilities.map(([k, on]) => (
+                                        <MetricTile
+                                            key={k}
+                                            label={prettify(k)}
+                                            value={on ? t('开启', 'On') : t('关闭', 'Off')}
+                                        />
+                                    ))}
+                                </div>
+                            </section>
+                        ) : null}
                         {usageRows.length > 0 ? (
                             <section>
                                 <h3 className="mb-2 text-sm font-medium text-text-primary">

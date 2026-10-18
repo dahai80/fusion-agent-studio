@@ -221,8 +221,11 @@ class MCPTool(BaseTool):
         transport: MCPTransport | None = None,
         server_url: str = "",
         headers: dict[str, str] | None = None,
+        extensions: dict | None = None,
     ):
         self.name = tool_name
+        # N17 #390: x-fusion-* extension fields read from the server schema.
+        self.extensions = dict(extensions or {})
         self.description = tool_description or f"MCP tool: {tool_name}"
         self.parameters = tool_parameters or {}
         self._transport = transport
@@ -406,11 +409,16 @@ class MCPRegistry:
 
         registered = []
         try:
+            from agent_runtime.protocol_plane import read_extensions
+
             tools_list = await transport.list_tools()
+            tool_extensions: dict[str, dict] = {}
             for t in tools_list:
                 name = t.get("name", "")
                 if tool_filter and name not in tool_filter:
                     continue
+                extensions = read_extensions(t)
+                tool_extensions[name] = extensions
                 mcp_tool = MCPTool(
                     tool_name=name,
                     tool_description=t.get("description", ""),
@@ -418,15 +426,19 @@ class MCPRegistry:
                     transport=transport,
                     server_url=server_url or "",
                     headers=headers,
+                    extensions=extensions,
                 )
                 self._registry.register(mcp_tool)
                 registered.append(name)
-                logger.info("Registered MCP tool: %s", name)
+                logger.info(
+                    "Registered MCP tool: %s extensions=%s", name, sorted(extensions)
+                )
 
             key = server_url or (sse_url or "") or " ".join(stdio_cmd or [])
             self._servers[key] = {
                 "tools": [t.get("name") for t in tools_list],
                 "headers": headers,
+                "extensions": tool_extensions,
                 "transport": "stdio" if stdio_cmd else ("sse" if sse_url else "http"),
             }
         except Exception as e:
@@ -467,3 +479,11 @@ class MCPRegistry:
     def list_servers(self) -> dict[str, list[str]]:
         """Return mapping of server keys to their registered tool names."""
         return dict(self._servers)
+
+    def tool_extensions(self, tool_name: str) -> dict:
+        # N17 #390: x-fusion-* fields captured at registration time.
+        for info in self._servers.values():
+            ext = info.get("extensions", {}).get(tool_name)
+            if ext:
+                return dict(ext)
+        return {}

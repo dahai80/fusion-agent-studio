@@ -229,6 +229,22 @@ class ChatEngine:
             "provided" if store else "none",
         )
 
+    def _llm_funnel(self):
+        from .funnels import LLMFunnel
+
+        funnel = getattr(self.runtime, "llm_funnel", None)
+        if funnel is not None:
+            return funnel
+        if not hasattr(self, "_local_llm_funnel"):
+            self._local_llm_funnel = LLMFunnel()
+            logger.warning("ChatEngine has no runtime llm_funnel, using local funnel")
+        return self._local_llm_funnel
+
+    def _funnel_ctx(self, session: "ChatSession"):
+        from types import SimpleNamespace
+
+        return SimpleNamespace(session_id=getattr(session, "id", ""), plan_mode=False, role="all")
+
     def create_session(
         self,
         mode: str = ChatMode.SIMPLE.value,
@@ -512,6 +528,19 @@ class ChatEngine:
         history = self._build_llm_history(session)
         # C16: 统一 soul.md 加载 — session 携 agent_id 时注入 soul 为 system 前缀.
         history = self._inject_soul(session, history)
+        # 审计 P-2: chat path is a first-class LLM call — it must pass the
+        # LLMFunnel too (budget -> hooks -> compaction), not dial the gateway.
+        funnel = self._llm_funnel()
+        ctx = self._funnel_ctx(session)
+        proceed, block_reason, history = await funnel.pre_llm(
+            ctx, "chat.simple", "default", history
+        )
+        if not proceed:
+            logger.warning("chat simple blocked by llm_funnel session=%s reason=%s", session.id, block_reason)
+            yield ChatEvent(type=ChatEventType.ERROR, content=block_reason)
+            return
+        usage: dict = {}
+        content_parts: list[str] = []
         try:
             if self.runtime.mlx:
                 async for chunk in self.runtime.llm_gateway.chat_stream(
@@ -519,9 +548,12 @@ class ChatEngine:
                     model="default",
                 ):
                     if chunk.get("delta_content"):
+                        content_parts.append(chunk["delta_content"])
                         yield ChatEvent(
                             type=ChatEventType.TOKEN, content=chunk["delta_content"]
                         )
+                    if chunk.get("usage"):
+                        usage = chunk["usage"]
                     if chunk.get("delta_tool_calls"):
                         for tc in chunk["delta_tool_calls"]:
                             yield ChatEvent(
@@ -537,8 +569,11 @@ class ChatEngine:
                 if getattr(resp, "finish_reason", "") == "error":
                     err = (getattr(resp, "usage", None) or {}).get("error", "gateway error")
                     raise RuntimeError(f"LLM gateway error: {err}")
+                usage = getattr(resp, "usage", None) or {}
                 if resp.content:
+                    content_parts.append(resp.content)
                     yield ChatEvent(type=ChatEventType.TOKEN, content=resp.content)
+            funnel.post_llm(ctx, "chat.simple", "default", usage=usage, content="".join(content_parts))
         except Exception as e:
             logger.error("ChatEngine _execute_simple error: %s", e)
             yield ChatEvent(type=ChatEventType.ERROR, content=str(e))

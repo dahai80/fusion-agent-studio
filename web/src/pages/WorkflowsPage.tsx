@@ -13,41 +13,27 @@ import { useState } from 'react';
 import { type GraphItem, api, rpc } from '../api';
 import { PageHeader } from '../components/PageHeader';
 import { StreamPanel } from '../components/StreamPanel';
-import { JsonEditor, parseJson } from '../components/ui/JsonEditor';
 import { Modal } from '../components/ui/Modal';
 import { useT } from '../i18n';
 import { sdk } from '../sdk';
 
-// Minimal valid graph skeleton pre-filled in the create/edit JSON editor.
-// Node payloads use the {id, type, config?} shape consumed by
-// daemon graph.create/_node_config_from_payload (#297 nested-config merge).
-const GRAPH_SKELETON = JSON.stringify(
-    {
-        nodes: [
-            { id: 'start', type: 'start' },
-            { id: 'llm-1', type: 'llm', config: { prompt: '{{input}}' } },
-            { id: 'end', type: 'end' },
-        ],
-        edges: [
-            { source_id: 'start', target_id: 'llm-1' },
-            { source_id: 'llm-1', target_id: 'end' },
-        ],
-    },
-    null,
-    4
-);
+// O9 (#386): topology is edited ONLY on the canvas. This page creates an
+// empty graph and hands off; the edit action jumps to the canvas with the
+// graph preselected. No JSON topology entry point exists here.
+const CANVAS_GRAPH_KEY = 'fusion.canvas.graphId';
 
-interface GraphGetResult {
-    graph_id: string;
-    name: string;
-    description: string;
-    nodes: Record<string, Record<string, unknown>>;
-    edges: Array<Record<string, unknown>>;
+export function openCanvas(graphId: string): void {
+    try {
+        window.sessionStorage.setItem(CANVAS_GRAPH_KEY, graphId);
+    } catch {
+        // sessionStorage unavailable — canvas falls back to its selector
+    }
+    window.location.hash = '#/canvas';
 }
 
 // Workflows (agent graphs) list + per-graph quick actions: submit a tracked
 // run (task store) or a live streaming test (SSE). Four states per spec S1.
-// #331: create / edit / delete via graph.* RPC bridge (POST /v1/rpc).
+// #331: create / delete via graph.* RPC bridge (POST /v1/rpc).
 export function WorkflowsPage() {
     const t = useT();
     const [selected, setSelected] = useState<GraphItem | null>(null);
@@ -55,10 +41,8 @@ export function WorkflowsPage() {
     const [goalError, setGoalError] = useState<string | null>(null);
     const [streaming, setStreaming] = useState(false);
     const [editorOpen, setEditorOpen] = useState(false);
-    const [editingGraph, setEditingGraph] = useState<GraphItem | null>(null);
     const [wfName, setWfName] = useState('');
     const [wfDesc, setWfDesc] = useState('');
-    const [wfJson, setWfJson] = useState(GRAPH_SKELETON);
     const [wfError, setWfError] = useState<string | null>(null);
     const [saving, setSaving] = useState(false);
     const { data, error, loading, attempt, manualRetry } = useAutoRetry(
@@ -67,33 +51,10 @@ export function WorkflowsPage() {
     );
 
     const openCreate = () => {
-        setEditingGraph(null);
         setWfName('');
         setWfDesc('');
-        setWfJson(GRAPH_SKELETON);
         setWfError(null);
         setEditorOpen(true);
-    };
-
-    const openEdit = async (g: GraphItem) => {
-        setEditingGraph(g);
-        setWfName(g.name || '');
-        setWfDesc(g.description || '');
-        setWfJson('');
-        setWfError(null);
-        setEditorOpen(true);
-        try {
-            const res = await rpc<GraphGetResult>('graph.get', { graph_id: g.graph_id });
-            const nodes = Object.entries(res.nodes ?? {}).map(([id, n]) => ({ id, ...n }));
-            setWfJson(JSON.stringify({ nodes, edges: res.edges ?? [] }, null, 4));
-        } catch (e) {
-            console.warn('[web] graph.get prefill failed, using row data fallback', e);
-            const fallback = {
-                nodes: Object.entries(g.graph_data.nodes ?? {}).map(([id, n]) => ({ id, ...n })),
-                edges: (g.graph_data.edges ?? []) as Array<Record<string, unknown>>,
-            };
-            setWfJson(JSON.stringify(fallback, null, 4));
-        }
     };
 
     const submitEditor = async () => {
@@ -101,51 +62,21 @@ export function WorkflowsPage() {
             setWfError(t('请输入名称', 'name required'));
             return;
         }
-        const parsed = parseJson(wfJson);
-        if (!parsed.ok) {
-            setWfError(parsed.error);
-            return;
-        }
-        const body = parsed.data as { nodes?: unknown; edges?: unknown };
-        if (
-            !body ||
-            typeof body !== 'object' ||
-            !Array.isArray(body.nodes) ||
-            !Array.isArray(body.edges)
-        ) {
-            setWfError(
-                t('JSON 须包含 nodes 和 edges 数组', 'JSON must contain nodes and edges arrays')
-            );
-            return;
-        }
         setSaving(true);
         try {
-            if (editingGraph) {
-                await rpc('graph.update', {
-                    graph_id: editingGraph.graph_id,
-                    name: wfName.trim(),
-                    description: wfDesc.trim(),
-                    nodes: body.nodes,
-                    edges: body.edges,
-                });
-                sdk.toast.show({
-                    level: 'success',
-                    message: t('工作流已更新', 'workflow updated'),
-                });
-            } else {
-                await rpc('graph.create', {
-                    name: wfName.trim(),
-                    description: wfDesc.trim(),
-                    nodes: body.nodes,
-                    edges: body.edges,
-                });
-                sdk.toast.show({
-                    level: 'success',
-                    message: t('工作流已创建', 'workflow created'),
-                });
-            }
+            const res = await rpc<{ graph_id?: string }>('graph.create', {
+                name: wfName.trim(),
+                description: wfDesc.trim(),
+                nodes: [],
+                edges: [],
+            });
+            sdk.toast.show({
+                level: 'success',
+                message: t('工作流已创建，正在打开画布', 'workflow created, opening canvas'),
+            });
             setEditorOpen(false);
             manualRetry();
+            if (res?.graph_id) openCanvas(res.graph_id);
         } catch (e) {
             setWfError((e as Error).message);
         } finally {
@@ -283,9 +214,9 @@ export function WorkflowsPage() {
                                         <button
                                             type="button"
                                             className="text-brand hover:underline"
-                                            onClick={() => void openEdit(g)}
+                                            onClick={() => openCanvas(g.graph_id)}
                                         >
-                                            {t('编辑', 'Edit')}
+                                            {t('在画布中编辑', 'Edit on canvas')}
                                         </button>
                                         <button
                                             type="button"
@@ -373,11 +304,7 @@ export function WorkflowsPage() {
             ) : null}
             <Modal
                 open={editorOpen}
-                title={
-                    editingGraph
-                        ? t('编辑工作流', 'Edit workflow')
-                        : t('新建工作流', 'New workflow')
-                }
+                title={t('新建工作流', 'New workflow')}
                 onClose={() => setEditorOpen(false)}
                 footer={
                     <div className="flex items-center justify-end gap-2">
@@ -389,7 +316,7 @@ export function WorkflowsPage() {
                             {t('取消', 'Cancel')}
                         </button>
                         <SubmitButton
-                            label={editingGraph ? t('保存', 'Save') : t('创建', 'Create')}
+                            label={t('创建并打开画布', 'Create & open canvas')}
                             busyLabel={t('保存中…', 'saving…')}
                             disabled={saving}
                             onAction={submitEditor}
@@ -413,9 +340,13 @@ export function WorkflowsPage() {
                         placeholder={t('可选', 'optional')}
                     />
                 </FormField>
-                <FormField label={t('图定义 (JSON)', 'Graph definition (JSON)')} error={wfError}>
-                    <JsonEditor value={wfJson} onChange={setWfJson} rows={10} />
-                </FormField>
+                {wfError ? <div className="text-xs text-error">{wfError}</div> : null}
+                <div className="text-xs text-text-secondary">
+                    {t(
+                        '创建后在画布上添加节点与连线（拓扑只在画布编辑）',
+                        'Add nodes and edges on the canvas after creation (topology is canvas-only)'
+                    )}
+                </div>
             </Modal>
         </div>
     );

@@ -6,10 +6,10 @@
 
 在 Mac 上运行、构建和编排 AI 智能体 — 无需云服务、无需 API 费用、数据不出设备。
 
-[![Version](https://img.shields.io/badge/v0.3.49-blue.svg)]()
+[![Version](https://img.shields.io/badge/v0.9.0-blue.svg)]()
 [![Python](https://img.shields.io/badge/Python-3.11+-3776AB.svg)](https://www.python.org/)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/Tests-2246-success.svg)](tests/)
+[![Tests](https://img.shields.io/badge/Tests-3050-success.svg)](tests/)
 
 **[English](README.md)** · [快速开始](#快速开始) · [架构](#架构) · [文档](docs/) · [示例](examples/) · **[引导式教程](docs/guides/README.md)**
 
@@ -230,6 +230,19 @@ python my_agent.py
 - ✅ 插件目录 `~/.fusion-agent-studio/plugins/`
 - ✅ 新插件模板生成器
 
+### 迁移 1018 加固 (v0.9.0) — #381-#391
+- ✅ **#381 并行工具上下文** — 并行工具分支均收到真实 `ExecutionContext`；`ctx=None` 不再绕过计划模式与角色规则。
+- ✅ **#382 LLM 单一入口** — 自愈重试、`chat_engine`、`workflow_engine` 统一经 `LLMFunnel`；`llm_gateway` 直调仅保留在漏斗内部。
+- ✅ **#383 Hook 预算失败关闭** — `max_fire_ms` 预算耗尽时，`PRE_TOOL_USE`/`POST_TOOL_USE` 被跳过的 hook 一律拒绝，不再放行。
+- ✅ **#384 权限引擎** — 计划模式独立（`FUSION_PLAN_MODE`）、graph/node 规则 SQLite 持久化、A3 规则降噪计量、默认武装规则检查。
+- ✅ **#385 Compaction** — 45 分钟真实长会话 proof（`tests/proof/prove_long_session_compaction.py`），摘要经本地 MLX 生成。
+- ✅ **#386 画布** — `WorkflowsPage` 移除 JSON 拓扑编辑入口；React Flow 画布新增撤销/重做、连线搜索节点、断点、固定节点与 `from_node`/`stop_after` 调试运行。
+- ✅ **#387 SLO 消费** — `telemetry.export_slo` 追加带 schema 版本的 JSONL（`FUSION_SLO_BASELINE_PATH`）供 `fusion-bench` 消费；RPC `telemetry.session_slo_export`。
+- ✅ **#388 MCP 漏斗** — `mcp.list_resources`/`mcp.list_prompts` 与其他工具路径一致经过 `ToolFunnel`。
+- ✅ **#389 子代理** — 显式 `MAX_SUBAGENT_DEPTH` 深度保护，durable roster + mailbox（`agent_runtime/durable_roster.py`，SQLite WAL），接入 team RPC。
+- ✅ **#390 记忆/人设/协议** — 租户/团队隔离、衰减清扫 + 清理建议 + 冲突检测、记忆写入审计、agents.md 导入导出、frontmatter 声明、人设热重载（`PERSONA_RELOADED`）、`x-fusion-*` 扩展字段、严格协议面、插件打包/安装/卸载。
+- ✅ **#391 Hook/预算** — 新增 `ERROR`/`CHECKPOINT`/`TEAM_MESSAGE`/`PERSONA_RELOADED` 事件（共 26 个）、日级与图级预算、武装状态下 `permissions=None` 显式拒绝。
+
 ### 集成
 - ✅ **fusion-mlx** — Apple Silicon 优化模型服务
 - ✅ **OpenAI 兼容 API** — 兼容任何 OpenAI 兼容后端
@@ -375,7 +388,7 @@ python -c "from tools.plugin_manager import PluginManager; from tools.registry i
 ```
 
 ### 测试统计
-- **1591 个测试**，0 失败
+- **3050 个测试**，0 失败
 - **94%+ 语句覆盖率**
 - **Python 3.11+** 兼容
 - **16 个业务场景集成测试** 覆盖：智能体生命周期 (创建→配置→执行→删除)、技能管理、灵魂管理、市场 (发布→搜索→安装)、记忆 (存储→召回→删除)、安全 (检查→评估→策略)、规划器、部署导入/导出、模板、图 CRUD、智能体过滤、环境健康、RAG、ping
