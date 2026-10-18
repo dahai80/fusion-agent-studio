@@ -84,6 +84,7 @@ class AgentDispatcher(SubDispatcher):
             "agent.list": self._handle_agent_list,
             "agent.update": self._handle_agent_update,
             "agent.delete": self._handle_agent_delete,
+            "agent.purge_test": self._handle_agent_purge_test,
             "agent.configure": self._handle_agent_configure,
             "agent.execute": self._handle_agent_execute,
             "agent.test": self._handle_agent_execute,
@@ -241,7 +242,80 @@ class AgentDispatcher(SubDispatcher):
             entry["id"] = aid
             results.append(entry)
 
+        # #335: display dedupe by agent name — test residue duplicates otherwise
+        # flood the GUI. Pass dedupe=false for the raw inventory.
+        if bool(params.get("dedupe", True)):
+            best: dict[str, dict] = {}
+            counts: dict[str, int] = {}
+            for entry in results:
+                name = str(entry.get("name", ""))
+                counts[name] = counts.get(name, 0) + 1
+                current = best.get(name)
+                if current is None or self._agent_recency(entry) > self._agent_recency(current):
+                    best[name] = entry
+            results = [e for e in results if best.get(str(e.get("name", ""))) is e]
+            for entry in results:
+                entry["duplicate_count"] = counts[str(entry.get("name", ""))] - 1
+            logger.info(
+                "agent.list dedupe: %d unique names, %d duplicates hidden",
+                len(results),
+                sum(e["duplicate_count"] for e in results),
+            )
+
         return {"agents": results}
+
+    @staticmethod
+    def _agent_recency(entry: dict) -> tuple:
+        try:
+            version = int(entry.get("version_int", 0) or 0)
+        except (TypeError, ValueError):
+            version = 0
+        return (version, str(entry.get("created_at", "")), str(entry.get("id", "")))
+
+    async def _handle_agent_purge_test(self, params: dict) -> dict:
+        # #335: batch cleanup of test-residue agents, mirroring graph.purge_test.
+        names = params.get("names") or []
+        prefixes = params.get("prefixes") or []
+        dry_run = bool(params.get("dry_run", False))
+        self._daemon._load_agents_index()
+        index = self._daemon._agents
+        targets = []
+        for aid, meta in index.items():
+            name = str(meta.get("name", ""))
+            if name in names or any(name.startswith(p) for p in prefixes):
+                targets.append(aid)
+        if dry_run:
+            logger.info(
+                "agent.purge_test dry_run: would delete %d/%d agents", len(targets), len(index)
+            )
+            return {"dry_run": True, "would_delete": len(targets), "total": len(index)}
+
+        from ..agent_package import AgentPackage
+
+        deleted = 0
+        for aid in targets:
+            pkg = AgentPackage(self._daemon._agent_dir(aid))
+            try:
+                if pkg.exists:
+                    pkg.destroy()
+                index.pop(aid, None)
+                deleted += 1
+            except OSError as e:
+                logger.warning("agent.purge_test failed id=%s: %s", aid, e)
+        if deleted:
+            self._daemon._persist_agents_index()
+        logger.info(
+            "agent.purge_test: deleted %d/%d agents (names=%d, prefixes=%d)",
+            deleted,
+            len(index) + deleted,
+            len(names),
+            len(prefixes),
+        )
+        return {
+            "deleted": deleted,
+            "before": len(index) + deleted,
+            "after": len(index),
+        }
 
     async def _handle_agent_update(self, params: dict) -> dict:
         agent_id = params.get("agent_id", "")

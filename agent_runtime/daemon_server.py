@@ -1577,7 +1577,10 @@ class DaemonServer:
             return {"status": "error", "message": str(e)}
 
     async def _handle_graph_list(self, params: dict) -> dict:
-        graphs = self.store.list_graphs()
+        # #335: display dedupe by name — identical-named rows from test runs
+        # otherwise flood the GUI. Pass dedupe=false for the raw inventory.
+        dedupe = bool(params.get("dedupe", True))
+        graphs = self.store.list_graphs(dedupe_names=dedupe)
         enriched = []
         for g in graphs:
             entry = {
@@ -1592,7 +1595,10 @@ class DaemonServer:
                 "created_at": g.get("created_at", 0),
                 "updated_at": g.get("updated_at", 0),
             }
+            if dedupe:
+                entry["duplicate_count"] = g.get("duplicate_count", 0)
             enriched.append(entry)
+        logger.debug("graph.list dedupe=%s returned=%d", dedupe, len(enriched))
         return {"graphs": enriched}
 
     @staticmethod
