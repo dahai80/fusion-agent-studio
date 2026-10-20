@@ -26,11 +26,15 @@ interface StreamStats {
 export function StreamPanel({
     graphId,
     input,
+    onlyNode,
     onDone,
     onActiveChange,
 }: {
     graphId: string;
     input: string;
+    // #406: waterfall "re-run to this node" — SSE only_node executes exactly
+    // one node via a start-wired subgraph (#398 contract).
+    onlyNode?: string;
     onDone?: (finalText: string, error: string) => void;
     onActiveChange?: (active: boolean) => void;
 }) {
@@ -51,6 +55,7 @@ export function StreamPanel({
     // biome-ignore lint/correctness/useExhaustiveDependencies: intentional partial deps
     useEffect(() => {
         const qs = new URLSearchParams({ input });
+        if (onlyNode) qs.set('only_node', onlyNode);
         const cfgKey = import.meta.env.VITE_API_KEY as string | undefined;
         if (cfgKey) qs.set('api_key', cfgKey);
         const es = new EventSource(

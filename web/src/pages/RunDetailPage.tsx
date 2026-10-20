@@ -10,8 +10,9 @@ import {
 } from '@fusion/web-ui';
 import { formatRelativeTime } from '@fusion/web-ui/format';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { type RunDetail, type RunResult, api, statusKind } from '../api';
+import { type RunDetail, type RunEvents, type RunResult, api, statusKind } from '../api';
 import { PageHeader } from '../components/PageHeader';
+import { RunWaterfall } from '../components/RunWaterfall';
 import { StreamPanel } from '../components/StreamPanel';
 import { useT } from '../i18n';
 import { sdk } from '../sdk';
@@ -29,6 +30,10 @@ export function RunDetailPage({ runId }: { runId: string }) {
     const [cancelOpen, setCancelOpen] = useState(false);
     const [streaming, setStreaming] = useState(false);
     const [replayInput, setReplayInput] = useState('');
+    // #406: structural span events for the waterfall; rerunNode pins the SSE
+    // re-run to one node (only_node, #398).
+    const [spans, setSpans] = useState<RunEvents | null>(null);
+    const [rerunNode, setRerunNode] = useState('');
     const runRef = useRef<RunDetail | null>(null);
     runRef.current = run;
 
@@ -37,6 +42,11 @@ export function RunDetailPage({ runId }: { runId: string }) {
             const detail = await api.run(runId);
             setRun(detail);
             setLoadError('');
+            try {
+                setSpans(await api.runEvents(runId));
+            } catch (e) {
+                console.warn('[web] run events load failed', (e as Error).message);
+            }
             if (!ACTIVE_STATUSES.has(detail.status)) {
                 const res = await api.runResult(runId);
                 setResult(res);
@@ -193,21 +203,48 @@ export function RunDetailPage({ runId }: { runId: string }) {
                         }}
                     />
                 ) : null}
+                <RunWaterfall
+                    events={spans}
+                    onRerunNode={
+                        run.graph_id
+                            ? (nodeId) => {
+                                  setRerunNode(nodeId);
+                                  setStreaming(true);
+                              }
+                            : undefined
+                    }
+                />
                 {run.graph_id ? (
                     <div className="flex flex-col gap-2">
                         <div className="flex items-center justify-between gap-2">
                             <span className="text-sm text-text-primary">
                                 {t('流式重放', 'Live replay')}
+                                {rerunNode ? (
+                                    <span className="ml-2 font-mono text-xs text-warning">
+                                        {t('单节点重跑', 'rerun')}: {rerunNode}
+                                    </span>
+                                ) : null}
                             </span>
-                            <button
-                                type="button"
-                                onClick={() => setStreaming((v) => !v)}
-                                className="rounded-md border border-border px-4 py-2 text-sm text-text-primary hover:bg-bg-muted"
-                            >
-                                {streaming
-                                    ? t('关闭', 'Close')
-                                    : t('开始流式重放', 'start live replay')}
-                            </button>
+                            <div className="flex items-center gap-2">
+                                {rerunNode ? (
+                                    <button
+                                        type="button"
+                                        onClick={() => setRerunNode('')}
+                                        className="rounded-md border border-border px-3 py-1.5 text-xs text-text-secondary hover:bg-bg-muted"
+                                    >
+                                        {t('改为整图重放', 'Full graph replay')}
+                                    </button>
+                                ) : null}
+                                <button
+                                    type="button"
+                                    onClick={() => setStreaming((v) => !v)}
+                                    className="rounded-md border border-border px-4 py-2 text-sm text-text-primary hover:bg-bg-muted"
+                                >
+                                    {streaming
+                                        ? t('关闭', 'Close')
+                                        : t('开始流式重放', 'start live replay')}
+                                </button>
+                            </div>
                         </div>
                         {streaming ? (
                             <>
@@ -219,7 +256,12 @@ export function RunDetailPage({ runId }: { runId: string }) {
                                         'replay input (defaults to run goal)'
                                     )}
                                 />
-                                <StreamPanel graphId={run.graph_id} input={replayInput} />
+                                <StreamPanel
+                                    key={rerunNode || 'full'}
+                                    graphId={run.graph_id}
+                                    input={replayInput}
+                                    onlyNode={rerunNode || undefined}
+                                />
                             </>
                         ) : null}
                     </div>

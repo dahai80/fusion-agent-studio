@@ -63,6 +63,26 @@ export interface RunResult {
     last_error: string;
 }
 
+export interface RunSpan {
+    node_id: string;
+    start: number;
+    end: number;
+    status: string;
+    tool_calls: number;
+    token_events: number;
+    tokens?: number;
+    error: string;
+}
+
+export interface RunEvents {
+    run_status: string;
+    stop_reason: string;
+    run_start: number;
+    run_end: number;
+    nodes: RunSpan[];
+    execution_id?: string;
+}
+
 // #327: API base. Served under the gateway shell path
 // (/shell/fusion-agent-studio/) the bridge http path must carry the module
 // prefix so the host fetch lands on the gateway /shell proxy (module api_key
@@ -102,7 +122,11 @@ export async function rpc<T = Record<string, unknown>>(
     method: string,
     params: Record<string, unknown> = {}
 ): Promise<T> {
-    const res = await postJson<T & { status?: string; message?: string }>('/v1/rpc', {
+    // #405: every path must carry apiBase() — embedded (shell iframe) the host
+    // bridge fetches the path as-is at gateway origin root, and the gateway
+    // SPA catch-all answers a bare /v1/rpc with 200 HTML ("Unexpected token
+    // '<'"). Same rule as the direct api.* calls below.
+    const res = await postJson<T & { status?: string; message?: string }>(`${B()}/v1/rpc`, {
         method,
         params,
     });
@@ -125,6 +149,8 @@ export const api = {
     run: (runId: string) => getJson<RunDetail>(`${B()}/v1/runs/${encodeURIComponent(runId)}`),
     runResult: (runId: string) =>
         getJson<RunResult>(`${B()}/v1/runs/${encodeURIComponent(runId)}/result`),
+    runEvents: (runId: string) =>
+        getJson<RunEvents>(`${B()}/v1/runs/${encodeURIComponent(runId)}/events`),
     submitRun: (body: { goal: string; graph_id?: string; title?: string }) =>
         postJson<{ run_id: string; status: string; deduped: boolean }>(`${B()}/v1/runs`, body),
     cancelRun: (runId: string) =>

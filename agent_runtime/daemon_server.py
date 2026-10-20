@@ -30,7 +30,7 @@ import time
 import uuid
 from collections import deque
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 from .chat_engine import ChatEngine
 from .code_sandbox import CodeSandbox
@@ -46,6 +46,10 @@ logger = logging.getLogger(__name__)
 SOCKET_PATH = "/tmp/fusion-studio.sock"
 WS_PORT = 11433  # #327: registry fusion-agent-studio-ws; 11435=fm-server, 11437=cowork-sync
 WS_MAGIC = "258EAFA5-E914-47DA-95CA-5AB5DC65B283"
+
+# #406: per-run structural event log cap (waterfall data source). Token-spam
+# events never reach the file; this bounds structural events per run.
+_RUN_SPANS_MAX_LINES = 5000
 
 # #209: peer credential constants. macOS LOCAL_PEERCRED (SOL_LOCAL=0).
 # 审计 E-8: Linux 用错常量 getsockopt 恒失败 -> 旧代码 fail-open 放行所有连接.
@@ -2053,6 +2057,114 @@ class DaemonServer:
     def _evidence_path(self, execution_id: str, team: str = "default") -> Path:
         return self._evidence_dir(team) / f"{execution_id}.jsonl"
 
+    def _run_spans_path(self, execution_id: str, team: str = "default") -> Optional[Path]:
+        # #406: per-run structural event log (waterfall). None when the task
+        # carries no execution id (defensive) — spans then stay unwritten.
+        if not execution_id:
+            return None
+        try:
+            return self._evidence_dir(team) / "spans" / f"{execution_id}.jsonl"
+        except Exception:
+            return None
+
+    def _append_run_span(self, execution_id: str, team: str, record: dict) -> None:
+        path = self._run_spans_path(execution_id, team)
+        if path is None:
+            return
+        record["ts"] = record.get("ts", time.time())
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with open(path, "a", encoding="utf-8") as f:
+                f.write(json.dumps(record, ensure_ascii=False) + "\n")
+        except Exception:
+            logger.exception("run span append failed: execution_id=%s", execution_id)
+
+    def _read_run_spans(self, execution_id: str, team: str = "default") -> list[dict]:
+        path = self._run_spans_path(execution_id, team)
+        if not path or not path.exists():
+            return []
+        try:
+            out = []
+            for line in path.read_text(encoding="utf-8").split("\n"):
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    out.append(json.loads(line))
+                except json.JSONDecodeError:
+                    continue
+            return out
+        except Exception:
+            logger.exception("run spans read failed: execution_id=%s", execution_id)
+            return []
+
+    def _aggregate_run_spans(self, spans: list[dict]) -> dict:
+        # #406: waterfall aggregation — per-node spans {start, end, status,
+        # tool_calls, token_events, error} + run totals. Token events are
+        # counted (per-token events), not stored.
+        nodes: dict[str, dict] = {}
+        run_start = 0.0
+        run_end = 0.0
+        stop_reason = ""
+        run_status = ""
+        for ev in spans:
+            etype = str(ev.get("type") or "")
+            ts = float(ev.get("timestamp") or ev.get("ts") or 0)
+            if etype == "run_end":
+                run_status = str(ev.get("status") or "")
+                stop_reason = str(ev.get("stop_reason") or "")
+                run_end = max(run_end, ts)
+                continue
+            if etype in ("start", "end"):
+                run_start = min(run_start, ts) if run_start else ts
+                run_end = max(run_end, ts)
+                continue
+            node_id = str(ev.get("node_id") or "")
+            if not node_id:
+                continue
+            span = nodes.setdefault(node_id, {
+                "node_id": node_id,
+                "start": ts,
+                "end": ts,
+                "status": "success",
+                "tool_calls": 0,
+                "token_events": 0,
+                "tokens": 0,
+                "error": "",
+            })
+            span["end"] = max(span["end"], ts)
+            if ts and (not run_start or ts < run_start):
+                run_start = ts
+            run_end = max(run_end, ts)
+            # Non-stream runs emit one result event carrying usage; count those
+            # tokens too so badges are meaningful without per-token events.
+            if etype not in ("token", "thinking_token") and span["token_events"] == 0:
+                usage = (ev.get("metadata") or {}).get("usage") or {}
+                if isinstance(usage, dict):
+                    try:
+                        span["tokens"] += int(
+                            usage.get("total_tokens") or usage.get("completion_tokens") or 0
+                        )
+                    except (TypeError, ValueError):
+                        pass
+            if etype == "tool_call":
+                span["tool_calls"] += 1
+            elif etype in ("token", "thinking_token"):
+                span["token_events"] += 1
+                span["tokens"] += 1
+            elif etype == "error":
+                span["status"] = "failed"
+                span["error"] = str(ev.get("content") or "")[:500]
+            elif etype == "retry":
+                span["status"] = "retrying"
+        return {
+            "nodes": list(nodes.values()),
+            "run_status": run_status or "completed",
+            "stop_reason": stop_reason,
+            "run_start": run_start,
+            "run_end": run_end,
+        }
+
     def _write_evidence(self, execution_id: str, record: dict, team: str = "default") -> None:
         # 每个状态变化写证据行 (jsonl append). 崩溃恢复靠证据 reconcile.
         # record: {ts, type, node_id?, status?, events_count?, error?}
@@ -2331,6 +2443,16 @@ class DaemonServer:
 
             async def _stream():
                 nonlocal events_count, stop_reason
+                # #406: per-run structural event log (waterfall data source).
+                # Skip per-token events (spam); cap line count for safety.
+                spans_path = self._run_spans_path(execution_id, team)
+                spans_file = None
+                spans_written = 0
+                if spans_path:
+                    try:
+                        spans_file = open(spans_path, "a", encoding="utf-8")
+                    except OSError as exc:
+                        logger.warning("run spans open failed %s: %s", spans_path, exc)
                 async for event in rt.execute_graph(
                     graph,
                     input_text,
@@ -2339,6 +2461,14 @@ class DaemonServer:
                 ):
                     ev_dict = event.to_dict() if hasattr(event, "to_dict") else {"type": str(event)}
                     events_count += 1
+                    if spans_file is not None and spans_written < _RUN_SPANS_MAX_LINES:
+                        if str(ev_dict.get("type")) not in ("token", "thinking_token"):
+                            try:
+                                spans_file.write(json.dumps(ev_dict, ensure_ascii=False) + "\n")
+                                spans_written += 1
+                            except Exception:
+                                logger.warning("run spans write failed %s", spans_path)
+                                spans_file = None
                     if (
                         ev_dict.get("type") == "tool_result"
                         and ev_dict.get("name") == "artifact_create"
@@ -2373,12 +2503,30 @@ class DaemonServer:
                             {"execution_id": execution_id, "events_count": events_count},
                             team=team,
                         )
+                if spans_file is not None:
+                    try:
+                        spans_file.close()
+                    except OSError:
+                        pass
 
             if self._graph_semaphore is not None:
                 async with self._graph_semaphore:
                     await _stream()
             else:
                 await _stream()
+
+            # #406: terminal span record so waterfall shows the run outcome.
+            self._append_run_span(
+                execution_id,
+                team,
+                {
+                    "type": "run_end",
+                    "status": "completed",
+                    "stop_reason": stop_reason,
+                    "events_count": events_count,
+                    "ts": time.time(),
+                },
+            )
 
             # N7: budget_exceeded path returns without END event — read ctx directly.
             if not stop_reason:
@@ -2467,6 +2615,16 @@ class DaemonServer:
             )
         except asyncio.CancelledError:
             # cancel: 写 cancelled 证据 + task cancelled
+            self._append_run_span(
+                execution_id,
+                team,
+                {
+                    "type": "run_end",
+                    "status": "cancelled",
+                    "events_count": events_count,
+                    "ts": time.time(),
+                },
+            )
             self._write_evidence(
                 execution_id,
                 {"type": "execution.cancelled", "events_count": events_count},
@@ -2487,6 +2645,17 @@ class DaemonServer:
             raise
         except Exception as exc:
             error_msg = str(exc)
+            self._append_run_span(
+                execution_id,
+                team,
+                {
+                    "type": "run_end",
+                    "status": "failed",
+                    "error": error_msg[:500],
+                    "events_count": events_count,
+                    "ts": time.time(),
+                },
+            )
             self._write_evidence(
                 execution_id,
                 {

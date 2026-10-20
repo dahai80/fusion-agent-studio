@@ -25,6 +25,7 @@ import {
     useReactFlow,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
+import { ConfirmDialog } from '@fusion/web-ui';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api, apiBase, rpc } from '../../api';
 import { useT } from '../../i18n';
@@ -92,6 +93,10 @@ type FusionNodeData = {
     config: ServerNode;
     pinned?: boolean;
     breakpoint?: boolean;
+    // #406: live per-node badges from the run SSE stream.
+    tokens?: number;
+    toolCalls?: number;
+    runStatus?: string;
 };
 
 function FusionNode(props: { data: FusionNodeData; selected?: boolean }) {
@@ -123,6 +128,25 @@ function FusionNode(props: { data: FusionNodeData; selected?: boolean }) {
                 {data.config.tool_name ? <span>· {String(data.config.tool_name)}</span> : null}
                 {data.config.model ? <span>· {String(data.config.model)}</span> : null}
             </div>
+            {data.tokens || data.toolCalls || data.runStatus ? (
+                <div className="mt-1 flex items-center gap-1 text-[9px]">
+                    {data.tokens ? (
+                        <span className="rounded bg-brand/10 px-1 tabular-nums text-brand">
+                            {data.tokens} tok
+                        </span>
+                    ) : null}
+                    {data.toolCalls ? (
+                        <span className="rounded bg-bg-muted px-1 tabular-nums text-text-secondary">
+                            {data.toolCalls} calls
+                        </span>
+                    ) : null}
+                    {data.runStatus === 'error' || data.runStatus === 'failed' ? (
+                        <span className="rounded bg-error/15 px-1 text-error">failed</span>
+                    ) : data.runStatus === 'done' || data.runStatus === 'result' ? (
+                        <span className="rounded bg-success/15 px-1 text-success">ok</span>
+                    ) : null}
+                </div>
+            ) : null}
             {outP !== null && (
                 <div className="text-[9px] text-text-secondary mt-1">
                     {cap === Number.POSITIVE_INFINITY
@@ -190,6 +214,15 @@ function CanvasInner() {
     const [running, setRunning] = useState(false);
     const [govEvents, setGovEvents] = useState<GovEvent[]>([]);
     const [activeNodes, setActiveNodes] = useState<Record<string, string>>({});
+    // #406: per-node token/tool-call counters. Token frames arrive per token,
+    // so accumulate in a ref and flush to state on a 400 ms tick instead of
+    // re-rendering the whole canvas per token.
+    const [nodeStats, setNodeStats] = useState<
+        Record<string, { tokens: number; toolCalls: number; status?: string }>
+    >({});
+    const nodeStatsRef = useRef<
+        Record<string, { tokens: number; toolCalls: number; status?: string }>
+    >({});
     const esRef = useRef<EventSource | null>(null);
     const [pins, setPins] = useState<Record<string, { output: string; ts: number }>>({});
     const [budget, setBudget] = useState<Record<string, number> | null>(null);
@@ -210,6 +243,15 @@ function CanvasInner() {
     const [rawJsonOpen, setRawJsonOpen] = useState(false);
     const [saveIssues, setSaveIssues] = useState<GraphIssue[]>([]);
     const [strictSave, setStrictSave] = useState(false);
+    // #406: save diff guard — card lists what changed before the write.
+    const [pendingSave, setPendingSave] = useState<{
+        next: GraphJson;
+        added: string[];
+        removed: string[];
+        changed: string[];
+        edgesAdded: number;
+        edgesRemoved: number;
+    } | null>(null);
     const { screenToFlowPosition } = useReactFlow();
 
     useEffect(() => {
@@ -594,6 +636,39 @@ function CanvasInner() {
 
     // #395: client pre-save check, then server-side validate (soft by default;
     // response issues surfaced in the save-issues panel).
+    const persist = useCallback(
+        async (next: GraphJson) => {
+            if (!graphId) return;
+            setSaving(true);
+            try {
+                const res = await rpc<{ issues?: string[] }>('graph.update', {
+                    graph_id: graphId,
+                    graph_data: next,
+                    strict_validate: strictSave,
+                });
+                setGraph(next);
+                const serverIssues = (res.issues || []).map((msg) => ({
+                    nodeId: '',
+                    level: (msg.startsWith('warning:') ? 'warning' : 'error') as
+                        | 'warning'
+                        | 'error',
+                    message: msg,
+                }));
+                setSaveIssues(serverIssues);
+                showToast(
+                    serverIssues.length > 0
+                        ? `${t('已保存', 'Saved')} · ${t('条校验提示', 'validation notes')}: ${serverIssues.length}`
+                        : t('已保存', 'Saved')
+                );
+            } catch (e) {
+                showToast(`${t('保存失败', 'Save failed')}: ${String(e)}`);
+            } finally {
+                setSaving(false);
+            }
+        },
+        [graphId, strictSave, showToast, t]
+    );
+
     const save = useCallback(async () => {
         if (!graphId) return;
         const next = fromRf(graph, nodes as unknown as RfNode[], edges as unknown as RfEdge[]);
@@ -605,31 +680,30 @@ function CanvasInner() {
             showToast(`${t('保存被拦截', 'Save blocked')}: ${hard[0].message}`);
             return;
         }
-        setSaving(true);
-        try {
-            const res = await rpc<{ issues?: string[] }>('graph.update', {
-                graph_id: graphId,
-                graph_data: next,
-                strict_validate: strictSave,
-            });
-            setGraph(next);
-            const serverIssues = (res.issues || []).map((msg) => ({
-                nodeId: '',
-                level: (msg.startsWith('warning:') ? 'warning' : 'error') as 'warning' | 'error',
-                message: msg,
-            }));
-            setSaveIssues(serverIssues);
-            showToast(
-                serverIssues.length > 0
-                    ? `${t('已保存', 'Saved')} · ${t('条校验提示', 'validation notes')}: ${serverIssues.length}`
-                    : t('已保存', 'Saved')
-            );
-        } catch (e) {
-            showToast(`${t('保存失败', 'Save failed')}: ${String(e)}`);
-        } finally {
-            setSaving(false);
+        // #406: diff current canvas against the last saved graph; an empty diff
+        // saves straight through, a non-empty one opens the diff card.
+        const prevNodes = graph.nodes ?? {};
+        const nextNodes = next.nodes ?? {};
+        const prevIds = Object.keys(prevNodes);
+        const nextIds = Object.keys(nextNodes);
+        const added = nextIds.filter((id) => !(id in prevNodes));
+        const removed = prevIds.filter((id) => !(id in nextNodes));
+        const changed = nextIds.filter(
+            (id) =>
+                id in prevNodes && JSON.stringify(prevNodes[id]) !== JSON.stringify(nextNodes[id])
+        );
+        const keyOf = (e: { source_id: string; target_id: string; label?: string }) =>
+            `${e.source_id}>${e.target_id}>${e.label ?? ''}`;
+        const prevEdges = new Set((graph.edges ?? []).map(keyOf));
+        const nextEdges = new Set((next.edges ?? []).map(keyOf));
+        const edgesAdded = [...nextEdges].filter((k) => !prevEdges.has(k)).length;
+        const edgesRemoved = [...prevEdges].filter((k) => !nextEdges.has(k)).length;
+        if (!added.length && !removed.length && !changed.length && !edgesAdded && !edgesRemoved) {
+            await persist(next);
+            return;
         }
-    }, [graphId, graph, nodes, edges, strictSave, showToast, t, locateIssue]);
+        setPendingSave({ next, added, removed, changed, edgesAdded, edgesRemoved });
+    }, [graphId, graph, nodes, edges, persist, showToast, t, locateIssue]);
 
     // #396: export current graph JSON; import via file picker -> graph.create.
     const exportGraph = useCallback(async () => {
@@ -691,6 +765,8 @@ function CanvasInner() {
             setRunning(true);
             setGovEvents([]);
             setActiveNodes({});
+            nodeStatsRef.current = {};
+            setNodeStats({});
             void refreshGovernance();
             const qs = new URLSearchParams({ input: 'canvas run' });
             if (opts.fromNode) qs.set('from_node', opts.fromNode);
@@ -709,6 +785,7 @@ function CanvasInner() {
                     if (data.type === 'done') {
                         es.close();
                         setRunning(false);
+                        setNodeStats({ ...nodeStatsRef.current });
                         setGovEvents((prev) => [
                             ...prev,
                             {
@@ -724,6 +801,15 @@ function CanvasInner() {
                     const nodeId = data.node_id || '';
                     if (nodeId) {
                         setActiveNodes((m) => ({ ...m, [nodeId]: kind }));
+                        const stats = nodeStatsRef.current[nodeId] ?? {
+                            tokens: 0,
+                            toolCalls: 0,
+                        };
+                        if (kind === 'token' || kind === 'thinking_token') stats.tokens += 1;
+                        if (kind === 'tool_call') stats.toolCalls += 1;
+                        if (kind === 'error' || kind === 'failed') stats.status = 'error';
+                        else if (kind === 'result' || kind === 'done') stats.status = 'done';
+                        nodeStatsRef.current[nodeId] = stats;
                         // N13 pin: capture node output snapshot for reuse.
                         const isPinned = nodesRef.current.some(
                             (n) => n.id === nodeId && (n.data as FusionNodeData).pinned
@@ -772,6 +858,42 @@ function CanvasInner() {
         const timer = window.setInterval(() => void refreshGovernance(), 5000);
         return () => window.clearInterval(timer);
     }, [running, refreshGovernance]);
+
+    // #406: coalesce per-node counter updates (token frames are per-token).
+    useEffect(() => {
+        if (!running) return;
+        const timer = window.setInterval(() => setNodeStats({ ...nodeStatsRef.current }), 400);
+        return () => window.clearInterval(timer);
+    }, [running]);
+
+    const displayNodes = useMemo(
+        () =>
+            Object.keys(nodeStats).length === 0
+                ? nodes
+                : nodes.map((n) => {
+                      const s = nodeStats[n.id];
+                      if (!s) return n;
+                      return {
+                          ...n,
+                          data: {
+                              ...n.data,
+                              tokens: s.tokens,
+                              toolCalls: s.toolCalls,
+                              runStatus: s.status,
+                          },
+                      };
+                  }),
+        [nodes, nodeStats]
+    );
+
+    const runTotals = useMemo(() => {
+        const values = Object.values(nodeStats);
+        return {
+            tokens: values.reduce((a, s) => a + s.tokens, 0),
+            toolCalls: values.reduce((a, s) => a + s.toolCalls, 0),
+            nodes: values.length,
+        };
+    }, [nodeStats]);
 
     const decide = useCallback(
         async (actionId: string, approve: boolean) => {
@@ -1023,6 +1145,14 @@ function CanvasInner() {
                 >
                     {running ? t('运行中…', 'Running…') : t('运行并监视', 'Run & watch')}
                 </button>
+                {runTotals.nodes > 0 ? (
+                    <div className="rounded border border-border bg-bg-elevated px-2 py-1 text-[10px] text-text-secondary">
+                        {t('本次运行', 'This run')}:{' '}
+                        <span className="tabular-nums text-brand">{runTotals.tokens}</span> tok ·{' '}
+                        <span className="tabular-nums">{runTotals.toolCalls}</span>{' '}
+                        {t('工具调用', 'tool calls')} · {runTotals.nodes} {t('节点', 'nodes')}
+                    </div>
+                ) : null}
                 <div className="flex gap-1 pt-1">
                     <button
                         type="button"
@@ -1084,7 +1214,7 @@ function CanvasInner() {
             </div>
             <div className="flex-1 relative">
                 <ReactFlow
-                    nodes={nodes}
+                    nodes={displayNodes}
                     edges={edges}
                     nodeTypes={nodeTypes}
                     onNodesChange={onNodesChange}
@@ -1422,6 +1552,38 @@ function CanvasInner() {
                     ))}
                 </div>
             </div>
+            <ConfirmDialog
+                open={pendingSave !== null}
+                title={t('保存前确认改动', 'Confirm canvas changes')}
+                description={
+                    pendingSave
+                        ? [
+                              pendingSave.added.length
+                                  ? `${t('新增节点', 'Added nodes')}: ${pendingSave.added.join(', ')}`
+                                  : '',
+                              pendingSave.removed.length
+                                  ? `${t('删除节点', 'Removed nodes')}: ${pendingSave.removed.join(', ')}`
+                                  : '',
+                              pendingSave.changed.length
+                                  ? `${t('修改节点', 'Changed nodes')}: ${pendingSave.changed.join(', ')}`
+                                  : '',
+                              pendingSave.edgesAdded || pendingSave.edgesRemoved
+                                  ? `${t('连线', 'Edges')}: +${pendingSave.edgesAdded} / -${pendingSave.edgesRemoved}`
+                                  : '',
+                          ]
+                              .filter(Boolean)
+                              .join(' · ')
+                        : ''
+                }
+                confirmLabel={t('确认保存', 'Save changes')}
+                cancelLabel={t('返回编辑', 'Back to edit')}
+                onConfirm={() => {
+                    const next = pendingSave?.next;
+                    setPendingSave(null);
+                    if (next) void persist(next);
+                }}
+                onCancel={() => setPendingSave(null)}
+            />
         </div>
     );
 }

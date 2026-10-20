@@ -162,6 +162,14 @@ start() {
     rm -f "$SOCKET"
 
     log_info "starting agent-studio daemon (socket=${SOCKET})..."
+    # Capability-tool loop (P3): user-level env (bridge key, console URL)
+    # kept out of the repo — secrets live in ~/.fusion-agent-studio/.
+    if [[ -f "${HOME}/.fusion-agent-studio/env.local" ]]; then
+        set -a
+        # shellcheck disable=SC1090
+        source "${HOME}/.fusion-agent-studio/env.local"
+        set +a
+    fi
     nohup python3 -m agent_runtime.daemon_server >> "$STDOUT_LOG" 2>> "$STDERR_LOG" &
     local pid=$!
     echo "$pid" > "$PID_FILE"

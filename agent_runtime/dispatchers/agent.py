@@ -15,6 +15,35 @@ from .base import SubDispatcher
 
 logger = logging.getLogger(__name__)
 
+# P3 capability-tool loop: bridge-backed tools registered per agent
+from ..capability_tools import bridge_tool_name, sync_agent_tools
+
+
+def _manifest_model_id(manifest) -> str:
+    """Normalize manifest.model (authored dict or string) to the model-id
+    STRING the runtime/llm gateway expect. A dict here crashes with
+    "unhashable type: 'dict'" when the gateway probes model membership."""
+    m = getattr(manifest, "model", "")
+    if isinstance(m, dict):
+        return str(m.get("name") or "")
+    return str(m or "")
+
+
+def _manifest_tool_names(manifest) -> list:
+    """Tool NAMES from manifest.tools — entries may be full tool-definition
+    dicts ({name, type, endpoint, ...}); feeding a dict into
+    NodeConfig(label=...) crashes downstream (ResidentReviewer collects
+    labels into a set → unhashable dict)."""
+    names = []
+    for t in (getattr(manifest, "tools", None) or []):
+        if isinstance(t, dict):
+            n = str(t.get("name") or "").strip()
+        else:
+            n = str(t).strip()
+        if n:
+            names.append(n)
+    return names
+
 
 async def build_agent_adhoc_graph(daemon, agent_id: str, input_text: str):
     """Build the start→llm→tools ad-hoc graph an agent executes as.
@@ -51,22 +80,25 @@ async def build_agent_adhoc_graph(daemon, agent_id: str, input_text: str):
     graph = AgentGraph(name=manifest.name or agent_id)
     graph.description = manifest.description
 
+    model_id = _manifest_model_id(manifest)
+
     start_id = "start"
     llm_id = "llm-1"
     start_node = NodeConfig(type="start", label="Start")
     llm_node = NodeConfig(
         type="llm",
         label="Agent LLM",
-        model=manifest.model,
+        model=model_id,
         system_prompt=effective_prompt,
     )
     graph.add_node(start_id, start_node)
     graph.add_node(llm_id, llm_node)
     graph.add_edge(start_id, llm_id)
 
-    for i, tool_name in enumerate(manifest.tools):
+    for i, tool_name in enumerate(_manifest_tool_names(manifest)):
         tool_id = f"tool-{i + 1}"
-        tool_node = NodeConfig(type="tool", label=tool_name)
+        tool_node = NodeConfig(type="tool", label=tool_name,
+                               tool_name=bridge_tool_name(agent_id, tool_name))
         graph.add_node(tool_id, tool_node)
         if i == 0:
             graph.add_edge(llm_id, tool_id)
@@ -488,16 +520,17 @@ class AgentDispatcher(SubDispatcher):
         llm_node = NodeConfig(
             type="llm",
             label="Agent LLM",
-            model=manifest.model,
+            model=_manifest_model_id(manifest),
             system_prompt=effective_prompt,
         )
         graph.add_node(start_id, start_node)
         graph.add_node(llm_id, llm_node)
         graph.add_edge(start_id, llm_id)
 
-        for i, tool_name in enumerate(manifest.tools):
+        for i, tool_name in enumerate(_manifest_tool_names(manifest)):
             tool_id = f"tool-{i + 1}"
-            tool_node = NodeConfig(type="tool", label=tool_name)
+            tool_node = NodeConfig(type="tool", label=tool_name,
+                               tool_name=bridge_tool_name(agent_id, tool_name))
             graph.add_node(tool_id, tool_node)
             if i == 0:
                 graph.add_edge(llm_id, tool_id)
@@ -506,6 +539,19 @@ class AgentDispatcher(SubDispatcher):
 
         self._daemon.store.save_graph(graph)
         rt = self._daemon._get_runtime()
+
+        # P3: register this agent's capability tools into the runtime
+        # registry (idempotent) so graph tool nodes and LLM tool_calls
+        # resolve; they execute through the console's audited bridge door.
+        try:
+            sync_result = sync_agent_tools(rt, agent_id, manifest)
+            if sync_result.get("registered") or sync_result.get("skipped"):
+                logger.info(
+                    "capability tools synced agent=%s registered=%s skipped=%s",
+                    agent_id, sync_result.get("registered"),
+                    sync_result.get("skipped"))
+        except Exception:
+            logger.exception("capability tool sync failed agent=%s", agent_id)
 
         # 审计 P1-18: 透传 per-agent max_iterations (manifest 持久化值).
         # 0=用 runtime 默认 (25), 正数覆盖.
@@ -548,7 +594,7 @@ class AgentDispatcher(SubDispatcher):
             else:
                 await _agent_run()
         except Exception as e:
-            logger.warning("agent.execute runtime error: %s", e)
+            logger.exception("agent.execute runtime error")  # full traceback
             return {
                 "agent_id": agent_id,
                 "events": events,
@@ -1377,6 +1423,12 @@ class AgentDispatcher(SubDispatcher):
 
         self._daemon.store.save_graph(graph)
         rt = self._daemon._get_runtime()
+
+        # P3: same capability-tool sync as agent.execute (stream path).
+        try:
+            sync_agent_tools(rt, agent_id, manifest)
+        except Exception:
+            logger.exception("capability tool sync failed agent=%s", agent_id)
 
         # 审计 P1-18: 透传 per-agent max_iterations (与 agent.execute 一致).
         agent_max_iter = manifest.max_iterations if manifest.max_iterations else None

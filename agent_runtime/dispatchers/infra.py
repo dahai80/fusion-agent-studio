@@ -48,6 +48,7 @@ class InfraDispatcher(SubDispatcher):
             "task.submit": self._handle_task_submit,
             "task.list": self._handle_task_list,
             "task.get": self._handle_task_get,
+            "task.events": self._handle_task_events,
             "task.status": self._handle_task_status,
             "task.cancel": self._handle_task_cancel,
             "task.rerun": self._handle_task_rerun,
@@ -350,6 +351,28 @@ class InfraDispatcher(SubDispatcher):
         if not task:
             return {"status": "error", "message": f"Task not found: {task_id}"}
         return {"task": task.to_dict()}
+
+    async def _handle_task_events(self, params: dict) -> dict:
+        # #406: run event waterfall data — per-node spans aggregated from the
+        # per-run structural event log written during graph.execute_async.
+        store = self._daemon._get_task_store()
+        task_id = params.get("task_id", "")
+        task = store.get(task_id)
+        if not task:
+            return {"status": "error", "message": f"Task not found: {task_id}"}
+        execution_id = str((task.last_result or {}).get("execution_id") or "")
+        team = str(getattr(task, "team", "") or "default")
+        if not execution_id:
+            return {
+                "status": "ok",
+                "task_id": task_id,
+                "execution_id": "",
+                "spans": {"nodes": [], "run_status": str(task.status), "stop_reason": "", "run_start": 0, "run_end": 0},
+            }
+        spans = self._daemon._aggregate_run_spans(self._daemon._read_run_spans(execution_id, team))
+        spans["execution_id"] = execution_id
+        logger.info("task.events task=%s execution=%s nodes=%d", task_id, execution_id, len(spans.get("nodes", [])))
+        return {"status": "ok", "task_id": task_id, **spans}
 
     async def _handle_task_status(self, params: dict) -> dict:
         store = self._daemon._get_task_store()
