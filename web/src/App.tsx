@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { ErrorBoundary } from './components/ErrorBoundary';
 import { StudioNav } from './components/StudioNav';
 import { useT } from './i18n';
 import { RunDetailPage } from './pages/RunDetailPage';
@@ -122,6 +123,15 @@ function StudioPage(props: { tab: StudioRoute }) {
     }
 }
 
+// #413: remount the boundary on every route change so a page that crashed
+// does not stay crashed when the user navigates elsewhere.
+function routeKey(route: Route): string {
+    if (route.name === 'studio') return `studio:${route.tab}`;
+    if (route.name === 'run') return `run:${route.id}`;
+    if (route.name === 'agent') return `agent:${route.id}`;
+    return route.name;
+}
+
 export function App() {
     const t = useT();
     const [route, setRoute] = useState<Route>(parseHash);
@@ -146,11 +156,13 @@ export function App() {
                 }
             />
             <main className={hideNav ? 'pb-4' : 'pb-20'}>
-                {route.name === 'workflows' ? <WorkflowsPage /> : null}
-                {route.name === 'runs' ? <RunsPage /> : null}
-                {route.name === 'run' ? <RunDetailPage runId={route.id} /> : null}
-                {route.name === 'agent' ? <AgentDetailPage agentId={route.id} /> : null}
-                {route.name === 'studio' ? <StudioPage tab={route.tab} /> : null}
+                <ErrorBoundary key={routeKey(route)}>
+                    {route.name === 'workflows' ? <WorkflowsPage /> : null}
+                    {route.name === 'runs' ? <RunsPage /> : null}
+                    {route.name === 'run' ? <RunDetailPage runId={route.id} /> : null}
+                    {route.name === 'agent' ? <AgentDetailPage agentId={route.id} /> : null}
+                    {route.name === 'studio' ? <StudioPage tab={route.tab} /> : null}
+                </ErrorBoundary>
             </main>
             {hideNav ? null : (
                 <nav className="fixed inset-x-0 bottom-0 z-10 flex justify-around border-t border-border bg-bg-elevated py-2">
