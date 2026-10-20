@@ -267,6 +267,19 @@ class TestRpcPrefix:
         assert "postJson<T & { status?: string; message?: string }>('/v1/rpc'" not in src
 
 
+def test_health_reports_package_version():
+    # version payload must track pyproject, not a stale hardcoded string.
+    import re
+
+    from agent_runtime import api_server
+
+    pyproject = (Path(__file__).resolve().parents[1] / "pyproject.toml").read_text(
+        encoding="utf-8"
+    )
+    declared = re.search(r'^version = "([^"]+)"', pyproject, re.MULTILINE).group(1)
+    assert api_server._app_version() == declared
+
+
 @pytest.mark.parametrize("path", ["/v1/search", "/v1/notifications/runs"])
 def test_api_v1_aliases(path):
     from fastapi.testclient import TestClient
