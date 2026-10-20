@@ -6,10 +6,10 @@
 
 Run, build, and orchestrate AI agents entirely on your Mac — no cloud, no API fees, no data leaving your device.
 
-[![Version](https://img.shields.io/badge/v0.10.0-blue.svg)]()
+[![Version](https://img.shields.io/badge/v0.11.0-blue.svg)]()
 [![Python](https://img.shields.io/badge/Python-3.11+-3776AB.svg)](https://www.python.org/)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/Tests-3050-success.svg)](tests/)
+[![Tests](https://img.shields.io/badge/Tests-3099-success.svg)](tests/)
 
 **[中文文档](README_CN.md)** · [Quick Start](#quick-start) · [Architecture](#architecture) · [Documentation](docs/) · [Examples](examples/) · **[Guided Tutorials](docs/guides/README.md)**
 
@@ -142,7 +142,7 @@ python my_agent.py
 | `agent_runtime/dispatchers/` | 11 Sub-Dispatchers extracted from DaemonServer — agent, chat, deploy, infra, knowledge, marketplace, memory, planner, safety, team, workflow | 13 files |
 | `agent_runtime/sdk/` | Agent SDK: Agent, Tool, AgentClient for programmatic access over JSON-RPC | 3 files |
 | `agent_runtime/plugins/` | Built-in workflow plugins: code_review, feature_dev, security_scan, pr_review, agent_builder | 5 manifests |
-| `tools/` | Built-in tool system: 37 tools + plugin system (file, terminal, git, http, code, db, computer-use, artifact, plan, utility) | 17 files |
+| `tools/` | Built-in tool system: 38 tools + plugin system (file, terminal, git, http, code, db, computer-use, artifact, plan, utility, cowork) | 18 files |
 | `server/` | fusion-mlx HTTP client + process manager | 2 files |
 
 ---
@@ -265,7 +265,7 @@ python my_agent.py
 - ✅ **`graph.plan_mode` flag** — when `True` the graph runs in a read-only explore phase. Write tools (`file_write`, `file_edit`, `file_delete`, `terminal`, …) are gated off with a `plan_mode_blocked` tool result; read tools (`file_read`, `file_list`, `file_grep`, `file_glob`, `text_search`, `text_process`, `exit_plan_mode`, `register_tool`, `unregister_tool`) execute normally.
 - ✅ **`exit_plan_mode` tool** — the transition primitive. The agent calls `exit_plan_mode {plan: "…"}` once a complete plan is presented. The runtime detects the `__EXIT_PLAN_MODE__` sentinel, flips `plan_mode=False`, emits a `PLAN_MODE_EXIT` event, and unlocks write tools for the rest of the run. Tool stays a pure `BaseTool` (no runtime coupling — sentinel is detected in the tool-call loop).
 - ✅ **Planner node in-graph block** — a `planner` node with `tool_params={"await_approval": True}` blocks execution via an `asyncio.Future` keyed by `plan_id`, emitting `PLAN_APPROVAL` events (`pending_approval` → `approved`/`rejected`). RPC `planner.approve_plan` / `planner.reject_plan` resolve the in-graph future in addition to the `PlannerEngine` status flag (solves the two-`PlannerEngine`-instance problem — dispatcher's vs node's).
-- Events: `PLAN_MODE_EXIT`, `PLAN_APPROVAL`. Tool count: 37.
+- Events: `PLAN_MODE_EXIT`, `PLAN_APPROVAL`. Tool count: 38.
 
 ### Parallel Tool Calls + tool_choice (C1)
 - ✅ **`tool_choice` passthrough (end-to-end)** — `NodeConfig.tool_choice` (string, empty = omitted) accepts OpenAI values: `"auto"` | `"none"` | `"required"` | a JSON-encoded `{"type":"function","function":{"name":"…"}}`. The runtime threads it through all 3 LLM call sites (stream, non-stream, self-repair retry) → `LLMGateway.chat`/`chat_stream` (`**kwargs`) → `_call_model_async`/`_call_default_client` → `FusionMLXClient.chat`/`chat_stream` → HTTP payload (`payload.update(kwargs)`). Verified the value lands in the POST body.
@@ -321,6 +321,10 @@ Audit `audit/fusion-agent-studio-vs-langflow-audit-1020.md` closed end-to-end; s
 - ✅ **#397 orchestration patterns GUI** — new Orchestrations section on Workflows: create multi-phase orchestrations (6 patterns: pipeline / parallel_barrier / loop_until_dry / loop_until_budget / adversarial_verify / judge_panel) with agent multi-select, execute with input, 5s run-status polling, cancel, delete; `workflow.*` RPCs added to the web bridge allowlist.
 - ✅ **#398 single-node run + edge labels + grouping** — `only_node` SSE param executes exactly one node via a start-wired subgraph + `stop_after` ("Run this node only"); edge selection with condition branch-label editing; multi-select visual grouping via a dashed `fusionGroup` container persisted through the additive `NodeConfig.parent` field (runtime ignores it).
 - Tests: `tests/test_issue_393_398_langflow_parity.py` (23) — incl. a regression that invalid `from_node`/`only_node` return HTTP 400 (they previously raised a nonexistent `ErrorCode.PARAM_INVALID` attribute).
+
+### Cowork Workflow Tool (v0.11.0) — #402
+- ✅ **`cowork_workflow_run` tool** — agent graphs can invoke fusion-cowork workflows (DAG runs) as a tool step: start by `workflow_id` or natural-language `prompt` (cowork generates the DAG server-side via `/api/ai/generate-workflow`), optional `inputs` forwarded verbatim in the run body, `wait=true` polls to terminal state and returns run status + final node outputs + artifacts; `wait=false` fire-and-forget returns the `run_id` for later polling (`action=status`). Human-gated runs never block: `paused` runs and runs stalled on node-level CONFIRM approvals return `pending`/`pending_approval` with the approvals list instead of blocking. Upstream `FUSION_COWORK_URL` (default `http://127.0.0.1:11461`), auth `FUSION_COWORK_WEB_API_KEY` (X-API-Key). Registry: 38 built-in tools (39 with fusion-browser).
+- Tests: `tests/test_issue_402_cowork_tool.py` (16).
 
 ### Integration
 - ✅ **fusion-mlx** — Apple Silicon optimized model serving

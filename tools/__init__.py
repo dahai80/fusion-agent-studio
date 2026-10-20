@@ -23,6 +23,7 @@ from .computer_use_tools import (
     MouseTool,
     ScreenCaptureTool,
 )
+from .cowork_tools import COWORK_URL_ENV, CoworkWorkflowRunTool, cowork_available
 from .data_tools import Base64Tool, CsvParseTool, JsonParseTool
 from .db_tools import AnnotationNode, SqliteQueryTool
 from .file_tools import (
@@ -59,6 +60,9 @@ __all__ = [
     "ClipboardTool",
     "CodeExecuteTool",
     "CodeSandboxTool",
+    "CoworkWorkflowRunTool",
+    "COWORK_URL_ENV",
+    "cowork_available",
     "CsvParseTool",
     "DateTimeTool",
     "EXIT_PLAN_MODE_SENTINEL",
@@ -92,7 +96,7 @@ __all__ = [
 
 
 def create_default_registry() -> ToolRegistry:
-    """Create a ToolRegistry with all built-in tools registered (37 tools)."""
+    """Create a ToolRegistry with all built-in tools registered (38 tools)."""
     registry = ToolRegistry()
     registry.register(FileReadTool())
     registry.register(FileWriteTool())
@@ -131,6 +135,10 @@ def create_default_registry() -> ToolRegistry:
     registry.register(ArtifactLoadTool())
     registry.register(ArtifactContextBudgetTool())
     registry.register(ExitPlanModeTool())
+    # #402: cowork workflow runs as tool steps — always registered, degrades
+    # gracefully at call time when the cowork web API is unreachable.
+    registry.register(CoworkWorkflowRunTool())
+    logger.info("create_default_registry registered CoworkWorkflowRunTool (issue #402)")
     if browser_available():
         registry.register(BrowserTool())
         logger.info("create_default_registry registered BrowserTool (issue #234)")
