@@ -212,11 +212,12 @@ class TestAdhocGraphExtraction:
         graph, manifest = await build_agent_adhoc_graph(FakeDaemon(), "agent-330", "hi")
         assert graph is not None and manifest is not None
         nodes = set(graph.nodes.keys())
-        assert nodes == {"start", "llm-1", "tool-1", "tool-2"}
+        # Capability tools are no longer chained as static tool nodes: a
+        # static node runs with empty params, while the LLM loop calls the
+        # registered bridge tools with real arguments.
+        assert nodes == {"start", "llm-1"}
         edges = {(e.source_id, e.target_id) for e in graph.edges}
         assert ("start", "llm-1") in edges
-        assert ("llm-1", "tool-1") in edges
-        assert ("tool-1", "tool-2") in edges
         llm = graph.nodes["llm-1"]
         assert llm.model == "test-model"
         assert llm.system_prompt == "you are helpful"

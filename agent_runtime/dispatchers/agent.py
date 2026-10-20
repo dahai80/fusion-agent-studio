@@ -16,7 +16,7 @@ from .base import SubDispatcher
 logger = logging.getLogger(__name__)
 
 # P3 capability-tool loop: bridge-backed tools registered per agent
-from ..capability_tools import bridge_tool_name, sync_agent_tools
+from ..capability_tools import sync_agent_tools
 
 
 def _manifest_model_id(manifest) -> str:
