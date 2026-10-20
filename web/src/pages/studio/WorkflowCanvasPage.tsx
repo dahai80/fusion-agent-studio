@@ -1,6 +1,9 @@
 // N13 (#352): graphical workflow canvas — React Flow over the single server
 // graph JSON schema. Typed ports with connect-rejection, node inspector,
 // and canvas-as-governance-panel (run SSE events stream onto the canvas).
+// Langflow-parity batch (#393-#398, audit-1020): schema-driven config forms,
+// sidebar drag-onto-canvas, pre-save validation, import/export + templates,
+// edge labels, single-node test run, visual grouping.
 import {
     Background,
     BackgroundVariant,
@@ -26,16 +29,22 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api, apiBase, rpc } from '../../api';
 import { useT } from '../../i18n';
 import {
+    type FieldSpec,
+    type GraphIssue,
     type GraphJson,
     NODE_TYPES,
+    type RfEdge,
+    type RfNode,
     type ServerNode,
     canConnect,
+    fieldsForNode,
     fromRf,
     inPortType,
     maxOutEdges,
     outPortType,
     toRfEdges,
     toRfNodes,
+    validateGraphClient,
 } from '../../lib/graphSchema';
 
 const PORT_COLOR: Record<string, string> = {
@@ -44,6 +53,39 @@ const PORT_COLOR: Record<string, string> = {
     fan: '#0ea5e9',
 };
 
+const CANVAS_GRAPH_KEY = 'fusion.canvas.graphId';
+const PIN_KEY_PREFIX = 'fusion.canvas.pins.';
+
+// #394: sidebar palette split — execution flow vs intelligence nodes.
+const NODE_GROUPS: Array<{ title: string; types: string[] }> = [
+    {
+        title: 'Execution flow',
+        types: ['start', 'end', 'llm', 'tool', 'condition', 'loop', 'parallel', 'error_handler'],
+    },
+    { title: 'Intelligence', types: ['rag', 'planner', 'verify'] },
+];
+
+// #396: examples/*.json templates bundled at build time (no runtime disk read).
+const TEMPLATES: Array<{ name: string; graph: GraphJson }> = (() => {
+    const modules = import.meta.glob('../../../../examples/*.json', {
+        eager: true,
+        query: '?raw',
+        import: 'default',
+    });
+    const out: Array<{ name: string; graph: GraphJson }> = [];
+    for (const [path, raw] of Object.entries(modules)) {
+        try {
+            out.push({
+                name: path.split('/').pop() || path,
+                graph: JSON.parse(raw as string) as GraphJson,
+            });
+        } catch {
+            // skip malformed template
+        }
+    }
+    return out.sort((a, b) => a.name.localeCompare(b.name));
+})();
+
 type FusionNodeData = {
     label: string;
     nodeType: string;
@@ -51,9 +93,6 @@ type FusionNodeData = {
     pinned?: boolean;
     breakpoint?: boolean;
 };
-
-const CANVAS_GRAPH_KEY = 'fusion.canvas.graphId';
-const PIN_KEY_PREFIX = 'fusion.canvas.pins.';
 
 function FusionNode(props: { data: FusionNodeData; selected?: boolean }) {
     const { data, selected } = props;
@@ -105,7 +144,21 @@ function FusionNode(props: { data: FusionNodeData; selected?: boolean }) {
     );
 }
 
-const nodeTypes: NodeTypes = { fusionNode: FusionNode };
+// #398-6c: visual group container — dashed box, no ports, not a runtime node.
+function FusionGroup(props: { data: FusionNodeData; selected?: boolean }) {
+    const { data, selected } = props;
+    return (
+        <div
+            className={`h-full w-full rounded-xl border-2 border-dashed px-3 py-2 ${
+                selected ? 'border-brand bg-brand/5' : 'border-border bg-bg-muted/40'
+            }`}
+        >
+            <div className="text-[10px] font-medium text-text-secondary">🗂 {data.label}</div>
+        </div>
+    );
+}
+
+const nodeTypes: NodeTypes = { fusionNode: FusionNode, fusionGroup: FusionGroup };
 
 interface SseFrame {
     type?: string;
@@ -130,6 +183,8 @@ function CanvasInner() {
     const [nodes, setNodes, onNodesChangeBase] = useNodesState<Node>([]);
     const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
     const [selectedId, setSelectedId] = useState('');
+    const [selectedIds, setSelectedIds] = useState<string[]>([]);
+    const [selectedEdgeId, setSelectedEdgeId] = useState('');
     const [toast, setToast] = useState('');
     const [saving, setSaving] = useState(false);
     const [running, setRunning] = useState(false);
@@ -150,6 +205,11 @@ function CanvasInner() {
     const historyIndexRef = useRef(-1);
     const nodesRef = useRef<Node[]>([]);
     const edgesRef = useRef<Edge[]>([]);
+    const [toolNames, setToolNames] = useState<string[]>([]);
+    const [advancedOpen, setAdvancedOpen] = useState(false);
+    const [rawJsonOpen, setRawJsonOpen] = useState(false);
+    const [saveIssues, setSaveIssues] = useState<GraphIssue[]>([]);
+    const [strictSave, setStrictSave] = useState(false);
     const { screenToFlowPosition } = useReactFlow();
 
     useEffect(() => {
@@ -225,6 +285,9 @@ function CanvasInner() {
                 setGraphs(res.data.map((g) => ({ graph_id: g.graph_id, name: g.name })));
             })
             .catch(() => showToast(t('加载画布列表失败', 'Failed to load graphs')));
+        rpc<{ tools?: Array<{ name: string }> }>('tool.list', {})
+            .then((res) => setToolNames((res.tools || []).map((x) => x.name)))
+            .catch(() => setToolNames([]));
     }, [showToast, t]);
 
     const loadGraph = useCallback(
@@ -243,6 +306,9 @@ function CanvasInner() {
                 setEdges(rfEdges);
                 setGovEvents([]);
                 setActiveNodes({});
+                setSelectedIds([]);
+                setSelectedEdgeId('');
+                setSaveIssues([]);
                 nodesRef.current = rfNodes;
                 edgesRef.current = rfEdges;
                 historyRef.current = [{ nodes: rfNodes, edges: rfEdges }];
@@ -282,8 +348,25 @@ function CanvasInner() {
     const onNodesChange = useCallback(
         (changes: NodeChange[]) => {
             onNodesChangeBase(changes);
-            const sel = changes.find((c) => c.type === 'select' && c.selected);
-            if (sel && 'id' in sel) setSelectedId(sel.id);
+            const selIds = changes
+                .filter((c) => c.type === 'select' && c.selected && 'id' in c)
+                .map((c) => (c as { id: string }).id);
+            if (selIds.length > 0) {
+                setSelectedEdgeId('');
+                setSelectedIds((prev) => {
+                    const next = new Set(prev);
+                    for (const id of selIds) next.add(id);
+                    return [...next];
+                });
+                setSelectedId(selIds[selIds.length - 1]);
+            }
+            const deselected = changes.filter((c) => c.type === 'select' && !c.selected);
+            if (deselected.length > 0) {
+                setSelectedIds((prev) => {
+                    const removed = new Set(deselected.map((c) => (c as { id: string }).id));
+                    return prev.filter((id) => !removed.has(id));
+                });
+            }
         },
         [onNodesChangeBase]
     );
@@ -322,13 +405,9 @@ function CanvasInner() {
         []
     );
 
-    const addNodeFromMenu = useCallback(
-        (nodeType: string) => {
-            if (!connectMenu) return;
+    const addNodeAt = useCallback(
+        (nodeType: string, position: { x: number; y: number }, connectFrom?: string) => {
             const id = `${nodeType}_${Math.random().toString(36).slice(2, 6)}`;
-            const position = screenToFlowPosition({ x: connectMenu.x, y: connectMenu.y });
-            const serverEdges = edges.map((e) => ({ source_id: e.source, target_id: e.target }));
-            const check = canConnect(graph, connectMenu.from, id, serverEdges);
             const newNode: Node = {
                 id,
                 type: 'fusionNode',
@@ -337,39 +416,75 @@ function CanvasInner() {
             };
             pushHistory();
             setNodes((ns) => [...ns, newNode]);
-            if (check.ok) {
-                setEdges((eds) =>
-                    addEdge(
-                        {
-                            id: `${connectMenu.from}-${id}`,
-                            source: connectMenu.from,
-                            target: id,
-                            markerEnd: { type: MarkerType.ArrowClosed },
-                        },
-                        eds
-                    )
-                );
-            } else {
-                showToast(`${t('节点已添加但未连线', 'Node added without edge')}: ${check.reason}`);
+            if (connectFrom) {
+                const serverEdges = edges.map((e) => ({
+                    source_id: e.source,
+                    target_id: e.target,
+                }));
+                const check = canConnect(graph, connectFrom, id, serverEdges);
+                if (check.ok) {
+                    setEdges((eds) =>
+                        addEdge(
+                            {
+                                id: `${connectFrom}-${id}`,
+                                source: connectFrom,
+                                target: id,
+                                markerEnd: { type: MarkerType.ArrowClosed },
+                            },
+                            eds
+                        )
+                    );
+                } else {
+                    showToast(
+                        `${t('节点已添加但未连线', 'Node added without edge')}: ${check.reason}`
+                    );
+                }
             }
+            return id;
+        },
+        [edges, graph, pushHistory, setNodes, setEdges, showToast, t]
+    );
+
+    const addNodeFromMenu = useCallback(
+        (nodeType: string) => {
+            if (!connectMenu) return;
+            const position = screenToFlowPosition({ x: connectMenu.x, y: connectMenu.y });
+            addNodeAt(nodeType, position, connectMenu.from);
             setConnectMenu(null);
         },
-        [
-            connectMenu,
-            edges,
-            graph,
-            pushHistory,
-            setNodes,
-            setEdges,
-            screenToFlowPosition,
-            showToast,
-            t,
-        ]
+        [connectMenu, screenToFlowPosition, addNodeAt]
+    );
+
+    const addNode = useCallback(
+        (nodeType: string) => {
+            addNodeAt(nodeType, { x: 80 + Math.random() * 220, y: 80 + Math.random() * 160 });
+        },
+        [addNodeAt]
+    );
+
+    // #394: Langflow-style drop from the sidebar palette at the cursor position.
+    const onDrop = useCallback(
+        (event: React.DragEvent) => {
+            event.preventDefault();
+            const nodeType = event.dataTransfer.getData('fusion/node-type');
+            if (!nodeType || !NODE_TYPES.includes(nodeType as (typeof NODE_TYPES)[number])) return;
+            const position = screenToFlowPosition({ x: event.clientX, y: event.clientY });
+            addNodeAt(nodeType, position);
+        },
+        [screenToFlowPosition, addNodeAt]
     );
 
     const selectedNode = useMemo(
-        () => nodes.find((n) => n.id === selectedId) as Node<FusionNodeData> | undefined,
+        () =>
+            nodes.find((n) => n.id === selectedId && n.data.nodeType !== 'group') as
+                | Node<FusionNodeData>
+                | undefined,
         [nodes, selectedId]
+    );
+
+    const selectedEdge = useMemo(
+        () => edges.find((e) => e.id === selectedEdgeId),
+        [edges, selectedEdgeId]
     );
 
     const updateSelectedConfig = useCallback(
@@ -383,6 +498,35 @@ function CanvasInner() {
         [selectedId, setNodes, pushHistory]
     );
 
+    // #393: single-field update — no history push per keystroke, only on blur
+    // commit (history pushed once per edit session via commitField).
+    const setFieldValue = useCallback(
+        (key: string, value: unknown) => {
+            if (!selectedId) return;
+            setNodes((ns) =>
+                ns.map((n) =>
+                    n.id === selectedId
+                        ? {
+                              ...n,
+                              data: {
+                                  ...n.data,
+                                  config: {
+                                      ...(n.data as FusionNodeData).config,
+                                      [key]: value,
+                                  },
+                              },
+                          }
+                        : n
+                )
+            );
+        },
+        [selectedId, setNodes]
+    );
+
+    const commitField = useCallback(() => {
+        pushHistory();
+    }, [pushHistory]);
+
     const removeSelected = useCallback(() => {
         if (!selectedId) return;
         pushHistory();
@@ -391,44 +535,158 @@ function CanvasInner() {
         setSelectedId('');
     }, [selectedId, setNodes, setEdges, pushHistory]);
 
-    const addNode = useCallback(
-        (nodeType: string) => {
-            const id = `${nodeType}_${Math.random().toString(36).slice(2, 6)}`;
-            pushHistory();
-            setNodes((ns) => [
-                ...ns,
-                {
-                    id,
-                    type: 'fusionNode',
-                    position: { x: 80 + Math.random() * 220, y: 80 + Math.random() * 160 },
-                    data: { label: id, nodeType, config: { type: nodeType, label: id } },
+    const deleteSelectedEdge = useCallback(() => {
+        if (!selectedEdgeId) return;
+        pushHistory();
+        setEdges((es) => es.filter((e) => e.id !== selectedEdgeId));
+        setSelectedEdgeId('');
+    }, [selectedEdgeId, setEdges, pushHistory]);
+
+    // #398-6c: wrap currently selected nodes in a visual group container.
+    const groupSelected = useCallback(() => {
+        const members = nodes.filter(
+            (n) => selectedIds.includes(n.id) && (n.data as FusionNodeData).nodeType !== 'group'
+        );
+        if (members.length < 1) {
+            showToast(t('先框选要分组的节点', 'Select nodes to group first'));
+            return;
+        }
+        const groupId = `group_${Math.random().toString(36).slice(2, 6)}`;
+        const minX = Math.min(...members.map((n) => n.position.x)) - 40;
+        const minY = Math.min(...members.map((n) => n.position.y)) - 56;
+        const maxX = Math.max(...members.map((n) => n.position.x + 160));
+        const maxY = Math.max(...members.map((n) => n.position.y + 80));
+        pushHistory();
+        setNodes((ns) => [
+            ...ns.map((n) =>
+                members.some((m) => m.id === n.id)
+                    ? {
+                          ...n,
+                          parentId: groupId,
+                          extent: 'parent' as const,
+                          position: { x: n.position.x - minX, y: n.position.y - minY },
+                      }
+                    : n
+            ),
+            {
+                id: groupId,
+                type: 'fusionGroup',
+                position: { x: minX, y: minY },
+                style: { width: maxX - minX + 40, height: maxY - minY + 40 },
+                data: {
+                    label: groupId,
+                    nodeType: 'group',
+                    config: { type: 'group', label: groupId },
                 },
-            ]);
+            },
+        ]);
+        setSelectedIds([]);
+    }, [nodes, selectedIds, setNodes, pushHistory, showToast, t]);
+
+    const locateIssue = useCallback(
+        (issue: GraphIssue) => {
+            if (!issue.nodeId) return;
+            setSelectedId(issue.nodeId);
+            setNodes((ns) => ns.map((n) => ({ ...n, selected: n.id === issue.nodeId })));
         },
-        [setNodes, pushHistory]
+        [setNodes]
     );
 
+    // #395: client pre-save check, then server-side validate (soft by default;
+    // response issues surfaced in the save-issues panel).
     const save = useCallback(async () => {
         if (!graphId) return;
+        const next = fromRf(graph, nodes as unknown as RfNode[], edges as unknown as RfEdge[]);
+        const local = validateGraphClient(next);
+        const hard = local.filter((i) => i.level === 'error');
+        if (hard.length > 0) {
+            setSaveIssues(local);
+            locateIssue(hard[0]);
+            showToast(`${t('保存被拦截', 'Save blocked')}: ${hard[0].message}`);
+            return;
+        }
         setSaving(true);
         try {
-            const next = fromRf(
-                graph,
-                nodes as unknown as import('../../lib/graphSchema').RfNode[],
-                edges as unknown as import('../../lib/graphSchema').RfEdge[]
-            );
-            await rpc('graph.update', { graph_id: graphId, graph_data: next });
+            const res = await rpc<{ issues?: string[] }>('graph.update', {
+                graph_id: graphId,
+                graph_data: next,
+                strict_validate: strictSave,
+            });
             setGraph(next);
-            showToast(t('已保存', 'Saved'));
+            const serverIssues = (res.issues || []).map((msg) => ({
+                nodeId: '',
+                level: (msg.startsWith('warning:') ? 'warning' : 'error') as 'warning' | 'error',
+                message: msg,
+            }));
+            setSaveIssues(serverIssues);
+            showToast(
+                serverIssues.length > 0
+                    ? `${t('已保存', 'Saved')} · ${t('条校验提示', 'validation notes')}: ${serverIssues.length}`
+                    : t('已保存', 'Saved')
+            );
         } catch (e) {
             showToast(`${t('保存失败', 'Save failed')}: ${String(e)}`);
         } finally {
             setSaving(false);
         }
-    }, [graphId, graph, nodes, edges, showToast, t]);
+    }, [graphId, graph, nodes, edges, strictSave, showToast, t, locateIssue]);
+
+    // #396: export current graph JSON; import via file picker -> graph.create.
+    const exportGraph = useCallback(async () => {
+        if (!graphId) return;
+        const next = fromRf(graph, nodes as unknown as RfNode[], edges as unknown as RfEdge[]);
+        const blob = new Blob([JSON.stringify(next, null, 4)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${graph.name || graphId}.json`;
+        a.click();
+        URL.revokeObjectURL(url);
+    }, [graphId, graph, nodes, edges]);
+
+    const importGraph = useCallback(
+        async (data: GraphJson) => {
+            try {
+                const res = await rpc<{ graph_id?: string }>('graph.create', {
+                    name: data.name || 'imported graph',
+                    description: data.description || '',
+                    graph_data: data,
+                });
+                const newId = res.graph_id || '';
+                if (newId) {
+                    const refreshed = await api.graphs();
+                    setGraphs(refreshed.data.map((g) => ({ graph_id: g.graph_id, name: g.name })));
+                    setGraphId(newId);
+                    void loadGraph(newId);
+                }
+                showToast(t('图已导入', 'Graph imported'));
+            } catch (e) {
+                showToast(`${t('导入失败', 'Import failed')}: ${String(e)}`);
+            }
+        },
+        [loadGraph, showToast, t]
+    );
+
+    const onImportFile = useCallback(
+        (ev: React.ChangeEvent<HTMLInputElement>) => {
+            const file = ev.target.files?.[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = () => {
+                try {
+                    void importGraph(JSON.parse(String(reader.result)) as GraphJson);
+                } catch {
+                    showToast(t('JSON 解析失败', 'Invalid JSON'));
+                }
+            };
+            reader.readAsText(file);
+            ev.target.value = '';
+        },
+        [importGraph, showToast, t]
+    );
 
     const runWithStream = useCallback(
-        async (opts: { fromNode?: string } = {}) => {
+        async (opts: { fromNode?: string; onlyNode?: string } = {}) => {
             if (!graphId || running) return;
             setRunning(true);
             setGovEvents([]);
@@ -436,8 +694,9 @@ function CanvasInner() {
             void refreshGovernance();
             const qs = new URLSearchParams({ input: 'canvas run' });
             if (opts.fromNode) qs.set('from_node', opts.fromNode);
+            if (opts.onlyNode) qs.set('only_node', opts.onlyNode);
             const breakpointNode = nodes.find((n) => (n.data as FusionNodeData).breakpoint);
-            if (breakpointNode) qs.set('stop_after', breakpointNode.id);
+            if (breakpointNode && !opts.onlyNode) qs.set('stop_after', breakpointNode.id);
             const cfgKey = import.meta.env.VITE_API_KEY as string | undefined;
             if (cfgKey) qs.set('api_key', cfgKey);
             const es = new EventSource(
@@ -529,6 +788,162 @@ function CanvasInner() {
 
     useEffect(() => () => esRef.current?.close(), []);
 
+    // #393: one generated form row per FieldSpec widget.
+    const renderField = (field: FieldSpec) => {
+        if (!selectedNode) return null;
+        const config = selectedNode.data.config;
+        const value = config[field.key] ?? field.default;
+        const label = (
+            <div className="text-text-secondary">
+                {field.help
+                    ? `${t(field.label, field.label)} (${field.help})`
+                    : t(field.label, field.label)}
+            </div>
+        );
+        if (field.widget === 'textarea') {
+            return (
+                <div key={field.key}>
+                    {label}
+                    <textarea
+                        className="w-full h-20 rounded border border-border bg-bg px-2 py-1 font-mono"
+                        defaultValue={String(value ?? '')}
+                        onBlur={(e) => {
+                            setFieldValue(field.key, e.target.value);
+                            commitField();
+                        }}
+                    />
+                </div>
+            );
+        }
+        if (field.widget === 'number') {
+            return (
+                <div key={field.key}>
+                    {label}
+                    <input
+                        type="number"
+                        className="w-full rounded border border-border bg-bg px-2 py-1"
+                        value={Number(value ?? 0)}
+                        min={field.min}
+                        max={field.max}
+                        step={field.step}
+                        onChange={(e) => setFieldValue(field.key, Number(e.target.value))}
+                        onBlur={commitField}
+                    />
+                </div>
+            );
+        }
+        if (field.widget === 'select') {
+            return (
+                <div key={field.key}>
+                    {label}
+                    <select
+                        className="w-full rounded border border-border bg-bg px-2 py-1"
+                        value={String(value ?? '')}
+                        onChange={(e) => {
+                            setFieldValue(field.key, e.target.value);
+                            commitField();
+                        }}
+                    >
+                        {(field.options || []).map((o) => (
+                            <option key={o} value={o}>
+                                {o || '—'}
+                            </option>
+                        ))}
+                    </select>
+                </div>
+            );
+        }
+        if (field.widget === 'boolean') {
+            return (
+                <label key={field.key} className="flex items-center gap-1">
+                    <input
+                        type="checkbox"
+                        checked={Boolean(value)}
+                        onChange={(e) => {
+                            setFieldValue(field.key, e.target.checked);
+                            commitField();
+                        }}
+                    />
+                    {t(field.label, field.label)}
+                </label>
+            );
+        }
+        if (field.widget === 'tags') {
+            const tags = Array.isArray(value) ? (value as string[]) : [];
+            return (
+                <div key={field.key}>
+                    {label}
+                    <input
+                        className="w-full rounded border border-border bg-bg px-2 py-1"
+                        value={tags.join(', ')}
+                        placeholder="a, b, c"
+                        onBlur={(e) => {
+                            const list = e.target.value
+                                .split(',')
+                                .map((s) => s.trim())
+                                .filter(Boolean);
+                            setFieldValue(field.key, list);
+                            commitField();
+                        }}
+                    />
+                </div>
+            );
+        }
+        if (field.widget === 'kv') {
+            return (
+                <div key={field.key}>
+                    {label}
+                    <textarea
+                        className="w-full h-16 rounded border border-border bg-bg px-2 py-1 font-mono"
+                        defaultValue={JSON.stringify(value ?? {}, null, 4)}
+                        onBlur={(e) => {
+                            try {
+                                const parsed = JSON.parse(e.target.value || '{}');
+                                setFieldValue(field.key, parsed);
+                                commitField();
+                            } catch {
+                                showToast(t('JSON 解析失败', 'Invalid JSON'));
+                            }
+                        }}
+                    />
+                </div>
+            );
+        }
+        if (field.widget === 'text' && field.key === 'tool_name' && toolNames.length > 0) {
+            return (
+                <div key={field.key}>
+                    {label}
+                    <input
+                        className="w-full rounded border border-border bg-bg px-2 py-1"
+                        list="canvas-tool-names"
+                        value={String(value ?? '')}
+                        onChange={(e) => setFieldValue(field.key, e.target.value)}
+                        onBlur={commitField}
+                    />
+                    <datalist id="canvas-tool-names">
+                        {toolNames.map((name) => (
+                            <option key={name} value={name} />
+                        ))}
+                    </datalist>
+                </div>
+            );
+        }
+        return (
+            <div key={field.key}>
+                {label}
+                <input
+                    className="w-full rounded border border-border bg-bg px-2 py-1"
+                    value={String(value ?? '')}
+                    onChange={(e) => setFieldValue(field.key, e.target.value)}
+                    onBlur={commitField}
+                />
+            </div>
+        );
+    };
+
+    const basicFields = selectedNode ? fieldsForNode(selectedNode.data.nodeType, false) : [];
+    const advFields = selectedNode ? fieldsForNode(selectedNode.data.nodeType, true) : [];
+
     return (
         <div className="flex h-full">
             <div className="w-56 border-r border-border p-3 space-y-2 overflow-y-auto">
@@ -548,19 +963,42 @@ function CanvasInner() {
                         </option>
                     ))}
                 </select>
-                <div className="text-xs text-text-secondary pt-1">{t('添加节点', 'Add node')}</div>
-                <div className="grid grid-cols-2 gap-1">
-                    {NODE_TYPES.map((nt) => (
-                        <button
-                            type="button"
-                            key={nt}
-                            className="rounded border border-border px-1 py-0.5 text-[10px] hover:border-brand"
-                            onClick={() => addNode(nt)}
-                        >
-                            + {nt}
-                        </button>
-                    ))}
-                </div>
+                {NODE_GROUPS.map((grp) => (
+                    <div key={grp.title}>
+                        <div className="text-xs text-text-secondary pt-1">
+                            {t(grp.title, grp.title)}
+                        </div>
+                        <div className="grid grid-cols-2 gap-1">
+                            {grp.types.map((nt) => (
+                                <button
+                                    type="button"
+                                    key={nt}
+                                    draggable
+                                    onDragStart={(e) => {
+                                        e.dataTransfer.setData('fusion/node-type', nt);
+                                        e.dataTransfer.effectAllowed = 'copy';
+                                    }}
+                                    className="rounded border border-border px-1 py-0.5 text-[10px] hover:border-brand cursor-grab"
+                                    onClick={() => addNode(nt)}
+                                    title={t(
+                                        '点击添加，或拖到画布任意位置',
+                                        'Click to add, or drag onto the canvas'
+                                    )}
+                                >
+                                    + {nt}
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+                ))}
+                <button
+                    type="button"
+                    className="w-full rounded border border-border px-2 py-1 text-[10px] disabled:opacity-40"
+                    disabled={selectedIds.length === 0}
+                    onClick={groupSelected}
+                >
+                    🗂 {t('分组选中节点', 'Group selected nodes')}
+                </button>
                 <button
                     type="button"
                     className="w-full rounded bg-brand px-2 py-1 text-xs text-white disabled:opacity-50 mt-2"
@@ -569,6 +1007,14 @@ function CanvasInner() {
                 >
                     {saving ? t('保存中…', 'Saving…') : t('保存', 'Save')}
                 </button>
+                <label className="flex items-center gap-1 text-[10px]">
+                    <input
+                        type="checkbox"
+                        checked={strictSave}
+                        onChange={(e) => setStrictSave(e.target.checked)}
+                    />
+                    {t('严格校验 (错误阻止保存)', 'Strict validate (errors block save)')}
+                </label>
                 <button
                     type="button"
                     className="w-full rounded border border-brand px-2 py-1 text-xs text-brand disabled:opacity-50"
@@ -577,6 +1023,44 @@ function CanvasInner() {
                 >
                     {running ? t('运行中…', 'Running…') : t('运行并监视', 'Run & watch')}
                 </button>
+                <div className="flex gap-1 pt-1">
+                    <button
+                        type="button"
+                        className="flex-1 rounded border border-border px-1 py-0.5 text-[10px] disabled:opacity-40"
+                        disabled={!graphId}
+                        onClick={() => void exportGraph()}
+                    >
+                        ⬇ {t('导出', 'Export')}
+                    </button>
+                    <label className="flex-1 rounded border border-border px-1 py-0.5 text-[10px] text-center cursor-pointer hover:border-brand">
+                        ⬆ {t('导入', 'Import')}
+                        <input
+                            type="file"
+                            accept=".json"
+                            className="hidden"
+                            onChange={onImportFile}
+                        />
+                    </label>
+                </div>
+                {TEMPLATES.length > 0 ? (
+                    <div>
+                        <div className="text-xs text-text-secondary pt-1">
+                            {t('模板', 'Templates')}
+                        </div>
+                        <div className="space-y-0.5">
+                            {TEMPLATES.map((tpl) => (
+                                <button
+                                    type="button"
+                                    key={tpl.name}
+                                    className="block w-full rounded border border-border px-1 py-0.5 text-left text-[10px] hover:border-brand"
+                                    onClick={() => void importGraph(tpl.graph)}
+                                >
+                                    {tpl.name.replace(/\.json$/, '')}
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+                ) : null}
                 <div className="flex gap-1 pt-1">
                     <button
                         type="button"
@@ -608,6 +1092,19 @@ function CanvasInner() {
                     onConnect={guardConnect}
                     onConnectEnd={onConnectEnd}
                     onNodeDragStart={pushHistory}
+                    onEdgeClick={(_, edge) => {
+                        setSelectedEdgeId(edge.id);
+                        setSelectedId('');
+                    }}
+                    onPaneClick={() => {
+                        setSelectedEdgeId('');
+                        setSelectedIds([]);
+                    }}
+                    onDragOver={(e) => {
+                        e.preventDefault();
+                        e.dataTransfer.dropEffect = 'copy';
+                    }}
+                    onDrop={onDrop}
                     fitView
                 >
                     <Background variant={BackgroundVariant.Dots} gap={16} size={1} />
@@ -659,7 +1156,44 @@ function CanvasInner() {
             </div>
             <div className="w-72 border-l border-border p-3 space-y-3 overflow-y-auto">
                 <div className="text-sm font-medium">{t('节点检查器', 'Node Inspector')}</div>
-                {selectedNode ? (
+                {selectedEdge ? (
+                    <div className="space-y-2 text-xs">
+                        <div className="text-text-secondary">
+                            {t('边', 'Edge')} {selectedEdge.source} → {selectedEdge.target}
+                        </div>
+                        <div>
+                            <div className="text-text-secondary">
+                                {t(
+                                    '分支标签 (condition 分支名)',
+                                    'Branch label (condition branch)'
+                                )}
+                            </div>
+                            <input
+                                className="w-full rounded border border-border bg-bg px-2 py-1"
+                                value={String(selectedEdge.label ?? '')}
+                                onBlur={(e) => {
+                                    const label = e.target.value;
+                                    if (label === (selectedEdge.label || '')) return;
+                                    pushHistory();
+                                    setEdges((es) =>
+                                        es.map((e) =>
+                                            e.id === selectedEdge.id
+                                                ? { ...e, label: label || undefined }
+                                                : e
+                                        )
+                                    );
+                                }}
+                            />
+                        </div>
+                        <button
+                            type="button"
+                            className="rounded border border-error px-2 py-1 text-error"
+                            onClick={deleteSelectedEdge}
+                        >
+                            {t('删除边', 'Delete edge')}
+                        </button>
+                    </div>
+                ) : selectedNode ? (
                     <div className="space-y-2 text-xs">
                         <div>
                             <div className="text-text-secondary">{t('名称', 'Label')}</div>
@@ -691,22 +1225,45 @@ function CanvasInner() {
                                 ))}
                             </select>
                         </div>
-                        <div>
-                            <div className="text-text-secondary">
-                                {t('配置 JSON', 'Config JSON')}
+                        {basicFields.map(renderField)}
+                        {advFields.length > 0 ? (
+                            <div>
+                                <button
+                                    type="button"
+                                    className="text-[10px] text-brand"
+                                    onClick={() => setAdvancedOpen((v) => !v)}
+                                >
+                                    {advancedOpen ? '▾' : '▸'} {t('高级参数', 'Advanced')}
+                                </button>
+                                {advancedOpen ? (
+                                    <div className="space-y-2 pt-1">
+                                        {advFields.map(renderField)}
+                                    </div>
+                                ) : null}
                             </div>
-                            <textarea
-                                className="w-full h-40 rounded border border-border bg-bg px-2 py-1 font-mono"
-                                defaultValue={JSON.stringify(selectedNode.data.config, null, 4)}
-                                onBlur={(e) => {
-                                    try {
-                                        const cfg = JSON.parse(e.target.value) as ServerNode;
-                                        updateSelectedConfig({ config: cfg });
-                                    } catch {
-                                        showToast(t('JSON 解析失败', 'Invalid JSON'));
-                                    }
-                                }}
-                            />
+                        ) : null}
+                        <div>
+                            <button
+                                type="button"
+                                className="text-[10px] text-brand"
+                                onClick={() => setRawJsonOpen((v) => !v)}
+                            >
+                                {rawJsonOpen ? '▾' : '▸'} {t('原始 JSON', 'Raw JSON')}
+                            </button>
+                            {rawJsonOpen ? (
+                                <textarea
+                                    className="mt-1 w-full h-40 rounded border border-border bg-bg px-2 py-1 font-mono"
+                                    defaultValue={JSON.stringify(selectedNode.data.config, null, 4)}
+                                    onBlur={(e) => {
+                                        try {
+                                            const cfg = JSON.parse(e.target.value) as ServerNode;
+                                            updateSelectedConfig({ config: cfg });
+                                        } catch {
+                                            showToast(t('JSON 解析失败', 'Invalid JSON'));
+                                        }
+                                    }}
+                                />
+                            ) : null}
                         </div>
                         <label className="flex items-center gap-1">
                             <input
@@ -746,6 +1303,14 @@ function CanvasInner() {
                         </button>
                         <button
                             type="button"
+                            className="w-full rounded border border-brand px-2 py-1 text-brand disabled:opacity-40"
+                            disabled={running || !graphId}
+                            onClick={() => void runWithStream({ onlyNode: selectedNode.id })}
+                        >
+                            {t('仅试跑此节点', 'Run this node only')}
+                        </button>
+                        <button
+                            type="button"
                             className="rounded border border-error px-2 py-1 text-error"
                             onClick={removeSelected}
                         >
@@ -754,9 +1319,26 @@ function CanvasInner() {
                     </div>
                 ) : (
                     <div className="text-xs text-text-secondary">
-                        {t('点击节点以编辑', 'Click a node to inspect')}
+                        {t('点击节点或边以编辑', 'Click a node or edge to inspect')}
                     </div>
                 )}
+                {saveIssues.length > 0 ? (
+                    <div className="rounded border border-warning/40 bg-bg-elevated p-1 text-[10px]">
+                        <div className="text-text-secondary">
+                            {t('校验提示', 'Validation notes')} ({saveIssues.length})
+                        </div>
+                        {saveIssues.map((iss, i) => (
+                            <button
+                                type="button"
+                                key={i}
+                                className={`block w-full text-left ${iss.level === 'error' ? 'text-error' : 'text-text-secondary'}`}
+                                onClick={() => locateIssue(iss)}
+                            >
+                                · {iss.message}
+                            </button>
+                        ))}
+                    </div>
+                ) : null}
                 <div className="text-sm font-medium pt-2">
                     {t('治理事件流', 'Governance events')}
                 </div>

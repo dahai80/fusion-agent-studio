@@ -729,6 +729,12 @@ class LLMGateway:
             config = self._models[model]
             if not self._cb.is_open(config.name):
                 return config
+        if model and model != "default" and self._default_client:
+            # Explicit model not in the registry — pass it through to the
+            # default client instead of silently rerouting to the default
+            # registered model (a graph node's node.model must win).
+            # The "default" sentinel keeps capability routing / direct-fallback.
+            return None
         return self.route(capability=capability)
 
     async def _call_model_async(

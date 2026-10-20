@@ -1050,6 +1050,14 @@ class TestHarnessEndpoints:
 
 
 class TestDaemonCronRuntime:
+    @pytest.fixture(autouse=True)
+    def _isolated_task_store(self, daemon, tmp_path):
+        # cron 触发经 _get_task_store() 写 ~/.fusion-agent-studio/tasks.db —
+        # 不隔离则同分钟重跑会撞 idempotency_key 去重 (deduped != triggered)。
+        from agent_runtime.task_store import TaskStore
+
+        daemon._task_store = TaskStore(db_path=str(tmp_path / "tasks.db"))
+
     @pytest.mark.asyncio
     async def test_cron_loop_started_with_daemon(self, daemon):
         # 断裂点 1 修复: daemon start() 必须启动 cron loop
