@@ -12,10 +12,15 @@ Env-gated — requires BOTH:
 Optional:
 - FUSION_SHELL_MANIFEST: manifest path override (default web/manifest.json
   next to the repo root).
+- FUSION_SHELL_UPSTREAM: #399 proxy target override (default the daemon
+  HTTP port http://127.0.0.1:11442, which serves the SPA + /v1/*).
 
-The /shell/fusion-agent-studio/ PROXY itself is static gateway config
-(web_shell.modules.<id>.upstream/api_key) — dynamic manifests only drive
-the menu/entry; see web/README.md for the wiring steps.
+#399 (gateway#232 dynamic proxy): registration injects `upstream` +
+`api_key` (the module key, same value the /shell proxy authenticates with)
+into the manifest payload so the gateway can resolve /shell/<id>/ from the
+dynamic registry — no static web_shell.modules config needed. api_key is
+never written to manifest.json (repo file); it is injected at registration
+time from static_module_key().
 """
 
 from __future__ import annotations
@@ -26,6 +31,7 @@ import logging
 import os
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 import httpx
 
@@ -34,8 +40,10 @@ logger = logging.getLogger(__name__)
 GATEWAY_URL_ENV = "FUSION_SHELL_GATEWAY_URL"
 ADMIN_KEY_ENV = "FUSION_GATEWAY_ADMIN_KEY"
 MANIFEST_PATH_ENV = "FUSION_SHELL_MANIFEST"
+UPSTREAM_ENV = "FUSION_SHELL_UPSTREAM"
 MODULE_KEY_ENV = "FUSION_AGENT_STUDIO_API_KEY"
 MODULE_KEY_FILE = Path.home() / ".fusion-agent-studio" / "web_module_key"
+DEFAULT_UPSTREAM = "http://127.0.0.1:11442"
 REGISTER_INTERVAL_SECONDS = 15.0
 HTTP_TIMEOUT_SECONDS = 5.0
 
@@ -65,6 +73,37 @@ def _default_manifest_path() -> Path:
     return Path(__file__).resolve().parent.parent / "web" / "manifest.json"
 
 
+def resolve_upstream(manifest: dict[str, Any]) -> str:
+    """#399: /shell/<id>/ proxy target — env override > manifest > default.
+
+    Mirrors the gateway's validateUpstreamURL: absolute http(s) URL only.
+    """
+    upstream = (
+        os.environ.get(UPSTREAM_ENV, "").strip()
+        or str(manifest.get("upstream") or "").strip()
+        or DEFAULT_UPSTREAM
+    )
+    parsed = urlparse(upstream)
+    if parsed.scheme not in ("http", "https") or not parsed.netloc:
+        raise ValueError(f"shell upstream must be an absolute http(s) URL: {upstream}")
+    return upstream.rstrip("/")
+
+
+def build_registration_payload(manifest: dict[str, Any]) -> dict[str, Any]:
+    """#399: inject upstream + api_key into the POST payload.
+
+    api_key comes from static_module_key() at registration time and is never
+    written to manifest.json (a repo file). The gateway keeps it in memory
+    only (APIKey zeroed in list responses).
+    """
+    payload = dict(manifest)
+    payload["upstream"] = resolve_upstream(manifest)
+    module_key = static_module_key()
+    if module_key:
+        payload["api_key"] = module_key
+    return payload
+
+
 def shell_registration_enabled() -> bool:
     gateway = os.environ.get(GATEWAY_URL_ENV, "").strip()
     admin_key = os.environ.get(ADMIN_KEY_ENV, "").strip()
@@ -90,6 +129,7 @@ async def shell_registry_loop() -> None:
     """
     try:
         manifest = _load_manifest()
+        payload = build_registration_payload(manifest)
     except Exception as e:
         logger.error("shell registration disabled (manifest unusable): %s", e)
         return
@@ -97,6 +137,11 @@ async def shell_registry_loop() -> None:
     gateway = os.environ.get(GATEWAY_URL_ENV, "").strip().rstrip("/")
     admin_key = os.environ.get(ADMIN_KEY_ENV, "").strip()
     headers = {"Authorization": f"Bearer {admin_key}", "Content-Type": "application/json"}
+    logger.info(
+        "shell manifest upstream=%s api_key=%s",
+        payload["upstream"],
+        "set" if payload.get("api_key") else "unset",
+    )
     registered = False
     async with httpx.AsyncClient(timeout=HTTP_TIMEOUT_SECONDS) as client:
         while True:
@@ -104,7 +149,7 @@ async def shell_registry_loop() -> None:
                 if not registered:
                     resp = await client.post(
                         f"{gateway}/api/v1/shell/manifests",
-                        json=manifest,
+                        json=payload,
                         headers=headers,
                     )
                     if resp.status_code == 200:

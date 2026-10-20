@@ -70,6 +70,11 @@ web_shell:
 还会自注册：启动时把 `web/manifest.json` POST 到
 `POST /api/v1/shell/manifests`，之后每 15 秒心跳
 （`agent_runtime/shell_registry.py`）；心跳 404（gateway 重启后）自动重注册。
+#399：注册载荷注入 `upstream`（`FUSION_SHELL_UPSTREAM` 环境变量 > manifest >
+`http://127.0.0.1:11442`）与 `api_key`（`FUSION_AGENT_STUDIO_API_KEY` 环境变量 >
+`~/.fusion-agent-studio/web_module_key`），gateway 动态代理据此解析
+`/shell/fusion-agent-studio/`，无需上方静态 web_shell.modules 配置。
+api_key 绝不写入 manifest.json（仓库文件）。
 gateway 管理密钥在环境变量未设时从 `~/.fusion-agent-studio/gateway_admin_key`
 读取。
 
