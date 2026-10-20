@@ -167,10 +167,16 @@ def sync_agent_tools(rt, agent_id: str, manifest) -> dict:
             skipped.append(f"{cap_id} (not in registry)")
             continue
         params_spec = (cap.get("params") or {}).get("properties") or {}
+        # `required` may be declared schema-level (standard JSON Schema:
+        # "required": ["query"]) or per-property required:true — the
+        # schema-level form was missed here, so the registered tool's
+        # openai schema had NO properties and the LLM could not call it.
+        schema_required = (cap.get("params") or {}).get("required") or []
         required_params = {
             k: {"type": str(v.get("type", "string")),
                 "description": str(v.get("description", k))}
-            for k, v in params_spec.items() if v.get("required")
+            for k, v in params_spec.items()
+            if k in schema_required or v.get("required")
         }
         desc = cap.get("description") or cap.get("title") or cap_id
         if cap.get("mutation"):
