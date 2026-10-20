@@ -6,10 +6,10 @@
 
 Run, build, and orchestrate AI agents entirely on your Mac — no cloud, no API fees, no data leaving your device.
 
-[![Version](https://img.shields.io/badge/v0.12.1-blue.svg)]()
+[![Version](https://img.shields.io/badge/v0.12.2-blue.svg)]()
 [![Python](https://img.shields.io/badge/Python-3.11+-3776AB.svg)](https://www.python.org/)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/Tests-3118-success.svg)](tests/)
+[![Tests](https://img.shields.io/badge/Tests-3121-success.svg)](tests/)
 
 **[中文文档](README_CN.md)** · [Quick Start](#quick-start) · [Architecture](#architecture) · [Documentation](docs/) · [Examples](examples/) · **[Guided Tutorials](docs/guides/README.md)**
 
@@ -331,6 +331,11 @@ Audit `audit/fusion-agent-studio-vs-langflow-audit-1020.md` closed end-to-end; s
 - ✅ **#406 run event waterfall** — the daemon writes a per-run structural event log (`<out>/<team>/evidence/executions/spans/<execution_id>.jsonl`, capped at 5000 lines, token frames counted not stored) and aggregates it into per-node spans (`task.events` RPC + `GET /v1/runs/{id}/events`). The run detail page renders a waterfall with proportional bars, duration/token/tool-call badges, red failed spans with the error text, and one-click "re-run to this node" via the `only_node` SSE contract (#398). Canvas gains live per-node token/tool-call badges fed by the run SSE stream (coalesced at 400 ms so per-token frames don't re-render the graph), a run totals strip, and a pre-save diff card listing added/removed/changed nodes and edge counts before `graph.update` is sent. Navigation is task-centric: Agents / Workflows / Canvas / Runs stay top-level, every secondary console collapses into "More".
 - ✅ **#407 shell manifest ext fields** — `web/manifest.json` declares `pages` (18 deep-linkable hash routes with zh/en titles), `searchProviders` and `notifications`, backed by new endpoints `GET /v1/search` (graphs + runs) and `GET /v1/notifications/runs` (terminal runs as `{count, items}`), each mirrored under `/api/v1/*`.
 - Tests: `tests/test_issue_405_406_407.py` (19).
+
+### Run Span Inspector + Agents Card Grid (v0.12.2) — #410 / #411
+- ✅ **#410 span inspector drawer** — the span aggregator now records per-node I/O summaries from the structural event log: tool-call arguments as JSON, tool-result/think content, streamed token concatenation, and an event count, capped at 4000 chars input and 8000 chars output. Clicking a waterfall row opens an inspector drawer with duration, tokens, tool calls, event count, and input/output/error blocks, plus the "re-run to this node" action. Nodes with no recorded payload show an explicit "no I/O summary" note instead of an empty panel. The `/v1/runs/{id}/events` payload was extended — no new endpoint.
+- ✅ **#411 agents card grid** — the Agents console is now a responsive 2–4 column card grid (`sm:2 / lg:3 / xl:4`) with a dashed create-card as the first tile. Each card shows name, description, model, status, run count and last-run time aggregated client-side from the existing runs list (no new backend surface), keeping detail/publish/unpublish/clone/archive/delete actions per card.
+- Tests: `tests/test_issue_405_406_407.py` (22).
 
 ### Integration
 - ✅ **fusion-mlx** — Apple Silicon optimized model serving

@@ -6,10 +6,10 @@
 
 在 Mac 上运行、构建和编排 AI 智能体 — 无需云服务、无需 API 费用、数据不出设备。
 
-[![Version](https://img.shields.io/badge/v0.12.1-blue.svg)]()
+[![Version](https://img.shields.io/badge/v0.12.2-blue.svg)]()
 [![Python](https://img.shields.io/badge/Python-3.11+-3776AB.svg)](https://www.python.org/)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/Tests-3118-success.svg)](tests/)
+[![Tests](https://img.shields.io/badge/Tests-3121-success.svg)](tests/)
 
 **[English](README.md)** · [快速开始](#快速开始) · [架构](#架构) · [文档](docs/) · [示例](examples/) · **[引导式教程](docs/guides/README.md)**
 
@@ -262,6 +262,11 @@ python my_agent.py
 - ✅ **#406 运行事件瀑布** — daemon 写每次运行的结构事件日志（`<out>/<team>/evidence/executions/spans/<execution_id>.jsonl`，上限 5000 行，token 帧只计数不落盘），聚合为按节点的 span（`task.events` RPC + `GET /v1/runs/{id}/events`）。运行详情页渲染瀑布：比例条、耗时/令牌/工具调用徽标、失败节点标红并显示错误、一键"重跑至该节点"（复用 #398 `only_node` SSE 契约）。画布新增运行 SSE 驱动的每节点令牌/工具调用徽标（400 ms 合批，避免逐 token 重绘整图）、本次运行汇总条、保存前 diff 卡片（列出增/删/改节点与连线数）再发 `graph.update`。导航改为任务导向：Agents / 工作流 / 画布 / 运行 常驻顶层，其余控制台收进"更多"。
 - ✅ **#407 壳 manifest 扩展字段** — `web/manifest.json` 声明 `pages`（18 个可深链 hash 路由，中英标题）、`searchProviders`、`notifications`，由新端点 `GET /v1/search`（工作流 + 运行）与 `GET /v1/notifications/runs`（终态运行，`{count, items}`）支撑，并在 `/api/v1/*` 下提供别名。
 - 测试：`tests/test_issue_405_406_407.py`（19 个）。
+
+### 节点事件详情 + 智能体卡片网格 (v0.12.2) — #410 / #411
+- ✅ **#410 节点事件详情抽屉** — span 聚合器从结构事件日志中记录每节点 I/O 摘要：工具调用参数（JSON）、工具结果/think 内容、流式令牌拼接，以及事件计数，输入截断 4000 字符、输出 8000 字符。点击瀑布行打开详情抽屉，展示耗时、令牌、工具调用数、事件数，以及输入/输出/错误三类内容块，并保留"重跑至该节点"操作。未记录内容的节点明确提示"该节点没有记录 I/O 摘要"，而不是空白面板。扩展的是 `/v1/runs/{id}/events` 载荷，没有新增端点。
+- ✅ **#411 智能体卡片网格** — Agents 控制台改为响应式 2–4 列卡片网格（`sm:2 / lg:3 / xl:4`），首格为虚线"新建"卡片。每张卡片展示名称、描述、模型、状态、运行次数与最近运行时间（客户端基于已有运行列表聚合，不新增后端端点），并保留详情/发布/取消发布/克隆/归档/删除操作。
+- 测试：`tests/test_issue_405_406_407.py`（22 个）。
 
 ### 集成
 - ✅ **fusion-mlx** — Apple Silicon 优化模型服务
