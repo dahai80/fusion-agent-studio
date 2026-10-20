@@ -6,10 +6,10 @@
 
 在 Mac 上运行、构建和编排 AI 智能体 — 无需云服务、无需 API 费用、数据不出设备。
 
-[![Version](https://img.shields.io/badge/v0.12.2-blue.svg)]()
+[![Version](https://img.shields.io/badge/v0.12.3-blue.svg)]()
 [![Python](https://img.shields.io/badge/Python-3.11+-3776AB.svg)](https://www.python.org/)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/Tests-3121-success.svg)](tests/)
+[![Tests](https://img.shields.io/badge/Tests-3124-success.svg)](tests/)
 
 **[English](README.md)** · [快速开始](#快速开始) · [架构](#架构) · [文档](docs/) · [示例](examples/) · **[引导式教程](docs/guides/README.md)**
 
@@ -267,6 +267,12 @@ python my_agent.py
 - ✅ **#410 节点事件详情抽屉** — span 聚合器从结构事件日志中记录每节点 I/O 摘要：工具调用参数（JSON）、工具结果/think 内容、流式令牌拼接，以及事件计数，输入截断 4000 字符、输出 8000 字符。点击瀑布行打开详情抽屉，展示耗时、令牌、工具调用数、事件数，以及输入/输出/错误三类内容块，并保留"重跑至该节点"操作。未记录内容的节点明确提示"该节点没有记录 I/O 摘要"，而不是空白面板。扩展的是 `/v1/runs/{id}/events` 载荷，没有新增端点。
 - ✅ **#411 智能体卡片网格** — Agents 控制台改为响应式 2–4 列卡片网格（`sm:2 / lg:3 / xl:4`），首格为虚线"新建"卡片。每张卡片展示名称、描述、模型、状态、运行次数与最近运行时间（客户端基于已有运行列表聚合，不新增后端端点），并保留详情/发布/取消发布/克隆/归档/删除操作。
 - 测试：`tests/test_issue_405_406_407.py`（22 个）。
+
+### 智能体崩溃修复 + 错误边界 (v0.12.3) — #413
+- ✅ **历史模型对象** — 旧智能体清单把 `model` 存成 `{provider, name, temperature, max_tokens}`，新清单存字符串；直接把对象当 React 子节点渲染触发 #31 错误，在 188 个智能体的真实注册表上整页白屏。新增 `modelLabel()`（`web/src/lib/agentModel.ts`）归一化为 `model.name`，卡片统一使用。
+- ✅ **路由级错误边界** — `ErrorBoundary` 按路由 keyed 包裹所有页面，单页渲染错误显示内联重试而不是整模块白屏；切换路由会自动重挂载。
+- ✅ **能力桥诊断** — 桥不可达错误现在带上异常类型（`TimeoutError` 的 str 为空），便于定位。
+- 测试：`tests/test_issue_413_agents_page_model.py`（3 个）。
 
 ### 集成
 - ✅ **fusion-mlx** — Apple Silicon 优化模型服务

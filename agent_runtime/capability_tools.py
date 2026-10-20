@@ -100,11 +100,6 @@ def _make_bridge_tool(name: str, description: str,
     # __abstractmethods__ at class creation, so a post-creation attribute
     # assignment leaves the class abstract (instantiation TypeError).
     async def _execute(self, **kwargs):
-        # DEBUG: what does the runtime actually hand the tool? (schema/args
-        # contract investigation — remove once the knowledge tool round-trips)
-        import sys
-        print(f"[cap-tool DEBUG] {name} kwargs={kwargs!r:.400}",
-              file=sys.stderr, flush=True)
         return await runner(**kwargs)
 
     class _BT(BaseTool):

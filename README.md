@@ -6,10 +6,10 @@
 
 Run, build, and orchestrate AI agents entirely on your Mac — no cloud, no API fees, no data leaving your device.
 
-[![Version](https://img.shields.io/badge/v0.12.2-blue.svg)]()
+[![Version](https://img.shields.io/badge/v0.12.3-blue.svg)]()
 [![Python](https://img.shields.io/badge/Python-3.11+-3776AB.svg)](https://www.python.org/)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/Tests-3121-success.svg)](tests/)
+[![Tests](https://img.shields.io/badge/Tests-3124-success.svg)](tests/)
 
 **[中文文档](README_CN.md)** · [Quick Start](#quick-start) · [Architecture](#architecture) · [Documentation](docs/) · [Examples](examples/) · **[Guided Tutorials](docs/guides/README.md)**
 
@@ -336,6 +336,12 @@ Audit `audit/fusion-agent-studio-vs-langflow-audit-1020.md` closed end-to-end; s
 - ✅ **#410 span inspector drawer** — the span aggregator now records per-node I/O summaries from the structural event log: tool-call arguments as JSON, tool-result/think content, streamed token concatenation, and an event count, capped at 4000 chars input and 8000 chars output. Clicking a waterfall row opens an inspector drawer with duration, tokens, tool calls, event count, and input/output/error blocks, plus the "re-run to this node" action. Nodes with no recorded payload show an explicit "no I/O summary" note instead of an empty panel. The `/v1/runs/{id}/events` payload was extended — no new endpoint.
 - ✅ **#411 agents card grid** — the Agents console is now a responsive 2–4 column card grid (`sm:2 / lg:3 / xl:4`) with a dashed create-card as the first tile. Each card shows name, description, model, status, run count and last-run time aggregated client-side from the existing runs list (no new backend surface), keeping detail/publish/unpublish/clone/archive/delete actions per card.
 - Tests: `tests/test_issue_405_406_407.py` (22).
+
+### Agents Crash Fix + Error Boundary (v0.12.3) — #413
+- ✅ **legacy model objects** — old agent manifests store `model` as `{provider, name, temperature, max_tokens}` while newer ones store a string; rendering the object as a React child threw error #31 and unmounted the entire module on the live 188-agent registry. `modelLabel()` (`web/src/lib/agentModel.ts`) normalizes to `model.name`, and agent cards use it.
+- ✅ **router-level error boundary** — `ErrorBoundary` keyed by route wraps all pages, so a single page's render error shows an inline retry instead of blanking the shell; navigating away remounts it.
+- ✅ **capability bridge diagnostics** — unreachable-bridge errors now carry the exception type (`TimeoutError` stringifies empty).
+- Tests: `tests/test_issue_413_agents_page_model.py` (3).
 
 ### Integration
 - ✅ **fusion-mlx** — Apple Silicon optimized model serving

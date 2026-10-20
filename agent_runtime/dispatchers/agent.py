@@ -95,15 +95,13 @@ async def build_agent_adhoc_graph(daemon, agent_id: str, input_text: str):
     graph.add_node(llm_id, llm_node)
     graph.add_edge(start_id, llm_id)
 
-    for i, tool_name in enumerate(_manifest_tool_names(manifest)):
-        tool_id = f"tool-{i + 1}"
-        tool_node = NodeConfig(type="tool", label=tool_name,
-                               tool_name=bridge_tool_name(agent_id, tool_name))
-        graph.add_node(tool_id, tool_node)
-        if i == 0:
-            graph.add_edge(llm_id, tool_id)
-        else:
-            graph.add_edge(f"tool-{i}", tool_id)
+    # NOTE: capability tools are NOT chained as standalone graph nodes.
+    # A static tool node executes unconditionally with EMPTY params (the
+    # LLM's tool_call arguments are only known at loop time), which made
+    # every agent tool call fail with "missing required param". The LLM
+    # node instead gets the tools via its schema (rt.tools registry — the
+    # bridge tools are registered per-agent at dispatch) and calls them
+    # natively with real arguments inside the engine's LLM loop.
 
     return graph, manifest
 
@@ -527,15 +525,9 @@ class AgentDispatcher(SubDispatcher):
         graph.add_node(llm_id, llm_node)
         graph.add_edge(start_id, llm_id)
 
-        for i, tool_name in enumerate(_manifest_tool_names(manifest)):
-            tool_id = f"tool-{i + 1}"
-            tool_node = NodeConfig(type="tool", label=tool_name,
-                               tool_name=bridge_tool_name(agent_id, tool_name))
-            graph.add_node(tool_id, tool_node)
-            if i == 0:
-                graph.add_edge(llm_id, tool_id)
-            else:
-                graph.add_edge(f"tool-{i}", tool_id)
+        # Same rationale as the module-level builder: no static tool-node
+        # chaining — the LLM loop calls the registered bridge tools with
+        # real arguments (empty static params produced 422s at the door).
 
         self._daemon.store.save_graph(graph)
         rt = self._daemon._get_runtime()
