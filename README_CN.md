@@ -257,7 +257,7 @@ python my_agent.py
 - ✅ **fusion-mlx** — Apple Silicon 优化模型服务
 - ✅ **OpenAI 兼容 API** — 兼容任何 OpenAI 兼容后端
 - ✅ **HTTP REST API** — FastAPI `127.0.0.1:11442`（`start.sh` 经 daemon 启动）。路由同时挂 `/v1/*` 与 `/api/v1/*`（别名）
-- ✅ **Web UI (#327)** — `web/` 下的 union-web 壳模块（React + 内嵌 `@fusion/web-ui`/`@fusion/web-sdk`）：工作流列表 + goal 提交实时 SSE 流式、运行监控仪表盘、运行详情取消/重放。经 fusion-gateway 壳内嵌于 `/shell/fusion-agent-studio/`（gateway 代理注入模块 key 鉴权），独立开发服务器 `:11460`，构建产物由 daemon 在 `GET /` 托管。详见 `web/README_CN.md`
+- ✅ **Web UI (#327)** — `web/` 下的 union-web 壳模块（React + 内嵌 `@fusion/web-ui`/`@fusion/web-sdk`）：工作流列表 + goal 提交实时 SSE 流式、运行监控仪表盘、运行详情取消/重放。经 fusion-gateway 壳内嵌于 `/shell/fusion-agent-studio/`（gateway 代理注入模块 key 鉴权），独立开发服务器 `:11460`，构建产物由 daemon 在 `GET /` 托管。#399：web/manifest.json 注册时注入 `upstream` + `api_key` 到 gateway 载荷，动态代理（UpstreamFor）据此解析 `/shell/fusion-agent-studio/`，无需静态 web_shell.modules 配置；upstream 取值 `FUSION_SHELL_UPSTREAM` 环境变量 > manifest > `http://127.0.0.1:11442`，api_key 取值 `FUSION_AGENT_STUDIO_API_KEY` 环境变量 > `~/.fusion-agent-studio/web_module_key` — 绝不写入仓库 manifest 文件。详见 `web/README_CN.md`
 - ✅ **macOS 原生** — SwiftUI 应用 + WKWebView 画布集成
 - ✅ **i18n** — 中英双语 UI 字符串
 

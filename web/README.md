@@ -74,7 +74,12 @@ With `FUSION_SHELL_GATEWAY_URL` and `FUSION_GATEWAY_ADMIN_KEY` set, the daemon
 also self-registers: it POSTs `web/manifest.json` to
 `POST /api/v1/shell/manifests` on start and heartbeats every 15 s
 (`agent_runtime/shell_registry.py`); a 404 heartbeat re-registers after a
-gateway restart. The gateway admin key is read from
+gateway restart. #399: the registration payload injects `upstream`
+(`FUSION_SHELL_UPSTREAM` env > manifest > `http://127.0.0.1:11442`) and
+`api_key` (`FUSION_AGENT_STUDIO_API_KEY` env > `~/.fusion-agent-studio/web_module_key`)
+so the gateway dynamic proxy resolves `/shell/fusion-agent-studio/` without the
+static web_shell.modules block above. The api_key is never written to
+manifest.json (repo file). The gateway admin key is read from
 `~/.fusion-agent-studio/gateway_admin_key` when the env var is unset.
 
 ## Structure
