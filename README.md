@@ -6,7 +6,7 @@
 
 Run, build, and orchestrate AI agents entirely on your Mac — no cloud, no API fees, no data leaving your device.
 
-[![Version](https://img.shields.io/badge/v0.12.0-blue.svg)]()
+[![Version](https://img.shields.io/badge/v0.12.1-blue.svg)]()
 [![Python](https://img.shields.io/badge/Python-3.11+-3776AB.svg)](https://www.python.org/)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 [![Tests](https://img.shields.io/badge/Tests-3118-success.svg)](tests/)
@@ -326,7 +326,7 @@ Audit `audit/fusion-agent-studio-vs-langflow-audit-1020.md` closed end-to-end; s
 - ✅ **`cowork_workflow_run` tool** — agent graphs can invoke fusion-cowork workflows (DAG runs) as a tool step: start by `workflow_id` or natural-language `prompt` (cowork generates the DAG server-side via `/api/ai/generate-workflow`), optional `inputs` forwarded verbatim in the run body, `wait=true` polls to terminal state and returns run status + final node outputs + artifacts; `wait=false` fire-and-forget returns the `run_id` for later polling (`action=status`). Human-gated runs never block: `paused` runs and runs stalled on node-level CONFIRM approvals return `pending`/`pending_approval` with the approvals list instead of blocking. Upstream `FUSION_COWORK_URL` (default `http://127.0.0.1:11461`), auth `FUSION_COWORK_WEB_API_KEY` (X-API-Key). Registry: 38 built-in tools (39 with fusion-browser).
 - Tests: `tests/test_issue_402_cowork_tool.py` (16).
 
-### Shell Embedding Fix + GUI/UX Upgrade (v0.12.0) — #405 / #406 / #407
+### Shell Embedding Fix + GUI/UX Upgrade (v0.12.0 / v0.12.1) — #405 / #406 / #407
 - ✅ **#405 embedded RPC path** — `rpc()` now prefixes `apiBase()`: inside the union-web shell iframe the host bridge fetches the path verbatim at gateway origin root, where the bare `/v1/rpc` hit the SPA catch-all and returned 200 HTML ("Unexpected token '<'"). Same rule as every other `api.*` call.
 - ✅ **#406 run event waterfall** — the daemon writes a per-run structural event log (`<out>/<team>/evidence/executions/spans/<execution_id>.jsonl`, capped at 5000 lines, token frames counted not stored) and aggregates it into per-node spans (`task.events` RPC + `GET /v1/runs/{id}/events`). The run detail page renders a waterfall with proportional bars, duration/token/tool-call badges, red failed spans with the error text, and one-click "re-run to this node" via the `only_node` SSE contract (#398). Canvas gains live per-node token/tool-call badges fed by the run SSE stream (coalesced at 400 ms so per-token frames don't re-render the graph), a run totals strip, and a pre-save diff card listing added/removed/changed nodes and edge counts before `graph.update` is sent. Navigation is task-centric: Agents / Workflows / Canvas / Runs stay top-level, every secondary console collapses into "More".
 - ✅ **#407 shell manifest ext fields** — `web/manifest.json` declares `pages` (18 deep-linkable hash routes with zh/en titles), `searchProviders` and `notifications`, backed by new endpoints `GET /v1/search` (graphs + runs) and `GET /v1/notifications/runs` (terminal runs as `{count, items}`), each mirrored under `/api/v1/*`.
