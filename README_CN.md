@@ -6,10 +6,10 @@
 
 在 Mac 上运行、构建和编排 AI 智能体 — 无需云服务、无需 API 费用、数据不出设备。
 
-[![Version](https://img.shields.io/badge/v0.12.3-blue.svg)]()
+[![Version](https://img.shields.io/badge/v0.12.4-blue.svg)]()
 [![Python](https://img.shields.io/badge/Python-3.11+-3776AB.svg)](https://www.python.org/)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/Tests-3124-success.svg)](tests/)
+[![Tests](https://img.shields.io/badge/Tests-3127-success.svg)](tests/)
 
 **[English](README.md)** · [快速开始](#快速开始) · [架构](#架构) · [文档](docs/) · [示例](examples/) · **[引导式教程](docs/guides/README.md)**
 
@@ -273,6 +273,10 @@ python my_agent.py
 - ✅ **路由级错误边界** — `ErrorBoundary` 按路由 keyed 包裹所有页面，单页渲染错误显示内联重试而不是整模块白屏；切换路由会自动重挂载。
 - ✅ **能力桥诊断** — 桥不可达错误现在带上异常类型（`TimeoutError` 的 str 为空），便于定位。
 - 测试：`tests/test_issue_413_agents_page_model.py`（3 个）。
+
+### 能力工具 Schema 修复 (v0.12.4)
+- ✅ **schema 级 required 参数** — 注册表能力声明的必填参数采用标准 JSON Schema 数组形式（`"required": ["query"]`），而桥接工具同步只读取逐属性的 `required: true`，导致数组形式的能力注册出空 `properties`，模型无法调用。现在两种形式取并集。覆盖：`tests/test_capability_tool_schema.py`（3 个）。
+- ✅ **临时图契约** — 智能体临时图不再串联静态能力工具节点（静态节点以空参数无条件执行）；LLM 节点通过 schema 拿到已注册的桥接工具，并用真实参数调用。形状测试改为断言 `start -> llm`。
 
 ### 集成
 - ✅ **fusion-mlx** — Apple Silicon 优化模型服务

@@ -6,10 +6,10 @@
 
 Run, build, and orchestrate AI agents entirely on your Mac — no cloud, no API fees, no data leaving your device.
 
-[![Version](https://img.shields.io/badge/v0.12.3-blue.svg)]()
+[![Version](https://img.shields.io/badge/v0.12.4-blue.svg)]()
 [![Python](https://img.shields.io/badge/Python-3.11+-3776AB.svg)](https://www.python.org/)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/Tests-3124-success.svg)](tests/)
+[![Tests](https://img.shields.io/badge/Tests-3127-success.svg)](tests/)
 
 **[中文文档](README_CN.md)** · [Quick Start](#quick-start) · [Architecture](#architecture) · [Documentation](docs/) · [Examples](examples/) · **[Guided Tutorials](docs/guides/README.md)**
 
@@ -342,6 +342,10 @@ Audit `audit/fusion-agent-studio-vs-langflow-audit-1020.md` closed end-to-end; s
 - ✅ **router-level error boundary** — `ErrorBoundary` keyed by route wraps all pages, so a single page's render error shows an inline retry instead of blanking the shell; navigating away remounts it.
 - ✅ **capability bridge diagnostics** — unreachable-bridge errors now carry the exception type (`TimeoutError` stringifies empty).
 - Tests: `tests/test_issue_413_agents_page_model.py` (3).
+
+### Capability Tool Schema Fix (v0.12.4)
+- ✅ **schema-level required params** — registry capability specs declare required arguments as a JSON-Schema array (`"required": ["query"]`); the bridge-tool sync only read per-property `required: true`, so array-form specs registered a tool with an empty `properties` map and the model could not call it. Both forms are now unioned. Covered by `tests/test_capability_tool_schema.py` (3).
+- ✅ **adhoc graph contract** — agent ad-hoc graphs no longer chain static capability tool nodes (they executed unconditionally with empty params); the LLM node receives the registered bridge tools through its schema and calls them with real arguments. The shape test now asserts `start -> llm`.
 
 ### Integration
 - ✅ **fusion-mlx** — Apple Silicon optimized model serving
