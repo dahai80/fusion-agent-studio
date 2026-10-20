@@ -6,7 +6,7 @@
 
 在 Mac 上运行、构建和编排 AI 智能体 — 无需云服务、无需 API 费用、数据不出设备。
 
-[![Version](https://img.shields.io/badge/v0.9.0-blue.svg)]()
+[![Version](https://img.shields.io/badge/v0.10.0-blue.svg)]()
 [![Python](https://img.shields.io/badge/Python-3.11+-3776AB.svg)](https://www.python.org/)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 [![Tests](https://img.shields.io/badge/Tests-3050-success.svg)](tests/)
@@ -242,6 +242,16 @@ python my_agent.py
 - ✅ **#389 子代理** — 显式 `MAX_SUBAGENT_DEPTH` 深度保护，durable roster + mailbox（`agent_runtime/durable_roster.py`，SQLite WAL），接入 team RPC。
 - ✅ **#390 记忆/人设/协议** — 租户/团队隔离、衰减清扫 + 清理建议 + 冲突检测、记忆写入审计、agents.md 导入导出、frontmatter 声明、人设热重载（`PERSONA_RELOADED`）、`x-fusion-*` 扩展字段、严格协议面、插件打包/安装/卸载。
 - ✅ **#391 Hook/预算** — 新增 `ERROR`/`CHECKPOINT`/`TEAM_MESSAGE`/`PERSONA_RELOADED` 事件（共 26 个）、日级与图级预算、武装状态下 `permissions=None` 显式拒绝。
+
+### Langflow 对齐画布 (v0.10.0) — #393-#398
+审计 `audit/fusion-agent-studio-vs-langflow-audit-1020.md` 端到端闭合；单一 graph JSON schema 仍是唯一事实源（无视图分叉）。
+- ✅ **#393 schema 驱动检查器** — 由 `FieldSpec`（`web/src/lib/graphSchema.ts`）生成节点配置表单：基础 + 高级分区、tool-name 下拉（数据源 `tool.list`）、tags/kv/number/select/boolean 控件、折叠的原始 JSON 兜底入口。节点配置不再手写 JSON。
+- ✅ **#394 侧栏拖拽上画布** — 分组面板（执行流 vs 智能节点），点击添加 + HTML5 拖拽 `screenToFlowPosition` 光标处落点，对齐 Langflow 侧栏交互。
+- ✅ **#395 保存前校验** — 客户端 `validateGraphClient()` 先拦硬错；`graph.update` 服务端校验（默认软——issues 随响应返回、画布渲染为可点击定位问题节点的提示；`strict_validate=true` 硬拒，画布可选开关）。
+- ✅ **#396 导入导出 + 模板** — 当前图导出 JSON、文件导入为新图、7 个 `examples/*.json` 模板一键起图。
+- ✅ **#397 编排模式 GUI** — Workflows 新增编排（Orchestrations）区：创建多阶段编排（6 模式：pipeline / parallel_barrier / loop_until_dry / loop_until_budget / adversarial_verify / judge_panel，agent 多选）、带输入执行、5s 运行状态轮询、取消、删除；`workflow.*` RPC 加入 web 桥白名单。
+- ✅ **#398 单节点试跑 + 边标签 + 分组** — `only_node` SSE 参数经 start 接线子图 + `stop_after` 精确执行单节点（"仅试跑此节点"）；边选择与 condition 分支标签编辑；多选可视化分组（虚线 `fusionGroup` 容器），经增量字段 `NodeConfig.parent` 持久化（运行时忽略）。
+- 测试：`tests/test_issue_393_398_langflow_parity.py`（23 个）——含回归：非法 `from_node`/`only_node` 返回 HTTP 400（此前引用不存在的 `ErrorCode.PARAM_INVALID` 属性会 AttributeError）。
 
 ### 集成
 - ✅ **fusion-mlx** — Apple Silicon 优化模型服务

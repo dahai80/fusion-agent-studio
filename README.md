@@ -6,7 +6,7 @@
 
 Run, build, and orchestrate AI agents entirely on your Mac — no cloud, no API fees, no data leaving your device.
 
-[![Version](https://img.shields.io/badge/v0.9.0-blue.svg)]()
+[![Version](https://img.shields.io/badge/v0.10.0-blue.svg)]()
 [![Python](https://img.shields.io/badge/Python-3.11+-3776AB.svg)](https://www.python.org/)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 [![Tests](https://img.shields.io/badge/Tests-3050-success.svg)](tests/)
@@ -311,6 +311,16 @@ python my_agent.py
 - ✅ **#389 subagents** — explicit `MAX_SUBAGENT_DEPTH` guard, durable roster + mailbox (`agent_runtime/durable_roster.py`, SQLite WAL), wired to team RPCs.
 - ✅ **#390 memory/persona/protocol** — tenant/team isolation, decay sweep + cleanup suggestions + conflict detection, memory write auditing, agents.md import/export, frontmatter declarations, persona hot reload (`PERSONA_RELOADED`), `x-fusion-*` extension fields, strict protocol plane, plugin package/install/uninstall.
 - ✅ **#391 hooks/budget** — `ERROR`, `CHECKPOINT`, `TEAM_MESSAGE`, `PERSONA_RELOADED` events (26 total), day-level and graph-level budgets, and an explicit deny when `permissions=None` while enforcement is armed.
+
+### Langflow Parity Canvas (v0.10.0) — #393-#398
+Audit `audit/fusion-agent-studio-vs-langflow-audit-1020.md` closed end-to-end; single graph JSON schema remains the only source of truth (no view fork).
+- ✅ **#393 schema-driven inspector** — generated config forms from `FieldSpec` (`web/src/lib/graphSchema.ts`): basic + advanced sections per node type, tool-name dropdown fed by `tool.list`, tags/kv/number/select/boolean widgets, collapsed raw-JSON escape hatch. No more free-form JSON editing for node config.
+- ✅ **#394 sidebar drag-onto-canvas** — grouped palette (execution-flow vs intelligence), click-to-add and HTML5 drag with `screenToFlowPosition` drop at cursor; nodes drop straight onto the canvas like Langflow's sidebar.
+- ✅ **#395 pre-save validation** — client `validateGraphClient()` blocks hard errors before the RPC; `graph.update` now validates server-side (soft by default — issues returned in the response and rendered as clickable notes that locate the problem node; `strict_validate=true` rejects hard errors, opt-in toggle on the canvas).
+- ✅ **#396 import/export + templates** — export the current graph as JSON, import via file picker into a new graph, and 7 bundled `examples/*.json` templates rendered as one-click starters.
+- ✅ **#397 orchestration patterns GUI** — new Orchestrations section on Workflows: create multi-phase orchestrations (6 patterns: pipeline / parallel_barrier / loop_until_dry / loop_until_budget / adversarial_verify / judge_panel) with agent multi-select, execute with input, 5s run-status polling, cancel, delete; `workflow.*` RPCs added to the web bridge allowlist.
+- ✅ **#398 single-node run + edge labels + grouping** — `only_node` SSE param executes exactly one node via a start-wired subgraph + `stop_after` ("Run this node only"); edge selection with condition branch-label editing; multi-select visual grouping via a dashed `fusionGroup` container persisted through the additive `NodeConfig.parent` field (runtime ignores it).
+- Tests: `tests/test_issue_393_398_langflow_parity.py` (23) — incl. a regression that invalid `from_node`/`only_node` return HTTP 400 (they previously raised a nonexistent `ErrorCode.PARAM_INVALID` attribute).
 
 ### Integration
 - ✅ **fusion-mlx** — Apple Silicon optimized model serving

@@ -66,6 +66,9 @@ class NodeConfig:
     # Canvas position
     x: float = 0.0
     y: float = 0.0
+    # #398 (audit-1020 6c): canvas visual grouping — id of the parent group
+    # node. Runtime ignores it; persisted so groups survive save/load.
+    parent: str = ""
     # #283: optional runtime model router for fast/slow dual-core. A callable
     # (node, model, prior_result) -> model_id, OR a string label resolved by the
     # runtime's model_router registry. Not serialized (callables aren't portable);
@@ -100,6 +103,7 @@ class NodeConfig:
             "stop_sequences": self.stop_sequences,
             "x": self.x,
             "y": self.y,
+            "parent": self.parent,
             # #284: serializable post-action capture flag + assertion spec.
             # model_router (#283) is deliberately excluded — callables aren't
             # portable; set it programmatically via the SDK.

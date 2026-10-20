@@ -9,7 +9,7 @@ import {
     TextInput,
     useAutoRetry,
 } from '@fusion/web-ui';
-import { useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { type GraphItem, api, rpc } from '../api';
 import { PageHeader } from '../components/PageHeader';
 import { StreamPanel } from '../components/StreamPanel';
@@ -347,6 +347,442 @@ export function WorkflowsPage() {
                         'Add nodes and edges on the canvas after creation (topology is canvas-only)'
                     )}
                 </div>
+            </Modal>
+            <OrchestrationsSection />
+        </div>
+    );
+}
+
+// #397 (audit-1020-5): multi-agent orchestration patterns in GUI — the
+// workflow engine's six patterns surfaced via workflow.create/execute/
+// status/list/cancel. Phases reference existing agents (agent.list);
+// runs of the selected workflow poll every 5s while the section is open.
+const WF_PATTERNS = [
+    'pipeline',
+    'parallel_barrier',
+    'loop_until_dry',
+    'loop_until_budget',
+    'adversarial_verify',
+    'judge_panel',
+] as const;
+
+interface WfPhaseDraft {
+    name: string;
+    pattern: string;
+    agentIds: string[];
+}
+
+interface WfRunItem {
+    id: string;
+    workflow_id: string;
+    status: string;
+    current_phase?: number;
+    phase_results?: Array<Record<string, unknown>>;
+    final_result?: Record<string, unknown>;
+    error?: string;
+}
+
+interface WfConfigItem {
+    id: string;
+    name: string;
+    phases?: Array<{ name: string; pattern: string; agent_configs?: unknown[] }>;
+    created_at?: number;
+}
+
+function OrchestrationsSection() {
+    const t = useT();
+    const [workflows, setWorkflows] = useState<WfConfigItem[]>([]);
+    const [agents, setAgents] = useState<Array<{ id: string; name: string }>>([]);
+    const [error, setError] = useState('');
+    const [creating, setCreating] = useState(false);
+    const [saving, setSaving] = useState(false);
+    const [wfName, setWfName] = useState('');
+    const [phases, setPhases] = useState<WfPhaseDraft[]>([
+        { name: 'phase-1', pattern: 'pipeline', agentIds: [] },
+    ]);
+    const [execWf, setExecWf] = useState<WfConfigItem | null>(null);
+    const [execInput, setExecInput] = useState('');
+    const [runs, setRuns] = useState<WfRunItem[]>([]);
+    const [busy, setBusy] = useState(false);
+
+    const refresh = useCallback(async () => {
+        try {
+            const [wl, al] = await Promise.all([
+                rpc<{ workflows?: WfConfigItem[] }>('workflow.list', {}),
+                rpc<{ agents?: Array<{ id: string; name: string }> }>('agent.list', {}),
+            ]);
+            setWorkflows(wl.workflows || []);
+            setAgents((al.agents || []).map((a) => ({ id: a.id, name: a.name || a.id })));
+            setError('');
+        } catch (e) {
+            setError((e as Error).message);
+        }
+    }, []);
+
+    useEffect(() => {
+        void refresh();
+    }, [refresh]);
+
+    useEffect(() => {
+        if (!execWf) {
+            setRuns([]);
+            return;
+        }
+        const load = async () => {
+            try {
+                const res = await rpc<{ runs?: WfRunItem[] }>('workflow.list', {
+                    workflow_id: execWf.id,
+                });
+                setRuns(res.runs || []);
+            } catch {
+                // transient poll error — keep last snapshot
+            }
+        };
+        void load();
+        const timer = window.setInterval(() => void load(), 5000);
+        return () => window.clearInterval(timer);
+    }, [execWf]);
+
+    const createWorkflow = async () => {
+        if (!wfName.trim()) {
+            setError(t('请输入编排名称', 'orchestration name required'));
+            return;
+        }
+        setSaving(true);
+        try {
+            await rpc('workflow.create', {
+                name: wfName.trim(),
+                phases: phases.map((p) => ({
+                    name: p.name || 'phase',
+                    pattern: p.pattern,
+                    agent_configs: p.agentIds.map((id) => ({ agent_id: id, name: id })),
+                })),
+            });
+            sdk.toast.show({
+                level: 'success',
+                message: t('编排已创建', 'orchestration created'),
+            });
+            setCreating(false);
+            setWfName('');
+            setPhases([{ name: 'phase-1', pattern: 'pipeline', agentIds: [] }]);
+            await refresh();
+        } catch (e) {
+            setError((e as Error).message);
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    const executeWorkflow = async () => {
+        if (!execWf) return;
+        setBusy(true);
+        try {
+            const res = await rpc<{ run_id?: string }>('workflow.execute', {
+                workflow_id: execWf.id,
+                input: execInput,
+            });
+            sdk.toast.show({
+                level: 'success',
+                message: t(
+                    `编排运行已启动 ${res.run_id || ''}`,
+                    `orchestration run started ${res.run_id || ''}`
+                ),
+            });
+        } catch (e) {
+            sdk.toast.show({
+                level: 'error',
+                message: `${t('启动失败', 'start failed')}: ${(e as Error).message}`,
+            });
+        } finally {
+            setBusy(false);
+        }
+    };
+
+    const cancelRun = async (runId: string) => {
+        try {
+            await rpc('workflow.cancel', { run_id: runId });
+            sdk.toast.show({ level: 'success', message: t('已请求取消', 'cancel requested') });
+        } catch (e) {
+            sdk.toast.show({
+                level: 'error',
+                message: `${t('取消失败', 'cancel failed')}: ${(e as Error).message}`,
+            });
+        }
+    };
+
+    const deleteWorkflow = async (wf: WfConfigItem) => {
+        if (
+            !window.confirm(t(`确认删除编排「${wf.name}」？`, `Delete orchestration "${wf.name}"?`))
+        ) {
+            return;
+        }
+        try {
+            await rpc('workflow.delete', { workflow_id: wf.id });
+            if (execWf?.id === wf.id) setExecWf(null);
+            await refresh();
+        } catch (e) {
+            sdk.toast.show({
+                level: 'error',
+                message: `${t('删除失败', 'delete failed')}: ${(e as Error).message}`,
+            });
+        }
+    };
+
+    return (
+        <div className="mt-6 px-4 pb-6">
+            <PageHeader
+                title={t('编排', 'Orchestrations')}
+                subtitle={t(
+                    `${workflows.length} 个多智能体编排（6 种模式）`,
+                    `${workflows.length} multi-agent orchestrations (6 patterns)`
+                )}
+                actions={
+                    <button
+                        type="button"
+                        onClick={() => setCreating(true)}
+                        className="rounded-md border border-border px-4 py-2 text-sm text-text-primary hover:bg-bg-muted"
+                    >
+                        {t('新建编排', 'New orchestration')}
+                    </button>
+                }
+            />
+            {error ? <div className="mt-2 text-xs text-error">{error}</div> : null}
+            {workflows.length === 0 ? (
+                <div className="text-xs text-text-secondary">
+                    {t(
+                        '暂无编排。编排 = 多阶段多智能体模式（pipeline / parallel_barrier / loop / adversarial_verify / judge_panel）。',
+                        'No orchestrations yet. An orchestration = multi-phase multi-agent patterns (pipeline / parallel_barrier / loop / adversarial_verify / judge_panel).'
+                    )}
+                </div>
+            ) : (
+                <div className="mt-2 space-y-2">
+                    {workflows.map((wf) => (
+                        <div
+                            key={wf.id}
+                            className="rounded-card border border-border bg-bg-elevated p-3 text-xs"
+                        >
+                            <div className="flex items-center justify-between">
+                                <button
+                                    type="button"
+                                    className="text-sm text-brand hover:underline"
+                                    onClick={() => setExecWf(execWf?.id === wf.id ? null : wf)}
+                                >
+                                    {wf.name}
+                                </button>
+                                <button
+                                    type="button"
+                                    className="text-error hover:underline"
+                                    onClick={() => void deleteWorkflow(wf)}
+                                >
+                                    {t('删除', 'Delete')}
+                                </button>
+                            </div>
+                            <div className="mt-1 flex flex-wrap gap-1 text-[10px] text-text-secondary">
+                                {(wf.phases || []).map((p, i) => (
+                                    <span key={i} className="rounded bg-brand/10 text-brand px-1">
+                                        {p.name || `phase-${i + 1}`} · {p.pattern} ·{' '}
+                                        {(p.agent_configs || []).length} agent(s)
+                                    </span>
+                                ))}
+                            </div>
+                            {execWf?.id === wf.id ? (
+                                <div className="mt-2 space-y-2 border-t border-border pt-2">
+                                    <textarea
+                                        className="h-16 w-full rounded border border-border bg-bg px-2 py-1"
+                                        placeholder={t('编排输入', 'orchestration input')}
+                                        value={execInput}
+                                        onChange={(e) => setExecInput(e.target.value)}
+                                    />
+                                    <button
+                                        type="button"
+                                        disabled={busy}
+                                        onClick={() => void executeWorkflow()}
+                                        className="rounded bg-brand px-3 py-1 text-white disabled:opacity-50"
+                                    >
+                                        {busy
+                                            ? t('启动中…', 'starting…')
+                                            : t('执行编排', 'Execute')}
+                                    </button>
+                                    {runs.length > 0 ? (
+                                        <div className="space-y-1">
+                                            <div className="text-text-secondary">
+                                                {t('运行记录', 'Runs')}
+                                            </div>
+                                            {runs.map((r) => (
+                                                <div
+                                                    key={r.id}
+                                                    className="flex items-center gap-2 rounded border border-border px-2 py-1"
+                                                >
+                                                    <StatusBadge
+                                                        status={
+                                                            r.status === 'completed'
+                                                                ? 'success'
+                                                                : r.status === 'failed' ||
+                                                                    r.status === 'cancelled'
+                                                                  ? 'error'
+                                                                  : r.status === 'paused'
+                                                                    ? 'warning'
+                                                                    : 'running'
+                                                        }
+                                                        label={r.status}
+                                                    />
+                                                    <span className="font-mono">{r.id}</span>
+                                                    <span className="text-text-secondary">
+                                                        phase {r.current_phase ?? 0}
+                                                    </span>
+                                                    {r.error ? (
+                                                        <span className="text-error">
+                                                            {r.error.slice(0, 80)}
+                                                        </span>
+                                                    ) : null}
+                                                    {r.status === 'running' ||
+                                                    r.status === 'paused' ||
+                                                    r.status === 'pending' ? (
+                                                        <button
+                                                            type="button"
+                                                            className="ml-auto text-error hover:underline"
+                                                            onClick={() => void cancelRun(r.id)}
+                                                        >
+                                                            {t('取消', 'Cancel')}
+                                                        </button>
+                                                    ) : null}
+                                                </div>
+                                            ))}
+                                        </div>
+                                    ) : null}
+                                </div>
+                            ) : null}
+                        </div>
+                    ))}
+                </div>
+            )}
+            <Modal
+                open={creating}
+                title={t('新建编排', 'New orchestration')}
+                onClose={() => setCreating(false)}
+                footer={
+                    <div className="flex items-center justify-end gap-2">
+                        <button
+                            type="button"
+                            onClick={() => setCreating(false)}
+                            className="rounded-md border border-border px-4 py-2 text-sm text-text-primary hover:bg-bg-muted"
+                        >
+                            {t('取消', 'Cancel')}
+                        </button>
+                        <SubmitButton
+                            label={t('创建编排', 'Create orchestration')}
+                            busyLabel={t('保存中…', 'saving…')}
+                            disabled={saving}
+                            onAction={createWorkflow}
+                        />
+                    </div>
+                }
+            >
+                <FormField label={t('名称', 'Name')} required htmlFor="orch-name">
+                    <TextInput
+                        id="orch-name"
+                        value={wfName}
+                        onChange={setWfName}
+                        placeholder={t(
+                            '例如：研究→写作→审校流水线',
+                            'e.g. research → write → review pipeline'
+                        )}
+                    />
+                </FormField>
+                <div className="space-y-2">
+                    {phases.map((ph, idx) => (
+                        <div key={idx} className="rounded border border-border p-2 text-xs">
+                            <div className="flex items-center gap-2">
+                                <TextInput
+                                    value={ph.name}
+                                    onChange={(v) =>
+                                        setPhases((ps) =>
+                                            ps.map((p, i) => (i === idx ? { ...p, name: v } : p))
+                                        )
+                                    }
+                                    placeholder={t('阶段名', 'phase name')}
+                                />
+                                <select
+                                    className="rounded border border-border bg-bg px-2 py-1"
+                                    value={ph.pattern}
+                                    onChange={(e) =>
+                                        setPhases((ps) =>
+                                            ps.map((p, i) =>
+                                                i === idx ? { ...p, pattern: e.target.value } : p
+                                            )
+                                        )
+                                    }
+                                >
+                                    {WF_PATTERNS.map((pt) => (
+                                        <option key={pt} value={pt}>
+                                            {pt}
+                                        </option>
+                                    ))}
+                                </select>
+                                <button
+                                    type="button"
+                                    className="text-error"
+                                    disabled={phases.length === 1}
+                                    onClick={() =>
+                                        setPhases((ps) => ps.filter((_, i) => i !== idx))
+                                    }
+                                >
+                                    ✕
+                                </button>
+                            </div>
+                            <div className="mt-1 flex flex-wrap gap-2">
+                                {agents.length === 0 ? (
+                                    <span className="text-text-secondary">
+                                        {t('暂无可选 agent', 'no agents available')}
+                                    </span>
+                                ) : (
+                                    agents.map((a) => (
+                                        <label key={a.id} className="flex items-center gap-1">
+                                            <input
+                                                type="checkbox"
+                                                checked={ph.agentIds.includes(a.id)}
+                                                onChange={(e) =>
+                                                    setPhases((ps) =>
+                                                        ps.map((p, i) =>
+                                                            i === idx
+                                                                ? {
+                                                                      ...p,
+                                                                      agentIds: e.target.checked
+                                                                          ? [...p.agentIds, a.id]
+                                                                          : p.agentIds.filter(
+                                                                                (x) => x !== a.id
+                                                                            ),
+                                                                  }
+                                                                : p
+                                                        )
+                                                    )
+                                                }
+                                            />
+                                            {a.name}
+                                        </label>
+                                    ))
+                                )}
+                            </div>
+                        </div>
+                    ))}
+                    <button
+                        type="button"
+                        className="rounded border border-border px-2 py-1 text-xs"
+                        onClick={() =>
+                            setPhases((ps) => [
+                                ...ps,
+                                {
+                                    name: `phase-${ps.length + 1}`,
+                                    pattern: 'pipeline',
+                                    agentIds: [],
+                                },
+                            ])
+                        }
+                    >
+                        + {t('添加阶段', 'Add phase')}
+                    </button>
+                </div>
+                {error ? <div className="text-xs text-error">{error}</div> : null}
             </Modal>
         </div>
     );

@@ -97,4 +97,4 @@ ruff check agent_runtime tools server tests
 
 ---
 
-上一篇：[10 GUI 对标三件](./10-gui-parity.md)
+上一篇：[10 GUI 对标三件](./10-gui-parity.md) · 下一篇：[12 画布与编排](./12-canvas-orchestration.md)

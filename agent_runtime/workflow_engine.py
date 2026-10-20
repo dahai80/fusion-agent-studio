@@ -737,11 +737,11 @@ class WorkflowEngine:
                 from .graph import AgentGraph
                 from .runtime import AgentRuntime
 
-                store = self.orchestrator.__dict__.get("_store")
+                store = self.store or self.orchestrator.__dict__.get("_store")
                 if store:
                     graph_data = store.load_graph(graph_id)
-                    if graph_data:
-                        graph = AgentGraph.from_dict(graph_data)
+                    if graph_data is not None:
+                        graph = graph_data
                     else:
                         graph = AgentGraph(id=graph_id)
                 else:

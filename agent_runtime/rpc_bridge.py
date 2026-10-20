@@ -170,7 +170,7 @@ WEB_RPC_ALLOWLIST: frozenset[str] = frozenset(
         "chat.message_tree",
         "style.list",
         "style.get",
-        # workflows (list/edit via JSON form; canvas is a later step)
+        # workflows (list/edit via JSON form; topology canvas-only)
         "graph.list",
         "graph.get",
         "graph.create",
@@ -178,6 +178,16 @@ WEB_RPC_ALLOWLIST: frozenset[str] = frozenset(
         "graph.delete",
         "graph.cancel",
         "graph.status",
+        # #397: multi-agent orchestration patterns GUI (workflow engine)
+        "workflow.list",
+        "workflow.get",
+        "workflow.create",
+        "workflow.execute",
+        "workflow.pause",
+        "workflow.resume",
+        "workflow.cancel",
+        "workflow.delete",
+        "workflow.status",
     }
 )
 

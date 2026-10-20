@@ -1475,6 +1475,7 @@ async def v1_execute_graph_stream(
     thinking: bool = True,
     from_node: str = "",
     stop_after: str = "",
+    only_node: str = "",
 ):
     """Server-Sent Events stream — pushes per-token TOKEN events as they arrive.
 
@@ -1482,6 +1483,8 @@ async def v1_execute_graph_stream(
     emit per-token TOKEN events. Each event is sent as an SSE ``data:`` line.
     Client connects with EventSource; no buffering at the boundary.
     """
+    from agent_runtime.graph import AgentGraph, NodeConfig
+
     graph = _get_store().load_graph(graph_id)
     if graph is None:
         raise_api_error(ErrorCode.AGENT_NOT_FOUND, param="graph_id")
@@ -1489,9 +1492,23 @@ async def v1_execute_graph_stream(
     if from_node:
         sub = graph.downstream_subgraph(from_node)
         if sub is None:
-            raise_api_error(ErrorCode.PARAM_INVALID, param="from_node")
+            raise_api_error(ErrorCode.PARAM_FORMAT_ERROR, param="from_node")
         graph = sub
         logger.info("SSE downstream rerun graph=%s from=%s", graph_id, from_node)
+    # #398 (audit-1020 6a): single-node test run — execute exactly one node
+    # (Langflow "run component"). Implemented as a start-wired subgraph with
+    # stop_after on the node so the stream ends after its first result.
+    if only_node:
+        if only_node not in graph.nodes:
+            raise_api_error(ErrorCode.PARAM_FORMAT_ERROR, param="only_node")
+        single = AgentGraph(id=graph.id, name=graph.name)
+        single.add_node("start", NodeConfig(type="start"))
+        single.add_node(only_node, graph.nodes[only_node])
+        single.add_edge("start", only_node)
+        single.start_node_id = "start"
+        graph = single
+        stop_after = only_node
+        logger.info("SSE single-node run graph=%s node=%s", graph_id, only_node)
     rt = _get_runtime()
     # 审计 P2-5/P2-6/P0-3: SSE 直调 rt 绕过 daemon 注册/节流/预算, 与 WS 同补.
     daemon = _daemon

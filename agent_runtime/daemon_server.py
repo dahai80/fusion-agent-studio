@@ -484,7 +484,9 @@ class DaemonServer:
 
             self._workflow_engine = WorkflowEngine(
                 llm_gateway=self._gateway,
-                tool_registry=self._get_runtime()._tool_registry if self._runtime else None,
+                # _get_runtime() initializes the runtime (and its default
+                # tool registry) on first use — workflow graph runs need it.
+                tool_registry=self._get_runtime().tools,
                 orchestrator=self._get_orchestrator(),
                 store=self.store,
             )
@@ -2764,8 +2766,17 @@ class DaemonServer:
                         label=e.get("label", e.get("condition", "")),
                     )
 
+        # #395: graph.update now validates like graph.create. Default soft —
+        # issues returned to the caller (canvas surfaces them) without
+        # blocking saves; strict_validate=true rejects hard errors.
+        strict = bool(params.get("strict_validate"))
+        issues = graph.validate(self._get_tool_registry() if strict else None)
+        hard = [i for i in issues if not i.startswith("warning:")]
+        if strict and hard:
+            raise ValueError(f"Graph validation failed (strict_validate): {hard}")
+
         self.store.save_graph(graph)
-        logger.info("Updated graph %s: %s", graph.id, graph.name)
+        logger.info("Updated graph %s: %s issues=%d", graph.id, graph.name, len(issues))
         return {
             "graph_id": graph.id,
             "name": graph.name,
@@ -2773,6 +2784,7 @@ class DaemonServer:
             "nodes": {nid: n.to_dict() for nid, n in graph.nodes.items()},
             "edges": [e.to_dict() for e in graph.edges],
             "stop_on_tool_error": graph.stop_on_tool_error,
+            "issues": issues,
         }
 
     def _get_tool_registry(self):
