@@ -98,6 +98,13 @@ async def test_execute_async_completion_carries_stop_reason(tmp_path, monkeypatc
 
             return f"/tmp/{execution_id}.jsonl"
 
+        # #406: run span hooks — stub has no span file, writes are no-ops.
+        def _run_spans_path(self, execution_id, team="default"):
+            return None
+
+        def _append_run_span(self, execution_id, team, record):
+            return None
+
     d = _StubDaemon()
     fn = ds.DaemonServer._run_graph_async.__get__(d)
     await fn(

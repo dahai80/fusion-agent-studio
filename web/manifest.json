@@ -12,5 +12,42 @@
     "backend": "http://127.0.0.1:11432/shell/fusion-agent-studio/",
     "upstream": "http://127.0.0.1:11442",
     "devices": ["desktop"],
-    "category": "platform"
+    "category": "platform",
+    "pages": [
+        {"route": "/", "title": "工作流", "title_en": "Workflows"},
+        {"route": "/runs", "title": "运行记录", "title_en": "Runs"},
+        {"route": "/canvas", "title": "画布", "title_en": "Canvas"},
+        {"route": "/aiagent", "title": "AI 助手", "title_en": "Composer"},
+        {"route": "/agents", "title": "智能体", "title_en": "Agents"},
+        {"route": "/dashboard", "title": "仪表盘", "title_en": "Dashboard"},
+        {"route": "/chat", "title": "对话", "title_en": "Chat"},
+        {"route": "/team", "title": "团队", "title_en": "Team"},
+        {"route": "/memory", "title": "记忆", "title_en": "Memory"},
+        {"route": "/safety", "title": "安全", "title_en": "Safety"},
+        {"route": "/governance", "title": "治理", "title_en": "Governance"},
+        {"route": "/connectors", "title": "连接器", "title_en": "Connectors"},
+        {"route": "/apikeys", "title": "API 密钥", "title_en": "API Keys"},
+        {"route": "/cron", "title": "定时任务", "title_en": "Cron"},
+        {"route": "/hooks", "title": "钩子", "title_en": "Hooks"},
+        {"route": "/tools", "title": "工具", "title_en": "Tools"},
+        {"route": "/skills", "title": "技能", "title_en": "Skills"},
+        {"route": "/marketplace", "title": "市场", "title_en": "Marketplace"}
+    ],
+    "searchProviders": [
+        {
+            "id": "agent-studio",
+            "label": "工作流/运行",
+            "label_en": "Workflows/Runs",
+            "endpoint": "/shell/fusion-agent-studio/api/v1/search"
+        }
+    ],
+    "notifications": [
+        {
+            "id": "runs",
+            "label": "终态运行",
+            "label_en": "Terminal runs",
+            "endpoint": "/shell/fusion-agent-studio/api/v1/notifications/runs",
+            "kind": "runs"
+        }
+    ]
 }

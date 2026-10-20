@@ -134,7 +134,17 @@ export function App() {
 
     return (
         <div className="min-h-screen bg-bg text-text-primary">
-            <StudioNav active={route.name === 'studio' ? route.tab : route.name} />
+            <StudioNav
+                active={
+                    route.name === 'studio'
+                        ? route.tab
+                        : route.name === 'run'
+                          ? 'runs'
+                          : route.name === 'agent'
+                            ? 'agents'
+                            : route.name
+                }
+            />
             <main className={hideNav ? 'pb-4' : 'pb-20'}>
                 {route.name === 'workflows' ? <WorkflowsPage /> : null}
                 {route.name === 'runs' ? <RunsPage /> : null}

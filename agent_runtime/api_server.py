@@ -916,6 +916,20 @@ async def v1_get_run_result(run_id: str):
     }
 
 
+@app.get("/v1/runs/{run_id}/events")
+async def v1_get_run_events(run_id: str):
+    # #406: run event waterfall — per-node spans + run totals.
+    res = await _rpc("task.events", {"task_id": run_id})
+    if isinstance(res, dict) and res.get("status") == "error":
+        raise_api_error(ErrorCode.AGENT_NOT_FOUND, param="run_id", detail=res.get("message", ""))
+    return res
+
+
+@app.get("/api/v1/runs/{run_id}/events")
+async def api_v1_get_run_events(run_id: str):
+    return await v1_get_run_events(run_id)
+
+
 @app.post("/v1/runs/{run_id}/cancel", dependencies=[Depends(_require_auth_if_configured)])
 async def v1_cancel_run(run_id: str):
     res = await _rpc("task.cancel", {"task_id": run_id})
@@ -932,6 +946,74 @@ async def v1_cancel_run(run_id: str):
 async def v1_list_runs(status: str = "", limit: int = 100, agent_id: str = ""):
     res = await _rpc("task.list", {"status": status, "agent_id": agent_id, "limit": limit})
     return {"runs": res.get("tasks", []) if isinstance(res, dict) else [], "total": res.get("total", 0) if isinstance(res, dict) else 0}
+
+
+# ── Shell ext fields (#407): palette search + notification sources ──
+# Contract (fusion-web-shell#24): search returns {items:[{title,route,kind}]},
+# route = in-module hash route the shell deep-links via `${entry}#${route}`.
+# notifications/runs returns terminal runs; the host dedupes unseen ids.
+
+
+@app.get("/v1/search")
+async def v1_search(q: str = "", limit: int = 20):
+    query = (q or "").strip().lower()
+    if not query:
+        return {"items": []}
+    items = []
+    try:
+        for g in _get_store().list_graphs():
+            name = str(g.get("name") or g.get("id") or "")
+            desc = str(g.get("description") or "")
+            if query in name.lower() or query in desc.lower():
+                items.append({"title": name, "route": "/canvas", "kind": "workflow"})
+            if len(items) >= limit:
+                break
+    except Exception:
+        logger.exception("/v1/search graph scan failed")
+    try:
+        res = await _rpc("task.list", {"limit": 100})
+        for t in (res.get("tasks", []) if isinstance(res, dict) else []):
+            title = str(t.get("title") or t.get("task_id") or "")
+            tid = str(t.get("task_id") or "")
+            if tid and (query in title.lower() or query in tid.lower()):
+                items.append({"title": f"运行: {title}", "route": f"/runs/{tid}", "kind": "run"})
+            if len(items) >= limit * 2:
+                break
+    except Exception:
+        logger.exception("/v1/search run scan failed")
+    items = items[: max(1, limit)]
+    logger.info("/v1/search q=%r hits=%d", q, len(items))
+    return {"items": items}
+
+
+@app.get("/v1/notifications/runs")
+async def v1_notifications_runs(limit: int = 32):
+    terminal = {"completed", "failed", "cancelled", "canceled"}
+    items = []
+    try:
+        res = await _rpc("task.list", {"limit": 100})
+        tasks = res.get("tasks", []) if isinstance(res, dict) else []
+        tasks.sort(key=lambda t: float(t.get("updated_at") or 0), reverse=True)
+        for t in tasks:
+            status = str(t.get("status") or "")
+            if status not in terminal:
+                continue
+            tid = str(t.get("task_id") or "")
+            if not tid:
+                continue
+            items.append({
+                "id": tid,
+                "title": f"运行结束: {t.get('title') or tid} ({status})",
+                "route": f"/runs/{tid}",
+                "level": "error" if status in {"failed", "cancelled", "canceled"} else "info",
+                "ts": float(t.get("updated_at") or 0),
+            })
+            if len(items) >= max(1, limit):
+                break
+    except Exception:
+        logger.exception("/v1/notifications/runs poll failed")
+    logger.info("/v1/notifications/runs items=%d", len(items))
+    return {"count": len(items), "items": items}
 
 
 # ── Knowledge Base endpoints ──
@@ -1725,6 +1807,20 @@ async def api_v1_test_agent(
     agent_id: str, project_id: str = "", kb_id: str = "", message: str = "hello"
 ):
     return await v1_test_agent(agent_id, project_id, kb_id, message)
+
+
+# ── #407: shell ext-field endpoints under /api/v1 too (manifest declares the
+# /api convention; searchProviders + notifications point at these) ──
+
+
+@app.get("/api/v1/search")
+async def api_v1_search(q: str = "", limit: int = 20):
+    return await v1_search(q=q, limit=limit)
+
+
+@app.get("/api/v1/notifications/runs")
+async def api_v1_notifications_runs(limit: int = 32):
+    return await v1_notifications_runs(limit=limit)
 
 
 # ── #274: Chat↔FSB integration HTTP endpoints (env-gated FUSION_FSB_ENABLED) ──

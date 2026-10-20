@@ -6,10 +6,10 @@
 
 在 Mac 上运行、构建和编排 AI 智能体 — 无需云服务、无需 API 费用、数据不出设备。
 
-[![Version](https://img.shields.io/badge/v0.11.0-blue.svg)]()
+[![Version](https://img.shields.io/badge/v0.12.0-blue.svg)]()
 [![Python](https://img.shields.io/badge/Python-3.11+-3776AB.svg)](https://www.python.org/)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/Tests-3099-success.svg)](tests/)
+[![Tests](https://img.shields.io/badge/Tests-3118-success.svg)](tests/)
 
 **[English](README.md)** · [快速开始](#快速开始) · [架构](#架构) · [文档](docs/) · [示例](examples/) · **[引导式教程](docs/guides/README.md)**
 
@@ -256,6 +256,12 @@ python my_agent.py
 ### Cowork 工作流工具 (v0.11.0) — #402
 - ✅ **`cowork_workflow_run` 工具** — 智能体图可将 fusion-cowork 工作流（DAG 运行）作为工具步骤调用：按 `workflow_id` 或自然语言 `prompt` 启动（cowork 服务端经 `/api/ai/generate-workflow` 生成 DAG），可选 `inputs` 原样随运行体转发；`wait=true` 轮询至终态并返回运行状态 + 最终节点输出 + 产物；`wait=false` 即发即忘，返回 `run_id` 供后续轮询（`action=status`）。人工门禁不阻塞：`paused` 运行、以及节点级 CONFIRM 审批导致停顿的运行返回 `pending`/`pending_approval` 与待审批列表。上游 `FUSION_COWORK_URL`（默认 `http://127.0.0.1:11461`），鉴权 `FUSION_COWORK_WEB_API_KEY`（X-API-Key）。工具注册表：38 个内置工具（有 fusion-browser 时 39 个）。
 - 测试：`tests/test_issue_402_cowork_tool.py`（16 个）。
+
+### 壳内嵌修复 + GUI/UX 升级 (v0.12.0) — #405 / #406 / #407
+- ✅ **#405 内嵌 RPC 路径** — `rpc()` 统一加 `apiBase()` 前缀：union-web 壳 iframe 内宿主桥按原路径在 gateway 根域请求，裸 `/v1/rpc` 会命中 SPA 兜底返回 200 HTML（"Unexpected token '<'"）。与其它 `api.*` 调用同一规则。
+- ✅ **#406 运行事件瀑布** — daemon 写每次运行的结构事件日志（`<out>/<team>/evidence/executions/spans/<execution_id>.jsonl`，上限 5000 行，token 帧只计数不落盘），聚合为按节点的 span（`task.events` RPC + `GET /v1/runs/{id}/events`）。运行详情页渲染瀑布：比例条、耗时/令牌/工具调用徽标、失败节点标红并显示错误、一键"重跑至该节点"（复用 #398 `only_node` SSE 契约）。画布新增运行 SSE 驱动的每节点令牌/工具调用徽标（400 ms 合批，避免逐 token 重绘整图）、本次运行汇总条、保存前 diff 卡片（列出增/删/改节点与连线数）再发 `graph.update`。导航改为任务导向：Agents / 工作流 / 画布 / 运行 常驻顶层，其余控制台收进"更多"。
+- ✅ **#407 壳 manifest 扩展字段** — `web/manifest.json` 声明 `pages`（18 个可深链 hash 路由，中英标题）、`searchProviders`、`notifications`，由新端点 `GET /v1/search`（工作流 + 运行）与 `GET /v1/notifications/runs`（终态运行，`{count, items}`）支撑，并在 `/api/v1/*` 下提供别名。
+- 测试：`tests/test_issue_405_406_407.py`（19 个）。
 
 ### 集成
 - ✅ **fusion-mlx** — Apple Silicon 优化模型服务

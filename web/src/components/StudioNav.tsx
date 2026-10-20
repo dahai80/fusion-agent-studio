@@ -1,38 +1,56 @@
+import { useEffect, useRef, useState } from 'react';
 import { useT } from '../i18n';
 
-// Studio module nav — mirrors the macOS AgentStudio FusionTabBar (step-1
-// scope: Agents/Workflows/Dashboard/Team/Memory/Safety/Connectors/Apikeys/
-// Cron/Hooks/Tools/Skills/Marketplace/Chat + the AIAgent console). Rendered
-// in BOTH topologies; embedded mode only hides the host-owned bottom bar.
-export const STUDIO_TABS: Array<{ key: string; label: string; labelEn: string }> = [
-    { key: 'agents', label: 'Agents', labelEn: 'Agents' },
-    { key: 'workflows', label: '工作流', labelEn: 'Workflows' },
-    { key: 'canvas', label: '画布', labelEn: 'Canvas' },
-    { key: 'governance', label: '治理', labelEn: 'Governance' },
-    { key: 'dashboard', label: '仪表盘', labelEn: 'Dashboard' },
-    { key: 'team', label: '团队', labelEn: 'Team' },
-    { key: 'memory', label: '记忆', labelEn: 'Memory' },
-    { key: 'safety', label: '安全', labelEn: 'Safety' },
-    { key: 'connectors', label: '连接器', labelEn: 'Connectors' },
-    { key: 'apikeys', label: '密钥', labelEn: 'API Keys' },
-    { key: 'cron', label: '定时', labelEn: 'Cron' },
-    { key: 'hooks', label: '钩子', labelEn: 'Hooks' },
-    { key: 'tools', label: '工具', labelEn: 'Tools' },
-    { key: 'skills', label: '技能', labelEn: 'Skills' },
-    { key: 'marketplace', label: '市场', labelEn: 'Marketplace' },
-    { key: 'chat', label: '聊天', labelEn: 'Chat' },
-    { key: 'aiagent', label: 'AI 调试', labelEn: 'AI Console' },
+// Studio module nav — mirrors the macOS AgentStudio FusionTabBar. #406 IA
+// simplification: four task-centric entries stay top-level (agents,
+// workflows, canvas, runs); every secondary console collapses into "More".
+export const STUDIO_TABS: Array<{ key: string; label: string; labelEn: string; href: string }> = [
+    { key: 'agents', label: 'Agents', labelEn: 'Agents', href: '#/agents' },
+    { key: 'workflows', label: '工作流', labelEn: 'Workflows', href: '#/workflows' },
+    { key: 'canvas', label: '画布', labelEn: 'Canvas', href: '#/canvas' },
+    { key: 'runs', label: '运行', labelEn: 'Runs', href: '#/runs' },
+    { key: 'governance', label: '治理', labelEn: 'Governance', href: '#/governance' },
+    { key: 'dashboard', label: '仪表盘', labelEn: 'Dashboard', href: '#/dashboard' },
+    { key: 'team', label: '团队', labelEn: 'Team', href: '#/team' },
+    { key: 'memory', label: '记忆', labelEn: 'Memory', href: '#/memory' },
+    { key: 'safety', label: '安全', labelEn: 'Safety', href: '#/safety' },
+    { key: 'connectors', label: '连接器', labelEn: 'Connectors', href: '#/connectors' },
+    { key: 'apikeys', label: '密钥', labelEn: 'API Keys', href: '#/apikeys' },
+    { key: 'cron', label: '定时', labelEn: 'Cron', href: '#/cron' },
+    { key: 'hooks', label: '钩子', labelEn: 'Hooks', href: '#/hooks' },
+    { key: 'tools', label: '工具', labelEn: 'Tools', href: '#/tools' },
+    { key: 'skills', label: '技能', labelEn: 'Skills', href: '#/skills' },
+    { key: 'marketplace', label: '市场', labelEn: 'Marketplace', href: '#/marketplace' },
+    { key: 'chat', label: '聊天', labelEn: 'Chat', href: '#/chat' },
+    { key: 'aiagent', label: 'AI 调试', labelEn: 'AI Console', href: '#/aiagent' },
 ];
+
+const PRIMARY_KEYS = new Set(['agents', 'workflows', 'canvas', 'runs']);
 
 export function StudioNav(props: { active: string }) {
     const { active } = props;
     const t = useT();
+    const [moreOpen, setMoreOpen] = useState(false);
+    const moreRef = useRef<HTMLDivElement | null>(null);
+    const primary = STUDIO_TABS.filter((tab) => PRIMARY_KEYS.has(tab.key));
+    const secondary = STUDIO_TABS.filter((tab) => !PRIMARY_KEYS.has(tab.key));
+    const secondaryActive = secondary.some((tab) => tab.key === active);
+
+    useEffect(() => {
+        if (!moreOpen) return;
+        const onDown = (ev: MouseEvent) => {
+            if (!moreRef.current?.contains(ev.target as Node)) setMoreOpen(false);
+        };
+        window.addEventListener('mousedown', onDown);
+        return () => window.removeEventListener('mousedown', onDown);
+    }, [moreOpen]);
+
     return (
-        <nav className="flex gap-1 overflow-x-auto border-b border-border bg-bg-elevated px-2 py-1">
-            {STUDIO_TABS.map((tab) => (
+        <nav className="flex items-center gap-1 overflow-x-auto border-b border-border bg-bg-elevated px-2 py-1">
+            {primary.map((tab) => (
                 <a
                     key={tab.key}
-                    href={`#/${tab.key}`}
+                    href={tab.href}
                     className={`whitespace-nowrap rounded-md px-2.5 py-1.5 text-xs ${
                         active === tab.key
                             ? 'bg-bg-muted text-brand'
@@ -42,6 +60,38 @@ export function StudioNav(props: { active: string }) {
                     {t(tab.label, tab.labelEn)}
                 </a>
             ))}
+            <div className="relative" ref={moreRef}>
+                <button
+                    type="button"
+                    onClick={() => setMoreOpen((v) => !v)}
+                    aria-expanded={moreOpen}
+                    className={`whitespace-nowrap rounded-md px-2.5 py-1.5 text-xs ${
+                        secondaryActive
+                            ? 'bg-bg-muted text-brand'
+                            : 'text-text-secondary hover:text-text-primary'
+                    }`}
+                >
+                    {t('更多', 'More')} {moreOpen ? '▴' : '▾'}
+                </button>
+                {moreOpen ? (
+                    <div className="absolute left-0 top-full z-20 mt-1 grid w-64 grid-cols-2 gap-1 rounded-card border border-border bg-bg-elevated p-2 shadow-lg">
+                        {secondary.map((tab) => (
+                            <a
+                                key={tab.key}
+                                href={tab.href}
+                                onClick={() => setMoreOpen(false)}
+                                className={`rounded-md px-2 py-1 text-xs ${
+                                    active === tab.key
+                                        ? 'bg-bg-muted text-brand'
+                                        : 'text-text-secondary hover:bg-bg-muted hover:text-text-primary'
+                                }`}
+                            >
+                                {t(tab.label, tab.labelEn)}
+                            </a>
+                        ))}
+                    </div>
+                ) : null}
+            </div>
         </nav>
     );
 }
