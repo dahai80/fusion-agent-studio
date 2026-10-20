@@ -33,6 +33,17 @@ from agent_runtime.runtime import AgentRuntime
 logger = logging.getLogger(__name__)
 
 
+def _app_version() -> str:
+    # Single source of truth is pyproject; stale hardcoded strings misreport
+    # the running build in health/status payloads.
+    try:
+        from importlib.metadata import version
+
+        return version("fusion-agent-studio")
+    except Exception:
+        return "unknown"
+
+
 @asynccontextmanager
 async def lifespan(application: FastAPI):
     logger.info("Fusion Agent Studio API starting")
@@ -412,7 +423,7 @@ async def health():
     return {
         "status": "ok" if mlx_reachable else "degraded",
         "mlx_reachable": mlx_reachable,
-        "version": "0.3.0",
+        "version": _app_version(),
         "persistence": "sqlite",
     }
 
@@ -458,7 +469,7 @@ async def v1_health():
     return {
         "status": "ok" if mlx_reachable else "degraded",
         "mlx_reachable": mlx_reachable,
-        "version": "0.3.0",
+        "version": _app_version(),
         "persistence": "sqlite",
     }
 
