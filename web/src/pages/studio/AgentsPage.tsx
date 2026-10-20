@@ -1,6 +1,4 @@
 import {
-    DataTable,
-    EmptyState,
     ErrorState,
     FormField,
     SkeletonLines,
@@ -10,23 +8,32 @@ import {
     useAutoRetry,
 } from '@fusion/web-ui';
 import { formatRelativeTime } from '@fusion/web-ui/format';
-import { useState } from 'react';
-import { rpc } from '../../api';
+import { useMemo, useState } from 'react';
+import { api, rpc } from '../../api';
 import { PageHeader } from '../../components/PageHeader';
 import { Modal } from '../../components/ui/Modal';
 import { useT } from '../../i18n';
 import { sdk } from '../../sdk';
 
 // Agents: list + create/publish/unpublish/clone/archive/delete — agent.* RPC.
+// #411: §7.0 Anthropic-style card grid — one card per agent (name, description,
+// model, last run, usage count) with a create-card first tile; usage counters
+// are aggregated client-side from the existing runs list (no new backend).
 interface Agent {
     id?: string;
     agent_id?: string;
     name: string;
     description?: string;
+    model?: string;
     status?: string;
     graph_id?: string;
     version?: string;
     updated_at?: number;
+}
+
+interface Usage {
+    count: number;
+    lastRun?: number;
 }
 
 const STATUS_KIND: Record<string, 'success' | 'running' | 'offline'> = {
@@ -36,15 +43,31 @@ const STATUS_KIND: Record<string, 'success' | 'running' | 'offline'> = {
 
 export function AgentsPage() {
     const t = useT();
-    const { data, error, loading, attempt, manualRetry } = useAutoRetry(
-        () => rpc<{ agents: Agent[] }>('agent.list', {}),
-        []
-    );
+    const { data, error, loading, attempt, manualRetry } = useAutoRetry(async () => {
+        const [agents, runs] = await Promise.all([
+            rpc<{ agents: Agent[] }>('agent.list', {}),
+            api.runs('', 200).catch(() => ({ runs: [], total: 0 })),
+        ]);
+        return { agents: agents.agents ?? [], runs: runs.runs ?? [] };
+    }, []);
     const [showCreate, setShowCreate] = useState(false);
     const [name, setName] = useState('');
     const [description, setDescription] = useState('');
 
     const rows = data?.agents ?? [];
+    const usage = useMemo(() => {
+        const map: Record<string, Usage> = {};
+        for (const run of data?.runs ?? []) {
+            const id = run.agent_id ?? '';
+            if (!id) continue;
+            const entry = map[id] ?? { count: 0 };
+            entry.count += 1;
+            const at = run.updated_at ?? run.created_at ?? 0;
+            if (at > (entry.lastRun ?? 0)) entry.lastRun = at;
+            map[id] = entry;
+        }
+        return map;
+    }, [data?.runs]);
 
     const act = async (
         agentId: string,
@@ -104,64 +127,65 @@ export function AgentsPage() {
                         onRetry={manualRetry}
                         retrying={attempt}
                     />
-                ) : rows.length === 0 ? (
-                    <EmptyState
-                        title={t('暂无智能体', 'no agents')}
-                        description={t('创建第一个智能体', 'create your first agent')}
-                    />
                 ) : (
-                    <DataTable<Agent>
-                        rows={rows}
-                        rowKey={(a) => a.id ?? a.agent_id ?? ''}
-                        pageSize={15}
-                        columns={[
-                            {
-                                key: 'name',
-                                header: t('名称', 'Name'),
-                                render: (a) => (
-                                    <button
-                                        type="button"
-                                        onClick={() => {
-                                            window.location.hash = `#/agents/${a.id ?? a.agent_id}`;
-                                        }}
-                                        className="text-left font-medium text-text-primary hover:underline"
-                                    >
-                                        {a.name}
-                                    </button>
-                                ),
-                            },
-                            {
-                                key: 'description',
-                                header: t('描述', 'Description'),
-                                render: (a) => (
-                                    <span className="line-clamp-2">{a.description ?? '-'}</span>
-                                ),
-                            },
-                            {
-                                key: 'status',
-                                header: t('状态', 'Status'),
-                                render: (a) => (
-                                    <StatusBadge
-                                        status={STATUS_KIND[a.status ?? ''] ?? 'running'}
-                                        label={a.status ?? '-'}
-                                    />
-                                ),
-                            },
-                            {
-                                key: 'updated_at',
-                                header: t('更新时间', 'Updated'),
-                                render: (a) =>
-                                    a.updated_at ? formatRelativeTime(a.updated_at * 1000) : '-',
-                            },
-                            {
-                                key: 'actions',
-                                header: '',
-                                render: (a) => (
-                                    <div className="flex gap-2 text-xs">
+                    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+                        <button
+                            type="button"
+                            onClick={() => setShowCreate(true)}
+                            className="flex min-h-36 flex-col items-center justify-center gap-1 rounded-card border border-dashed border-border p-4 text-text-secondary hover:border-brand hover:text-brand"
+                        >
+                            <span className="text-2xl leading-none">+</span>
+                            <span className="text-xs">{t('新建智能体', 'New agent')}</span>
+                        </button>
+                        {rows.map((a) => {
+                            const id = a.id ?? a.agent_id ?? '';
+                            const u = usage[id];
+                            return (
+                                <div
+                                    key={id}
+                                    className="flex min-h-36 flex-col gap-2 rounded-card border border-border bg-bg-elevated p-3"
+                                >
+                                    <div className="flex items-start justify-between gap-2">
                                         <button
                                             type="button"
                                             onClick={() => {
-                                                window.location.hash = `#/agents/${a.id ?? a.agent_id}`;
+                                                window.location.hash = `#/agents/${id}`;
+                                            }}
+                                            className="text-left text-sm font-medium text-text-primary hover:underline"
+                                        >
+                                            {a.name}
+                                        </button>
+                                        <StatusBadge
+                                            status={STATUS_KIND[a.status ?? ''] ?? 'running'}
+                                            label={a.status ?? '-'}
+                                        />
+                                    </div>
+                                    <div className="line-clamp-2 min-h-8 text-xs text-text-secondary">
+                                        {a.description || t('无描述', 'No description')}
+                                    </div>
+                                    <div className="flex flex-wrap items-center gap-1 text-[10px]">
+                                        <span className="rounded bg-brand/10 px-1 font-mono text-brand">
+                                            {a.model || '-'}
+                                        </span>
+                                        {a.graph_id ? (
+                                            <span className="rounded bg-bg-muted px-1 font-mono text-text-secondary">
+                                                {a.graph_id}
+                                            </span>
+                                        ) : null}
+                                    </div>
+                                    <div className="text-[10px] text-text-muted">
+                                        {u?.count
+                                            ? t(
+                                                  `${u.count} 次运行 · 最近 ${formatRelativeTime((u.lastRun ?? 0) * 1000)}`,
+                                                  `${u.count} runs · last ${formatRelativeTime((u.lastRun ?? 0) * 1000)}`
+                                              )
+                                            : t('暂无运行', 'No runs yet')}
+                                    </div>
+                                    <div className="mt-auto flex flex-wrap gap-2 text-[11px]">
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                window.location.hash = `#/agents/${id}`;
                                             }}
                                             className="text-text-secondary hover:underline"
                                         >
@@ -172,7 +196,7 @@ export function AgentsPage() {
                                                 type="button"
                                                 onClick={() =>
                                                     act(
-                                                        a.id ?? a.agent_id ?? '',
+                                                        id,
                                                         'unpublish',
                                                         {},
                                                         t('已取消发布', 'unpublished')
@@ -186,12 +210,7 @@ export function AgentsPage() {
                                             <button
                                                 type="button"
                                                 onClick={() =>
-                                                    act(
-                                                        a.id ?? a.agent_id ?? '',
-                                                        'publish',
-                                                        {},
-                                                        t('已发布', 'published')
-                                                    )
+                                                    act(id, 'publish', {}, t('已发布', 'published'))
                                                 }
                                                 className="text-success hover:underline"
                                             >
@@ -202,7 +221,7 @@ export function AgentsPage() {
                                             type="button"
                                             onClick={() =>
                                                 act(
-                                                    a.id ?? a.agent_id ?? '',
+                                                    id,
                                                     'clone',
                                                     { name: `${a.name} copy` },
                                                     t('已克隆', 'cloned')
@@ -215,12 +234,7 @@ export function AgentsPage() {
                                         <button
                                             type="button"
                                             onClick={() =>
-                                                act(
-                                                    a.id ?? a.agent_id ?? '',
-                                                    'archive',
-                                                    {},
-                                                    t('已归档', 'archived')
-                                                )
+                                                act(id, 'archive', {}, t('已归档', 'archived'))
                                             }
                                             className="text-text-secondary hover:underline"
                                         >
@@ -234,10 +248,10 @@ export function AgentsPage() {
                                             {t('删除', 'Delete')}
                                         </button>
                                     </div>
-                                ),
-                            },
-                        ]}
-                    />
+                                </div>
+                            );
+                        })}
+                    </div>
                 )}
             </div>
             <Modal

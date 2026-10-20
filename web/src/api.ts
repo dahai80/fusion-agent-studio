@@ -71,6 +71,9 @@ export interface RunSpan {
     tool_calls: number;
     token_events: number;
     tokens?: number;
+    input?: string;
+    output?: string;
+    events?: number;
     error: string;
 }
 
