@@ -73,7 +73,10 @@ async def _bridge_call(capability_id: str, params: dict, *, agent_id: str,
                   "agent_id": agent_id, "version": version,
                   "publisher": publisher})
     except Exception as e:
-        return json.dumps({"error": f"capability bridge unreachable: {e}"})
+        # include the exception TYPE: timeout errors (TimeoutError) have an
+        # empty str() — "unreachable: " with no reason was undiagnosable
+        return json.dumps({"error": f"capability bridge unreachable: "
+                                    f"{type(e).__name__}: {e}"})
     if resp.status_code >= 400:
         try:
             detail = resp.json().get("detail", resp.text[:300])
@@ -97,6 +100,11 @@ def _make_bridge_tool(name: str, description: str,
     # __abstractmethods__ at class creation, so a post-creation attribute
     # assignment leaves the class abstract (instantiation TypeError).
     async def _execute(self, **kwargs):
+        # DEBUG: what does the runtime actually hand the tool? (schema/args
+        # contract investigation — remove once the knowledge tool round-trips)
+        import sys
+        print(f"[cap-tool DEBUG] {name} kwargs={kwargs!r:.400}",
+              file=sys.stderr, flush=True)
         return await runner(**kwargs)
 
     class _BT(BaseTool):
@@ -173,7 +181,18 @@ def sync_agent_tools(rt, agent_id: str, manifest) -> dict:
         if cap.get("mutation"):
             desc += " (MUTATION — executed via human approval workflow)"
 
-        async def _runner(_cap_id=cap_id, **kw):
+        async def _runner(_cap_id=cap_id, _required=tuple(required_params),
+                          **kw):
+            # small-model resilience: a weak model may satisfy the required
+            # param positionally — one stray argument maps onto the sole
+            # required param instead of burning a 422 round-trip. Only when
+            # exactly one arg is present and it is a non-empty string.
+            missing = [p for p in _required
+                       if p not in kw or kw[p] in (None, "")]
+            if len(missing) == 1 and len(kw) == 1:
+                only = next(iter(kw))
+                if isinstance(kw[only], str) and kw[only].strip():
+                    kw = {missing[0]: kw[only].strip()}
             return await _bridge_call(_cap_id, kw, agent_id=agent_id,
                                       version=version, publisher=publisher,
                                       timeout=timeout)
