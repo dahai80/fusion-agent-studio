@@ -6,10 +6,10 @@
 
 在 Mac 上运行、构建和编排 AI 智能体 — 无需云服务、无需 API 费用、数据不出设备。
 
-[![Version](https://img.shields.io/badge/v0.10.0-blue.svg)]()
+[![Version](https://img.shields.io/badge/v0.11.0-blue.svg)]()
 [![Python](https://img.shields.io/badge/Python-3.11+-3776AB.svg)](https://www.python.org/)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/Tests-3050-success.svg)](tests/)
+[![Tests](https://img.shields.io/badge/Tests-3099-success.svg)](tests/)
 
 **[English](README.md)** · [快速开始](#快速开始) · [架构](#架构) · [文档](docs/) · [示例](examples/) · **[引导式教程](docs/guides/README.md)**
 
@@ -96,7 +96,7 @@ python my_agent.py
 │  ┌─────────────────────┐   ┌─────────────────┐               │
 │  │  智能体运行时        │   │  工具系统         │               │
 │  │  ┌───────────────┐  │   │  ┌───────────┐  │               │
-│  │  │ 状态机        │  │   │  │ 31 个工具 │  │               │
+│  │  │ 状态机        │  │   │  │ 38 个工具 │  │               │
 │  │  │ 图执行器      │  │   │  │ 注册表    │  │               │
 │  │  │ 编排器        │  │   │  │ 插件      │  │               │
 │  │  │ 调试器        │  │   │  └───────────┘  │               │
@@ -130,7 +130,7 @@ python my_agent.py
 | `agent_runtime/dispatchers/` | 11 个子分发器 — 从 DaemonServer 提取：agent、chat、deploy、infra、knowledge、marketplace、memory、planner、safety、team、workflow | 13 |
 | `agent_runtime/sdk/` | 智能体 SDK：Agent、Tool、AgentClient，通过 JSON-RPC 编程访问 | 3 |
 | `agent_runtime/plugins/` | 内置工作流插件：code_review、feature_dev、security_scan、pr_review、agent_builder | 5 |
-| `tools/` | 内置工具系统：31 个工具 + 插件系统 | 11 |
+| `tools/` | 内置工具系统：38 个工具 + 插件系统 | 18 |
 | `server/` | fusion-mlx HTTP 客户端 + 进程管理器 | 2 |
 
 ---
@@ -252,6 +252,10 @@ python my_agent.py
 - ✅ **#397 编排模式 GUI** — Workflows 新增编排（Orchestrations）区：创建多阶段编排（6 模式：pipeline / parallel_barrier / loop_until_dry / loop_until_budget / adversarial_verify / judge_panel，agent 多选）、带输入执行、5s 运行状态轮询、取消、删除；`workflow.*` RPC 加入 web 桥白名单。
 - ✅ **#398 单节点试跑 + 边标签 + 分组** — `only_node` SSE 参数经 start 接线子图 + `stop_after` 精确执行单节点（"仅试跑此节点"）；边选择与 condition 分支标签编辑；多选可视化分组（虚线 `fusionGroup` 容器），经增量字段 `NodeConfig.parent` 持久化（运行时忽略）。
 - 测试：`tests/test_issue_393_398_langflow_parity.py`（23 个）——含回归：非法 `from_node`/`only_node` 返回 HTTP 400（此前引用不存在的 `ErrorCode.PARAM_INVALID` 属性会 AttributeError）。
+
+### Cowork 工作流工具 (v0.11.0) — #402
+- ✅ **`cowork_workflow_run` 工具** — 智能体图可将 fusion-cowork 工作流（DAG 运行）作为工具步骤调用：按 `workflow_id` 或自然语言 `prompt` 启动（cowork 服务端经 `/api/ai/generate-workflow` 生成 DAG），可选 `inputs` 原样随运行体转发；`wait=true` 轮询至终态并返回运行状态 + 最终节点输出 + 产物；`wait=false` 即发即忘，返回 `run_id` 供后续轮询（`action=status`）。人工门禁不阻塞：`paused` 运行、以及节点级 CONFIRM 审批导致停顿的运行返回 `pending`/`pending_approval` 与待审批列表。上游 `FUSION_COWORK_URL`（默认 `http://127.0.0.1:11461`），鉴权 `FUSION_COWORK_WEB_API_KEY`（X-API-Key）。工具注册表：38 个内置工具（有 fusion-browser 时 39 个）。
+- 测试：`tests/test_issue_402_cowork_tool.py`（16 个）。
 
 ### 集成
 - ✅ **fusion-mlx** — Apple Silicon 优化模型服务
