@@ -13,6 +13,7 @@ import { api, rpc } from '../../api';
 import { PageHeader } from '../../components/PageHeader';
 import { Modal } from '../../components/ui/Modal';
 import { useT } from '../../i18n';
+import { type AgentModel, modelLabel } from '../../lib/agentModel';
 import { sdk } from '../../sdk';
 
 // Agents: list + create/publish/unpublish/clone/archive/delete — agent.* RPC.
@@ -24,7 +25,8 @@ interface Agent {
     agent_id?: string;
     name: string;
     description?: string;
-    model?: string;
+    // #413: legacy manifests carry an object here, not a string.
+    model?: AgentModel;
     status?: string;
     graph_id?: string;
     version?: string;
@@ -165,7 +167,7 @@ export function AgentsPage() {
                                     </div>
                                     <div className="flex flex-wrap items-center gap-1 text-[10px]">
                                         <span className="rounded bg-brand/10 px-1 font-mono text-brand">
-                                            {a.model || '-'}
+                                            {modelLabel(a.model)}
                                         </span>
                                         {a.graph_id ? (
                                             <span className="rounded bg-bg-muted px-1 font-mono text-text-secondary">
