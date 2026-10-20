@@ -66,6 +66,36 @@ class TestAggregateRunSpans:
         assert node["token_events"] == 2
         assert node["tokens"] == 2
 
+    def test_node_io_summary(self):
+        # #410: drawer input/output summaries from structural events.
+        spans = [
+            {
+                "type": "tool_call",
+                "node_id": "tool1",
+                "name": "read_file",
+                "args": {"path": "/tmp/a.txt"},
+                "content": "read_file({'path': '/tmp/a.txt'})",
+                "timestamp": 1.0,
+            },
+            {"type": "tool_result", "node_id": "tool1", "content": "hello", "timestamp": 2.0},
+            {"type": "think", "node_id": "llm1", "content": "answer", "timestamp": 3.0},
+        ]
+        nodes = {n["node_id"]: n for n in _daemon()._aggregate_run_spans(spans)["nodes"]}
+        assert nodes["tool1"]["input"] == '{"path": "/tmp/a.txt"}'
+        assert nodes["tool1"]["output"] == "hello"
+        assert nodes["tool1"]["tool_calls"] == 1
+        assert nodes["llm1"]["output"] == "answer"
+        assert nodes["tool1"]["events"] == 2
+        assert nodes["llm1"]["events"] == 1
+
+    def test_streaming_output_concatenated(self):
+        spans = [
+            {"type": "token", "node_id": "a", "content": "he", "timestamp": 1.0},
+            {"type": "token", "node_id": "a", "content": "llo", "timestamp": 2.0},
+        ]
+        node = _daemon()._aggregate_run_spans(spans)["nodes"][0]
+        assert node["output"] == "hello"
+
     def test_empty_spans_defaults(self):
         out = _daemon()._aggregate_run_spans([])
         assert out["nodes"] == []
@@ -238,7 +268,11 @@ class TestShellExtEndpoints:
             )
         )
         d._append_run_span("exec-events-1", "default", {"type": "token", "node_id": "n1"})
-        d._append_run_span("exec-events-1", "default", {"type": "tool_call", "node_id": "n1"})
+        d._append_run_span(
+            "exec-events-1",
+            "default",
+            {"type": "tool_call", "node_id": "n1", "args": {"q": "x"}, "content": "out"},
+        )
         d._append_run_span(
             "exec-events-1",
             "default",
@@ -253,6 +287,8 @@ class TestShellExtEndpoints:
         assert body["nodes"][0]["node_id"] == "n1"
         assert body["nodes"][0]["token_events"] == 1
         assert body["nodes"][0]["tool_calls"] == 1
+        assert body["nodes"][0]["input"] == '{"q": "x"}'
+        assert body["nodes"][0]["output"] == "out"
         assert body["stop_reason"] == "end"
 
 

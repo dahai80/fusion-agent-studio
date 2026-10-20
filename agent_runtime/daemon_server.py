@@ -2104,6 +2104,9 @@ class DaemonServer:
         # counted (per-token events), not stored.
         nodes: dict[str, dict] = {}
         run_start = 0.0
+        # #410: per-node I/O summaries for the waterfall inspector drawer.
+        # Best effort — structural events carry content (results/tool args);
+        # token frames are concatenated for streaming runs.
         run_end = 0.0
         stop_reason = ""
         run_status = ""
@@ -2130,8 +2133,12 @@ class DaemonServer:
                 "tool_calls": 0,
                 "token_events": 0,
                 "tokens": 0,
+                "input": "",
+                "output": "",
+                "events": 0,
                 "error": "",
             })
+            span["events"] += 1
             span["end"] = max(span["end"], ts)
             if ts and (not run_start or ts < run_start):
                 run_start = ts
@@ -2147,16 +2154,31 @@ class DaemonServer:
                         )
                     except (TypeError, ValueError):
                         pass
+            content = str(ev.get("content") or "")
             if etype == "tool_call":
                 span["tool_calls"] += 1
+                args = ev.get("args") or {}
+                if args:
+                    try:
+                        span["input"] = json.dumps(args, ensure_ascii=False)[:4000]
+                    except (TypeError, ValueError):
+                        span["input"] = str(args)[:4000]
+                elif content:
+                    span["input"] = content[:4000]
+                if content:
+                    span["output"] = content[:8000]
             elif etype in ("token", "thinking_token"):
                 span["token_events"] += 1
                 span["tokens"] += 1
+                if content:
+                    span["output"] = (span["output"] + content)[:8000]
             elif etype == "error":
                 span["status"] = "failed"
-                span["error"] = str(ev.get("content") or "")[:500]
+                span["error"] = content[:500]
             elif etype == "retry":
                 span["status"] = "retrying"
+            elif content:
+                span["output"] = content[:8000]
         return {
             "nodes": list(nodes.values()),
             "run_status": run_status or "completed",
