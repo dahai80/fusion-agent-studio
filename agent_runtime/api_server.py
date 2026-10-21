@@ -953,6 +953,84 @@ async def v1_cancel_run(run_id: str):
     return {"run_id": run_id, "status": "canceled"}
 
 
+# #425: session management REST surface (list/messages/resume/fork/rename/inject).
+@app.get("/v1/sessions")
+async def v1_list_sessions(limit: int = 50, offset: int = 0, tag: str = ""):
+    return await _rpc("sessions.list", {"limit": limit, "offset": offset, "tag": tag})
+
+
+@app.get("/v1/sessions/{session_id}")
+async def v1_get_session(session_id: str):
+    res = await _rpc("sessions.get", {"session_id": session_id})
+    if isinstance(res, dict) and res.get("status") == "error":
+        raise_api_error(ErrorCode.AGENT_NOT_FOUND, param="session_id", detail=res.get("message", ""))
+    return res
+
+
+@app.get("/v1/sessions/{session_id}/messages")
+async def v1_get_session_messages(session_id: str, limit: int = 200):
+    res = await _rpc("sessions.messages", {"session_id": session_id, "limit": limit})
+    if isinstance(res, dict) and res.get("status") == "error":
+        raise_api_error(ErrorCode.AGENT_NOT_FOUND, param="session_id", detail=res.get("message", ""))
+    return res
+
+
+@app.post("/v1/sessions/{session_id}/resume", dependencies=[Depends(_require_auth_if_configured)])
+async def v1_resume_session(session_id: str, request: Request):
+    body = await request.json() if await request.body() else {}
+    res = await _rpc(
+        "sessions.resume",
+        {"session_id": session_id, "input": str(body.get("input", "") or "")},
+    )
+    if isinstance(res, dict) and res.get("status") == "error":
+        raise_api_error(ErrorCode.AGENT_NOT_FOUND, param="session_id", detail=res.get("message", ""))
+    logger.info("/v1/sessions/%s resumed -> %s", session_id, res.get("background_session_id"))
+    return res
+
+
+@app.post("/v1/sessions/{session_id}/fork", dependencies=[Depends(_require_auth_if_configured)])
+async def v1_fork_session(session_id: str, request: Request):
+    body = await request.json() if await request.body() else {}
+    res = await _rpc(
+        "sessions.fork",
+        {"session_id": session_id, "title": str(body.get("title", "") or "")},
+    )
+    if isinstance(res, dict) and res.get("status") == "error":
+        raise_api_error(ErrorCode.AGENT_NOT_FOUND, param="session_id", detail=res.get("message", ""))
+    logger.info("/v1/sessions/%s forked", session_id)
+    return res
+
+
+@app.patch("/v1/sessions/{session_id}", dependencies=[Depends(_require_auth_if_configured)])
+async def v1_rename_session(session_id: str, request: Request):
+    body = await request.json()
+    res = await _rpc(
+        "sessions.rename",
+        {
+            "session_id": session_id,
+            "title": body.get("title"),
+            "tag": body.get("tag"),
+            "summary": body.get("summary"),
+        },
+    )
+    if isinstance(res, dict) and res.get("status") == "error":
+        raise_api_error(ErrorCode.AGENT_NOT_FOUND, param="session_id", detail=res.get("message", ""))
+    return res
+
+
+@app.post("/v1/sessions/{session_id}/inject", dependencies=[Depends(_require_auth_if_configured)])
+async def v1_inject_session_input(session_id: str, request: Request):
+    body = await request.json()
+    res = await _rpc(
+        "sessions.inject_input",
+        {"session_id": session_id, "text": str(body.get("input", body.get("text", "")) or "")},
+    )
+    if isinstance(res, dict) and res.get("status") == "error":
+        raise_api_error(ErrorCode.INTERNAL_ERROR, detail=res.get("message", ""))
+    logger.info("/v1/sessions/%s injected pending=%s", session_id, res.get("pending"))
+    return res
+
+
 @app.get("/v1/runs")
 async def v1_list_runs(status: str = "", limit: int = 100, agent_id: str = ""):
     res = await _rpc("task.list", {"status": status, "agent_id": agent_id, "limit": limit})

@@ -1276,6 +1276,7 @@ class DaemonServer:
             PlannerDispatcher,
             PluginDispatcher,
             SafetyDispatcher,
+            SessionDispatcher,
             SkillsDispatcher,
             SubAgentDispatcher,
             TeamDispatcher,
@@ -1305,6 +1306,7 @@ class DaemonServer:
             TrainerDispatcher(self),
             SubAgentDispatcher(self),
             SkillsDispatcher(self),
+            SessionDispatcher(self),
         ]
 
     async def _handle_context_compact(self, params: dict) -> dict:
@@ -1879,6 +1881,33 @@ class DaemonServer:
         # 每个 asyncio task 唯一, 无碰撞.
         exec_key, _unregister = self.register_execution("graph", task_id or session_id)
         try:
+            # #426: file checkpoint — snapshot the working directory before the
+            # run so file edits can be rolled back. Opt-in per run
+            # (file_checkpoint=true) or globally (FUSION_FILE_CHECKPOINT=1).
+            file_snapshot_id = ""
+            want_fc = params.get("file_checkpoint")
+            if want_fc is None:
+                want_fc = os.environ.get("FUSION_FILE_CHECKPOINT", "").strip() in (
+                    "1",
+                    "true",
+                    "yes",
+                )
+            if want_fc:
+                try:
+                    from .file_checkpoint import FileCheckpointStore
+
+                    if getattr(self, "_file_checkpoints", None) is None:
+                        self._file_checkpoints = FileCheckpointStore()
+                    snap = self._file_checkpoints.snapshot(
+                        root=str(params.get("workspace") or os.getcwd()),
+                        run_id=exec_key,
+                        label=graph.name,
+                    )
+                    file_snapshot_id = snap["snapshot_id"]
+                except Exception as exc:
+                    logger.warning(
+                        "graph.execute %s file checkpoint failed: %s", graph_id, exc
+                    )
             initial_vars = params.get("variables", {})
             # 审计 P0-1/P1-1/P1-2: 构建 per-exec ctx, 变量+工具配置进 ctx 隔离, 不写 singleton.
             # 旧版 rt.variables.set 写 singleton VariableManager -> _seed_ctx_variables 快照
@@ -2053,6 +2082,7 @@ class DaemonServer:
                 "task_id": task_id,
                 "artifact_ids": artifact_ids,
                 "tool_errors": tool_errors,
+                "file_snapshot_id": file_snapshot_id,
             }
         finally:
             # 审计 E-14: 注销活跃执行, 无论成功/异常/取消.

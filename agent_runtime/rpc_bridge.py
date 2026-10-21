@@ -146,6 +146,20 @@ WEB_RPC_ALLOWLIST: frozenset[str] = frozenset(
         "subagent.tree",
         "subagent.transcript",
         "subagent.resume",
+        # #425/#427/#429: session management surface
+        "sessions.list",
+        "sessions.get",
+        "sessions.messages",
+        "sessions.rename",
+        "sessions.resume",
+        "sessions.fork",
+        "sessions.inject_input",
+        "sessions.store_info",
+        # #426: file checkpointing
+        "file_checkpoint.snapshot",
+        "file_checkpoint.list",
+        "file_checkpoint.rollback",
+        "file_checkpoint.delete",
         # dashboard / ops (read-only)
         "daemon.status",
         "dashboard.overview",
