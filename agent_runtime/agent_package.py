@@ -361,11 +361,15 @@ class AgentPackage:
         return False
 
     def get_system_prompt(self) -> str:
-        """Resolve the effective system prompt — soul.md takes precedence over manifest.system_prompt."""
+        """Resolve the effective system prompt — soul.md takes precedence over manifest.system_prompt.
+        Exception: a soul.md that is still the AUTO-CREATED placeholder
+        ("Define your agent's personality here.") must NOT override the
+        compiled prompt — it made every console-authored agent run with the
+        placeholder instead of its real instructions."""
         soul = self.load_soul().strip()
-        if soul:
-            return soul
         manifest = self.load_manifest()
+        if soul and "Define your agent's personality here" not in soul:
+            return soul
         return manifest.system_prompt
 
     def to_graph_config(self) -> dict[str, Any]:

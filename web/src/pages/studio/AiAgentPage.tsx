@@ -40,6 +40,25 @@ interface ChatMessage {
     content: string;
 }
 
+// #430: markdown skill package slash commands with schema-driven forms.
+interface SkillParamSpec {
+    type?: string;
+    description?: string;
+    enum?: unknown[];
+    default?: unknown;
+}
+
+interface SkillCommandRow {
+    command: string;
+    name: string;
+    description?: string;
+    parameters?: {
+        type?: string;
+        properties?: Record<string, SkillParamSpec>;
+        required?: string[];
+    };
+}
+
 interface SseFrame {
     type?: string;
     token?: string;
@@ -77,17 +96,17 @@ export function AiAgentPage() {
     const { data, error, loading, attempt, manualRetry } = useAutoRetry(async () => {
         // #416: agent list plus mention sources. Mentions degrade gracefully —
         // a failed source just drops out of the @ dropdown.
-        const [agents, skills, knowledge, graphs] = await Promise.all([
+        const [agents, commands, knowledge, graphs] = await Promise.all([
             rpc<{ agents: AgentRow[] }>('agent.list', {}),
-            rpc<{ skills?: Array<{ name?: string }> }>('skills.list', {}).catch(
-                () => ({}) as { skills?: Array<{ name?: string }> }
+            rpc<{ commands?: SkillCommandRow[] }>('skills.commands', {}).catch(
+                () => ({}) as { commands?: SkillCommandRow[] }
             ),
             rpc<{ entries?: Array<{ id?: string; content?: string }> }>('knowledge.list', {}).catch(
                 () => ({}) as { entries?: Array<{ id?: string; content?: string }> }
             ),
             api.graphs().catch(() => null),
         ]);
-        return { agents: agents.agents ?? [], skills, knowledge, graphs };
+        return { agents: agents.agents ?? [], commands, knowledge, graphs };
     }, []);
     const [tab, setTab] = useState('chat');
     // #416: forkable sessions — index 0 is the root conversation, fork
@@ -138,10 +157,7 @@ export function AiAgentPage() {
         }
         return items;
     }, [data, agents]);
-    const skillNames = useMemo(
-        () => (data?.skills?.skills ?? []).map((s) => s.name ?? '').filter(Boolean),
-        [data]
-    );
+    const commands = useMemo(() => data?.commands?.commands ?? [], [data]);
 
     // #416: trailing @ref / /skill token in the input drives the dropdown.
     const mention = useMemo(() => {
@@ -157,8 +173,10 @@ export function AiAgentPage() {
             : [];
     const skillMatches =
         mention?.sig === '/'
-            ? skillNames
-                  .filter((n) => n.toLowerCase().includes(mention.frag.toLowerCase()))
+            ? commands
+                  .filter((c) =>
+                      `${c.name} ${c.command}`.toLowerCase().includes(mention.frag.toLowerCase())
+                  )
                   .slice(0, 6)
             : [];
     const insertMention = (label: string) => {
@@ -168,6 +186,45 @@ export function AiAgentPage() {
                 (_s, pre: string, sig: string) => `${pre}${sig}${label} `
             )
         );
+    };
+
+    // #430: selecting a slash command opens its schema-driven form; submit
+    // renders the skill prompt via skills.invoke then streams it with the
+    // selected agent (end-to-end local execution).
+    const [skillForm, setSkillForm] = useState<SkillCommandRow | null>(null);
+    const [skillValues, setSkillValues] = useState<Record<string, string>>({});
+    const [skillErrors, setSkillErrors] = useState<string[]>([]);
+
+    const openSkill = (row: SkillCommandRow) => {
+        const initial: Record<string, string> = {};
+        for (const [key, spec] of Object.entries(row.parameters?.properties ?? {})) {
+            initial[key] = spec.default === undefined ? '' : String(spec.default);
+        }
+        setSkillForm(row);
+        setSkillValues(initial);
+        setSkillErrors([]);
+        setInput((prev) => prev.replace(/(^|\s)\/([^\s@/]*)$/, '$1'));
+    };
+
+    const runSkill = async () => {
+        if (!skillForm) return;
+        try {
+            const res = await rpc<{
+                status?: string;
+                prompt?: string;
+                errors?: string[];
+                message?: string;
+            }>('skills.invoke', { name: skillForm.name, params: skillValues });
+            if (res.status === 'error' || !res.prompt) {
+                setSkillErrors(res.errors?.length ? res.errors : [res.message ?? 'invoke failed']);
+                return;
+            }
+            setSkillForm(null);
+            setSkillErrors([]);
+            await doStream(res.prompt);
+        } catch (e) {
+            setSkillErrors([(e as Error).message]);
+        }
     };
 
     // biome-ignore lint/correctness/useExhaustiveDependencies: intentional: autoscroll on message/tab change
@@ -436,17 +493,117 @@ export function AiAgentPage() {
                             <div className="flex flex-wrap gap-1 rounded-md border border-border bg-bg-elevated p-1.5 shadow-sm">
                                 {skillMatches.map((s) => (
                                     <button
-                                        key={s}
+                                        key={s.name}
                                         type="button"
-                                        onClick={() => insertMention(s)}
+                                        onClick={() => openSkill(s)}
                                         className="rounded bg-bg-muted px-2 py-1 text-xs text-text-secondary hover:text-text-primary"
                                     >
                                         <span className="mr-1 text-[10px] uppercase text-text-muted">
-                                            skill
+                                            {s.command}
                                         </span>
-                                        {s}
+                                        {s.name}
                                     </button>
                                 ))}
+                            </div>
+                        ) : null}
+                        {skillForm ? (
+                            <div className="rounded-md border border-border bg-bg-elevated p-3">
+                                <div className="mb-2 flex items-center gap-2 text-xs">
+                                    <span className="font-mono text-brand">
+                                        {skillForm.command}
+                                    </span>
+                                    <span className="text-text-secondary">
+                                        {skillForm.description ?? skillForm.name}
+                                    </span>
+                                </div>
+                                {(skillForm.parameters?.properties ?? {}) &&
+                                Object.keys(skillForm.parameters?.properties ?? {}).length > 0 ? (
+                                    <div className="flex flex-col gap-2">
+                                        {Object.entries(skillForm.parameters?.properties ?? {}).map(
+                                            ([key, spec]) => {
+                                                const required = (
+                                                    skillForm.parameters?.required ?? []
+                                                ).includes(key);
+                                                const value = skillValues[key] ?? '';
+                                                return (
+                                                    <div
+                                                        key={key}
+                                                        className="flex flex-col gap-1 text-xs"
+                                                    >
+                                                        <span className="text-text-secondary">
+                                                            {spec.description ?? key}
+                                                            {required ? ' *' : ''}
+                                                        </span>
+                                                        {Array.isArray(spec.enum) ? (
+                                                            <select
+                                                                aria-label={spec.description ?? key}
+                                                                value={value}
+                                                                onChange={(e) =>
+                                                                    setSkillValues((prev) => ({
+                                                                        ...prev,
+                                                                        [key]: e.target.value,
+                                                                    }))
+                                                                }
+                                                                className="rounded-md border border-border bg-bg px-2 py-1"
+                                                            >
+                                                                <option value="">—</option>
+                                                                {spec.enum.map((opt) => (
+                                                                    <option
+                                                                        key={String(opt)}
+                                                                        value={String(opt)}
+                                                                    >
+                                                                        {String(opt)}
+                                                                    </option>
+                                                                ))}
+                                                            </select>
+                                                        ) : (
+                                                            <input
+                                                                aria-label={spec.description ?? key}
+                                                                value={value}
+                                                                onChange={(e) =>
+                                                                    setSkillValues((prev) => ({
+                                                                        ...prev,
+                                                                        [key]: e.target.value,
+                                                                    }))
+                                                                }
+                                                                className="rounded-md border border-border bg-bg px-2 py-1"
+                                                            />
+                                                        )}
+                                                    </div>
+                                                );
+                                            }
+                                        )}
+                                    </div>
+                                ) : (
+                                    <div className="text-xs text-text-muted">
+                                        {t('该技能无需参数', 'this skill takes no parameters')}
+                                    </div>
+                                )}
+                                {skillErrors.length > 0 ? (
+                                    <div className="mt-2 text-xs text-error">
+                                        {skillErrors.join('; ')}
+                                    </div>
+                                ) : null}
+                                <div className="mt-3 flex gap-2">
+                                    <button
+                                        type="button"
+                                        onClick={runSkill}
+                                        disabled={streaming}
+                                        className="rounded-md bg-brand px-3 py-1.5 text-xs text-white hover:opacity-90 disabled:opacity-50"
+                                    >
+                                        {t('运行技能', 'Run skill')}
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            setSkillForm(null);
+                                            setSkillErrors([]);
+                                        }}
+                                        className="rounded-md border border-border px-3 py-1.5 text-xs text-text-secondary hover:text-text-primary"
+                                    >
+                                        {t('取消', 'Cancel')}
+                                    </button>
+                                </div>
                             </div>
                         ) : null}
                         <Textarea

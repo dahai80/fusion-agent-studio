@@ -113,6 +113,15 @@ class _NodeExecutorsMixin:
                 "LLM node %s disable_tools=True, tool injection skipped",
                 node.label,
             )
+        # Agent tool-surface narrowing: an agent graph's LLM node may declare
+        # `tools_allowlist` (tool_params) — without it the model sees the WHOLE
+        # runtime registry (60+ tools), which drowns small models.
+        allowlist = (node.tool_params or {}).get("tools_allowlist")
+        if allowlist:
+            want = set(allowlist)
+            tools_schema = [
+                t for t in (tools_schema or [])
+                if t.get("function", {}).get("name") in want]
 
         node_prompt = node.system_prompt or system_prompt
         if node_prompt:

@@ -16,7 +16,7 @@ from .base import SubDispatcher
 logger = logging.getLogger(__name__)
 
 # P3 capability-tool loop: bridge-backed tools registered per agent
-from ..capability_tools import sync_agent_tools
+from ..capability_tools import bridge_tool_name, sync_agent_tools
 
 
 def _manifest_model_id(manifest) -> str:
@@ -90,6 +90,14 @@ async def build_agent_adhoc_graph(daemon, agent_id: str, input_text: str):
         label="Agent LLM",
         model=model_id,
         system_prompt=effective_prompt,
+        tool_params={"tools_allowlist": [
+            bridge_tool_name(agent_id, t)
+            for t in _manifest_tool_names(manifest)]},
+        # Native agent loop: after tool results the runtime feeds them back
+        # to the LLM (runtime.py loop_mode=="agent") — without this the
+        # graph ended at TOOL_RESULT and the user never got the answer.
+        loop_mode="agent",
+        max_loop_iterations=8,
     )
     graph.add_node(start_id, start_node)
     graph.add_node(llm_id, llm_node)
@@ -520,6 +528,12 @@ class AgentDispatcher(SubDispatcher):
             label="Agent LLM",
             model=_manifest_model_id(manifest),
             system_prompt=effective_prompt,
+            tool_params={"tools_allowlist": [
+                bridge_tool_name(agent_id, t)
+                for t in _manifest_tool_names(manifest)]},
+            # Native agent loop (see module-level builder note).
+            loop_mode="agent",
+            max_loop_iterations=8,
         )
         graph.add_node(start_id, start_node)
         graph.add_node(llm_id, llm_node)

@@ -58,6 +58,8 @@ WEB_RPC_ALLOWLIST: frozenset[str] = frozenset(
     "skills.load",
     "skills.install",
     "skills.delete",
+    "skills.commands",
+    "skills.invoke",
         # #416: composer @ mentions surface knowledge entries
         "knowledge.list",
         "research.adaptive",
@@ -185,6 +187,11 @@ WEB_RPC_ALLOWLIST: frozenset[str] = frozenset(
         "marketplace.unpublish",
         "marketplace.install",
         "marketplace.uninstall",
+        # full-bundle packages (#431)
+        "bundle.install",
+        "bundle.uninstall",
+        "bundle.list",
+        "bundle.get",
         # chat sessions + styles
         "chat.create",
         "chat.get",

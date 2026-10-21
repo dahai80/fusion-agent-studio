@@ -5,6 +5,7 @@
     "": {
       "name": "fusion-agent-studio-web",
       "dependencies": {
+        "@fusion/agent-studio-sdk": "file:../sdk/typescript",
         "@fusion/web-sdk": "file:vendor/@fusion/web-sdk",
         "@fusion/web-ui": "file:vendor/@fusion/web-ui",
         "@xyflow/react": "^12.12.0",
@@ -129,6 +130,8 @@
     "@esbuild/win32-ia32": ["@esbuild/win32-ia32@0.21.5", "https://registry.npmmirror.com/@esbuild/win32-ia32/-/win32-ia32-0.21.5.tgz", { "os": "win32", "cpu": "ia32" }, "sha512-SWXFF1CL2RVNMaVs+BBClwtfZSvDgtL//G/smwAc5oVK/UPu2Gu9tIaRgFmYFFKrmg3SyAjSrElf0TiJ1v8fYA=="],
 
     "@esbuild/win32-x64": ["@esbuild/win32-x64@0.21.5", "https://registry.npmmirror.com/@esbuild/win32-x64/-/win32-x64-0.21.5.tgz", { "os": "win32", "cpu": "x64" }, "sha512-tQd/1efJuzPC6rCFwEvLtci/xNFcTZknmXs98FYDfGE4wP9ClFV98nyKrzJKVPMhdDnjzLhdUyMX4PsQAPjwIw=="],
+
+    "@fusion/agent-studio-sdk": ["@fusion/agent-studio-sdk@file:../sdk/typescript", { "devDependencies": { "@types/bun": "^1.1.14", "typescript": "^5.6.3" } }],
 
     "@fusion/web-sdk": ["@fusion/web-sdk@file:vendor/@fusion/web-sdk", { "devDependencies": { "typescript": "^5.6.3" } }],
 

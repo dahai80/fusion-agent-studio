@@ -114,6 +114,8 @@ _TASK_COLUMNS = [
     "team",
     # M3-2 issue#324: 看板任务依赖. JSON list of task_ids this task waits on.
     "depends_on",
+    # #432: 运行沙箱 (local / multi-node:<node_id>).
+    "sandbox",
 ]
 
 
@@ -165,6 +167,9 @@ class Task:
     team: str = "default"
     # M3-2 issue#324: 看板任务依赖. task_ids this task waits on (空=无依赖=current behavior).
     depends_on: list[str] = field(default_factory=list)
+    # #432: 运行沙箱选择 — "local" (daemon 本地执行) 或 "multi-node:<node_id>"
+    # (委派给 fusion-multi-node 集群路由执行).
+    sandbox: str = "local"
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -198,6 +203,7 @@ class Task:
             "evidence_ref": self.evidence_ref,
             "team": self.team,
             "depends_on": list(self.depends_on),
+            "sandbox": self.sandbox,
         }
 
     @classmethod
@@ -255,6 +261,7 @@ class Task:
             evidence_ref=row[27] if len(row) > 27 and row[27] else "",
             team=row[28] if len(row) > 28 and row[28] else "default",
             depends_on=_parse_depends_on(row[29] if len(row) > 29 and row[29] else "[]"),
+            sandbox=row[30] if len(row) > 30 and row[30] else "local",
         )
 
 
@@ -331,6 +338,7 @@ class TaskStore:
             self._migration_v2_idempotency_key,
             self._migration_v3_team_state,
             self._migration_v4_depends_on,
+            self._migration_v5_sandbox,
         ]
         current = conn.execute("PRAGMA user_version").fetchone()[0]
         for idx, migrate in enumerate(migrations, start=1):
@@ -429,6 +437,13 @@ class TaskStore:
             "WHERE depends_on != '[]'"
         )
 
+    def _migration_v5_sandbox(self, conn) -> None:
+        # #432: fusion-agent CLI 沙箱选择. 幂等: 探列存在再 ALTER.
+        cols = {row[1] for row in conn.execute("PRAGMA table_info(tasks)").fetchall()}
+        if "sandbox" not in cols:
+            conn.execute("ALTER TABLE tasks ADD COLUMN sandbox TEXT DEFAULT 'local'")
+            logger.info("Migrated tasks table: added sandbox column")
+
     def _load_tasks(self) -> None:
         if not self._conn:
             return
@@ -473,8 +488,8 @@ class TaskStore:
                     project_id, artifact_ids, last_result, last_error, retry_count, max_retries,
                     created_at, updated_at, last_run_at, idempotency_key,
                     review_state, attempt_token, owner_role, owner_agent,
-                    resource_lease_id, evidence_ref, team, depends_on)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    resource_lease_id, evidence_ref, team, depends_on, sandbox)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     task.task_id,
                     task.title,
@@ -506,6 +521,7 @@ class TaskStore:
                     task.evidence_ref,
                     task.team,
                     json.dumps(task.depends_on, ensure_ascii=False),
+                    task.sandbox or "local",
                 ),
             )
             self._conn.commit()

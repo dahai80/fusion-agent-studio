@@ -3,6 +3,7 @@
 from .agent import AgentDispatcher
 from .artifact import ArtifactDispatcher
 from .base import SubDispatcher
+from .bundle import BundleDispatcher
 from .chat import ChatDispatcher
 from .deploy import DeployDispatcher
 from .infra import InfraDispatcher
@@ -40,4 +41,5 @@ __all__ = [
     "SubAgentDispatcher",
     "SkillsDispatcher",
     "SessionDispatcher",
+    "BundleDispatcher",
 ]

@@ -17,6 +17,8 @@ class SkillsDispatcher(SubDispatcher):
             "skills.load": self._handle_load,
             "skills.install": self._handle_install,
             "skills.delete": self._handle_delete,
+            "skills.commands": self._handle_commands,
+            "skills.invoke": self._handle_invoke,
         }
 
     def _store(self):
@@ -24,9 +26,27 @@ class SkillsDispatcher(SubDispatcher):
 
         cached = getattr(self._daemon, "_skills_store", None)
         if cached is None:
-            cached = SkillsStore()
+            cached = SkillsStore.with_project_dirs()
             self._daemon._skills_store = cached
         return cached
+
+    async def _handle_commands(self, params: dict) -> dict:
+        commands = self._store().commands()
+        logger.info("skills.commands count=%d", len(commands))
+        return {"status": "ok", "commands": commands}
+
+    async def _handle_invoke(self, params: dict) -> dict:
+        name = str(params.get("name", "") or "")
+        if not name:
+            return {"status": "error", "message": "name required"}
+        values = params.get("params") or params.get("arguments") or {}
+        if not isinstance(values, dict):
+            return {"status": "error", "message": "params must be an object"}
+        result = self._store().invoke_skill(name, values)
+        if not result.get("ok"):
+            return {"status": "error", **{k: v for k, v in result.items() if k != "ok"}}
+        logger.info("skills.invoke name=%s prompt_len=%d", name, len(result.get("prompt", "")))
+        return {"status": "ok", **{k: v for k, v in result.items() if k != "ok"}}
 
     def _plane(self):
         getter = getattr(self._daemon, "_get_protocol_plane", None)

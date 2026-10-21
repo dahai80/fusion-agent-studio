@@ -295,6 +295,20 @@ class DaemonServer:
         except Exception as e:
             logger.warning("agent definition startup load failed: %s", e)
 
+        # #430: auto-load markdown skill packages (user tier + project tier).
+        try:
+            from .skills_store import SkillsStore
+
+            self._skills_store = SkillsStore.with_project_dirs()
+            skills = self._skills_store.list_skills()
+            logger.info(
+                "skill packages auto-loaded count=%d dirs=%s",
+                len(skills),
+                [str(d) for d in self._skills_store.search_dirs()],
+            )
+        except Exception as e:
+            logger.warning("skill package auto-load failed: %s", e)
+
     def __getattr__(self, name: str):
         if name.startswith("_handle_"):
             for sd in self.__dict__.get("_sub_dispatchers", []):
@@ -1266,6 +1280,7 @@ class DaemonServer:
         from .dispatchers import (
             AgentDispatcher,
             ArtifactDispatcher,
+            BundleDispatcher,
             ChatDispatcher,
             DeployDispatcher,
             InfraDispatcher,
@@ -1307,6 +1322,7 @@ class DaemonServer:
             SubAgentDispatcher(self),
             SkillsDispatcher(self),
             SessionDispatcher(self),
+            BundleDispatcher(self),
         ]
 
     async def _handle_context_compact(self, params: dict) -> dict:

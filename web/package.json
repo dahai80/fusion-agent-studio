@@ -11,6 +11,7 @@
         "preview": "vite preview --port 11460"
     },
     "dependencies": {
+        "@fusion/agent-studio-sdk": "file:../sdk/typescript",
         "@fusion/web-sdk": "file:vendor/@fusion/web-sdk",
         "@fusion/web-ui": "file:vendor/@fusion/web-ui",
         "@xyflow/react": "^12.12.0",
