@@ -123,7 +123,11 @@ class ConnectorManager:
         return cfg.to_dict()
 
     def create(
-        self, name: str, conn_type: str, auth_config: dict[str, Any]
+        self,
+        name: str,
+        conn_type: str,
+        auth_config: dict[str, Any],
+        connector_id: str = "",
     ) -> dict[str, Any]:
         import uuid
 
@@ -132,7 +136,14 @@ class ConnectorManager:
                 "status": "error",
                 "message": f"Invalid connector type: {conn_type}. Valid: {VALID_TYPES}",
             }
-        conn_id = uuid.uuid4().hex[:12]
+        # #431: bundle installs carry a stable facet id; console-created
+        # connectors keep the generated one.
+        conn_id = connector_id or uuid.uuid4().hex[:12]
+        if conn_id in self._connectors:
+            return {
+                "status": "error",
+                "message": f"Connector already exists: {conn_id}",
+            }
         now = time.time()
         cfg = ConnectorConfig(
             id=conn_id,

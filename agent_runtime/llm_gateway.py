@@ -363,6 +363,13 @@ class LLMGateway:
         **kwargs,
     ) -> GatewayResponse:
         """Primary LLM call interface — drop-in replacement for FusionMLXClient.chat().
+        # DEBUG: capture the ACTUAL request reaching the gateway (agent tool
+        # contract investigation — remove once the knowledge tool round-trips)
+        import logging as _lg
+        _lg.getLogger(__name__).info(
+            "gateway.chat model=%s tools=%s n_msgs=%s sys0=%r",
+            model, len(tools or []), len(messages),
+            str(messages[0].get("content", ""))[:120] if messages else "")
 
         Routes through the gateway with automatic fallback.
         Returns GatewayResponse (compatible with LLMResponse).

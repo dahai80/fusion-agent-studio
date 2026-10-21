@@ -9,6 +9,7 @@ dist/
 !web/dist/
 build/
 .venv/
+node_modules/
 .claude/
 langflow/
 openworker/

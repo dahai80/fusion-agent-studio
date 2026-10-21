@@ -6,7 +6,7 @@
 
 Run, build, and orchestrate AI agents entirely on your Mac — no cloud, no API fees, no data leaving your device.
 
-[![Version](https://img.shields.io/badge/v0.12.5-blue.svg)]()
+[![Version](https://img.shields.io/badge/v0.13.0-blue.svg)]()
 [![Python](https://img.shields.io/badge/Python-3.11+-3776AB.svg)](https://www.python.org/)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 [![Tests](https://img.shields.io/badge/Tests-3135-success.svg)](tests/)
@@ -353,6 +353,21 @@ Audit `audit/fusion-agent-studio-vs-langflow-audit-1020.md` closed end-to-end; s
 ### Capability Tool Schema Fix (v0.12.4)
 - ✅ **schema-level required params** — registry capability specs declare required arguments as a JSON-Schema array (`"required": ["query"]`); the bridge-tool sync only read per-property `required: true`, so array-form specs registered a tool with an empty `properties` map and the model could not call it. Both forms are now unioned. Covered by `tests/test_capability_tool_schema.py` (3).
 - ✅ **adhoc graph contract** — agent ad-hoc graphs no longer chain static capability tool nodes (they executed unconditionally with empty params); the LLM node receives the registered bridge tools through its schema and calls them with real arguments. The shape test now asserts `start -> llm`.
+
+### Agent SDK Parity (v0.13.0) — #421-#434
+- ✅ **declarative subagents (#421)** — `AgentDefinition` dataclass + markdown frontmatter (`description`, `prompt`, `tools`, `disallowedTools`, `model`, `effort`, `memory`, `mcpServers`, `skills`, `maxTurns`, `background`, `permissionMode`). Project `.claude/agents/*.md` overrides the user tier; definitions register programmatically via `team` RPC and appear in the roster.
+- ✅ **tool allow/deny (#422)** — excluded tools are removed from the subagent's schema (no prompts, no call-time denial). Supports glob and MCP patterns (`mcp__server`, `mcp__server__*`).
+- ✅ **subagent lifecycle (#423/#424)** — independent JSONL transcripts with stable `agentId`, resume from full history, `partial` marking at the turn limit, async-by-default spawns with status/tree listing and cancellation.
+- ✅ **session surface (#425)** — `GET /v1/sessions`, `/messages`, `resume`, `fork`, `PATCH` rename/tag/summary, all backed by a pluggable `SessionStore` (#429: SQLite default + file backend for cross-host resume).
+- ✅ **file checkpointing (#426)** — per-run workspace snapshots with named checkpoints and rollback; forking branches conversation, rollback branches files.
+- ✅ **live injection (#427)** — `sessions.inject_input` / `POST /v1/sessions/{id}/inject` queues a user turn consumed at the next boundary.
+- ✅ **per-subagent compaction + effort (#428)** — `autoCompactWindow` and `effort` ride the definition into the LLM request; global defaults are untouched.
+- ✅ **markdown skill packages (#430)** — `SKILL.md` + frontmatter (`command`, `parameters`, `output-template`), auto-loaded from `~/.fusion-agent-studio/skills` and project dirs, slash-command forms in the Composer, `skills.commands` / `skills.invoke`.
+- ✅ **full-bundle packages (#431)** — one manifest installs agents, graphs, skills, hooks, connectors and MCP servers; credentials are `env:`/`keychain:` references only; any facet failure rolls the whole install back; uninstall removes every facet.
+- ✅ **fusion-agent CLI (#432)** — `submit / attach / resume / fork / inject / list / show / cancel` over REST+SSE, with `--sandbox local|multi-node:<node>`. Multi-node runs are delegated to the cluster router and fail loudly when it is unreachable.
+- ✅ **TypeScript SDK (#433)** — `sdk/typescript` (`@fusion/agent-studio-sdk`): typed agents/graphs/runs/sessions, SSE async iterators, API-key auth, retries/timeouts, injectable transports. `web/src/api.ts` now uses it instead of a hand-rolled fetch layer.
+- ✅ **subagent memory scopes (#434)** — `memory: user|project|local` injects scoped memories before the run and commits durable outcomes after it; `memory: off` disables traffic.
+- Tests: `tests/test_issue_421_subagent_definitions.py`, `test_issue_423_subagent_lifecycle.py`, `test_issue_425_session_surface.py`, `test_issue_430_skills_commands.py`, `test_issue_431_bundle_packages.py`, `test_issue_432_cli.py`, plus `sdk/typescript/tests/client.test.ts`. Guide: `docs/guides/13-cli-and-sdk.md`.
 
 ### Integration
 - ✅ **fusion-mlx** — Apple Silicon optimized model serving

@@ -840,6 +840,13 @@ async def v1_submit_run(request: Request):
     graph_id = str(body.get("graph_id", "") or "")
     title = str(body.get("title", "") or goal[:80])
     idempotency_key = str(body.get("idempotency_key", "") or "")
+    # #432: sandbox selection — local (default) or multi-node:<node_id>.
+    from agent_runtime.sandbox_router import delegate_run, parse_sandbox
+
+    try:
+        sandbox = parse_sandbox(str(body.get("sandbox", "") or ""))
+    except ValueError as e:
+        raise_api_error(ErrorCode.PARAM_FORMAT_ERROR, param="sandbox", detail=str(e))
     # Submit a task record (immediate trigger). The task store owns the run_id.
     submit_params = {
         "title": title,
@@ -850,6 +857,7 @@ async def v1_submit_run(request: Request):
         "input": goal,
         "status": "pending",
         "idempotency_key": idempotency_key,
+        "sandbox": sandbox.raw,
     }
     # constraints -> task priority + max_retries (best-effort passthrough).
     if isinstance(constraints, dict):
@@ -860,7 +868,40 @@ async def v1_submit_run(request: Request):
     res = await _rpc("task.submit", submit_params)
     task = res.get("task", {}) if isinstance(res, dict) else {}
     run_id = task.get("task_id", "")
-    logger.info("/v1/runs submitted run_id=%s goal=%r timeout=%s", run_id, goal[:60], timeout)
+    logger.info(
+        "/v1/runs submitted run_id=%s goal=%r timeout=%s sandbox=%s",
+        run_id,
+        goal[:60],
+        timeout,
+        sandbox.raw,
+    )
+    if not sandbox.is_local and run_id:
+        delegation = await delegate_run(sandbox, run_id, agent_id, graph_id, goal)
+        if not delegation.get("ok"):
+            await _rpc(
+                "task.status",
+                {
+                    "task_id": run_id,
+                    "status": "failed",
+                    "last_error": delegation.get("error", "multi-node delegation failed"),
+                },
+            )
+            raise_api_error(
+                ErrorCode.INTERNAL_ERROR,
+                detail=delegation.get("error", "multi-node delegation failed"),
+            )
+        logger.info(
+            "/v1/runs %s delegated to cluster node=%s cluster_task=%s",
+            run_id,
+            sandbox.node,
+            delegation.get("cluster_task_id", ""),
+        )
+        return {
+            "run_id": run_id,
+            "status": "running",
+            "deduped": res.get("deduped", False),
+            "sandbox": delegation,
+        }
     # If a graph_id is bound, kick off execution immediately so the run
     # progresses without waiting for a separate cron tick. execute_async
     # backgrounds the graph run (evidence jsonl + task writeback) and returns
@@ -941,6 +982,52 @@ async def api_v1_get_run_events(run_id: str):
     return await v1_get_run_events(run_id)
 
 
+# #432: run event stream for the fusion-agent CLI — SSE tail of a run's
+# structural spans + lifecycle status. Token deltas stay on the graph/agent
+# SSE endpoints; this stream is what an operator attaches to after submit.
+@app.get("/v1/runs/{run_id}/stream", dependencies=[Depends(_require_auth_qs_or_raise)])
+async def v1_stream_run(run_id: str, timeout: float = 1800, interval: float = 0.5):
+    import asyncio
+
+    terminal = {"completed", "failed", "canceled"}
+
+    async def event_generator():
+        seen_nodes: set[str] = set()
+        last_status = ""
+        deadline = asyncio.get_event_loop().time() + max(timeout, 1.0)
+        while True:
+            res = await _rpc("task.get", {"task_id": run_id})
+            task = res.get("task") if isinstance(res, dict) else None
+            if not task:
+                yield f"data: {json.dumps({'type': 'error', 'message': f'run not found: {run_id}'})}\n\n"
+                return
+            status = str(task.get("status", ""))
+            if status != last_status:
+                last_status = status
+                yield f"data: {json.dumps({'type': 'status', 'run_id': run_id, 'status': status})}\n\n"
+            ev = await _rpc("task.events", {"task_id": run_id})
+            spans = (ev.get("spans") or {}) if isinstance(ev, dict) else {}
+            for node in spans.get("nodes") or []:
+                key = str(node.get("node_id", "")) + ":" + str(node.get("type", ""))
+                if key in seen_nodes:
+                    continue
+                seen_nodes.add(key)
+                yield f"data: {json.dumps({'type': 'span', 'run_id': run_id, 'span': node}, ensure_ascii=False)}\n\n"
+            if status in terminal:
+                yield f"data: {json.dumps({'type': 'done', 'run_id': run_id, 'status': status})}\n\n"
+                return
+            if asyncio.get_event_loop().time() > deadline:
+                yield f"data: {json.dumps({'type': 'timeout', 'run_id': run_id, 'status': status})}\n\n"
+                return
+            await asyncio.sleep(max(interval, 0.1))
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
 @app.post("/v1/runs/{run_id}/cancel", dependencies=[Depends(_require_auth_if_configured)])
 async def v1_cancel_run(run_id: str):
     res = await _rpc("task.cancel", {"task_id": run_id})
@@ -951,6 +1038,84 @@ async def v1_cancel_run(run_id: str):
         )
     logger.info("/v1/runs canceled run_id=%s", run_id)
     return {"run_id": run_id, "status": "canceled"}
+
+
+# #425: session management REST surface (list/messages/resume/fork/rename/inject).
+@app.get("/v1/sessions")
+async def v1_list_sessions(limit: int = 50, offset: int = 0, tag: str = ""):
+    return await _rpc("sessions.list", {"limit": limit, "offset": offset, "tag": tag})
+
+
+@app.get("/v1/sessions/{session_id}")
+async def v1_get_session(session_id: str):
+    res = await _rpc("sessions.get", {"session_id": session_id})
+    if isinstance(res, dict) and res.get("status") == "error":
+        raise_api_error(ErrorCode.AGENT_NOT_FOUND, param="session_id", detail=res.get("message", ""))
+    return res
+
+
+@app.get("/v1/sessions/{session_id}/messages")
+async def v1_get_session_messages(session_id: str, limit: int = 200):
+    res = await _rpc("sessions.messages", {"session_id": session_id, "limit": limit})
+    if isinstance(res, dict) and res.get("status") == "error":
+        raise_api_error(ErrorCode.AGENT_NOT_FOUND, param="session_id", detail=res.get("message", ""))
+    return res
+
+
+@app.post("/v1/sessions/{session_id}/resume", dependencies=[Depends(_require_auth_if_configured)])
+async def v1_resume_session(session_id: str, request: Request):
+    body = await request.json() if await request.body() else {}
+    res = await _rpc(
+        "sessions.resume",
+        {"session_id": session_id, "input": str(body.get("input", "") or "")},
+    )
+    if isinstance(res, dict) and res.get("status") == "error":
+        raise_api_error(ErrorCode.AGENT_NOT_FOUND, param="session_id", detail=res.get("message", ""))
+    logger.info("/v1/sessions/%s resumed -> %s", session_id, res.get("background_session_id"))
+    return res
+
+
+@app.post("/v1/sessions/{session_id}/fork", dependencies=[Depends(_require_auth_if_configured)])
+async def v1_fork_session(session_id: str, request: Request):
+    body = await request.json() if await request.body() else {}
+    res = await _rpc(
+        "sessions.fork",
+        {"session_id": session_id, "title": str(body.get("title", "") or "")},
+    )
+    if isinstance(res, dict) and res.get("status") == "error":
+        raise_api_error(ErrorCode.AGENT_NOT_FOUND, param="session_id", detail=res.get("message", ""))
+    logger.info("/v1/sessions/%s forked", session_id)
+    return res
+
+
+@app.patch("/v1/sessions/{session_id}", dependencies=[Depends(_require_auth_if_configured)])
+async def v1_rename_session(session_id: str, request: Request):
+    body = await request.json()
+    res = await _rpc(
+        "sessions.rename",
+        {
+            "session_id": session_id,
+            "title": body.get("title"),
+            "tag": body.get("tag"),
+            "summary": body.get("summary"),
+        },
+    )
+    if isinstance(res, dict) and res.get("status") == "error":
+        raise_api_error(ErrorCode.AGENT_NOT_FOUND, param="session_id", detail=res.get("message", ""))
+    return res
+
+
+@app.post("/v1/sessions/{session_id}/inject", dependencies=[Depends(_require_auth_if_configured)])
+async def v1_inject_session_input(session_id: str, request: Request):
+    body = await request.json()
+    res = await _rpc(
+        "sessions.inject_input",
+        {"session_id": session_id, "text": str(body.get("input", body.get("text", "")) or "")},
+    )
+    if isinstance(res, dict) and res.get("status") == "error":
+        raise_api_error(ErrorCode.INTERNAL_ERROR, detail=res.get("message", ""))
+    logger.info("/v1/sessions/%s injected pending=%s", session_id, res.get("pending"))
+    return res
 
 
 @app.get("/v1/runs")

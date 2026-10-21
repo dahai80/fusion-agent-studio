@@ -68,7 +68,30 @@ class TeamDispatcher(SubDispatcher):
         )
 
     async def _handle_team_roster_list(self, params: dict) -> dict:
-        return {"agents": self._roster().list(params.get("team", ""))}
+        agents = self._roster().list(params.get("team", ""))
+        # #421: file-based agent definitions appear in the team roster even
+        # when no durable roster row exists yet (spawnability preview).
+        known = {a.get("agent_id") for a in agents}
+        try:
+            from ..subagent_defs import get_definition_registry
+
+            for definition in get_definition_registry().list():
+                agent_id = f"def:{definition['name']}"
+                if agent_id in known:
+                    continue
+                agents.append(
+                    {
+                        "agent_id": agent_id,
+                        "name": definition.get("name", ""),
+                        "team": "",
+                        "capabilities": list(definition.get("tools") or []),
+                        "status": "defined",
+                        "source": definition.get("source", ""),
+                    }
+                )
+        except Exception as e:
+            logger.warning("roster definition merge failed: %s", e)
+        return {"agents": agents}
 
     async def _handle_team_roster_status(self, params: dict) -> dict:
         ok = self._roster().set_status(params.get("agent_id", ""), params.get("status", "idle"))

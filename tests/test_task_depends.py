@@ -178,7 +178,7 @@ class TestMigrationV4:
             cols = {row[1] for row in store._conn.execute("PRAGMA table_info(tasks)").fetchall()}
             assert "depends_on" in cols
             version = store._conn.execute("PRAGMA user_version").fetchone()[0]
-            assert version == 4
+            assert version == 5
         finally:
             os.unlink(path)
 

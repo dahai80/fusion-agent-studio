@@ -1,3 +1,4 @@
+import { AgentStudioClient } from '@fusion/agent-studio-sdk';
 import { sdk } from './sdk';
 
 // Typed client over the daemon HTTP surface (port 11442 direct, or through
@@ -97,17 +98,26 @@ export function apiBase(): string {
     return m ? m[1] : '';
 }
 
+const B = () => apiBase();
+
+// #433: REST calls go through @fusion/agent-studio-sdk; the host bridge
+// (sdk.http) is injected as the SDK transport so embedded mode still has the
+// gateway inject the module key. No hand-rolled fetch layer remains here.
+const rest = new AgentStudioClient({
+    baseUrl: apiBase(),
+    request: async (method, path, body) => {
+        const res = await sdk.http.request<unknown>(path, { method, body });
+        return res.data;
+    },
+});
+
 async function getJson<T>(path: string): Promise<T> {
-    const res = await sdk.http.get<T>(path);
-    return res.data;
+    return rest.request<T>('GET', path);
 }
 
 async function postJson<T>(path: string, body?: unknown): Promise<T> {
-    const res = await sdk.http.post<T>(path, body);
-    return res.data;
+    return rest.request<T>('POST', path, body);
 }
-
-const B = () => apiBase();
 
 // #330: allowlisted RPC bridge (POST /v1/rpc). Dispatcher handlers return
 // {"status":"error","message":...} with HTTP 200 — callers must check .status

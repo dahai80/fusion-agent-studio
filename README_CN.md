@@ -6,7 +6,7 @@
 
 在 Mac 上运行、构建和编排 AI 智能体 — 无需云服务、无需 API 费用、数据不出设备。
 
-[![Version](https://img.shields.io/badge/v0.12.5-blue.svg)]()
+[![Version](https://img.shields.io/badge/v0.13.0-blue.svg)]()
 [![Python](https://img.shields.io/badge/Python-3.11+-3776AB.svg)](https://www.python.org/)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 [![Tests](https://img.shields.io/badge/Tests-3135-success.svg)](tests/)
@@ -284,6 +284,21 @@ python my_agent.py
 ### 能力工具 Schema 修复 (v0.12.4)
 - ✅ **schema 级 required 参数** — 注册表能力声明的必填参数采用标准 JSON Schema 数组形式（`"required": ["query"]`），而桥接工具同步只读取逐属性的 `required: true`，导致数组形式的能力注册出空 `properties`，模型无法调用。现在两种形式取并集。覆盖：`tests/test_capability_tool_schema.py`（3 个）。
 - ✅ **临时图契约** — 智能体临时图不再串联静态能力工具节点（静态节点以空参数无条件执行）；LLM 节点通过 schema 拿到已注册的桥接工具，并用真实参数调用。形状测试改为断言 `start -> llm`。
+
+### Agent SDK 对标 (v0.13.0) — #421-#434
+- ✅ **声明式子代理 (#421)** — `AgentDefinition` + markdown frontmatter（`description`/`prompt`/`tools`/`disallowedTools`/`model`/`effort`/`memory`/`mcpServers`/`skills`/`maxTurns`/`background`/`permissionMode`）。项目级 `.claude/agents/*.md` 覆盖用户级；`team` RPC 可程序化注册并出现在 roster。
+- ✅ **工具允许/拒绝 (#422)** — 被排除的工具直接从子代理 schema 中消失（无提示、无调用期拒绝），支持 glob 与 MCP 模式（`mcp__server`、`mcp__server__*`）。
+- ✅ **子代理生命周期 (#423/#424)** — 独立 JSONL transcript + 稳定 `agentId`、按完整历史 resume、触达轮次上限标记 `partial`、默认异步 spawn + 状态树/取消。
+- ✅ **会话面 (#425)** — `GET /v1/sessions`、`/messages`、`resume`、`fork`、`PATCH` 重命名/标签/摘要；底层为可插拔 `SessionStore`（#429：默认 SQLite + 文件后端支持跨主机续跑）。
+- ✅ **文件检查点 (#426)** — 按 run 快照工作目录，支持命名检查点与整体/部分回滚；fork 分叉对话，rollback 分叉文件。
+- ✅ **实时注入 (#427)** — `sessions.inject_input` / `POST /v1/sessions/{id}/inject` 在下一 turn 边界消费用户输入。
+- ✅ **子代理级压缩窗口与推理强度 (#428)** — `autoCompactWindow` / `effort` 随定义透传到 LLM 请求，不影响全局默认。
+- ✅ **Markdown 技能包 (#430)** — `SKILL.md` + frontmatter（`command`/`parameters`/`output-template`），从 `~/.fusion-agent-studio/skills` 与项目目录自动加载，Composer 斜杠命令表单，`skills.commands` / `skills.invoke`。
+- ✅ **整包插件 (#431)** — 单个 manifest 安装 agents/graphs/skills/hooks/connectors/MCP；凭证只允许 `env:`/`keychain:` 引用；任一 facet 失败整包回滚；卸载清理全部注册。
+- ✅ **fusion-agent CLI (#432)** — `submit / attach / resume / fork / inject / list / show / cancel`（REST+SSE），`--sandbox local|multi-node:<node>`；多节点委派集群路由，不可达时显式失败不回落本地。
+- ✅ **TypeScript SDK (#433)** — `sdk/typescript`（`@fusion/agent-studio-sdk`）：类型化 agents/graphs/runs/sessions、SSE 异步迭代、API key 鉴权、重试/超时、可注入传输；`web/src/api.ts` 已改用它，删除手写 fetch 层。
+- ✅ **子代理记忆作用域 (#434)** — `memory: user|project|local` 在运行前注入对应作用域记忆、结束后回写持久知识；`off` 不产生记忆流量。
+- 测试：见英文 README 同名小节；指南：`docs/guides/13-cli-and-sdk.md`。
 
 ### 集成
 - ✅ **fusion-mlx** — Apple Silicon 优化模型服务

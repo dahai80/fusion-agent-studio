@@ -1,6 +1,6 @@
 [project]
 name = "fusion-agent-studio"
-version = "0.12.5"
+version = "0.13.0"
 description = "Fusion-MLX Agent Studio — Local Agent Development Platform for Apple Silicon"
 requires-python = ">=3.11"
 dependencies = [
@@ -13,6 +13,9 @@ dependencies = [
     "psutil>=5.9.0",
     "pyyaml>=6.0.0",
 ]
+
+[project.scripts]
+fusion-agent = "agent_runtime.cli:main"
 
 [project.optional-dependencies]
 # #271: multi-tenant identity (env-gated via FUSION_IDENTITY_ENABLED).

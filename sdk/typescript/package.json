@@ -1,0 +1,25 @@
+{
+    "name": "@fusion/agent-studio-sdk",
+    "version": "0.1.0",
+    "description": "TypeScript client for Fusion Agent Studio REST/SSE/JSON-RPC",
+    "license": "Apache-2.0",
+    "type": "module",
+    "main": "src/index.ts",
+    "types": "src/index.ts",
+    "exports": {
+        ".": "./src/index.ts"
+    },
+    "files": [
+        "src",
+        "README.md"
+    ],
+    "scripts": {
+        "typecheck": "tsc --noEmit",
+        "test": "bun test",
+        "build": "bun run typecheck && bun build src/index.ts --outdir dist --target node --format esm"
+    },
+    "devDependencies": {
+        "@types/bun": "^1.1.14",
+        "typescript": "^5.6.3"
+    }
+}

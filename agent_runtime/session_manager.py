@@ -32,6 +32,8 @@ class BackgroundSession:
     output: str = ""
     error: str = ""
     metadata: dict = field(default_factory=dict)
+    # #427: injected user turns consumed at the next turn boundary.
+    injected: list[str] = field(default_factory=list)
     _task: asyncio.Task | None = field(default=None, repr=False)
     _subscribers: list[asyncio.Queue] = field(default_factory=list, repr=False)
 
@@ -53,6 +55,7 @@ class BackgroundSession:
             "output": self.output[:500],
             "error": self.error,
             "metadata": self.metadata,
+            "injected_pending": len(self.injected),
         }
 
     @classmethod
@@ -68,6 +71,7 @@ class BackgroundSession:
             output=data.get("output", ""),
             error=data.get("error", ""),
             metadata=data.get("metadata", {}),
+            injected=list(data.get("injected", []) or []),
         )
 
 
@@ -225,15 +229,24 @@ class SessionManager:
                 ctx = AgentContext()
 
             events = []
-            async for event in self.runtime.execute_graph(graph, input_text, ctx):
-                ev_dict = event.to_dict()
-                bg.event_buffer.append(ev_dict)
-                events.append(event)
-                for q in bg._subscribers:
-                    try:
-                        q.put_nowait(ev_dict)
-                    except asyncio.QueueFull:
-                        pass
+            pending = [input_text]
+            while pending:
+                current = pending.pop(0)
+                async for event in self.runtime.execute_graph(graph, current, ctx):
+                    ev_dict = event.to_dict()
+                    bg.event_buffer.append(ev_dict)
+                    events.append(event)
+                    for q in bg._subscribers:
+                        try:
+                            q.put_nowait(ev_dict)
+                        except asyncio.QueueFull:
+                            pass
+                consumed, bg.injected = bg.injected, []
+                if consumed:
+                    logger.info(
+                        "injected turns consumed session=%s count=%d", bg.id, len(consumed)
+                    )
+                    pending.extend(consumed)
 
             output = ""
             for ev in reversed(events):
@@ -262,6 +275,27 @@ class SessionManager:
             bg.error = str(e)
             bg.finished_at = time.time()
             logger.exception("Background session %s failed", bg.id)
+
+    def inject_input(self, session_id: str, text: str) -> dict:
+        bg = self._sessions.get(session_id)
+        if bg is None:
+            logger.warning("inject_input: background session not found id=%s", session_id)
+            return {"ok": False, "error": f"Session not found: {session_id}"}
+        if not text:
+            return {"ok": False, "error": "text required"}
+        if bg.status in (SessionStatus.COMPLETED, SessionStatus.FAILED, SessionStatus.KILLED):
+            logger.warning(
+                "inject_input: session %s already %s, rejected", session_id, bg.status.value
+            )
+            return {"ok": False, "error": f"Session {session_id} is {bg.status.value}"}
+        bg.injected.append(text)
+        logger.info(
+            "inject_input queued session=%s pending=%d len=%d",
+            session_id,
+            len(bg.injected),
+            len(text),
+        )
+        return {"ok": True, "session_id": session_id, "pending": len(bg.injected)}
 
     async def attach(self, session_id: str) -> list[dict]:
         bg = self._sessions.get(session_id)
