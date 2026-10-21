@@ -232,7 +232,14 @@ class AgentRuntime(_SafetyApprovalMixin, _CheckpointMixin, _DynamicToolsMixin, _
 
             self.subagent_runner = SubAgentRunner(self)
             self.subagent_registry = SubAgentRegistry()
-            self.tools.register(SubAgentTool(runner_provider=lambda: self.subagent_runner))
+            from .subagent_defs import get_definition_registry
+
+            self.tools.register(
+                SubAgentTool(
+                    runner_provider=lambda: self.subagent_runner,
+                    definition_provider=get_definition_registry().get,
+                )
+            )
             logger.info("subagent tool registered (FUSION_SUBAGENT_TOOLS=1)")
         logger.info(
             "harness funnels wired: tool_funnel=%s llm_funnel=%s permissions=%d rules",

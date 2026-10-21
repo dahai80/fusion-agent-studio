@@ -285,6 +285,16 @@ class DaemonServer:
 
         self._sub_dispatchers = self._init_sub_dispatchers()
 
+        # #421: load markdown agent definitions (user + project + .claude
+        # compat dirs) once at daemon startup.
+        try:
+            from .subagent_defs import get_definition_registry
+
+            definitions = get_definition_registry().list()
+            logger.info("agent definitions loaded at startup count=%d", len(definitions))
+        except Exception as e:
+            logger.warning("agent definition startup load failed: %s", e)
+
     def __getattr__(self, name: str):
         if name.startswith("_handle_"):
             for sd in self.__dict__.get("_sub_dispatchers", []):

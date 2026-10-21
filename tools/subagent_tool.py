@@ -47,12 +47,22 @@ class SubAgentTool(BaseTool):
             "type": "boolean",
             "description": "Inherit parent conversation history (last 20 messages)",
         },
+        "definition": {
+            "type": "string",
+            "description": "Named agent definition (markdown/frontmatter) to spawn from",
+        },
+        "background": {
+            "type": "boolean",
+            "description": "Return immediately with an agent_id instead of blocking for the report",
+        },
     }
 
-    def __init__(self, runner_provider, spec_provider=None):
+    def __init__(self, runner_provider, spec_provider=None, definition_provider=None):
         super().__init__()
         self.runner_provider = runner_provider
         self.spec_provider = spec_provider
+        # #421: resolves a named AgentDefinition (file-based or programmatic).
+        self.definition_provider = definition_provider
 
     async def execute(self, **kwargs) -> str:
         from agent_runtime.subagent import SubAgentSpec
@@ -72,7 +82,14 @@ class SubAgentTool(BaseTool):
             if not name or not task:
                 return "Error: name and task are required"
             spec = None
-            if self.spec_provider is not None:
+            definition_name = str(kwargs.get("definition", "") or "")
+            if definition_name and self.definition_provider is not None:
+                try:
+                    spec = self.definition_provider(definition_name).to_spec(task=task)
+                except Exception as e:
+                    logger.warning("subagent_spawn definition_provider failed: %s", e)
+                    spec = None
+            if spec is None and self.spec_provider is not None:
                 try:
                     spec = self.spec_provider(name)
                 except Exception as e:
@@ -94,13 +111,19 @@ class SubAgentTool(BaseTool):
                     pass
             if kwargs.get("fork") is not None:
                 spec.fork = bool(kwargs["fork"])
+            if kwargs.get("background") is not None:
+                spec.background = bool(kwargs["background"])
             logger.info(
-                "subagent_spawn executing name=%s tools=%d fork=%s model=%s",
+                "subagent_spawn executing name=%s tools=%d fork=%s model=%s background=%s",
                 name,
                 len(spec.tools),
                 spec.fork,
                 spec.model,
+                spec.background,
             )
+            if spec.background:
+                launched = runner.spawn(spec)
+                return json.dumps(launched, ensure_ascii=False)
             report = await runner.run(spec, parent_ctx=None)
             return json.dumps(report.to_dict(), ensure_ascii=False)
         except Exception as e:

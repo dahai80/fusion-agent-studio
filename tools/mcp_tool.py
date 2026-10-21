@@ -222,8 +222,12 @@ class MCPTool(BaseTool):
         server_url: str = "",
         headers: dict[str, str] | None = None,
         extensions: dict | None = None,
+        mcp_server: str = "",
     ):
         self.name = tool_name
+        # #422: server identity for subagent-level MCP deny patterns
+        # (mcp__<server> / mcp__<server>__*).
+        self.mcp_server = mcp_server or self._infer_server(server_url)
         # N17 #390: x-fusion-* extension fields read from the server schema.
         self.extensions = dict(extensions or {})
         self.description = tool_description or f"MCP tool: {tool_name}"
@@ -232,6 +236,19 @@ class MCPTool(BaseTool):
         # Legacy HTTP fallback fields (kept for backward compat with from_mcp_discovery)
         self._server_url = server_url.rstrip("/") if server_url else ""
         self._headers = headers or {}
+
+    @staticmethod
+    def _infer_server(server_url: str) -> str:
+        if not server_url:
+            return ""
+        try:
+            from urllib.parse import urlparse
+
+            parsed = urlparse(server_url)
+            return (parsed.path.strip("/").split("/")[-1] or parsed.hostname or "").strip()
+        except ValueError:
+            logger.warning("mcp server url unparsable: %s", server_url)
+            return ""
 
     @classmethod
     def from_mcp_discovery(
