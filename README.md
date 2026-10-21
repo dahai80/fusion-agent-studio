@@ -6,10 +6,10 @@
 
 Run, build, and orchestrate AI agents entirely on your Mac — no cloud, no API fees, no data leaving your device.
 
-[![Version](https://img.shields.io/badge/v0.12.4-blue.svg)]()
+[![Version](https://img.shields.io/badge/v0.12.5-blue.svg)]()
 [![Python](https://img.shields.io/badge/Python-3.11+-3776AB.svg)](https://www.python.org/)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/Tests-3127-success.svg)](tests/)
+[![Tests](https://img.shields.io/badge/Tests-3135-success.svg)](tests/)
 
 **[中文文档](README_CN.md)** · [Quick Start](#quick-start) · [Architecture](#architecture) · [Documentation](docs/) · [Examples](examples/) · **[Guided Tutorials](docs/guides/README.md)**
 
@@ -342,6 +342,13 @@ Audit `audit/fusion-agent-studio-vs-langflow-audit-1020.md` closed end-to-end; s
 - ✅ **router-level error boundary** — `ErrorBoundary` keyed by route wraps all pages, so a single page's render error shows an inline retry instead of blanking the shell; navigating away remounts it.
 - ✅ **capability bridge diagnostics** — unreachable-bridge errors now carry the exception type (`TimeoutError` stringifies empty).
 - Tests: `tests/test_issue_413_agents_page_model.py` (3).
+
+### Studio Parity Batch (v0.12.5) — #416 #417 #418 #419
+- ✅ **request storm fix (#418, P0)** — `useT()` returned a fresh function identity per render, so every effect with `t` in its deps re-ran each render and the canvas/runs pages refetched `/v1/graphs` + `/v1/rpc` in an infinite loop (~4300 req/s per endpoint, 86,637 requests in 10s, `ERR_INSUFFICIENT_RESOURCES` flood). `t` is now a `useCallback` keyed on lang. Idle 10s: canvas 0 requests, runs 2 (5s poller as designed).
+- ✅ **dashboard accuracy (#419, P1)** — `dashboard.overview` counts the name-deduped agent view (same tie-break as `agent.list`, live 258 → 15); today requests + tokens aggregate TaskStore tasks + run spans (live 0/0 → 14 / 11,823); `mlx.status` probes engine health when the daemon owns no MLX process (standalone `start.sh`) and guards `pid` on the fallback path; DashboardPage reads the flat mlx payload — model status now shows the loaded model list instead of 暂无模型状态.
+- ✅ **Composer parity (#416, P1)** — first-class nav entry; `@` mentions (graphs/agents/knowledge, deduped), `/` skill selector, four-class permission pre-flight card sharing the vendor `PermissionCards` component with the Safety console + cowork approval-card vocabulary, forkable sessions; `knowledge.list` added to the `/v1/rpc` bridge allowlist; streaming + thinking channel unchanged (verified with a real engine round-trip).
+- ✅ **agent card parity (#417, P2)** — color dot (`color:<hex>` tag, id-hash fallback), tools count, per-agent runs/tokens/last-run usage; 5-step create wizard (name → system prompt → tools → model → color); inline run button with `agent.execute` modal; `analytics.agent_usage` aggregates TaskStore + run spans and attributes graph-scoped runs via the graph's bound `agent_id` (`list_graphs` surfaces it).
+- Tests: `tests/test_issue_419_dashboard_accuracy.py` (9); legacy mlx "not running" tests hardened against a locally running engine. 3135 passed.
 
 ### Capability Tool Schema Fix (v0.12.4)
 - ✅ **schema-level required params** — registry capability specs declare required arguments as a JSON-Schema array (`"required": ["query"]`); the bridge-tool sync only read per-property `required: true`, so array-form specs registered a tool with an empty `properties` map and the model could not call it. Both forms are now unioned. Covered by `tests/test_capability_tool_schema.py` (3).

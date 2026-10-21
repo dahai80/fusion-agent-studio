@@ -6,10 +6,10 @@
 
 在 Mac 上运行、构建和编排 AI 智能体 — 无需云服务、无需 API 费用、数据不出设备。
 
-[![Version](https://img.shields.io/badge/v0.12.4-blue.svg)]()
+[![Version](https://img.shields.io/badge/v0.12.5-blue.svg)]()
 [![Python](https://img.shields.io/badge/Python-3.11+-3776AB.svg)](https://www.python.org/)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/Tests-3127-success.svg)](tests/)
+[![Tests](https://img.shields.io/badge/Tests-3135-success.svg)](tests/)
 
 **[English](README.md)** · [快速开始](#快速开始) · [架构](#架构) · [文档](docs/) · [示例](examples/) · **[引导式教程](docs/guides/README.md)**
 
@@ -273,6 +273,13 @@ python my_agent.py
 - ✅ **路由级错误边界** — `ErrorBoundary` 按路由 keyed 包裹所有页面，单页渲染错误显示内联重试而不是整模块白屏；切换路由会自动重挂载。
 - ✅ **能力桥诊断** — 桥不可达错误现在带上异常类型（`TimeoutError` 的 str 为空），便于定位。
 - 测试：`tests/test_issue_413_agents_page_model.py`（3 个）。
+
+### Studio 对标批次 (v0.12.5) — #416 #417 #418 #419
+- ✅ **请求风暴修复（#418，P0）** — `useT()` 每次渲染都返回新函数身份，所有依赖 `t` 的 effect 每帧重跑，画布/运行页对 `/v1/graphs` + `/v1/rpc` 无限重取（约 4300 次/秒/端点，10 秒 86,637 次，`ERR_INSUFFICIENT_RESOURCES` 洪泛）。现在 `t` 为按语言 keyed 的 `useCallback`。空闲 10 秒：画布 0 次请求、运行页 2 次（5 秒轮询器按设计）。
+- ✅ **仪表盘数据校准（#419，P1）** — `dashboard.overview` 改按 `agent.list` 同规则按名去重后统计（实测 258 → 15）；今日请求 + token 从 TaskStore 任务 + 运行 span 聚合（实测 0/0 → 14 次 / 11,823 tokens）；`mlx.status` 在 daemon 不持有 MLX 进程句柄（独立 `start.sh` 部署）时探测引擎健康，兜底路径同时守住 `pid`；DashboardPage 改读扁平 mlx 载荷 — 模型状态显示已加载模型列表，不再显示暂无模型状态。
+- ✅ **Composer 对标（#416，P1）** — 一级导航入口；`@` 引用（图/智能体/知识，去重）、`/` 技能选择器、四类权限预检卡片（与安全控制台、cowork 审批卡共用 vendor `PermissionCards` 组件）、会话分叉；`knowledge.list` 加入 `/v1/rpc` 桥接白名单；流式 + 思考通道不变（经真实引擎往返验证）。
+- ✅ **智能体卡片对标（#417，P2）** — 颜色圆点（`color:<hex>` 标签，id 哈希兜底）、工具数、per-agent 运行/token/最近运行用量；5 步创建向导（名称 → 系统提示 → 工具 → 模型 → 颜色）；内联运行按钮（`agent.execute` 弹窗）；`analytics.agent_usage` 改为 TaskStore + 运行 span 聚合，并经图绑定的 `agent_id` 归属图域任务（`list_graphs` 透出 `agent_id`）。
+- 测试：`tests/test_issue_419_dashboard_accuracy.py`（9 个）；旧 mlx "未运行" 用例加固为兼容本机引擎在线。3135 通过。
 
 ### 能力工具 Schema 修复 (v0.12.4)
 - ✅ **schema 级 required 参数** — 注册表能力声明的必填参数采用标准 JSON Schema 数组形式（`"required": ["query"]`），而桥接工具同步只读取逐属性的 `required: true`，导致数组形式的能力注册出空 `properties`，模型无法调用。现在两种形式取并集。覆盖：`tests/test_capability_tool_schema.py`（3 个）。
