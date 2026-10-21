@@ -239,9 +239,13 @@ class AgentStore:
                 graph_data = json.loads(d.pop("data", "{}"))
                 d["node_count"] = len(graph_data.get("nodes", {}))
                 d["edge_count"] = len(graph_data.get("edges", []))
+                # #417: surface the graph→agent binding so usage aggregation
+                # can attribute graph-scoped task runs to their agent.
+                d["agent_id"] = str(graph_data.get("agent_id") or "")
             except (json.JSONDecodeError, TypeError):
                 d["node_count"] = 0
                 d["edge_count"] = 0
+                d["agent_id"] = ""
             results.append(d)
         if not dedupe_names:
             return results

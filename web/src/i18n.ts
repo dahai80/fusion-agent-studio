@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { sdk } from './sdk';
 
 // Lang state bound to the SDK i18n channel (host pushes 'lang' events;
@@ -12,5 +12,9 @@ export function useLang(): 'zh' | 'en' {
 
 export function useT() {
     const lang = useLang();
-    return (zh: string, en: string) => (lang === 'en' ? en : zh);
+    // #418: t must be a stable identity per lang. A fresh function per
+    // render made every effect with t in its deps re-run each render, and
+    // effects that setState on fetch turned that into a refetch storm
+    // (~4300 req/s on canvas/runs).
+    return useCallback((zh: string, en: string) => (lang === 'en' ? en : zh), [lang]);
 }
