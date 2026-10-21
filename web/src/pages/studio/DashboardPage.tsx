@@ -10,6 +10,10 @@ interface Overview {
 }
 
 interface MlxStatus {
+    running?: boolean;
+    models?: Array<{ id?: string; name?: string }>;
+    port?: number;
+    pid?: number | null;
     model?: string;
     model_name?: string;
     loaded?: boolean;
@@ -30,6 +34,8 @@ interface AuditEntry {
     action?: string;
     actor_id?: string;
     created_at?: number;
+    // #419: audit.list emits `timestamp`, not `created_at`.
+    timestamp?: number;
 }
 
 interface DashboardData {
@@ -58,7 +64,10 @@ export function DashboardPage() {
     }, []);
 
     const ov = data?.overview?.overview ?? data?.overview ?? {};
-    const st = data?.mlx?.status ?? {};
+    // #419: mlx.status returns a flat payload ({running, models, port, pid}),
+    // not wrapped in .status — reading the wrapper kept the model section
+    // empty ("暂无模型状态").
+    const st = (data?.mlx ?? {}) as MlxStatus;
     const usageRows =
         data?.usage?.usage ?? (data?.usage as unknown as { agents?: AgentUsage[] })?.agents ?? [];
     const auditRows =
@@ -69,7 +78,8 @@ export function DashboardPage() {
     const statEntries = Object.entries(ov).filter(([, v]) => isNumeric(v));
     const capabilities = Object.entries(data?.daemon?.capabilities ?? {});
 
-    const model = st.model_name ?? st.model;
+    const models = st.models ?? [];
+    const model = st.model_name ?? st.model ?? models[0]?.id ?? models[0]?.name;
     const memory = st.memory_used ?? st.memory;
 
     return (
@@ -108,11 +118,13 @@ export function DashboardPage() {
                                 <MetricTile
                                     label={t('已加载', 'Loaded')}
                                     value={
-                                        st.loaded === undefined
-                                            ? '-'
-                                            : st.loaded
-                                              ? t('是', 'Yes')
-                                              : t('否', 'No')
+                                        models.length > 0
+                                            ? String(models.length)
+                                            : st.loaded === undefined
+                                              ? '-'
+                                              : st.loaded
+                                                ? t('是', 'Yes')
+                                                : t('否', 'No')
                                     }
                                 />
                                 <MetricTile
@@ -120,6 +132,8 @@ export function DashboardPage() {
                                     value={isNumeric(memory) ? String(memory) : '-'}
                                 />
                                 {st.loaded === undefined &&
+                                models.length === 0 &&
+                                st.running === undefined &&
                                 model === undefined &&
                                 memory === undefined ? (
                                     <p className="text-xs text-text-muted">
@@ -180,7 +194,9 @@ export function DashboardPage() {
                                 </h3>
                                 <DataTable<AuditEntry>
                                     rows={auditRows}
-                                    rowKey={(a) => `${a.action ?? '-'}-${a.created_at ?? 0}`}
+                                    rowKey={(a) =>
+                                        `${a.action ?? '-'}-${a.created_at ?? a.timestamp ?? 0}`
+                                    }
                                     pageSize={15}
                                     columns={[
                                         {
@@ -196,10 +212,10 @@ export function DashboardPage() {
                                         {
                                             key: 'time',
                                             header: t('时间', 'Time'),
-                                            render: (a) =>
-                                                a.created_at
-                                                    ? formatRelativeTime(a.created_at * 1000)
-                                                    : '-',
+                                            render: (a) => {
+                                                const ts = a.created_at ?? a.timestamp;
+                                                return ts ? formatRelativeTime(ts * 1000) : '-';
+                                            },
                                         },
                                     ]}
                                 />

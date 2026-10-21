@@ -1524,6 +1524,12 @@ class DaemonServer:
 
     async def _handle_mlx_status(self, params: dict) -> dict:
         running = self._mlx_process is not None and self._mlx_process.poll() is None
+        # #419: the daemon may not own the MLX process (standalone start.sh
+        # deployment) — that reported "running: false / models: []" while the
+        # engine was up with models loaded. Probe the server before claiming
+        # it is down.
+        if not running and await self._check_mlx_health():
+            running = True
         models = []
         if running:
             models = await self._list_mlx_models()
@@ -1536,7 +1542,9 @@ class DaemonServer:
             "running": running,
             "port": MLX_PORT,
             "models": models,
-            "pid": self._mlx_process.pid if running else None,
+            # #419: running may come from the health fallback while the daemon
+            # still owns no process handle (standalone start.sh deployment).
+            "pid": self._mlx_process.pid if running and self._mlx_process else None,
             "pool": pool,
         }
 

@@ -2,13 +2,14 @@ import {
     EmptyState,
     ErrorState,
     FormField,
+    PermissionCards,
     SelectInput,
     SkeletonLines,
     SubmitButton,
     useAutoRetry,
 } from '@fusion/web-ui';
-import { useEffect, useRef, useState } from 'react';
-import { apiBase, rpc } from '../../api';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { api, apiBase, rpc } from '../../api';
 import { PageHeader } from '../../components/PageHeader';
 import { Switch } from '../../components/ui/Switch';
 import { Tabs } from '../../components/ui/Tabs';
@@ -25,6 +26,13 @@ interface AgentRow {
     id?: string;
     agent_id?: string;
     name?: string;
+    tools?: string[];
+}
+
+// #416: @ reference targets — graphs, sibling agents, knowledge entries.
+interface RefItem {
+    kind: 'graph' | 'agent' | 'knowledge';
+    name: string;
 }
 
 interface ChatMessage {
@@ -43,6 +51,19 @@ interface SseFrame {
 
 const MAX_LOG_LINES = 200;
 
+// #416: map an agent's tool names onto the four permission card classes
+// shared with the Safety console (vendor PermissionCards).
+function classifyTools(tools: string[]): Record<string, boolean> {
+    const names = tools.map((tool) => tool.toLowerCase());
+    const has = (...needles: string[]) => names.some((n) => needles.some((w) => n.includes(w)));
+    return {
+        folder: has('file', 'read', 'write', 'artifact'),
+        code: has('terminal', 'code', 'sandbox', 'exec', 'git'),
+        network: has('browser', 'search', 'http', 'knowledge', 'rag', 'web'),
+        remote: has('deploy', 'remote', 'cowork', 'skill', 'mcp'),
+    };
+}
+
 function frameDelta(obj: SseFrame): string {
     if (typeof obj.token === 'string' && obj.token) return obj.token;
     if (typeof obj.delta === 'string' && obj.delta) return obj.delta;
@@ -53,12 +74,29 @@ function frameDelta(obj: SseFrame): string {
 
 export function AiAgentPage() {
     const t = useT();
-    const { data, error, loading, attempt, manualRetry } = useAutoRetry(
-        () => rpc<{ agents: AgentRow[] }>('agent.list', {}),
-        []
-    );
+    const { data, error, loading, attempt, manualRetry } = useAutoRetry(async () => {
+        // #416: agent list plus mention sources. Mentions degrade gracefully —
+        // a failed source just drops out of the @ dropdown.
+        const [agents, skills, knowledge, graphs] = await Promise.all([
+            rpc<{ agents: AgentRow[] }>('agent.list', {}),
+            rpc<{ skills?: Array<{ name?: string }> }>('skills.list', {}).catch(
+                () => ({}) as { skills?: Array<{ name?: string }> }
+            ),
+            rpc<{ entries?: Array<{ id?: string; content?: string }> }>('knowledge.list', {}).catch(
+                () => ({}) as { entries?: Array<{ id?: string; content?: string }> }
+            ),
+            api.graphs().catch(() => null),
+        ]);
+        return { agents: agents.agents ?? [], skills, knowledge, graphs };
+    }, []);
     const [tab, setTab] = useState('chat');
-    const [messages, setMessages] = useState<ChatMessage[]>([]);
+    // #416: forkable sessions — index 0 is the root conversation, fork
+    // snapshots the current thread into a new one.
+    const [sessions, setSessions] = useState<ChatMessage[][]>([[]]);
+    const [activeSession, setActiveSession] = useState(0);
+    const [pendingText, setPendingText] = useState('');
+    const [preflightOpen, setPreflightOpen] = useState(false);
+    const messages = sessions[activeSession] ?? [];
     const [input, setInput] = useState('');
     const [streaming, setStreaming] = useState(false);
     const [showThinking, setShowThinking] = useState(true);
@@ -75,6 +113,62 @@ export function AiAgentPage() {
     }));
     const [agentId, setAgentId] = useState('');
     const effectiveAgentId = agentId || agents[0]?.id || agents[0]?.agent_id || '';
+    const selectedAgent = agents.find((a) => (a.id ?? a.agent_id) === effectiveAgentId);
+    const allowedClasses = useMemo(
+        () => classifyTools(selectedAgent?.tools ?? []),
+        [selectedAgent]
+    );
+
+    const refItems = useMemo<RefItem[]>(() => {
+        const items: RefItem[] = [];
+        const seen = new Set<string>();
+        const push = (kind: RefItem['kind'], name: string) => {
+            if (!name || seen.has(`${kind}:${name}`)) return;
+            seen.add(`${kind}:${name}`);
+            items.push({ kind, name });
+        };
+        for (const g of data?.graphs?.data ?? []) {
+            push('graph', g.name || g.graph_id);
+        }
+        for (const a of agents) {
+            push('agent', a.name || a.id || a.agent_id || '');
+        }
+        for (const k of data?.knowledge?.entries ?? []) {
+            push('knowledge', k.id || (k.content ?? '').slice(0, 24));
+        }
+        return items;
+    }, [data, agents]);
+    const skillNames = useMemo(
+        () => (data?.skills?.skills ?? []).map((s) => s.name ?? '').filter(Boolean),
+        [data]
+    );
+
+    // #416: trailing @ref / /skill token in the input drives the dropdown.
+    const mention = useMemo(() => {
+        const m = input.match(/(^|\s)([@/])([^\s@/]*)$/);
+        if (!m) return null;
+        return { sig: m[2], frag: m[3] };
+    }, [input]);
+    const refMatches =
+        mention?.sig === '@'
+            ? refItems
+                  .filter((r) => r.name.toLowerCase().includes(mention.frag.toLowerCase()))
+                  .slice(0, 6)
+            : [];
+    const skillMatches =
+        mention?.sig === '/'
+            ? skillNames
+                  .filter((n) => n.toLowerCase().includes(mention.frag.toLowerCase()))
+                  .slice(0, 6)
+            : [];
+    const insertMention = (label: string) => {
+        setInput((prev) =>
+            prev.replace(
+                /(^|\s)([@/])([^\s@/]*)$/,
+                (_s, pre: string, sig: string) => `${pre}${sig}${label} `
+            )
+        );
+    };
 
     // biome-ignore lint/correctness/useExhaustiveDependencies: intentional: autoscroll on message/tab change
     useEffect(() => {
@@ -84,23 +178,32 @@ export function AiAgentPage() {
 
     const appendAssistant = (delta: string) => {
         if (!delta) return;
-        setMessages((prev) => {
-            const next = [...prev];
-            const last = next[next.length - 1];
+        setSessions((prev) => {
+            const next = prev.map((s, i) => (i === activeSession ? [...s] : s));
+            const arr = next[activeSession];
+            const last = arr[arr.length - 1];
             if (last && last.role === 'assistant' && last.content.endsWith('…')) {
-                next[next.length - 1] = {
+                arr[arr.length - 1] = {
                     role: 'assistant',
                     content: last.content.slice(0, -1) + delta,
                 };
             } else if (last && last.role === 'assistant') {
-                next[next.length - 1] = { role: 'assistant', content: last.content + delta };
+                arr[arr.length - 1] = { role: 'assistant', content: last.content + delta };
             } else {
-                next.push({ role: 'assistant', content: delta });
+                arr.push({ role: 'assistant', content: delta });
             }
             return next;
         });
     };
 
+    // #416: fork — snapshot the active thread into a new session.
+    const forkSession = () => {
+        setSessions((prev) => [...prev, [...(prev[activeSession] ?? [])]]);
+        setActiveSession((i) => i + 1);
+    };
+
+    // #416: send opens the permission pre-flight card first; doStream runs
+    // after the user confirms (or immediately when they cancel the gate).
     const send = async () => {
         const text = input.trim();
         if (!text || streaming) return;
@@ -111,8 +214,19 @@ export function AiAgentPage() {
             });
             return;
         }
+        setPendingText(text);
+        setPreflightOpen(true);
+    };
+
+    const doStream = async (text: string) => {
+        setPreflightOpen(false);
+        setPendingText('');
         setInput('');
-        setMessages((prev) => [...prev, { role: 'user', content: text }]);
+        setSessions((prev) => {
+            const next = prev.map((s, i) => (i === activeSession ? [...s] : s));
+            next[activeSession].push({ role: 'user', content: text });
+            return next;
+        });
         setThinkingText('');
         setStreaming(true);
         const ctrl = new AbortController();
@@ -173,10 +287,14 @@ export function AiAgentPage() {
         } catch (e) {
             const msg =
                 (e as Error).name === 'AbortError' ? t('已停止', 'stopped') : (e as Error).message;
-            setMessages((prev) => [
-                ...prev,
-                { role: 'assistant', content: `${t('错误', 'error')}: ${msg}` },
-            ]);
+            setSessions((prev) => {
+                const next = prev.map((s, i) => (i === activeSession ? [...s] : s));
+                next[activeSession].push({
+                    role: 'assistant',
+                    content: `${t('错误', 'error')}: ${msg}`,
+                });
+                return next;
+            });
             if ((e as Error).name !== 'AbortError') {
                 sdk.toast.show({ level: 'error', message: msg });
             }
@@ -190,7 +308,7 @@ export function AiAgentPage() {
 
     return (
         <div>
-            <PageHeader title={t('Agent 对话', 'Agent Chat')} />
+            <PageHeader title={t('Composer', 'Composer')} />
             <div className="px-4 pt-3">
                 {loading && attempt === 0 && agents.length === 0 ? (
                     <SkeletonLines rows={3} />
@@ -228,12 +346,37 @@ export function AiAgentPage() {
             <div className="px-4 pt-3">
                 {tab === 'chat' ? (
                     <div className="flex flex-col gap-3">
-                        <div className="flex items-center justify-end">
-                            <Switch
-                                checked={showThinking}
-                                onChange={setShowThinking}
-                                label={t('显示思考', 'Show thinking')}
-                            />
+                        <div className="flex items-center gap-2 text-xs">
+                            <span className="text-text-secondary">
+                                {t('会话', 'Session')} {activeSession + 1}/{sessions.length}
+                            </span>
+                            {sessions.length > 1 ? (
+                                <select
+                                    value={activeSession}
+                                    onChange={(e) => setActiveSession(Number(e.target.value))}
+                                    className="rounded-md border border-border bg-bg-elevated px-1.5 py-0.5 text-xs"
+                                >
+                                    {sessions.map((_, i) => (
+                                        <option key={i} value={i}>
+                                            #{i + 1}
+                                        </option>
+                                    ))}
+                                </select>
+                            ) : null}
+                            <button
+                                type="button"
+                                onClick={forkSession}
+                                className="rounded-md border border-border px-2 py-0.5 text-text-secondary hover:text-text-primary"
+                            >
+                                {t('分叉会话', 'Fork session')}
+                            </button>
+                            <div className="ml-auto">
+                                <Switch
+                                    checked={showThinking}
+                                    onChange={setShowThinking}
+                                    label={t('显示思考', 'Show thinking')}
+                                />
+                            </div>
                         </div>
                         {showThinking && thinkingText ? (
                             <details
@@ -272,12 +415,77 @@ export function AiAgentPage() {
                                 ))
                             )}
                         </div>
+                        {mention && mention.sig === '@' && refMatches.length > 0 ? (
+                            <div className="flex flex-wrap gap-1 rounded-md border border-border bg-bg-elevated p-1.5 shadow-sm">
+                                {refMatches.map((r) => (
+                                    <button
+                                        key={`${r.kind}-${r.name}`}
+                                        type="button"
+                                        onClick={() => insertMention(r.name)}
+                                        className="rounded bg-bg-muted px-2 py-1 text-xs text-text-secondary hover:text-text-primary"
+                                    >
+                                        <span className="mr-1 text-[10px] uppercase text-text-muted">
+                                            {r.kind}
+                                        </span>
+                                        {r.name}
+                                    </button>
+                                ))}
+                            </div>
+                        ) : null}
+                        {mention && mention.sig === '/' && skillMatches.length > 0 ? (
+                            <div className="flex flex-wrap gap-1 rounded-md border border-border bg-bg-elevated p-1.5 shadow-sm">
+                                {skillMatches.map((s) => (
+                                    <button
+                                        key={s}
+                                        type="button"
+                                        onClick={() => insertMention(s)}
+                                        className="rounded bg-bg-muted px-2 py-1 text-xs text-text-secondary hover:text-text-primary"
+                                    >
+                                        <span className="mr-1 text-[10px] uppercase text-text-muted">
+                                            skill
+                                        </span>
+                                        {s}
+                                    </button>
+                                ))}
+                            </div>
+                        ) : null}
                         <Textarea
                             value={input}
                             onChange={setInput}
                             rows={3}
-                            placeholder={t('输入消息…', 'type a message…')}
+                            placeholder={t(
+                                '输入消息… @ 引用 / 技能',
+                                'type a message… @ref /skill'
+                            )}
                         />
+                        {preflightOpen ? (
+                            <div className="rounded-md border border-border bg-bg-elevated p-3">
+                                <div className="mb-2 text-xs font-medium text-text-primary">
+                                    {t('发送前权限检查', 'Pre-run permission check')}
+                                </div>
+                                <PermissionCards allowed={allowedClasses} />
+                                <div className="mt-3 flex gap-2">
+                                    <button
+                                        type="button"
+                                        onClick={() => doStream(pendingText)}
+                                        disabled={streaming}
+                                        className="rounded-md bg-brand px-3 py-1.5 text-xs text-white hover:opacity-90 disabled:opacity-50"
+                                    >
+                                        {t('确认发送', 'Confirm send')}
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            setPreflightOpen(false);
+                                            setPendingText('');
+                                        }}
+                                        className="rounded-md border border-border px-3 py-1.5 text-xs text-text-secondary hover:text-text-primary"
+                                    >
+                                        {t('取消', 'Cancel')}
+                                    </button>
+                                </div>
+                            </div>
+                        ) : null}
                         <div className="flex gap-2">
                             <SubmitButton
                                 label={t('发送', 'Send')}

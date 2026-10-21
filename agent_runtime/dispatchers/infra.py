@@ -9,6 +9,7 @@ import uuid
 from typing import Callable
 
 from ..daemon_server import MLX_PORT
+from .agent import AgentDispatcher
 from .base import SubDispatcher
 
 logger = logging.getLogger(__name__)
@@ -699,23 +700,31 @@ class InfraDispatcher(SubDispatcher):
 
     async def _handle_dashboard_overview(self, params: dict) -> dict:
         self._daemon._load_agents_index()
-        total_agents = len(self._daemon._agents)
-        published_agents = sum(
-            1 for m in self._daemon._agents.values() if m.get("status") == "published"
-        )
+        # #419: the raw index carries historical/test duplicates (258 rows /
+        # 15 unique names), which made Total agents 258 / Active 257 while
+        # agent.list showed 15. Count the same name-deduped view agent.list
+        # renders (best entry per name by recency, identical tie-break).
+        best: dict[str, dict] = {}
+        for aid, meta in self._daemon._agents.items():
+            name = str(meta.get("name", ""))
+            current = best.get(name)
+            if current is None or AgentDispatcher._agent_recency(meta) > AgentDispatcher._agent_recency(current):
+                meta = dict(meta)
+                meta["id"] = aid
+                best[name] = meta
+        agents_view = list(best.values())
+        total_agents = len(agents_view)
+        published_agents = sum(1 for m in agents_view if m.get("status") == "published")
         active_agents = sum(
-            1
-            for m in self._daemon._agents.values()
-            if m.get("status") in ("draft", "published")
+            1 for m in agents_view if m.get("status") in ("draft", "published")
         )
 
         today_requests = 0
         total_tokens = 0
         error_count = 0
+        day_ago = time.time() - 86400
         try:
             sessions = self._daemon.store.list_sessions()
-            _now = time.time()
-            day_ago = _now - 86400
             for s in sessions:
                 ts = s.get("timestamp", 0) if isinstance(s, dict) else 0
                 if ts > day_ago:
@@ -725,14 +734,31 @@ class InfraDispatcher(SubDispatcher):
         except Exception as exc:
             logger.warning("dashboard.overview session query failed: %s", exc)
 
+        # #419: sessions undercount (legacy path, mostly empty) — runs live in
+        # TaskStore. Each task touched in the last 24h is a request; its token
+        # consumption comes from the run-span aggregate so the tiles match
+        # what the waterfall shows for the same run.
         try:
-            from ..metrics_engine import MetricsEngine
-
-            me = MetricsEngine()
-            summary = me.get_summary()
-            total_tokens = summary.total_tokens_in + summary.total_tokens_out
+            store = self._daemon._get_task_store()
+            for t in store.list(limit=500):
+                updated = float(t.get("updated_at") or t.get("created_at") or 0)
+                if updated <= day_ago:
+                    continue
+                today_requests += 1
+                if t.get("status") == "failed":
+                    error_count += 1
+                last = t.get("last_result") or {}
+                exec_id = last.get("execution_id") if isinstance(last, dict) else ""
+                if not exec_id:
+                    continue
+                team = str(t.get("team") or "default")
+                spans = self._daemon._read_run_spans(exec_id, team)
+                if not spans:
+                    continue
+                agg = self._daemon._aggregate_run_spans(spans)
+                total_tokens += sum(n.get("tokens", 0) for n in agg.get("nodes", []))
         except Exception as exc:
-            logger.warning("dashboard.overview metrics query failed: %s", exc)
+            logger.warning("dashboard.overview task query failed: %s", exc)
 
         alerts = []
         try:
@@ -752,14 +778,14 @@ class InfraDispatcher(SubDispatcher):
 
         recent_agents = []
         sorted_agents = sorted(
-            self._daemon._agents.items(),
-            key=lambda x: x[1].get("created_at", 0),
+            agents_view,
+            key=lambda m: str(m.get("created_at", "")),
             reverse=True,
         )[:5]
-        for aid, meta in sorted_agents:
+        for meta in sorted_agents:
             recent_agents.append(
                 {
-                    "id": aid,
+                    "id": meta.get("id", ""),
                     "name": meta.get("name", ""),
                     "status": meta.get("status", "draft"),
                 }
@@ -786,6 +812,10 @@ class InfraDispatcher(SubDispatcher):
     # ── API Key handlers ──
 
     async def _handle_analytics_agent_usage(self, params: dict) -> dict:
+        # #417: per-agent usage must reflect real runs — TaskStore tasks are
+        # the source of truth (the legacy MetricsEngine sessions path stayed
+        # empty in production). Tokens come from each task's run-span
+        # aggregate, identical to the dashboard.overview tiles.
         agent_id = params.get("agent_id")
         time_range = params.get("time_range", "day")
         now = time.time()
@@ -794,43 +824,67 @@ class InfraDispatcher(SubDispatcher):
         )
         cutoff = now - range_seconds
 
-        agents_usage = []
+        buckets: dict[str, dict] = {}
         try:
-            from ..metrics_engine import MetricsEngine
-
-            me = MetricsEngine()
-            sessions = me.query_sessions()
-            agent_buckets: dict[str, dict] = {}
-            for s in sessions:
-                ts = s.timestamp if hasattr(s, "timestamp") else s.get("timestamp", 0)
-                if ts < cutoff:
+            self._daemon._load_agents_index()
+            # Tasks created via the GUI often carry only graph_id — attribute
+            # them through the graph's bound agent_id (graph data field).
+            graph_owner: dict[str, str] = {}
+            try:
+                for g in self._daemon.store.list_graphs():
+                    gid = str(g.get("id") or "")
+                    owner = str(g.get("agent_id") or "")
+                    if gid and owner:
+                        graph_owner[gid] = owner
+            except Exception as exc:
+                logger.warning("analytics.agent_usage graph map failed: %s", exc)
+            store = self._daemon._get_task_store()
+            for t in store.list(limit=500):
+                updated = float(t.get("updated_at") or t.get("created_at") or 0)
+                if updated < cutoff:
                     continue
-                gid = (
-                    s.graph_id
-                    if hasattr(s, "graph_id")
-                    else s.get("graph_id", "unknown")
-                )
-                aid = gid if agent_id is None else agent_id
-                if agent_id and gid != agent_id:
+                aid = str(t.get("agent_id") or "")
+                if not aid:
+                    aid = graph_owner.get(str(t.get("graph_id") or ""), "unknown")
+                if agent_id and aid != agent_id:
                     continue
-                bucket = agent_buckets.setdefault(
+                bucket = buckets.setdefault(
                     aid,
                     {
                         "agent_id": aid,
                         "requests": 0,
+                        "runs": 0,
+                        "tokens": 0,
                         "input_tokens": 0,
                         "output_tokens": 0,
                         "errors": 0,
+                        "last_run": 0,
                     },
                 )
                 bucket["requests"] += 1
-                if hasattr(s, "error") and s.error:
+                bucket["runs"] += 1
+                bucket["last_run"] = max(bucket["last_run"], updated)
+                if t.get("status") == "failed":
                     bucket["errors"] += 1
-                elif isinstance(s, dict) and s.get("error"):
-                    bucket["errors"] += 1
-            agents_usage = list(agent_buckets.values())
+                last = t.get("last_result") or {}
+                exec_id = last.get("execution_id") if isinstance(last, dict) else ""
+                if not exec_id:
+                    continue
+                team = str(t.get("team") or "default")
+                spans = self._daemon._read_run_spans(exec_id, team)
+                if not spans:
+                    continue
+                agg = self._daemon._aggregate_run_spans(spans)
+                tokens = sum(n.get("tokens", 0) for n in agg.get("nodes", []))
+                bucket["tokens"] += tokens
+                bucket["output_tokens"] += tokens
         except Exception as exc:
-            logger.warning("analytics.agent_usage failed: %s", exc)
+            logger.warning("analytics.agent_usage task query failed: %s", exc)
+
+        for bucket in buckets.values():
+            meta = self._daemon._agents.get(bucket["agent_id"]) or {}
+            bucket["agent_name"] = meta.get("name", "")
+        agents_usage = sorted(buckets.values(), key=lambda b: -b["runs"])
 
         logger.info(
             "analytics.agent_usage: range=%s agents=%d", time_range, len(agents_usage)

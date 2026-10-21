@@ -1,5 +1,7 @@
 import { createPoller } from '@fusion/web-sdk';
 import {
+    PERMISSION_CARD_META as CARD_META,
+    PERMISSION_CARD_ORDER as CARD_ORDER,
     EmptyState,
     ErrorState,
     FormField,
@@ -34,15 +36,9 @@ interface SafetyAction {
     };
 }
 
-// N9 (#348): Permission Cards — four approval card classes.
-const CARD_META: Record<string, { zh: string; en: string; accent: string }> = {
-    folder: { zh: '文件夹', en: 'Folder', accent: 'border-warning text-warning' },
-    code: { zh: '代码', en: 'Code', accent: 'border-brand text-brand' },
-    network: { zh: '网络', en: 'Network', accent: 'border-running text-running' },
-    remote: { zh: '远程', en: 'Remote', accent: 'border-error text-error' },
-};
-
-const CARD_ORDER = ['folder', 'code', 'network', 'remote'];
+// N9 (#348) + #416: the four approval card classes now come from the shared
+// vendor component (@fusion/web-ui PermissionCards) — same anatomy as the
+// Composer pre-flight and cowork #138 approval cards.
 
 interface SafetyVerdict {
     level?: string;

@@ -58,6 +58,8 @@ WEB_RPC_ALLOWLIST: frozenset[str] = frozenset(
     "skills.load",
     "skills.install",
     "skills.delete",
+        # #416: composer @ mentions surface knowledge entries
+        "knowledge.list",
         "research.adaptive",
         # memory
         "memory.store",

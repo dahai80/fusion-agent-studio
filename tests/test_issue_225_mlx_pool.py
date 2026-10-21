@@ -143,10 +143,17 @@ def store_db(tmp_path):
 
 
 @pytest.fixture
-async def daemon(socket_path, store_db):
+async def daemon(socket_path, store_db, monkeypatch):
     d = DaemonServer(
         socket_path=socket_path, ws_port=0, cluster_port=0, http_port=0, store_path=store_db
     )
+    # #419: mlx.status now probes engine health when the daemon owns no
+    # process handle — a locally running engine would flip running=true and
+    # fetch a real pool. Force the "engine unreachable" path for this suite.
+    async def _no_engine():
+        return False
+
+    d._check_mlx_health = _no_engine
     await d.start()
     yield d
     await d.stop()

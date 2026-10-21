@@ -280,6 +280,7 @@ class TestDaemonGraphCRUD:
 
 class TestDaemonMLX:
     @pytest.mark.asyncio
+    @pytest.mark.skipif(_MLX_UP, reason="fusion-mlx running; 'not running' path not testable")
     async def test_mlx_status_not_running(self, daemon):
         from agent_runtime.daemon_server import MLX_PORT
 
