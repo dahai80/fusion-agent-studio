@@ -82,6 +82,15 @@ static web_shell.modules block above. The api_key is never written to
 manifest.json (repo file). The gateway admin key is read from
 `~/.fusion-agent-studio/gateway_admin_key` when the env var is unset.
 
+#436 (K4): the gateway now issues its own `fm-` module key at registration
+(fusion-gateway K1). Registration no longer self-supplies `api_key` (the
+static env override still works against gateways that accept it); when the
+registration response carries an issued key it is persisted to
+`~/.fusion-agent-studio/web_module_key` (0600, overwriting the start.sh
+static value) and heartbeats authenticate with it. Inbound auth
+dual-accepts the env static key + issued key during the migration grace
+window; the plaintext is never logged.
+
 ## Structure
 
 ```

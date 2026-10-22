@@ -313,9 +313,17 @@ def _extract_caller_key(request: Request) -> str:
 
 
 def _check_static_key(api_key: str) -> dict | None:
-    static = _static_env_key()
-    if static and api_key and hmac.compare_digest(static, api_key):
-        return {"valid": True, "key_id": "static-env", "permissions": ["agent:execute", "admin"]}
+    # #436 (K4): dual-accept env static key + gateway-issued fm- key
+    # (persisted file) during the migration grace window.
+    from .shell_registry import accepted_module_keys
+
+    if not api_key:
+        return None
+    env_key = os.environ.get("FUSION_AGENT_STUDIO_API_KEY", "").strip()
+    for key in accepted_module_keys():
+        if hmac.compare_digest(key, api_key):
+            key_id = "static-env" if key == env_key else "module-issued"
+            return {"valid": True, "key_id": key_id, "permissions": ["agent:execute", "admin"]}
     return None
 
 
