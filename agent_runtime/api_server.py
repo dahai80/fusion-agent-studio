@@ -2123,6 +2123,28 @@ async def api_v1_chat_notify(req: FSBNotifyRequest):
     return {"status": "ok", "delivered": True, "session_id": session_id}
 
 
+# ── #437 (E1): Agents console — native agents-platform REST surface +
+# capability door + approval workbench, then the verbatim-port static
+# console (web/console/) at /console. Registered BEFORE the web dist mount
+# so the API routes win.
+from agent_runtime.api_agents_platform import register_agents_platform
+
+register_agents_platform(
+    app,
+    lambda method, params: _rpc(method, params),
+    lambda: _daemon,
+    _require_auth_if_configured,
+)
+
+_CONSOLE_DIR = Path(__file__).resolve().parent.parent / "web" / "console"
+if _CONSOLE_DIR.is_dir():
+    from fastapi.staticfiles import StaticFiles
+
+    app.mount("/console", StaticFiles(directory=str(_CONSOLE_DIR), html=True),
+              name="agents-console")
+    logger.info("agents console served at /console from %s", _CONSOLE_DIR)
+
+
 # ── #330: allowlisted RPC bridge for the web module ──
 # Single POST /v1/rpc endpoint dispatching GUI-facing RPC methods through the
 # daemon handler registry (same resolution as /v1/runs). Deny-by-default

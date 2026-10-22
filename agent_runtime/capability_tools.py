@@ -1,11 +1,10 @@
-"""Capability tools: e-commerce capabilities as FAS tools (plan §5, P3).
+"""Capability tools: spine capabilities as FAS tools (#437 / E1, plan §5).
 
 Registers the agent's capability checklist into the FAS runtime tool
 registry so the LLM tool-call loop and ad-hoc tool nodes can actually
-execute them. Execution ALWAYS goes through the console's single audited
-door (POST /api/ecommerce/agent-platform/call) — the daemon holds the
-shared bridge key (FUSION_AGENT_BRIDGE_KEY env); it is never exposed to
-agents or browsers.
+execute them. Execution ALWAYS goes through the studio's single audited
+door (agent_runtime.agent_platform.door.CapabilityDoor — in-process since
+#437; the old HTTP hop to the f-ecommerce console is gone).
 
 Naming: registry names are `bt_<agent8>_<sanitized_capability>` (FAS tool
 schemas and LLM tool_calls need [a-zA-Z0-9_] names; capability ids carry
@@ -13,11 +12,11 @@ dots). The ad-hoc graph builders map node.tool_name through the same
 bridge_tool_name() so graph nodes resolve to the registered tool.
 
 Draft safety: the version stamp is 0 unless manifest.status == "published"
-— the bridge denies mutating capabilities for version-0 callers (plan
-§5.3), so a draft's ⚡ tools fail loudly at the door while reads work.
+— the door denies mutating capabilities for version-0 callers (plan §5.3),
+so a draft's ⚡ tools fail loudly at the door while reads work.
 
-All registration is idempotent and fail-soft: a bridge that is down or
-unconfigured degrades to honest tool errors, never daemon crashes.
+All registration is idempotent and fail-soft: a door that is unavailable
+degrades to honest tool errors, never daemon crashes.
 """
 
 from __future__ import annotations
@@ -29,16 +28,29 @@ import re
 
 logger = logging.getLogger(__name__)
 
-_ECOM_URL_ENV = "FUSION_ECOM_URL"
-_BRIDGE_KEY_ENV = "FUSION_AGENT_BRIDGE_KEY"
-_DEFAULT_URL = "http://127.0.0.1:8787"
-_DOOR_PATH = "/api/ecommerce/agent-platform/call"
-
 _SAFE_NAME_RE = re.compile(r"[^a-zA-Z0-9_]")
 
 
-def _ecom_base_url() -> str:
-    return os.environ.get(_ECOM_URL_ENV, _DEFAULT_URL).rstrip("/")
+async def _bridge_call(capability_id: str, params: dict, *, agent_id: str,
+                       version: int, publisher: str, timeout: float) -> str:
+    """Dispatch one capability through the studio's audited door
+    (in-process since #437); returns a JSON string envelope (or an honest
+    error string) for the LLM context."""
+    from .agent_platform.door import DoorError, get_default_door
+
+    try:
+        _, data = await get_default_door().call({
+            "capability_id": capability_id, "params": params,
+            "agent_id": agent_id, "version": version,
+            "publisher": publisher})
+        return json.dumps(data, ensure_ascii=False, default=str)
+    except DoorError as e:
+        return json.dumps({"error": e.detail, "status_code": e.status_code})
+    except Exception as e:
+        # include the exception TYPE: timeout errors (TimeoutError) have an
+        # empty str() — "unreachable: " with no reason was undiagnosable
+        return json.dumps({"error": f"capability door failed: "
+                                    f"{type(e).__name__}: {e}"})
 
 
 def sane_name(capability_id: str) -> str:
@@ -50,40 +62,6 @@ def bridge_tool_name(agent_id: str, capability_id: str) -> str:
     """Deterministic registry name for one agent's one capability.
     Graph builders and registration MUST both use this."""
     return f"bt_{re.sub(r'[^a-zA-Z0-9]', '', agent_id)[:8]}_{sane_name(capability_id)}"
-
-
-async def _bridge_call(capability_id: str, params: dict, *, agent_id: str,
-                       version: int, publisher: str, timeout: float) -> str:
-    """POST one capability through the audited door; returns a JSON string
-    envelope (or an honest error string) for the LLM context."""
-    import httpx
-
-    key = os.environ.get(_BRIDGE_KEY_ENV, "").strip()
-    if not key:
-        return json.dumps({"error": (
-            "capability bridge not configured — set FUSION_AGENT_BRIDGE_KEY "
-            "in the agent-studio daemon environment")})
-    try:
-        resp = await httpx.AsyncClient(timeout=timeout,
-                                       trust_env=False).post(
-            f"{_ecom_base_url()}{_DOOR_PATH}",
-            headers={"Authorization": f"Bearer {key}",
-                     "Content-Type": "application/json"},
-            json={"capability_id": capability_id, "params": params,
-                  "agent_id": agent_id, "version": version,
-                  "publisher": publisher})
-    except Exception as e:
-        # include the exception TYPE: timeout errors (TimeoutError) have an
-        # empty str() — "unreachable: " with no reason was undiagnosable
-        return json.dumps({"error": f"capability bridge unreachable: "
-                                    f"{type(e).__name__}: {e}"})
-    if resp.status_code >= 400:
-        try:
-            detail = resp.json().get("detail", resp.text[:300])
-        except Exception:
-            detail = resp.text[:300]
-        return json.dumps({"error": detail, "status": resp.status_code})
-    return resp.text
 
 
 def _make_bridge_tool(name: str, description: str,
@@ -226,24 +204,15 @@ def sync_agent_tools(rt, agent_id: str, manifest) -> dict:
 
 
 def _lookup_capability(capability_id: str):
-    """Fallback lookup for pre-P3 manifests (no embedded schema).
-    trust_env=False: the daemon shell may carry proxy env vars that would
-    route loopback calls through a proxy and hang (observed: 10s timeouts
-    with HTTP(S)_PROXY set)."""
-    import httpx
+    """Fallback lookup for pre-P3 manifests (no embedded schema): the local
+    capability spine registry — no network hop since #437."""
+    from .agent_platform.capabilities import get_capability
 
     try:
-        resp = httpx.get(
-            f"{_ecom_base_url()}/api/ecommerce/agent-platform/capabilities",
-            timeout=10, trust_env=False)
-        if resp.status_code >= 400:
-            return None
-        for c in resp.json().get("capabilities") or []:
-            if c.get("id") == capability_id:
-                return c
+        return get_capability(capability_id)
     except Exception as e:
         logger.warning("capability lookup failed (fail-soft): %s", e)
-    return None
+        return None
 
 
 def ensure_daemon_tools(daemon, agent_id: str) -> dict:
