@@ -369,6 +369,13 @@ Audit `audit/fusion-agent-studio-vs-langflow-audit-1020.md` closed end-to-end; s
 - ✅ **subagent memory scopes (#434)** — `memory: user|project|local` injects scoped memories before the run and commits durable outcomes after it; `memory: off` disables traffic.
 - Tests: `tests/test_issue_421_subagent_definitions.py`, `test_issue_423_subagent_lifecycle.py`, `test_issue_425_session_surface.py`, `test_issue_430_skills_commands.py`, `test_issue_431_bundle_packages.py`, `test_issue_432_cli.py`, plus `sdk/typescript/tests/client.test.ts`. Guide: `docs/guides/13-cli-and-sdk.md`.
 
+### Agents Console + Capability Door — #437
+- ✅ **native agents console** — the f-ecommerce Agents console is now hosted by fusion-agent-studio itself (the `fas_client` HTTP proxy hop is gone): `web/console/` (agents list, Form/YAML/Test editor, assistant drawer, capability spine, seeded templates) is served at `/console` with its data surface on native REST routes (`/v1/agents-platform/*` — CRUD, compile, templates, assistant, publish, test).
+- ✅ **capability door** — `agent_runtime/agent_platform/` ships a single audited dispatch door (`POST /v1/agent-platform/call`): capability lookup, status check, publisher-role resolve (registry wins; module-key callers are admin), draft denial (`version < 1`), write-role check, param re-validation, then dispatch by route kind — self-hosted REST routes dispatch in-process (no HTTP loop back to `:11442`), other modules route via the gateway shell proxy, node via ToolRegistry, RAG via FusionRAGClient, skill via SkillsStore. Mutations never execute directly — they land in the approval workbench (`/v1/agent-platform/approvals`, requester ≠ approver enforced), and an approved mutation executes through the same door (e.g. `graph.create` builds a minimal START→END skeleton workflow via `langgraph.create`); every outcome is audited.
+- ✅ **authoring YAML is the contract** — create/update compile through `yaml_compiler` (capability checks, effort → temperature mapping, no authority granting) and persist an `authoring.yaml` sidecar next to the manifest so the Form ↔ YAML round-trip is lossless; the Form is a view, not the source of truth.
+- ✅ **publish registry resolves authority server-side** — publishing records the agent in `~/.fusion-agent-studio/publish_registry.json`; bridge tools (`bt_<agent>_<capability>`) dispatch in-process through the door instead of the removed HTTP console hop.
+- Tests: `tests/test_issue_437_agents_console.py` (23).
+
 ### Integration
 - ✅ **fusion-mlx** — Apple Silicon optimized model serving
 - ✅ **OpenAI-compatible API** — Works with any OpenAI-compatible backend

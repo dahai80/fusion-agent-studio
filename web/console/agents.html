@@ -1,0 +1,423 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Agents — Fusion Agent Studio</title>
+<link rel="stylesheet" href="app.css">
+<style>
+  .agents-head { display: flex; align-items: center; gap: 10px; }
+  .dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+  .dot.ok { background: var(--fs-success); } .dot.bad { background: var(--fs-error); }
+  .tpl-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin: 10px 0 20px; }
+  .tpl-card { border: 1px solid var(--fs-border); border-radius: 8px; padding: 12px; }
+  .tpl-card .t-name { font-weight: 600; }
+  .tpl-card .t-desc { font-size: 12px; color: var(--fs-text-2); margin: 6px 0; min-height: 32px; }
+  table { border-collapse: collapse; width: 100%; margin: 8px 0; }
+  th, td { text-align: left; padding: 6px 10px; border-bottom: 1px solid var(--fs-border); font-size: 13px; }
+  .chip { display: inline-block; padding: 1px 8px; border-radius: 10px; font-size: 12px; }
+  .chip.draft { background: var(--fs-bg-muted); color: var(--fs-text-2); }
+  .chip.published { background: #dbeafe; color: #1d4ed8; }
+  .chip.archived { background: #f8fafc; color: #94a3b8; }
+  .src-group { margin: 6px 0 10px; }
+  .src-group .src-label { font-size: 12px; color: var(--fs-text-2); margin: 4px 0; }
+  .tool-row { display: flex; gap: 8px; align-items: baseline; font-size: 13px; padding: 2px 0; }
+  .tool-row .cap-id { font-family: ui-monospace, monospace; font-size: 12px; }
+  .mut { color: #b45309; font-weight: 600; }
+  .ro { color: var(--fs-text-2); }
+  .diag { font-family: ui-monospace, monospace; font-size: 12px; white-space: pre-wrap; }
+  .diag.ok { color: var(--fs-success); } .diag.err { color: var(--fs-error); }
+  .events { max-height: 380px; overflow-y: auto; border: 1px solid var(--fs-border);
+    border-radius: 8px; padding: 10px; margin: 8px 0; }
+  .ev { margin: 6px 0; font-size: 13px; }
+  .ev .ev-type { font-size: 11px; color: var(--fs-text-2); text-transform: uppercase; margin-right: 6px; }
+  .ev.tool .ev-body { font-family: ui-monospace, monospace; background: var(--bg-soft, #f8fafc);
+    padding: 6px 8px; border-radius: 6px; display: block; white-space: pre-wrap; }
+  .ev.error .ev-body { color: var(--fs-error); }
+  textarea { width: 100%; font-family: ui-monospace, monospace; }
+  #yaml-text { min-height: 340px; }
+  #f-system { min-height: 130px; font-family: inherit; }
+  .ed-head { display: flex; align-items: center; gap: 10px; margin: 8px 0; }
+  .ed-head input { font-weight: 600; }
+  .tabbar { display: flex; gap: 4px; margin: 12px 0; }
+  .tabbar button { padding: 4px 14px; }
+  .tabbar button.active { background: var(--fs-brand); color: #fff; }
+  .hidden { display: none; }
+  .frow { margin: 8px 0; }
+  .frow label { display: inline-block; min-width: 90px; font-size: 13px; color: var(--fs-text-2); }
+  .muted { color: var(--fs-text-2); }
+  .composer { display: flex; gap: 8px; margin: 10px 0 6px; }
+  .composer textarea { min-height: 44px; flex: 1; font-family: inherit; }
+</style>
+</head>
+<body data-page="agents">
+<h1>Agents</h1>
+<p class="muted">Build your own assistants: describe what they should do —
+the engine handles how. Pick tools from the capability registry, test in a
+sandbox, publish a version. Mutations always go through the approval
+workbench.</p>
+
+<div id="landing">
+  <div class="composer">
+  <textarea id="ask" placeholder="Describe the agent you want — e.g. &quot;watch low stock each morning and draft reorder requests&quot;"></textarea>
+  <button id="btn-compose" class="primary">Generate draft</button>
+  </div>
+  <p class="muted" id="compose-hint">Conversational: one sentence in, an editable draft YAML out.</p>
+
+  <h2>Start from a sample</h2>
+  <div class="tpl-grid" id="tpl-grid"></div>
+
+  <h2>My agents <button id="btn-refresh" class="link">refresh</button></h2>
+  <table>
+    <thead><tr><th>Name</th><th>Status</th><th>Ver</th><th>Model</th><th>Tools</th><th></th></tr></thead>
+    <tbody id="agent-rows"></tbody>
+  </table>
+  <p class="msg muted" id="msg"></p>
+</div>
+
+<div id="editor" class="hidden">
+  <div class="ed-head">
+    <button id="btn-back" class="link">&larr; Agents</button>
+    <input id="f-name" style="flex:1" placeholder="Agent name">
+    <span id="ed-chip" class="chip draft">new draft</span>
+    <button id="btn-save" class="primary">Save draft</button>
+    <button id="btn-publish">Publish</button>
+  </div>
+  <p class="msg muted" id="ed-msg"></p>
+
+  <div class="tabbar">
+    <button data-tab="form" class="active">Form</button>
+    <button data-tab="yaml">YAML</button>
+    <button data-tab="test">Test</button>
+  </div>
+
+  <div id="tab-form">
+    <div class="frow"><label>Description</label>
+      <input id="f-desc" style="width:70%" placeholder="One line what this agent does"></div>
+    <div class="frow"><label>Model</label>
+      <label style="min-width:0"><input type="radio" name="f-model" value="base" checked> base</label>
+      <label style="min-width:0"><input type="radio" name="f-model" value="tuned"> tuned</label>
+      <label style="min-width:0; margin-left:24px">Effort
+        <select id="f-effort"><option>low</option><option>medium</option><option>high</option></select></label></div>
+    <div class="frow"><label>Tools</label>
+      <span class="muted">from the capability registry — pick, never wire. ⚡ mutation (approval-gated) · ◇ read-only</span></div>
+    <div id="tool-list"></div>
+    <div class="frow"><label>System</label></div>
+    <textarea id="f-system" placeholder="Behavioral contract: role, rules, tone — say what, not how."></textarea>
+  </div>
+
+  <div id="tab-yaml" class="hidden">
+    <textarea id="yaml-text" spellcheck="false"></textarea>
+    <div class="frow">
+      <button id="btn-compile">Compile &amp; sync form</button>
+      <span class="muted">the YAML is the contract — the form is a view of it</span>
+    </div>
+    <p class="diag" id="yaml-diag"></p>
+  </div>
+
+  <div id="tab-test" class="hidden">
+    <p class="muted" id="test-hint">Draft sandbox: the model loop runs for real. Capability tool execution goes through the audited door — ⚡ tools stop at the approval workbench until a human decides.</p>
+    <div class="events" id="test-events"></div>
+    <div class="composer">
+      <textarea id="test-input" placeholder="Message the draft…"></textarea>
+      <button id="btn-send" class="primary">Send</button>
+    </div>
+  </div>
+</div>
+
+<script src="shell.js"></script>
+<script src="assistant-panel.js"></script>
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? "").replace(/[&<>"']/g,
+  c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+
+const AP = "/v1/agents-platform";
+async function api(method, path, body) {
+  const opt = { method, headers: { "Content-Type": "application/json" } };
+  if (body !== undefined) opt.body = JSON.stringify(body);
+  const r = await fetch(`${AP}/${path}`, opt);
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(data.detail || data.error || r.statusText);
+  return data;
+}
+
+const state = { agentId: null, status: "draft", doc: null, catalog: [] };
+
+// ── YAML (client serializer; parsing is server-side /compile) ─────────
+function docToYaml(d) {
+  const lines = [];
+  lines.push(`name: ${d.name ?? ""}`);
+  if (d.description) lines.push("description: >-",
+    ...String(d.description).split("\n").map(l => "  " + l));
+  lines.push("model:", `  id: ${d.model?.id ?? "base"}`,
+             `  effort: ${d.model?.effort ?? "low"}`);
+  lines.push("system: |-");
+  String(d.system ?? "").split("\n").forEach(l => lines.push(l ? "  " + l : ""));
+  lines.push("tools:");
+  (d.tools ?? []).forEach(t => lines.push(`  - ${t}`));
+  if (d.metadata && Object.keys(d.metadata).length) {
+    lines.push("metadata:");
+    for (const [k, v] of Object.entries(d.metadata)) lines.push(`  ${k}: ${v}`);
+  }
+  return lines.join("\n") + "\n";
+}
+function docFromForm() {
+  const tools = [...document.querySelectorAll("#tool-list input:checked")]
+    .map(cb => cb.dataset.cap);
+  return {
+    name: $("f-name").value.trim(),
+    description: $("f-desc").value.trim(),
+    model: { id: document.querySelector("input[name=f-model]:checked").value,
+             effort: $("f-effort").value },
+    system: $("f-system").value,
+    tools,
+    metadata: state.doc?.metadata?.template
+      ? { template: state.doc.metadata.template } : {},
+  };
+}
+function docToForm(d) {
+  $("f-name").value = d.name ?? "";
+  $("f-desc").value = d.description ?? "";
+  document.querySelector(`input[name=f-model][value="${d.model?.id === "tuned" ? "tuned" : "base"}"]`).checked = true;
+  $("f-effort").value = ["low","medium","high"].includes(d.model?.effort) ? d.model.effort : "low";
+  $("f-system").value = d.system ?? "";
+  const set = new Set(d.tools ?? []);
+  document.querySelectorAll("#tool-list input").forEach(cb =>
+    cb.checked = set.has(cb.dataset.cap));
+}
+
+// ── landing ────────────────────────────────────────────────────────────
+async function loadHealth() {
+  try {
+    const h = await api("GET", "health");
+    $("msg").innerHTML = h.ok
+      ? `<span class="dot ok"></span> agent engine connected`
+      : `<span class="dot bad"></span> agent engine down — ${esc(h.error || "")}`;
+  } catch (e) { $("msg").textContent = e.message; }
+}
+async function loadTemplates() {
+  try {
+    const { templates } = await api("GET", "templates");
+    state.templates = templates;
+    $("tpl-grid").innerHTML = templates.map(t =>
+      `<div class="tpl-card"><div class="t-name">${esc(t.name)}</div>` +
+      `<div class="t-desc">${esc(t.description)}</div>` +
+      `<div class="muted" style="font-size:12px">${t.tool_count} tools · ${esc(t.tools.join(", "))}</div>` +
+      `<button class="link" data-use="${esc(t.key)}">Use →</button></div>`).join("");
+  } catch (e) { $("msg").textContent = e.message; }
+}
+async function loadAgents() {
+  try {
+    const { agents } = await api("GET", "agents");
+    $("agent-rows").innerHTML = agents.map(a =>
+      `<tr><td>${esc(a.name)}</td>` +
+      `<td><span class="chip ${esc(a.status)}">${esc(a.status)}${a.status === "published" ? " v" + esc(a.version ?? a.version_int) : ""}</span></td>` +
+      `<td>${esc(a.version ?? a.version_int ?? "")}</td>` +
+      `<td class="muted">${esc(a.model || "")}</td>` +
+      `<td>${(a.tools || []).length}</td>` +
+      `<td><button class="link" data-open="${esc(a.id)}">Open</button>` +
+      (a.status === "draft"
+        ? ` <button class="link" data-pub="${esc(a.id)}">Publish</button>` : "") +
+      ` <button class="link" data-del="${esc(a.id)}">Delete</button></td></tr>`
+    ).join("") || `<tr><td colspan="6" class="muted">No agents yet — start from a sample or describe one.</td></tr>`;
+  } catch (e) { $("msg").textContent = e.message; }
+}
+async function loadCatalog() {
+  const { capabilities } = await api("GET", "capability-catalog");
+  state.catalog = capabilities;
+  const groups = {};
+  for (const c of capabilities) (groups[c.source] ??= []).push(c);
+  const label = { rest: "Built-in · REST", node: "Engine nodes",
+                  connector: "Connectors", skill: "Skills", rag: "Knowledge",
+                  mcp: "MCP" };
+  $("tool-list").innerHTML = Object.entries(groups).map(([src, caps]) =>
+    `<div class="src-group"><div class="src-label">▾ ${esc(label[src] || src)}</div>` +
+    caps.map(c =>
+      `<div class="tool-row"><input type="checkbox" data-cap="${esc(c.id)}">` +
+      `<span class="${c.mutation ? "mut" : "ro"}">${c.mutation ? "⚡" : "◇"}</span>` +
+      `<span class="cap-id">${esc(c.id)}</span>` +
+      `<span class="muted">— ${esc(c.title)}</span></div>`).join("") +
+    `</div>`).join("");
+}
+
+// ── editor ─────────────────────────────────────────────────────────────
+function showEditor() {
+  $("landing").classList.add("hidden");
+  $("editor").classList.remove("hidden");
+  $("ed-chip").className = "chip " + (state.status || "draft");
+  $("ed-chip").textContent = state.agentId ? state.status : "new draft";
+  $("btn-publish").disabled = !state.agentId;
+  $("test-hint").textContent = state.agentId
+    ? `Draft sandbox for ${state.agentId}: the model loop runs for real; ⚡ tools stop at the approval workbench until a human decides.`
+    : "Save the draft first, then test here.";
+}
+function showLanding() {
+  $("editor").classList.add("hidden");
+  $("landing").classList.remove("hidden");
+  loadAgents();
+}
+async function openAgent(id) {
+  try {
+    const { agent, yaml, doc } = await api("GET", `agents/${id}`);
+    state.agentId = id; state.status = agent.status || "draft"; state.doc = doc;
+    docToForm(doc); $("yaml-text").value = yaml;
+    showEditor(); switchTab("form");
+  } catch (e) { $("msg").textContent = e.message; }
+}
+function newDraft(doc) {
+  state.agentId = null; state.status = "draft"; state.doc = doc;
+  docToForm(doc); $("yaml-text").value = docToYaml(doc);
+  $("test-events").innerHTML = ""; showEditor(); switchTab("form");
+}
+function switchTab(name) {
+  document.querySelectorAll(".tabbar button").forEach(b =>
+    b.classList.toggle("active", b.dataset.tab === name));
+  ["form", "yaml", "test"].forEach(t =>
+    $(`tab-${t}`).classList.toggle("hidden", t !== name));
+}
+async function compileCurrent() {
+  const text = $("yaml-text").value;
+  const out = await api("POST", "compile", { yaml: text });
+  const diag = $("yaml-diag");
+  if (!out.ok) {
+    diag.className = "diag err";
+    diag.textContent = "✗ " + out.error;
+    return null;
+  }
+  diag.className = "diag ok";
+  diag.textContent = "✓ compiled" +
+    (out.warnings.length ? ` — warnings: ${out.warnings.join("; ")}` : "");
+  state.doc = out.doc; docToForm(out.doc);
+  return out;
+}
+async function saveDraft() {
+  try {
+    $("ed-msg").textContent = "";
+    const out = await compileCurrent();
+    if (!out) { $("ed-msg").textContent = "Fix the compile errors first."; return; }
+    if (state.agentId) {
+      const r = await api("PUT", `agents/${state.agentId}`, { definition_doc: state.doc });
+      $("ed-msg").textContent = `Saved.${r.warnings.length ? " Warnings: " + r.warnings.join("; ") : ""}`;
+    } else {
+      const r = await api("POST", "agents", { definition_doc: state.doc });
+      state.agentId = r.agent_id;
+      $("ed-msg").textContent = `Draft saved (${r.agent_id}) — model resolved to ${r.model}.` +
+        (r.warnings.length ? " Warnings: " + r.warnings.join("; ") : "");
+    }
+    showEditor();
+  } catch (e) { $("ed-msg").textContent = e.message; }
+}
+async function publishDraft() {
+  try {
+    if (!state.agentId) { $("ed-msg").textContent = "Save the draft first."; return; }
+    const r = await api("POST", `agents/${state.agentId}/publish`);
+    state.status = "published";
+    $("ed-msg").textContent = `Published v${r.version} — audit entry written.`;
+    showEditor();
+  } catch (e) { $("ed-msg").textContent = e.message; }
+}
+
+// ── test bench ─────────────────────────────────────────────────────────
+function renderEvents(events) {
+  $("test-events").innerHTML = events.map(ev => {
+    const isTool = /tool/i.test(ev.type || "");
+    return `<div class="ev ${isTool ? "tool" : esc(ev.type)}">` +
+      `<span class="ev-type">${esc(ev.type)}</span>` +
+      `<span class="ev-body">${esc(ev.content)}</span></div>`;
+  }).join("") || `<p class="muted">No events.</p>`;
+}
+async function sendTest() {
+  try {
+    if (!state.agentId) { $("test-hint").textContent = "Save the draft first."; return; }
+    const message = $("test-input").value.trim();
+    if (!message) return;
+    $("test-input").value = "";
+    $("test-events").innerHTML = `<p class="muted">running…</p>`;
+    const r = await api("POST", `agents/${state.agentId}/test`, { message });
+    renderEvents(r.events);
+  } catch (e) {
+    $("test-events").innerHTML = `<div class="ev error"><span class="ev-body">${esc(e.message)}</span></div>`;
+  }
+}
+
+// ── wiring (delegated — no inline onclick) ─────────────────────────────
+document.querySelector(".tabbar").addEventListener("click", e => {
+  if (e.target.dataset.tab) switchTab(e.target.dataset.tab);
+});
+$("btn-compose").addEventListener("click", async () => {
+  const btn = $("btn-compose");
+  if (btn.disabled) return;  // double-click guard while composing
+  btn.disabled = true;
+  btn.dataset.label = btn.textContent;
+  btn.textContent = "Composing…";
+  let elapsed = 0;
+  const tick = setInterval(() => {
+    elapsed += 5;
+    $("compose-hint").textContent =
+      `Composing — the model drafts tools, prompts and params. This can ` +
+      `take a minute or two… (${elapsed}s)`;
+  }, 5000);
+  try {
+    $("compose-hint").textContent =
+      "Composing — the model drafts tools, prompts and params. " +
+      "This can take a minute or two…";
+    const r = await api("POST", "compose", { ask: $("ask").value.trim() });
+    if (!r.ok) {
+      $("compose-hint").textContent = "Model output failed compile — fix it in the editor. " + (r.error || "");
+      newDraft({ name: "", description: "", model: { id: "base", effort: "low" },
+                 system: "", tools: [] });
+      $("yaml-text").value = r.yaml || $("yaml-text").value;
+      switchTab("yaml"); return;
+    }
+    $("compose-hint").textContent = "Draft generated — review and save." +
+      (r.warnings.length ? " Warnings: " + r.warnings.join("; ") : "");
+    newDraft(r.doc); $("yaml-text").value = r.yaml;
+  } catch (e) { $("compose-hint").textContent = e.message; }
+  finally {
+    clearInterval(tick);
+    btn.disabled = false;
+    btn.textContent = btn.dataset.label;
+  }
+});
+$("tpl-grid").addEventListener("click", e => {
+  const key = e.target.dataset && e.target.dataset.use;
+  if (!key) return;
+  const t = state.templates && state.templates.find(x => x.key === key);
+  if (t) {
+    fetch(`${AP}/compile`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ yaml: t.yaml }),
+    }).then(r => r.json()).then(c => { if (c.ok) newDraft(c.doc); });
+  }
+});
+$("agent-rows").addEventListener("click", async e => {
+  const t = e.target;
+  if (t.dataset.open) openAgent(t.dataset.open);
+  else if (t.dataset.pub) {
+    try {
+      const r = await api("POST", `agents/${t.dataset.pub}/publish`);
+      $("msg").textContent = `Published v${r.version}.`; loadAgents();
+    } catch (err) { $("msg").textContent = err.message; }
+  } else if (t.dataset.del) {
+    if (!confirm("Delete this agent?")) return;
+    try { await api("DELETE", `agents/${t.dataset.del}`); loadAgents(); }
+    catch (err) { $("msg").textContent = err.message; }
+  }
+});
+$("btn-refresh").addEventListener("click", loadAgents);
+$("btn-back").addEventListener("click", showLanding);
+$("btn-save").addEventListener("click", saveDraft);
+$("btn-publish").addEventListener("click", publishDraft);
+$("btn-compile").addEventListener("click", () =>
+  compileCurrent().catch(e => { $("yaml-diag").className = "diag err";
+    $("yaml-diag").textContent = e.message; }));
+$("btn-send").addEventListener("click", sendTest);
+
+(async function init() {
+  await loadHealth();
+  await Promise.all([loadTemplates(), loadAgents(), loadCatalog()]);
+})();
+shell.init();
+</script>
+</body>
+</html>
