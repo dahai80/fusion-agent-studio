@@ -100,6 +100,15 @@ class TestExtractIssuedKey:
         assert _extract_issued_key({"key": "fm-3"}) == "fm-3"
         assert _extract_issued_key({"module_key": "fm-4"}) == "fm-4"
 
+    def test_raw_key_first(self):
+        # #440: gateway writeShellKeyResponse carries the plaintext in raw_key
+        assert _extract_issued_key({"raw_key": "fm-gw"}) == "fm-gw"
+        assert _extract_issued_key({"data": {"raw_key": "fm-gw-n"}}) == "fm-gw-n"
+
+    def test_raw_key_wins_over_echoed_api_key(self):
+        assert _extract_issued_key(
+            {"api_key": "fk-static-echo", "raw_key": "fm-issued"}) == "fm-issued"
+
     def test_nested_data(self):
         assert _extract_issued_key({"data": {"api_key": "fm-nested"}}) == "fm-nested"
 
@@ -108,7 +117,7 @@ class TestExtractIssuedKey:
         assert _extract_issued_key(None) == ""
         assert _extract_issued_key("text") == ""
 
-    def test_priority_api_key_first(self):
+    def test_priority_raw_key_first(self):
         assert _extract_issued_key({"issued_key": "fm-b", "api_key": "fm-a"}) == "fm-a"
 
 
@@ -186,6 +195,40 @@ class TestRegistryLoop:
         registers = [c for c in client.calls if c["url"].endswith("/manifests")]
         assert len(registers) == 2
         assert registers[1]["headers"]["Authorization"] == "Bearer admin"
+
+    async def test_heartbeat_403_drops_api_key_and_reacquires(self, _key_path, monkeypatch):
+        # #442: static fk- key rejected by heartbeat auth (403) —
+        # re-registration must drop api_key so the gateway issues an fm- key.
+        monkeypatch.setenv("FUSION_GATEWAY_ADMIN_KEY", "admin")
+        monkeypatch.setenv("FUSION_AGENT_STUDIO_API_KEY", "fk-mod-stale")
+        client = _FakeClient([
+            _response(200, {}),
+            _response(403, {"detail": "heartbeat_forbidden"}),
+            _response(200, {"raw_key": "fm-fresh-403"}),
+            _response(200, {}),
+        ])
+        await _drive(client, {"id": "mod-x", "upstream": "http://h:1"}, rounds=0.12)
+        assert load_module_key() == "fm-fresh-403"
+        registers = [c for c in client.calls if c["url"].endswith("/manifests")]
+        assert len(registers) == 2
+        assert "api_key" not in registers[1]["json"]
+        beats = [c for c in client.calls if c["url"].endswith("/heartbeat")]
+        assert beats[-1]["headers"]["Authorization"] == "Bearer fm-fresh-403"
+
+    async def test_401_also_drops_api_key_on_reregister(self, _key_path, monkeypatch):
+        monkeypatch.setenv("FUSION_GATEWAY_ADMIN_KEY", "admin")
+        monkeypatch.setenv("FUSION_AGENT_STUDIO_API_KEY", "fk-mod-stale")
+        client = _FakeClient([
+            _response(200, {}),
+            _response(401, {}),
+            _response(200, {"raw_key": "fm-rotated"}),
+            _response(200, {}),
+        ])
+        await _drive(client, {"id": "mod-x", "upstream": "http://h:1"}, rounds=0.12)
+        registers = [c for c in client.calls if c["url"].endswith("/manifests")]
+        assert "api_key" in registers[0]["json"]
+        assert "api_key" not in registers[1]["json"]
+        assert load_module_key() == "fm-rotated"
 
     async def test_never_logs_plaintext(self, _key_path, caplog):
         import logging

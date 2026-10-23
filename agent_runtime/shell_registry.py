@@ -84,15 +84,19 @@ def _mask_key(key: str) -> str:
 
 
 def _extract_issued_key(payload: Any) -> str:
+    # #440: the gateway's K1 issuance response (writeShellKeyResponse,
+    # fusion-gateway internal/server/shell.go) returns the plaintext in
+    # `raw_key` — checked FIRST so a response that also echoes a
+    # caller-supplied api_key does not mask the issued one.
     if not isinstance(payload, dict):
         return ""
-    for field in ("api_key", "issued_key", "key", "module_key"):
+    for field in ("raw_key", "api_key", "issued_key", "key", "module_key"):
         value = payload.get(field)
         if isinstance(value, str) and value.strip():
             return value.strip()
     nested = payload.get("data")
     if isinstance(nested, dict):
-        for field in ("api_key", "issued_key", "key", "module_key"):
+        for field in ("raw_key", "api_key", "issued_key", "key", "module_key"):
             value = nested.get(field)
             if isinstance(value, str) and value.strip():
                 return value.strip()
@@ -201,16 +205,25 @@ async def _registry_loop_body(client: Any, manifest: dict[str, Any], interval: f
         "set" if payload.get("api_key") else "unset",
     )
     registered = False
+    # #442: after a heartbeat auth failure (401/403) the self-supplied
+    # api_key is dropped from the re-registration payload so the gateway's
+    # EnsureServiceKey branch issues a fresh fm- key instead of accepting
+    # the stale static key and never issuing.
+    force_issue = False
     while True:
         try:
             if not registered:
+                body = dict(payload)
+                if force_issue:
+                    body.pop("api_key", None)
                 resp = await client.post(
                     f"{gateway}/api/v1/shell/manifests",
-                    json=payload,
+                    json=body,
                     headers=admin_headers,
                 )
                 if resp.status_code == 200:
                     registered = True
+                    force_issue = False
                     logger.info("shell manifest registered: %s", module_id)
                     # #436 (K4): persist gateway-issued key — returned in
                     # plaintext exactly once, in the registration response.
@@ -239,11 +252,16 @@ async def _registry_loop_body(client: Any, manifest: dict[str, Any], interval: f
                     # Gateway restarted and dropped dynamic manifests.
                     logger.info("shell heartbeat 404, re-registering %s", module_id)
                     registered = False
-                elif resp.status_code == 401 and module_key:
-                    # Issued key rotated/revoked — re-register via admin key
-                    # to pick up the fresh issued key.
-                    logger.warning("shell heartbeat 401 (issued key invalid), re-registering %s", module_id)
+                elif resp.status_code in (401, 403):
+                    # #442: 401 (key rotated/revoked) AND 403 (heartbeat
+                    # credential rejected — e.g. a self-supplied static fk-
+                    # key the heartbeat auth never accepts) both re-register
+                    # WITHOUT api_key so the gateway issues an fm- key.
+                    logger.warning(
+                        "shell heartbeat %d (credential rejected), re-registering without api_key %s",
+                        resp.status_code, module_id)
                     registered = False
+                    force_issue = True
                 elif resp.status_code != 200:
                     logger.warning(
                         "shell heartbeat failed: %d %s",
