@@ -44,7 +44,16 @@ class DoorError(Exception):
 
 
 class CapabilityApprovalStore:
-    """SQLite-backed mutation approvals (L3 workbench records)."""
+    """SQLite-backed approval records (L3 workbench).
+
+    #446: two kinds share one table — 'mutation' (created by the door when
+    an agent calls a mutation capability; approve dispatches the payload)
+    and 'external' (created via REST by outside consumers such as
+    EnviPermit; approve/reject only records the decision + fires
+    webhooks — nothing dispatches). External records carry an assigned
+    reviewer and a display title; the requester != approver invariant is
+    enforced for both kinds.
+    """
 
     def __init__(self, db_path: Optional[str] = None):
         if not db_path:
@@ -69,6 +78,16 @@ class CapabilityApprovalStore:
                created_at REAL NOT NULL,
                decided_at REAL,
                result TEXT DEFAULT '')""")
+        # #446 migration: older stores predate the external-task columns.
+        existing = {row[1] for row in conn.execute(
+            "PRAGMA table_info(capability_approvals)").fetchall()}
+        for column, default in (("kind", "'mutation'"),
+                                ("assigned_to", "''"),
+                                ("title", "''")):
+            if column not in existing:
+                conn.execute(
+                    f"ALTER TABLE capability_approvals ADD COLUMN "
+                    f"{column} TEXT DEFAULT {default}")
         conn.commit()
         conn.close()
         logger.info("capability approval store ready: %s", self.db_path)
@@ -78,12 +97,39 @@ class CapabilityApprovalStore:
         approval_id = uuid.uuid4().hex[:16]
         conn = sqlite3.connect(self.db_path)
         conn.execute(
-            "INSERT INTO capability_approvals VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+            "INSERT INTO capability_approvals VALUES "
+            "(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (approval_id, capability_id, agent_id, int(version),
              publisher, json.dumps(params, ensure_ascii=False), "pending",
-             requester, "", time.time(), None, ""))
+             requester, "", time.time(), None, "", "mutation", "", ""))
         conn.commit()
         conn.close()
+        return self.get(approval_id)
+
+    def create_external(self, title: str, requester: str, assigned_to: str,
+                        params: dict, agent_id: str = "") -> dict:
+        """#446: external approval task — an outside consumer's review item.
+
+        The payload (`params`) is opaque to the studio: consumers put their
+        own object references (project/doc version IDs, evidence summary)
+        there; the decision webhook returns it verbatim.
+        """
+        if requester and assigned_to and requester == assigned_to:
+            raise DoorError(422, "requester and assigned reviewer must "
+                                 "differ (no self-approval)")
+        approval_id = uuid.uuid4().hex[:16]
+        conn = sqlite3.connect(self.db_path)
+        conn.execute(
+            "INSERT INTO capability_approvals VALUES "
+            "(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (approval_id, "external", agent_id or "external", 0, "",
+             json.dumps(params, ensure_ascii=False), "pending",
+             requester, "", time.time(), None, "", "external",
+             assigned_to, title))
+        conn.commit()
+        conn.close()
+        logger.info("external approval task created: %s requester=%s "
+                    "assigned_to=%s", approval_id, requester, assigned_to)
         return self.get(approval_id)
 
     def get(self, approval_id: str) -> Optional[dict]:
@@ -439,16 +485,58 @@ class CapabilityDoor:
         return AgentRuntime()
 
     # ── approval workbench (mutation gate) ───────────────────────────
+    def _check_decider(self, rec: dict, decided_by: str) -> None:
+        requester = rec.get("requester") or ""
+        if decided_by and decided_by == requester:
+            # requester != approver — the anti-self-approval invariant.
+            raise DoorError(403, "requester cannot approve their own request")
+        # #446: external tasks with an assigned reviewer are decided by
+        # that reviewer (or, if unassigned, any non-requester).
+        assigned = rec.get("assigned_to") or ""
+        if rec.get("kind") == "external" and assigned and \
+                decided_by and decided_by != assigned:
+            raise DoorError(403, f"approval assigned to '{assigned}', "
+                                 f"not '{decided_by}'")
+
+    async def _notify_decision(self, rec: dict, reason: str = "") -> None:
+        """#446: fire approval.decided webhooks — best-effort, never
+        raises into the decision path."""
+        try:
+            from .webhooks import get_webhook_registry
+
+            await get_webhook_registry().fire("approval.decided", {
+                "approval_id": rec.get("id"),
+                "kind": rec.get("kind") or "mutation",
+                "capability_id": rec.get("capability_id"),
+                "agent_id": rec.get("agent_id"),
+                "title": rec.get("title") or "",
+                "status": rec.get("status"),
+                "requester": rec.get("requester"),
+                "decided_by": rec.get("decided_by"),
+                "decided_at": rec.get("decided_at"),
+                "params": rec.get("params") or {},
+                "result": (rec.get("result") or "")[:2000],
+                "reason": reason,
+            })
+        except Exception as e:
+            logger.warning("approval webhook notify failed: %s", e)
+
     async def approve(self, approval_id: str, decided_by: str) -> dict:
         rec = self.approvals.get(approval_id)
         if not rec:
             raise DoorError(404, f"approval '{approval_id}' not found")
         if rec["status"] != "pending":
             raise DoorError(409, f"approval already {rec['status']}")
-        requester = rec.get("requester") or ""
-        if decided_by and decided_by == requester:
-            # requester != approver — the anti-self-approval invariant.
-            raise DoorError(403, "requester cannot approve their own request")
+        self._check_decider(rec, decided_by)
+        if rec.get("kind") == "external":
+            # #446: external task — the decision is the whole outcome;
+            # no studio capability dispatches, consumers advance their own
+            # state from the webhook.
+            rec = self.approvals.decide(approval_id, "approved", decided_by)
+            logger.info("external approval approved: %s by=%s",
+                        approval_id, decided_by)
+            await self._notify_decision(rec)
+            return rec
         cap = get_capability(rec["capability_id"])
         if cap is None:
             raise DoorError(404, f"capability '{rec['capability_id']}' removed")
@@ -459,6 +547,7 @@ class CapabilityDoor:
         rec["dispatch_status_code"] = status_code
         logger.info("capability approval approved: %s cap=%s by=%s",
                     approval_id, rec["capability_id"], decided_by)
+        await self._notify_decision(rec)
         return rec
 
     async def reject(self, approval_id: str, decided_by: str,
@@ -468,10 +557,12 @@ class CapabilityDoor:
             raise DoorError(404, f"approval '{approval_id}' not found")
         if rec["status"] != "pending":
             raise DoorError(409, f"approval already {rec['status']}")
+        self._check_decider(rec, decided_by)
         rec = self.approvals.decide(approval_id, "rejected", decided_by,
                                     result=reason)
         logger.info("capability approval rejected: %s by=%s",
                     approval_id, decided_by)
+        await self._notify_decision(rec, reason=reason)
         return rec
 
 

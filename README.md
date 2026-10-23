@@ -381,6 +381,11 @@ Audit `audit/fusion-agent-studio-vs-langflow-audit-1020.md` closed end-to-end; s
 - ✅ **legacy quick-create kept** — the 5-step name/prompt/tools/model/color wizard remains as a secondary path ("Quick create").
 - ✅ **SPA REST helper fix** — `apiPost` now sends `content-type: application/json` explicitly; FastAPI model endpoints (unlike `/v1/rpc`) answer 422 without it.
 
+### External Approval Tasks + Decision Webhooks — #446
+- ✅ **approval workbench as a service** — external consumers (e.g. EnviPermit) create review tasks on the shared workbench instead of a bespoke state machine: `POST /v1/agent-platform/approvals` with `{title, requester, assigned_to, payload, agent_id}` (`payload` is opaque consumer data, echoed back on decision). The store distinguishes `kind=mutation` records (door-created, approve dispatches the capability) from `kind=external` records (decision recorded only — no studio dispatch), with an in-DB schema migration for the new `kind`/`assigned_to`/`title` columns.
+- ✅ **separation-of-duties enforced** — `requester == assigned_to` is rejected at creation (422); the requester can never decide their own task (403); when a task carries an assigned reviewer only that reviewer (or the workbench operator) may decide (403 otherwise). Decisions are idempotent-conflict-guarded (409 on double decide).
+- ✅ **signed decision webhooks** — `POST /v1/agent-platform/webhooks` `{url, secret(≥16 chars), events}` registers a consumer endpoint (one per URL, re-register rotates the secret; secrets never appear in `GET` listings or `DELETE` responses). Every approve/reject fires an `approval.decided` webhook: HMAC-SHA256 of the raw body in the `x-fusion-signature` header, 3 attempts with backoff, delivery status tracked per endpoint, and a failed/unreachable webhook never breaks the decision path. REST: `GET/POST /v1/agent-platform/webhooks`, `DELETE /v1/agent-platform/webhooks/{id}`, decisions via `POST /v1/agent-platform/approvals/{id}/approve|reject` with `{decided_by, reason}`.
+
 ### Integration
 - ✅ **fusion-mlx** — Apple Silicon optimized model serving
 - ✅ **OpenAI-compatible API** — Works with any OpenAI-compatible backend
