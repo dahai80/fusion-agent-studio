@@ -155,7 +155,12 @@ export function ChatPage() {
                 }
             />
             <div className="flex items-start gap-4 px-4 pt-3">
-                <div className="w-1/3 shrink-0">
+                {/* #443: responsive width + visible divider so the panel
+                    reads as a column, not content floating at the left
+                    edge. Rows put the title on its own (wrapping) line so
+                    long titles never clip; timestamp + Delete sit on a
+                    muted second line. */}
+                <div className="max-h-[calc(100vh-9rem)] w-2/5 min-w-[300px] max-w-[420px] shrink-0 overflow-y-auto border-r border-border pr-2">
                     {loading && attempt === 0 && sessions.length === 0 ? (
                         <SkeletonLines rows={4} />
                     ) : error ? (
@@ -176,32 +181,39 @@ export function ChatPage() {
                                 const id = s.session_id ?? s.id ?? '';
                                 const active = id === selected;
                                 return (
-                                    <li key={id} className="flex items-center gap-1">
+                                    <li
+                                        key={id}
+                                        className={`rounded-md border ${
+                                            active
+                                                ? 'border-brand'
+                                                : 'border-transparent hover:bg-bg-muted'
+                                        }`}
+                                    >
                                         <button
                                             type="button"
                                             onClick={() => setSelected(id)}
-                                            className={`flex-1 truncate rounded-md border px-3 py-2 text-left text-sm hover:bg-bg-muted ${
-                                                active
-                                                    ? 'border-brand text-text-primary'
-                                                    : 'border-transparent text-text-secondary'
-                                            }`}
+                                            className="block w-full px-3 pt-2 text-left text-sm text-text-primary"
                                         >
-                                            <span className="block truncate">
+                                            <span className="block break-words">
                                                 {sessionLabel(s)}
                                             </span>
+                                        </button>
+                                        <div className="flex items-center justify-between gap-2 px-3 pb-2">
                                             {s.updated_at ? (
                                                 <span className="text-xs text-text-secondary">
                                                     {formatRelativeTime(s.updated_at * 1000)}
                                                 </span>
-                                            ) : null}
-                                        </button>
-                                        <button
-                                            type="button"
-                                            onClick={() => removeSession(id)}
-                                            className="px-2 py-2 text-xs text-error hover:underline"
-                                        >
-                                            {t('删除', 'Delete')}
-                                        </button>
+                                            ) : (
+                                                <span />
+                                            )}
+                                            <button
+                                                type="button"
+                                                onClick={() => removeSession(id)}
+                                                className="text-xs text-error hover:underline"
+                                            >
+                                                {t('删除', 'Delete')}
+                                            </button>
+                                        </div>
                                     </li>
                                 );
                             })}
