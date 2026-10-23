@@ -7,6 +7,28 @@
     </head>
     <body>
         <div id="root"></div>
+        <script>
+            // #444: apply the theme class before first paint (no
+            // flash-of-wrong-theme). Embedded mode: the shell re-pushes its
+            // current theme on iframe load, overwriting this initial guess.
+            // Standalone: inherit the shell's last stored preference, then
+            // prefers-color-scheme, dark default (spec §3.1).
+            (function () {
+                try {
+                    var saved = localStorage.getItem('fusion.shell.theme');
+                    var mode =
+                        saved === 'light' || saved === 'dark'
+                            ? saved
+                            : window.matchMedia('(prefers-color-scheme: light)').matches
+                              ? 'light'
+                              : 'dark';
+                } catch (e) {
+                    var mode = 'dark';
+                }
+                document.documentElement.classList.toggle('light', mode === 'light');
+                document.documentElement.classList.toggle('dark', mode === 'dark');
+            })();
+        </script>
         <script type="module" src="/src/main.tsx"></script>
     </body>
 </html>

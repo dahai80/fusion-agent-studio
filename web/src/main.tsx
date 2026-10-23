@@ -3,6 +3,9 @@ import { createRoot } from 'react-dom/client';
 import { App } from './App';
 import '@fusion/web-ui/tokens.css';
 import './index.css';
+import { initTheme } from './theme';
+
+initTheme();
 
 const rootEl = document.getElementById('root');
 if (rootEl) {
