@@ -376,6 +376,11 @@ Audit `audit/fusion-agent-studio-vs-langflow-audit-1020.md` closed end-to-end; s
 - ✅ **publish registry resolves authority server-side** — publishing records the agent in `~/.fusion-agent-studio/publish_registry.json`; bridge tools (`bt_<agent>_<capability>`) dispatch in-process through the door instead of the removed HTTP console hop.
 - Tests: `tests/test_issue_437_agents_console.py` (23).
 
+### Conversational Agent Creation — #441
+- ✅ **describe → draft → editor** — the studio Agents page (`#/agents`) now opens with the f-ecommerce conversational creator: a one-sentence composer ("Describe the agent you want…") + **Generate draft** wired to `POST /v1/agents-platform/compose` (NL → authoring YAML over the model gateway, honest failure returns), the "one sentence in, an editable draft YAML out" hint, and seeded sample cards (Use → compiles the template and opens it). A generated draft is saved via `/v1/agents-platform/agents` and lands straight in the Form/YAML/Test editor — `web/console/agents.html` accepts `?agent=<id>` deep links, so compile & sync, the capability picker (⚡ approval-gated / ◇ read-only), the sandbox test tab, and save → publish continue unchanged.
+- ✅ **legacy quick-create kept** — the 5-step name/prompt/tools/model/color wizard remains as a secondary path ("Quick create").
+- ✅ **SPA REST helper fix** — `apiPost` now sends `content-type: application/json` explicitly; FastAPI model endpoints (unlike `/v1/rpc`) answer 422 without it.
+
 ### Integration
 - ✅ **fusion-mlx** — Apple Silicon optimized model serving
 - ✅ **OpenAI-compatible API** — Works with any OpenAI-compatible backend

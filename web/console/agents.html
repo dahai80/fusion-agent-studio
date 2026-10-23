@@ -416,6 +416,10 @@ $("btn-send").addEventListener("click", sendTest);
 (async function init() {
   await loadHealth();
   await Promise.all([loadTemplates(), loadAgents(), loadCatalog()]);
+  // #441: deep link from the studio Agents page composer — a freshly
+  // generated draft lands straight in the editor (Form tab).
+  const deep = new URLSearchParams(window.location.search).get("agent");
+  if (deep) openAgent(deep);
 })();
 shell.init();
 </script>

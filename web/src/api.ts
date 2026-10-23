@@ -149,6 +149,28 @@ export async function rpc<T = Record<string, unknown>>(
     return res;
 }
 
+// #441: generic REST helpers for the agents-platform surface (compose /
+// compile / templates / draft CRUD). Same #405 rule — path must carry
+// apiBase() so the embedded host bridge lands on the gateway /shell proxy.
+export async function apiGet<T = Record<string, unknown>>(path: string): Promise<T> {
+    return getJson<T>(`${B()}${path}`);
+}
+
+export async function apiPost<T = Record<string, unknown>>(
+    path: string,
+    body?: unknown
+): Promise<T> {
+    // POST must carry content-type explicitly: the standalone sdk.http
+    // passes init.headers through untouched and FastAPI model bodies
+    // (unlike /v1/rpc) answer 422 without it.
+    const res = await sdk.http.request<T>(`${B()}${path}`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body,
+    });
+    return res.data;
+}
+
 export const api = {
     dashboard: () => getJson<DashboardData>(`${B()}/v1/dashboard`),
     graphs: (page = 1, limit = 50) =>

@@ -8,8 +8,8 @@ import {
     useAutoRetry,
 } from '@fusion/web-ui';
 import { formatRelativeTime } from '@fusion/web-ui/format';
-import { useMemo, useState } from 'react';
-import { api, rpc } from '../../api';
+import { useEffect, useMemo, useState } from 'react';
+import { api, apiGet, apiPost, apiBase, rpc } from '../../api';
 import { PageHeader } from '../../components/PageHeader';
 import { Modal } from '../../components/ui/Modal';
 import { Textarea } from '../../components/ui/Textarea';
@@ -43,6 +43,24 @@ interface Usage {
     count: number;
     lastRun?: number;
     tokens?: number;
+}
+
+// #441: agents-platform template card (GET /v1/agents-platform/templates).
+interface TemplateItem {
+    key: string;
+    name: string;
+    description: string;
+    tools: string[];
+    tool_count: number;
+    yaml: string;
+}
+
+interface ComposeResponse {
+    ok: boolean;
+    doc?: Record<string, unknown>;
+    yaml?: string;
+    error?: string;
+    warnings?: string[];
 }
 
 const STATUS_KIND: Record<string, 'success' | 'running' | 'offline'> = {
@@ -124,6 +142,17 @@ export function AgentsPage() {
     const [runInput, setRunInput] = useState('');
     const [runOutput, setRunOutput] = useState('');
     const [runBusy, setRunBusy] = useState(false);
+    // #441: conversational creation — one sentence in, editable draft out.
+    const [ask, setAsk] = useState('');
+    const [composing, setComposing] = useState(false);
+    const [composeMsg, setComposeMsg] = useState('');
+    const [templates, setTemplates] = useState<TemplateItem[]>([]);
+
+    useEffect(() => {
+        apiGet<{ templates?: TemplateItem[] }>('/v1/agents-platform/templates')
+            .then((r) => setTemplates(r.templates ?? []))
+            .catch(() => setTemplates([]));
+    }, []);
 
     const rows = data?.agents ?? [];
     const toolCatalog = data?.tools?.tools ?? [];
@@ -197,6 +226,70 @@ export function AgentsPage() {
         }
     };
 
+    // #441: compose -> save draft -> open the Form/YAML/Test editor
+    // (web/console/agents.html) with the draft loaded. The editor owns
+    // steps 3-6 of the f-ecommerce sequence unchanged: compile & sync,
+    // capability picker (⚡ approval-gated / ◇ read-only), sandbox test,
+    // save draft -> publish.
+    const openDraftEditor = (agentId: string) => {
+        window.location.href = `${apiBase()}/console/agents.html?agent=${encodeURIComponent(agentId)}`;
+    };
+
+    const generateDraft = async () => {
+        if (!ask.trim() || composing) return;
+        setComposing(true);
+        setComposeMsg('');
+        try {
+            const r = await apiPost<ComposeResponse>('/v1/agents-platform/compose', {
+                ask: ask.trim(),
+            });
+            if (!r.ok || !r.doc) {
+                setComposeMsg(r.error || t('生成失败', 'compose failed'));
+                return;
+            }
+            const created = await apiPost<{ agent_id?: string }>('/v1/agents-platform/agents', {
+                definition_doc: r.doc,
+            });
+            if (!created.agent_id) {
+                setComposeMsg(t('草稿保存失败', 'draft save failed'));
+                return;
+            }
+            openDraftEditor(created.agent_id);
+        } catch (e) {
+            setComposeMsg((e as Error).message);
+        } finally {
+            setComposing(false);
+        }
+    };
+
+    const useTemplate = async (key: string) => {
+        const tpl = templates.find((x) => x.key === key);
+        if (!tpl || composing) return;
+        setComposing(true);
+        setComposeMsg('');
+        try {
+            const c = await apiPost<ComposeResponse>('/v1/agents-platform/compile', {
+                yaml: tpl.yaml,
+            });
+            if (!c.ok || !c.doc) {
+                setComposeMsg(c.error || t('模板编译失败', 'template compile failed'));
+                return;
+            }
+            const created = await apiPost<{ agent_id?: string }>('/v1/agents-platform/agents', {
+                definition_doc: c.doc,
+            });
+            if (!created.agent_id) {
+                setComposeMsg(t('草稿保存失败', 'draft save failed'));
+                return;
+            }
+            openDraftEditor(created.agent_id);
+        } catch (e) {
+            setComposeMsg((e as Error).message);
+        } finally {
+            setComposing(false);
+        }
+    };
+
     const runInline = async () => {
         const agent = runAgent;
         if (!agent || !runInput.trim() || runBusy) return;
@@ -248,10 +341,80 @@ export function AgentsPage() {
                         onClick={() => setShowCreate(true)}
                         className="rounded-md border border-border px-3 py-1.5 text-xs text-text-primary hover:bg-bg-muted"
                     >
-                        {t('新建', 'New')}
+                        {t('快速创建', 'Quick create')}
                     </button>
                 }
             />
+            {/* #441: conversational creation — the default entry. One
+                sentence in, an editable draft YAML out; the draft opens
+                in the Form/YAML/Test editor. */}
+            <div className="px-4 pt-3">
+                <div className="rounded-card border border-border bg-bg-elevated p-4">
+                    <Textarea
+                        value={ask}
+                        onChange={(v) => setAsk(v)}
+                        placeholder={t(
+                            '用一句话描述你想要的智能体…',
+                            'Describe the agent you want…'
+                        )}
+                        rows={2}
+                    />
+                    <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+                        <span className="text-xs text-text-muted">
+                            {t(
+                                '对话式创建：一句话输入，产出可编辑的草稿 YAML',
+                                'Conversational: one sentence in, an editable draft YAML out'
+                            )}
+                        </span>
+                        <button
+                            type="button"
+                            disabled={!ask.trim() || composing}
+                            onClick={generateDraft}
+                            className="rounded-md bg-brand px-3 py-1.5 text-xs text-white hover:opacity-90 disabled:opacity-50"
+                        >
+                            {composing
+                                ? t('生成中…', 'Generating…')
+                                : t('生成草稿', 'Generate draft')}
+                        </button>
+                    </div>
+                    {composeMsg ? (
+                        <div className="mt-2 text-xs text-error">{composeMsg}</div>
+                    ) : null}
+                    {templates.length > 0 ? (
+                        <div className="mt-4">
+                            <div className="mb-2 text-xs font-medium text-text-secondary">
+                                {t('从样例开始', 'Start from a sample')}
+                            </div>
+                            <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                                {templates.map((tpl) => (
+                                    <div
+                                        key={tpl.key}
+                                        className="flex flex-col gap-1 rounded-card border border-border p-3"
+                                    >
+                                        <div className="text-sm font-medium text-text-primary">
+                                            {tpl.name}
+                                        </div>
+                                        <div className="text-xs text-text-secondary">
+                                            {tpl.description}
+                                        </div>
+                                        <div className="font-mono text-[10px] text-text-muted">
+                                            {tpl.tools.join(', ')}
+                                        </div>
+                                        <button
+                                            type="button"
+                                            disabled={composing}
+                                            onClick={() => useTemplate(tpl.key)}
+                                            className="mt-auto self-start text-xs text-brand hover:underline disabled:opacity-50"
+                                        >
+                                            {t('使用 →', 'Use →')}
+                                        </button>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    ) : null}
+                </div>
+            </div>
             <div className="px-4 pt-3">
                 {loading && attempt === 0 && rows.length === 0 ? (
                     <SkeletonLines rows={3} />
@@ -270,7 +433,9 @@ export function AgentsPage() {
                             className="flex min-h-36 flex-col items-center justify-center gap-1 rounded-card border border-dashed border-border p-4 text-text-secondary hover:border-brand hover:text-brand"
                         >
                             <span className="text-2xl leading-none">+</span>
-                            <span className="text-xs">{t('新建智能体', 'New agent')}</span>
+                            <span className="text-xs">
+                                {t('快速创建（名称+描述）', 'Quick create (name + description)')}
+                            </span>
                         </button>
                         {rows.map((a) => {
                             const id = a.id ?? a.agent_id ?? '';
