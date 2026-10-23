@@ -196,6 +196,42 @@ def register_agents_platform(
         return {"approvals": _door().approvals.list(status=status,
                                                     limit=limit)}
 
+    # #446: external approval-task creation — outside consumers (e.g.
+    # EnviPermit) ride the same workbench + requester != approver
+    # invariant. `payload` is opaque consumer data (their object ids,
+    # evidence summary) and is returned verbatim in the decision webhook.
+    @router.post("/v1/agent-platform/approvals",
+                 dependencies=[Depends(require_auth)])
+    async def agent_platform_create_approval(body: Dict[str, Any]):
+        title = str(body.get("title") or "").strip()
+        requester = str(body.get("requester") or "").strip()
+        assigned_to = str(body.get("assigned_to") or "").strip()
+        payload = body.get("payload")
+        if not isinstance(payload, dict):
+            payload = {}
+        if not requester:
+            raise_api_error(ErrorCode.PARAM_REQUIRED,
+                            detail="requester is required")
+        if not assigned_to:
+            raise_api_error(ErrorCode.PARAM_REQUIRED,
+                            detail="assigned_to (reviewer) is required")
+        try:
+            rec = _door().approvals.create_external(
+                title=title or "external approval",
+                requester=requester,
+                assigned_to=assigned_to,
+                params=payload,
+                agent_id=str(body.get("agent_id") or ""))
+        except Exception as e:
+            status_code = getattr(e, "status_code", 500)
+            return JSONResponse(status_code=status_code,
+                                content={"error": getattr(e, "detail",
+                                                          str(e))})
+        return {"approval_id": rec["id"], "status": rec["status"],
+                "kind": rec.get("kind"),
+                "assigned_to": rec.get("assigned_to"),
+                "poll": "/v1/agent-platform/approvals?status=pending"}
+
     @router.post("/v1/agent-platform/approvals/{approval_id}/approve",
                 dependencies=[Depends(require_auth)])
     async def agent_platform_approve(approval_id: str,
@@ -224,6 +260,47 @@ def register_agents_platform(
             return JSONResponse(status_code=status_code,
                                 content={"error": getattr(e, "detail",
                                                           str(e))})
+
+    # ── #446: decision webhooks (approval.decided) ─────────────────────
+    @router.get("/v1/agent-platform/webhooks")
+    async def agent_platform_webhooks_list():
+        from agent_runtime.agent_platform.webhooks import (
+            get_webhook_registry,
+        )
+
+        return {"webhooks": get_webhook_registry().list()}
+
+    @router.post("/v1/agent-platform/webhooks",
+                 dependencies=[Depends(require_auth)])
+    async def agent_platform_webhooks_register(body: Dict[str, Any]):
+        from agent_runtime.agent_platform.webhooks import (
+            get_webhook_registry,
+        )
+
+        url = str(body.get("url") or "").strip()
+        secret = str(body.get("secret") or "").strip()
+        if not url or not secret:
+            raise_api_error(ErrorCode.PARAM_REQUIRED,
+                            detail="url and secret are required")
+        try:
+            rec = get_webhook_registry().register(
+                url, secret, body.get("events") or ["approval.decided"])
+        except ValueError as e:
+            return JSONResponse(status_code=422, content={"error": str(e)})
+        return rec
+
+    @router.delete("/v1/agent-platform/webhooks/{webhook_id}",
+                   dependencies=[Depends(require_auth)])
+    async def agent_platform_webhooks_delete(webhook_id: str):
+        from agent_runtime.agent_platform.webhooks import (
+            get_webhook_registry,
+        )
+
+        deleted = get_webhook_registry().delete(webhook_id)
+        if not deleted:
+            raise_api_error(ErrorCode.RESOURCE_NOT_FOUND,
+                            detail=f"webhook '{webhook_id}' not found")
+        return {"deleted": True}
 
     # ── mutation execution (door-only: reached after an approval lands) ──
     # The route table's /v1/agent-platform/mutations/* paths resolve through
