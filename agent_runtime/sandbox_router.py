@@ -14,7 +14,10 @@ from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_CLUSTER_URL = "http://127.0.0.1:11457"
+# #450: multi-node master serves on 11452 (port registry + start.sh); 11457
+# was never registered — delegation without FUSION_CLUSTER_URL failed with
+# "cluster router unreachable".
+DEFAULT_CLUSTER_URL = "http://127.0.0.1:11452"
 LOCAL = "local"
 
 
@@ -65,6 +68,9 @@ async def delegate_run(
         "priority": 5,
     }
     headers = {"X-Fusion-Target-Node": target.node, "X-Fusion-Run-Id": task_id}
+    token = os.environ.get("FUSION_CLUSTER_TOKEN", "").strip()
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
     url = f"{cluster_url().rstrip('/')}/api/tasks/submit"
     owns_client = client is None
     if owns_client:
