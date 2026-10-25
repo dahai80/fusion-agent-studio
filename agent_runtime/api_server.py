@@ -848,6 +848,48 @@ async def v1_submit_run(request: Request):
     graph_id = str(body.get("graph_id", "") or "")
     title = str(body.get("title", "") or goal[:80])
     idempotency_key = str(body.get("idempotency_key", "") or "")
+    # #460: per-run agent overrides — same SubAgentSpec fields the UDS
+    # subagent.run channel accepts, so HTTP-only deployments get equivalent
+    # per-run tools/model/max_turns/budget_tokens control.
+    spec = body.get("spec")
+    if spec is None:
+        spec = {}
+    elif not isinstance(spec, dict):
+        raise_api_error(ErrorCode.PARAM_FORMAT_ERROR, param="spec", detail="spec must be an object")
+    else:
+        spec = dict(spec)
+    for key in ("tools", "model", "max_turns", "budget_tokens"):
+        if body.get(key) is not None:
+            spec.setdefault(key, body[key])
+    _SPEC_ALLOWED_KEYS = {
+        "name", "model", "tools", "max_turns", "budget_tokens", "system_prompt",
+        "disallowed_tools", "mcp_servers", "skills", "permission_mode", "effort",
+        "team",
+    }
+    unknown = sorted(set(spec) - _SPEC_ALLOWED_KEYS)
+    if unknown:
+        raise_api_error(
+            ErrorCode.PARAM_FORMAT_ERROR, param="spec",
+            detail=f"unsupported spec keys: {', '.join(unknown)}",
+        )
+    if spec:
+        if "tools" in spec and not isinstance(spec["tools"], list):
+            raise_api_error(ErrorCode.PARAM_FORMAT_ERROR, param="spec.tools")
+        if "model" in spec and not isinstance(spec["model"], str):
+            raise_api_error(ErrorCode.PARAM_FORMAT_ERROR, param="spec.model")
+        try:
+            if "max_turns" in spec:
+                spec["max_turns"] = int(spec["max_turns"])
+            if "budget_tokens" in spec:
+                spec["budget_tokens"] = int(spec["budget_tokens"])
+        except (TypeError, ValueError):
+            raise_api_error(ErrorCode.PARAM_FORMAT_ERROR, param="spec.max_turns, spec.budget_tokens")
+        if spec.get("max_turns", 0) <= 0:
+            raise_api_error(ErrorCode.PARAM_FORMAT_ERROR, param="spec.max_turns",
+                            detail="max_turns must be > 0")
+        if spec.get("budget_tokens", 0) < 0:
+            raise_api_error(ErrorCode.PARAM_FORMAT_ERROR, param="spec.budget_tokens",
+                            detail="budget_tokens must be >= 0")
     # #432: sandbox selection — local (default) or multi-node:<node_id>.
     from agent_runtime.sandbox_router import delegate_run, parse_sandbox
 
@@ -877,12 +919,40 @@ async def v1_submit_run(request: Request):
     task = res.get("task", {}) if isinstance(res, dict) else {}
     run_id = task.get("task_id", "")
     logger.info(
-        "/v1/runs submitted run_id=%s goal=%r timeout=%s sandbox=%s",
+        "/v1/runs submitted run_id=%s goal=%r timeout=%s sandbox=%s spec_keys=%s",
         run_id,
         goal[:60],
         timeout,
         sandbox.raw,
+        sorted(spec) if spec else [],
     )
+    # #460: spec overrides present -> run via the SubAgentRunner path
+    # (same machinery as UDS subagent.run), task-linked background execution.
+    # Cluster delegation keeps its own path — overrides are local-only for now.
+    if spec and sandbox.is_local and run_id and not res.get("deduped"):
+        run_res = await _rpc(
+            "subagent.run_task",
+            {"task_id": run_id, "spec": spec, "goal": goal, "agent_id": agent_id},
+        )
+        if isinstance(run_res, dict) and run_res.get("status") == "error":
+            await _rpc(
+                "task.status",
+                {
+                    "task_id": run_id,
+                    "status": "failed",
+                    "last_error": run_res.get("message", "subagent dispatch failed"),
+                },
+            )
+            raise_api_error(
+                ErrorCode.INTERNAL_ERROR,
+                detail=run_res.get("message", "subagent dispatch failed"),
+            )
+        return {
+            "run_id": run_id,
+            "status": "running",
+            "deduped": False,
+            "spec_applied": True,
+        }
     if not sandbox.is_local and run_id:
         delegation = await delegate_run(sandbox, run_id, agent_id, graph_id, goal)
         if not delegation.get("ok"):

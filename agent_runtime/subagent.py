@@ -570,7 +570,12 @@ class SubAgentRunner:
         sub_runtime = AgentRuntime(
             llm_gateway=getattr(self.parent_runtime, "llm_gateway", None),
             tool_registry=reg,
-            max_iterations=max(1, spec.max_turns),
+            # #460 fix: max_turns caps LLM turns (node max_loop_iterations +
+            # agent-loop counter). The graph-level iteration cap counts NODE
+            # VISITS (start + llm + end + re-entries) — without headroom a
+            # complete single-answer run exhausted the cap before the end
+            # node ran and reported "Max iterations exceeded" as a failure.
+            max_iterations=max(1, spec.max_turns) + 2,
             safety_gateway=getattr(self.parent_runtime, "safety_gateway", None),
         )
         # #389: explicit depth semantics — one subagent level only. Nested
@@ -605,7 +610,7 @@ class SubAgentRunner:
             spec.task,
             context=sub_ctx,
             token_budget=budget,
-            max_iterations=max(1, spec.max_turns),
+            max_iterations=max(1, spec.max_turns) + 2,
         ):
             events.append(event)
         self.last_events = events
