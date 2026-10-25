@@ -390,6 +390,25 @@ Audit `audit/fusion-agent-studio-vs-langflow-audit-1020.md` closed end-to-end; s
 - ✅ **separation-of-duties enforced** — `requester == assigned_to` is rejected at creation (422); the requester can never decide their own task (403); when a task carries an assigned reviewer only that reviewer (or the workbench operator) may decide (403 otherwise). Decisions are idempotent-conflict-guarded (409 on double decide).
 - ✅ **signed decision webhooks** — `POST /v1/agent-platform/webhooks` `{url, secret(≥16 chars), events}` registers a consumer endpoint (one per URL, re-register rotates the secret; secrets never appear in `GET` listings or `DELETE` responses). Every approve/reject fires an `approval.decided` webhook: HMAC-SHA256 of the raw body in the `x-fusion-signature` header, 3 attempts with backoff, delivery status tracked per endpoint, and a failed/unreachable webhook never breaks the decision path. REST: `GET/POST /v1/agent-platform/webhooks`, `DELETE /v1/agent-platform/webhooks/{id}`, decisions via `POST /v1/agent-platform/approvals/{id}/approve|reject` with `{decided_by, reason}`.
 
+### Inbound Webhook Triggers — #455
+- ✅ **external systems can start runs** — the `WebhookManager` is now wired to REST: `POST /v1/webhooks` `{name, graph_id, secret?, enabled?, rate_limit_per_min?}` registers an inbound trigger (secret auto-generated when omitted, returned exactly once at creation; never appears in `GET` listings). `GET /v1/webhooks` lists, `DELETE /v1/webhooks/{id}` removes, `POST /v1/webhooks/{id}/enabled` `{enabled}` toggles. Registrations persist to `~/.fusion-agent-studio/inbound_webhooks.json` (atomic write, 0600).
+- ✅ **per-hook HMAC auth, mandatory** — `POST /v1/webhooks/{id}/invoke` authenticates with the HMAC-SHA256 hexdigest of the **raw request body** in the `X-Signature` header (never a re-serialization). Missing/invalid signature → 401, no run started, audit row written. Disabled/unknown hook → 404. Payloads are JSON objects, capped at 64KB (413).
+- ✅ **idempotency + rate limit + audit** — optional `X-Idempotency-Key` header: a duplicate within the 10-minute window returns the original `run_id` (`deduped: true`) instead of double-firing. Per-hook token-bucket rate limit (default 30/min, 429 on burst). Every invoke is audited (hook id, source IP, signature validity, run_id, latency) and counters persist (`invoke_count`, `last_invoked_at`).
+- ✅ **end-to-end curl example** (verifiable against a running daemon):
+  ```bash
+  # 1. register (needs studio API key when auth is configured)
+  curl -s -X POST http://127.0.0.1:11442/v1/webhooks \
+       -H 'content-type: application/json' -d '{"name":"demo","graph_id":"<graph-id>"}'
+  # → {"webhook":{"id":"wh-…","secret":"…",…}}   # keep the secret, shown once
+
+  # 2. trigger (no API key — the HMAC secret is the credential)
+  BODY='{"text":"hi"}'
+  SIG=$(printf '%s' "$BODY" | openssl dgst -sha256 -hmac "<secret>" | awk '{print $2}')
+  curl -s -X POST http://127.0.0.1:11442/v1/webhooks/wh-…/invoke \
+       -H "x-signature: $SIG" -H 'content-type: application/json' -d "$BODY"
+  # → {"run_id":"<task-id>","status":"pending","deduped":false}
+  ```
+
 ### Integration
 - ✅ **fusion-mlx** — Apple Silicon optimized model serving
 - ✅ **OpenAI-compatible API** — Works with any OpenAI-compatible backend

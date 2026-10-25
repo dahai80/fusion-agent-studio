@@ -9,7 +9,7 @@ import {
 } from '@fusion/web-ui';
 import { formatRelativeTime } from '@fusion/web-ui/format';
 import { useEffect, useMemo, useState } from 'react';
-import { api, apiGet, apiPost, apiBase, rpc } from '../../api';
+import { api, apiBase, apiGet, apiPost, rpc } from '../../api';
 import { PageHeader } from '../../components/PageHeader';
 import { Modal } from '../../components/ui/Modal';
 import { Textarea } from '../../components/ui/Textarea';
