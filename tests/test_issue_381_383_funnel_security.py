@@ -2,11 +2,11 @@ import time
 
 import pytest
 
-from agent_runtime.hooks import HookConfig, HookEngine
-from agent_runtime.permissions import PermissionEngine, PermissionRule
 from agent_runtime.context import AgentContext
 from agent_runtime.funnels import FunnelOutcome, LLMFunnel, ToolFunnel
 from agent_runtime.graph import NodeConfig
+from agent_runtime.hooks import HookConfig, HookEngine
+from agent_runtime.permissions import PermissionEngine, PermissionRule
 from agent_runtime.runtime import AgentRuntime
 from tools.registry import ToolRegistry
 

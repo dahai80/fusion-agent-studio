@@ -8,6 +8,8 @@ backing attr.
 """
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from agent_runtime.runtime import AgentRuntime
@@ -15,7 +17,12 @@ from agent_runtime.runtime import AgentRuntime
 
 @pytest.fixture
 def socket_path(tmp_path):
-    return str(tmp_path / "studio.sock")
+    # macOS sun_path caps at 104 bytes; tmp_path nests too deep for that,
+    # so bind the socket in the system temp root with a short unique name.
+    import tempfile
+    import uuid
+
+    return str(Path(tempfile.gettempdir()) / f"studio-{uuid.uuid4().hex[:8]}.sock")
 
 
 @pytest.fixture
@@ -59,11 +66,18 @@ def test_tool_registry_alias_write_propagates():
 async def test_mcp_register_server_path_initializes_registry(daemon_stub):
     # The failing path from the issue: mcp.register_server on a runtime
     # without a pre-built tool registry must not raise AttributeError.
+    # _dispatch takes one JSON-RPC 2.0 envelope and returns one too; the
+    # dead 127.0.0.1:19999 URL makes registration fail, but the registry
+    # (and the tool_registry alias) must still come up.
     resp = await daemon_stub._dispatch(
-        "mcp.register_server",
-        {"server_url": "http://127.0.0.1:19999/mcp"},
+        {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "mcp.register_server",
+            "params": {"server_url": "http://127.0.0.1:19999/mcp"},
+        }
     )
-    assert resp["status"] in ("ok", "error")
+    assert "result" in resp or "error" in resp
     runtime = daemon_stub._get_runtime()
     assert runtime.tool_registry is runtime.tools
     assert runtime.tools is not None
