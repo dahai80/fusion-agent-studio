@@ -50,7 +50,7 @@ def resolve_soul_prompt(
     team_id: str = "",
     run_override: str = "",
 ) -> str:
-    """C16: 统一 soul.md 加载 — 各执行路径 (chat/workflow/session/langgraph) 共用.
+    """C16: 统一 soul.md 加载 — 各执行路径 (chat/workflow/session) 共用.
 
     给定 agent_id, 加载 ~/.fusion-agent-studio/agents/<agent_id>/.fusion-agent/soul.md
     (soul.md 优先, 空则回退 manifest.system_prompt). agent_id 空或包不存在 -> fallback.

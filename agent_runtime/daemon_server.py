@@ -275,7 +275,6 @@ class DaemonServer:
         self._telemetry_engine = None
         self._status_tracker = None
         self._cowork_manager = None
-        self._langgraph_engine = None
         self._artifact_manager = None
         self._kb_manager = None
         self._audit_logger = None
@@ -556,14 +555,6 @@ class DaemonServer:
             self._cowork_manager = CoworkManager()
             logger.info("CoworkManager created")
         return self._cowork_manager
-
-    def _get_langgraph_engine(self):
-        if self._langgraph_engine is None:
-            from .langgraph_engine import LangGraphEngine
-
-            self._langgraph_engine = LangGraphEngine()
-            logger.info("LangGraphEngine created")
-        return self._langgraph_engine
 
     def _get_artifact_manager(self):
         if self._artifact_manager is None:

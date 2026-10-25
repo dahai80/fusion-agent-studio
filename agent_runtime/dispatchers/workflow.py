@@ -22,14 +22,6 @@ class WorkflowDispatcher(SubDispatcher):
             "workflow.list": self._handle_workflow_list,
             "workflow.get": self._handle_workflow_get,
             "workflow.delete": self._handle_workflow_delete,
-            "langgraph.create": self._handle_langgraph_create,
-            "langgraph.get": self._handle_langgraph_get,
-            "langgraph.list": self._handle_langgraph_list,
-            "langgraph.delete": self._handle_langgraph_delete,
-            "langgraph.run": self._handle_langgraph_run,
-            "langgraph.approve": self._handle_langgraph_approve,
-            "langgraph.cancel": self._handle_langgraph_cancel,
-            "langgraph.get_run": self._handle_langgraph_get_run,
             "artifact.create": self._handle_artifact_create,
             "artifact.update": self._handle_artifact_update,
             "artifact.search": self._handle_artifact_search,
@@ -122,67 +114,6 @@ class WorkflowDispatcher(SubDispatcher):
         ok = engine.delete_workflow(workflow_id)
         logger.info("workflow.delete: workflow=%s ok=%s", workflow_id, ok)
         return {"workflow_id": workflow_id, "deleted": ok}
-
-    async def _handle_langgraph_create(self, params: dict) -> dict:
-        from ..langgraph_engine import WorkflowDefinition
-
-        engine = self._daemon._get_langgraph_engine()
-        wf = WorkflowDefinition.from_dict(params)
-        result = engine.create_workflow(wf)
-        logger.info(
-            "langgraph.create: wf_id=%s name=%s",
-            result.get("wf_id", ""),
-            params.get("name", ""),
-        )
-        return result
-
-    async def _handle_langgraph_get(self, params: dict) -> dict:
-        wf_id = params.get("wf_id", "")
-        engine = self._daemon._get_langgraph_engine()
-        return engine.get_workflow(wf_id)
-
-    async def _handle_langgraph_list(self, params: dict) -> dict:
-        engine = self._daemon._get_langgraph_engine()
-        workflows = engine.list_workflows()
-        return {"workflows": workflows}
-
-    async def _handle_langgraph_delete(self, params: dict) -> dict:
-        wf_id = params.get("wf_id", "")
-        engine = self._daemon._get_langgraph_engine()
-        return engine.delete_workflow(wf_id)
-
-    async def _handle_langgraph_run(self, params: dict) -> dict:
-        wf_id = params.get("wf_id", "")
-        trigger_type = params.get("trigger_type", "manual")
-        input_data = params.get("input_data")
-        engine = self._daemon._get_langgraph_engine()
-        result = await engine.run_workflow(
-            wf_id, trigger_type=trigger_type, input_data=input_data
-        )
-        logger.info("langgraph.run: wf_id=%s status=%s", wf_id, result.get("status"))
-        return result
-
-    async def _handle_langgraph_approve(self, params: dict) -> dict:
-        run_id = params.get("run_id", "")
-        action = params.get("action", "approve")
-        reviewer = params.get("reviewer", "")
-        comment = params.get("comment", "")
-        engine = self._daemon._get_langgraph_engine()
-        result = engine.approve_run(
-            run_id, action=action, reviewer=reviewer, comment=comment
-        )
-        logger.info("langgraph.approve: run_id=%s action=%s", run_id, action)
-        return result
-
-    async def _handle_langgraph_cancel(self, params: dict) -> dict:
-        run_id = params.get("run_id", "")
-        engine = self._daemon._get_langgraph_engine()
-        return engine.cancel_run(run_id)
-
-    async def _handle_langgraph_get_run(self, params: dict) -> dict:
-        run_id = params.get("run_id", "")
-        engine = self._daemon._get_langgraph_engine()
-        return engine.get_run(run_id)
 
     # ── Artifact handlers (#32, #33, #34) ──
 

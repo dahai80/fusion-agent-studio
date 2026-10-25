@@ -319,18 +319,17 @@ def register_agents_platform(
             if not name:
                 return 400, {"error": "name is required"}
             # the capability contract exposes name/description only — build
-            # a minimal valid skeleton (START -> END) so the approved
-            # mutation passes engine validation
-            result = await rpc("langgraph.create", {
+            # a minimal valid skeleton (START -> END) on the real engine
+            # (#456: langgraph shell deleted; graph.create persists via
+            # AgentStore and runs through the primary AgentGraph runtime)
+            result = await rpc("graph.create", {
                 "name": name,
+                "description": str(body.get("description") or ""),
                 "nodes": [
-                    {"node_id": "start", "node_type": "START_NODE",
-                     "label": "Start"},
-                    {"node_id": "end", "node_type": "END_NODE",
-                     "label": "End"},
+                    {"id": "start", "type": "start", "label": "Start"},
+                    {"id": "end", "type": "end", "label": "End"},
                 ],
                 "edges": [{"source_id": "start", "target_id": "end"}],
-                "entry_node_id": "start",
             })
             ok = not (isinstance(result, dict)
                       and result.get("status") == "error")
