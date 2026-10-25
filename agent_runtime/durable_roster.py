@@ -53,10 +53,24 @@ class DurableRoster:
                     team TEXT NOT NULL DEFAULT '',
                     capabilities TEXT NOT NULL DEFAULT '',
                     status TEXT NOT NULL DEFAULT 'idle',
+                    graph_id TEXT NOT NULL DEFAULT '',
+                    autonomous_inbox INTEGER NOT NULL DEFAULT 0,
                     updated_at REAL NOT NULL
                 )
                 """
             )
+            # #457: migrate pre-existing DBs (ALTER TABLE lacks IF NOT EXISTS).
+            cols = {
+                r[1] for r in conn.execute("PRAGMA table_info(roster)").fetchall()
+            }
+            if "graph_id" not in cols:
+                conn.execute(
+                    "ALTER TABLE roster ADD COLUMN graph_id TEXT NOT NULL DEFAULT ''"
+                )
+            if "autonomous_inbox" not in cols:
+                conn.execute(
+                    "ALTER TABLE roster ADD COLUMN autonomous_inbox INTEGER NOT NULL DEFAULT 0"
+                )
             conn.execute(
                 """
                 CREATE TABLE IF NOT EXISTS mailbox (
@@ -82,6 +96,8 @@ class DurableRoster:
         team: str = "",
         capabilities: list[str] | None = None,
         status: str = "idle",
+        graph_id: str = "",
+        autonomous_inbox: bool = False,
     ) -> dict:
         agent_id = agent_id.strip()
         if not agent_id:
@@ -91,16 +107,26 @@ class DurableRoster:
         with _connect(self.path) as conn:
             conn.execute(
                 """
-                INSERT INTO roster (agent_id, name, team, capabilities, status, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?)
+                INSERT INTO roster
+                    (agent_id, name, team, capabilities, status, graph_id,
+                     autonomous_inbox, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(agent_id) DO UPDATE SET
                     name=excluded.name, team=excluded.team,
                     capabilities=excluded.capabilities, status=excluded.status,
+                    graph_id=excluded.graph_id,
+                    autonomous_inbox=excluded.autonomous_inbox,
                     updated_at=excluded.updated_at
                 """,
-                (agent_id, name or agent_id, team, caps, status, now),
+                (
+                    agent_id, name or agent_id, team, caps, status,
+                    graph_id, int(bool(autonomous_inbox)), now,
+                ),
             )
-        logger.info("roster register agent=%s team=%s status=%s", agent_id, team, status)
+        logger.info(
+            "roster register agent=%s team=%s status=%s graph=%s autonomous_inbox=%s",
+            agent_id, team, status, graph_id, autonomous_inbox,
+        )
         return self.get(agent_id) or {}
 
     def get(self, agent_id: str) -> dict | None:

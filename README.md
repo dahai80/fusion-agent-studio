@@ -409,6 +409,10 @@ Audit `audit/fusion-agent-studio-vs-langflow-audit-1020.md` closed end-to-end; s
   # → {"run_id":"<task-id>","status":"pending","deduped":false}
   ```
 
+### Autonomous Inbox Consumer — #457
+- ✅ **agents read their own mail** — rostered agents registered with `autonomous_inbox: true` and a `graph_id` binding get a daemon-resident background consumer (`FUSION_INBOX_POLL_INTERVAL`, default 5s): each unread mailbox message becomes a durable agent run (message body as input, sender/team context injected), acked **after** the task is durably submitted (at-least-once — a crash mid-conversation redelivers on restart), and the run's final output is posted back to the sender's mailbox as a `kind=reply` message. Human-driven agents are untouched (mail waits for RPC pull). Runs are idempotency-keyed by mailbox message id, so redelivery never double-fires.
+- ✅ **roster config** — `team.roster_register` gains `graph_id` and `autonomous_inbox` (schema migration for pre-existing team.db is automatic). Observability via `team.inbox_metrics` RPC: processed/replies/errors counters, inbox depth, dispatch latency, per-agent breakdown.
+
 ### Integration
 - ✅ **fusion-mlx** — Apple Silicon optimized model serving
 - ✅ **OpenAI-compatible API** — Works with any OpenAI-compatible backend

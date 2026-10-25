@@ -699,6 +699,11 @@ class DaemonServer:
             self._get_cron_manager().start()
         except Exception as e:
             logger.warning("Cron manager failed to start: %s", e)
+        try:
+            # #457: autonomous inbox consumer (opt-in per rostered agent).
+            self._get_inbox_consumer().start()
+        except Exception as e:
+            logger.warning("Inbox consumer failed to start: %s", e)
         logger.info(
             "Daemon listening on %s + WS on %d + Cluster on %d + HTTP on %d",
             self.socket_path,
@@ -956,6 +961,9 @@ class DaemonServer:
             self._persona_watcher = None
         if hasattr(self, "_cron_manager") and self._cron_manager:
             self._cron_manager.close()
+        if getattr(self, "_inbox_consumer", None) is not None:
+            await self._inbox_consumer.stop()
+            self._inbox_consumer = None
         if hasattr(self, "_vector_strategy") and self._vector_strategy:
             await self._vector_strategy.close()
         if self._server:
@@ -3312,6 +3320,86 @@ class DaemonServer:
                 db_path=db_path, default_handler=self._cron_default_handler
             )
         return self._cron_manager
+
+    def _get_inbox_consumer(self):
+        # #457: autonomous inbox consumer — opt-in per rostered agent
+        # (`autonomous_inbox: true` in the roster config).
+        if getattr(self, "_inbox_consumer", None) is None:
+            from .durable_roster import DurableRoster, Mailbox
+            from .inbox_consumer import InboxConsumer
+            from .task_store import Task, TaskStore
+
+            poll_interval = float(
+                os.environ.get("FUSION_INBOX_POLL_INTERVAL", "5")
+            )
+            roster = DurableRoster()
+            mailbox = Mailbox()
+            ts: TaskStore = self._get_task_store()
+
+            async def submit_run(agent: dict, message: dict) -> str:
+                # Handler mapping (#457 req 2): message body as input, sender
+                # context injected, durable task owns the run_id.
+                graph_id = agent.get("graph_id", "")
+                if not graph_id:
+                    raise ValueError(
+                        f"roster agent {agent.get('agent_id')} has no graph_id binding"
+                    )
+                import json as _json
+
+                try:
+                    variables = dict(_json.loads(message.get("body") or "{}"))
+                except ValueError:
+                    variables = {"input": message.get("body", "")}
+                if not isinstance(variables, dict):
+                    variables = {"input": message.get("body", "")}
+                variables.setdefault("input", message.get("body", ""))
+                variables["sender"] = message.get("sender", "")
+                variables["team"] = message.get("team", "")
+                # At-least-once, not exactly-once: redelivery after a crash
+                # must NOT double-fire, but a fresh message with the same
+                # body from the same sender is legit — so the idempotency
+                # key is the mailbox message id (durable, unique per mail).
+                idem_key = f"inbox:{message.get('message_id', '')}"
+                existing = ts.find_by_idempotency(idem_key)
+                if existing is not None:
+                    return existing.task_id
+                task = ts.submit(
+                    Task(
+                        title=f"inbox:{agent.get('agent_id')}",
+                        graph_id=graph_id,
+                        trigger="inbox",
+                        idempotency_key=idem_key,
+                        team=variables.get("team", "default"),
+                    )
+                )
+                await self._handle_graph_execute_async(
+                    {
+                        "graph_id": graph_id,
+                        "variables": variables,
+                        "task_id": task.task_id,
+                        "team": variables.get("team", "default"),
+                    }
+                )
+                return task.task_id
+
+            async def get_run(run_id: str) -> dict | None:
+                task = ts.get(run_id)
+                if task is None:
+                    return None
+                return {
+                    "status": task.status,
+                    "last_result": task.last_result,
+                    "last_error": task.last_error,
+                }
+
+            self._inbox_consumer = InboxConsumer(
+                roster=roster,
+                mailbox=mailbox,
+                submit_run=submit_run,
+                get_run=get_run,
+                poll_interval=poll_interval,
+            )
+        return self._inbox_consumer
 
     def _get_task_store(self):
         # #141: 通用 Task 持久化, 独立 tasks.db. 测试可设 self._task_store 注入临时库.
