@@ -254,6 +254,18 @@ class AgentRuntime(_SafetyApprovalMixin, _CheckpointMixin, _DynamicToolsMixin, _
             "provided" if llm_gateway else ("auto-from-mlx" if mlx_client else "empty"),
         )
 
+    # #454: `tool_registry` alias over the `tools` backing attr — dispatchers
+    # (mcp.py/plugin.py) historically read/wrote runtime.tool_registry while
+    # __init__ stores the kwarg as self.tools; the mismatch made the first
+    # mcp.register_server/plugin RPC raise AttributeError.
+    @property
+    def tool_registry(self):
+        return self.tools
+
+    @tool_registry.setter
+    def tool_registry(self, value):
+        self.tools = value
+
     # N1: late hook-engine wiring — daemon sets rt.hooks = HookEngine() after
     # construction; the property keeps both funnels pointing at the same
     # engine so funnel admission and hooks.* RPCs share one registry.
