@@ -1,9 +1,13 @@
-"""#357: fusion-harness kernel extraction — shim routing + drift parity."""
+"""#357/#2: fusion-harness kernel — hard dependency + contract conformance.
 
-import ast
+The in-tree fallback copies are deleted (issue #2 R1): fusion-harness is a
+hard dependency and an import failure is a loud ImportError. The behavioral
+contract all runtimes must reproduce lives in fusion-harness docs/contract.md.
+"""
+
+import subprocess
 import sys
 from pathlib import Path
-from unittest.mock import patch
 
 import pytest
 
@@ -11,41 +15,30 @@ AGENT_RT = Path(__file__).resolve().parent.parent / "agent_runtime"
 
 KERNEL_MODULES = ["funnels", "permissions", "hooks", "compactor"]
 
-try:
-    import fusion_harness  # noqa: F401
 
-    HAVE_KERNEL = True
-except ImportError:
-    HAVE_KERNEL = False
-
-
-def _local_ast(mod: str) -> str:
-    src = (AGENT_RT / f"_{mod}_local.py").read_text()
-    return ast.dump(ast.parse(src))
+def _kernel_repo() -> Path | None:
+    for cand in (
+        Path(__file__).resolve().parent.parent.parent / "fusion-harness",
+        Path.home() / "fusion" / "fusion-harness",
+    ):
+        if (cand / "docs" / "contract.md").exists():
+            return cand
+    return None
 
 
-def test_kernel_source_present():
+def test_kernel_source_is_hard_dependency():
+    # #2 R1: KERNEL_SOURCE shims are gone; the kernel IS the fusion-harness
+    # package. A missing install must fail loudly, not fall back.
     import agent_runtime.funnels as funnels
 
-    assert funnels.KERNEL_SOURCE in ("fusion-harness", "local")
+    assert not hasattr(funnels, "KERNEL_SOURCE")
+    import fusion_harness
+
+    # 0.2.0 flipped enforcement to fail-closed by default (#1).
+    major, minor, _patch = (int(x) for x in fusion_harness.KERNEL_VERSION.split("."))
+    assert (major, minor) >= (0, 2)
 
 
-def test_fallback_import_works():
-    import importlib
-
-    with patch.dict(sys.modules, {"fusion_harness": None, "fusion_harness.funnels": None}):
-        import agent_runtime.funnels as funnels
-
-        importlib.reload(funnels)
-        assert funnels.KERNEL_SOURCE == "local"
-        assert hasattr(funnels, "LLMFunnel")
-        assert hasattr(funnels, "ToolFunnel")
-        assert hasattr(funnels, "LifecycleBus")
-    importlib.reload(funnels)
-    assert hasattr(funnels, "LLMFunnel")
-
-
-@pytest.mark.skipif(not HAVE_KERNEL, reason="fusion-harness not installed")
 def test_public_surface_matches_local():
     import agent_runtime.compactor as cmod
     import agent_runtime.funnels as fmod
@@ -63,34 +56,37 @@ def test_public_surface_matches_local():
             assert getattr(mod, name) is not None
 
 
-@pytest.mark.skipif(not HAVE_KERNEL, reason="fusion-harness not installed")
-def test_kernel_no_drift_vs_local_copy():
-    repo_root = AGENT_RT.parent
-    kernel_dir = None
-    for cand in (repo_root.parent / "fusion-harness" / "fusion_harness",):
-        if cand.exists():
-            kernel_dir = cand
-            break
-    if kernel_dir is None:
-        pytest.skip("fusion-harness sibling repo not found locally")
-    for mod in KERNEL_MODULES:
-        kernel_tree = ast.parse((kernel_dir / f"{mod}.py").read_text())
-        # kernel copy imports sibling via absolute package path; local uses
-        # relative — normalize so the ASTs are directly comparable.
-        for node in ast.walk(kernel_tree):
-            if isinstance(node, ast.ImportFrom) and node.module and node.module.startswith("fusion_harness."):
-                node.module = node.module.split(".", 1)[1]
-                node.level = 1
-        # kernel copy appends an __all__ export list the fallback lacks — drop it.
-        if kernel_tree.body and isinstance(kernel_tree.body[-1], ast.Assign):
-            targets = kernel_tree.body[-1].targets
-            if len(targets) == 1 and isinstance(targets[0], ast.Name) and targets[0].id == "__all__":
-                kernel_tree.body.pop()
-        local_tree = ast.parse((AGENT_RT / f"_{mod}_local.py").read_text())
-        assert ast.dump(kernel_tree) == ast.dump(local_tree), f"{mod}: kernel drifted from local copy"
+def test_no_fallback_copies_remain():
+    # #2 AC1: zero hits for _funnels_local/KERNEL_SOURCE in the runtime.
+    leftovers = sorted(p.name for p in AGENT_RT.glob("_*_local.py"))
+    assert leftovers == [], f"kernel fallback copies still present: {leftovers}"
 
 
-def test_local_copy_parseable():
-    for mod in KERNEL_MODULES:
-        tree = ast.parse((AGENT_RT / f"_{mod}_local.py").read_text())
-        assert tree.body
+@pytest.mark.skipif(_kernel_repo() is None, reason="fusion-harness sibling repo not found")
+def test_contract_doc_exists_and_is_referenced():
+    # #2 AC3: the parity guard points at the kernel contract, not at
+    # duplicated source copies.
+    contract = _kernel_repo() / "docs" / "contract.md"
+    text = contract.read_text()
+    for section in ("Funnel Semantics", "Permission Engine", "Hook Engine", "Compactor"):
+        assert section in text, f"contract.md missing section: {section}"
+
+
+def test_kernel_import_error_is_loud():
+    # Simulate a missing fusion-harness install: the shim must NOT swallow
+    # the ImportError into a local-copy fallback.
+    code = (
+        "import sys\n"
+        "sys.modules['fusion_harness'] = None\n"
+        "sys.modules['fusion_harness.funnels'] = None\n"
+        "try:\n"
+        "    import agent_runtime.funnels\n"
+        "except ImportError:\n"
+        "    print('LOUD_IMPORT_ERROR')\n"
+        "    sys.exit(0)\n"
+        "print('UNEXPECTED_SUCCESS')\n"
+    )
+    out = subprocess.run(
+        [sys.executable, "-c", code], capture_output=True, text=True
+    )
+    assert "LOUD_IMPORT_ERROR" in out.stdout, out.stdout + out.stderr

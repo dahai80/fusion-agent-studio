@@ -84,6 +84,25 @@ class Webhook:
     graph_id: str = ""
     enabled: bool = True
     created_at: float = 0.0
+    # #455: per-hook token-bucket rate limit (requests/min) + audit fields
+    rate_limit_per_min: int = 30
+    invoke_count: int = 0
+    last_invoked_at: float = 0.0
+
+    def to_dict(self, include_secret: bool = False) -> dict[str, Any]:
+        data = {
+            "id": self.id,
+            "name": self.name,
+            "graph_id": self.graph_id,
+            "enabled": self.enabled,
+            "created_at": self.created_at,
+            "rate_limit_per_min": self.rate_limit_per_min,
+            "invoke_count": self.invoke_count,
+            "last_invoked_at": self.last_invoked_at,
+        }
+        if include_secret:
+            data["secret"] = self.secret
+        return data
 
 
 @dataclass
@@ -174,29 +193,174 @@ class CronExecution:
 
 
 class WebhookManager:
-    """Manages webhook triggers for agent execution."""
+    """Manages webhook triggers for agent execution.
 
-    def __init__(self):
+    #455: inbound trigger surface — JSON-file persistence, CRUD, per-hook
+    token-bucket rate limit, idempotency-key window, and HMAC-SHA256
+    verification over the raw request body (never a re-serialization)."""
+
+    IDEMPOTENCY_WINDOW_S = 600.0
+
+    def __init__(self, store_path: str | None = None):
+        # store_path=None → transient in-memory manager (legacy test/programmatic
+        # use). The REST singleton (get_webhook_manager) passes the real path so
+        # hooks survive daemon restarts.
+        import secrets as _secrets
+
+        self._secrets_mod = _secrets
         self._webhooks: dict[str, Webhook] = {}
         self._handlers: dict[str, Callable] = {}
+        self._buckets: dict[str, list] = {}
+        self._idempotency: dict[str, tuple] = {}
+        self._store_path = store_path
+        if self._store_path:
+            self._load()
+
+    def _load(self) -> None:
+        try:
+            with open(self._store_path, encoding="utf-8") as f:
+                data = json.load(f)
+        except (OSError, ValueError):
+            return
+        if not isinstance(data, dict):
+            return
+        for wid, rec in data.items():
+            try:
+                self._webhooks[wid] = Webhook(
+                    id=rec.get("id", wid),
+                    name=rec.get("name", ""),
+                    secret=rec.get("secret", ""),
+                    graph_id=rec.get("graph_id", ""),
+                    enabled=bool(rec.get("enabled", True)),
+                    created_at=float(rec.get("created_at", 0.0)),
+                    rate_limit_per_min=int(rec.get("rate_limit_per_min", 30)),
+                    invoke_count=int(rec.get("invoke_count", 0)),
+                    last_invoked_at=float(rec.get("last_invoked_at", 0.0)),
+                )
+            except (TypeError, ValueError) as e:
+                logger.warning("webhook load skip id=%s: %s", wid, e)
+        logger.info("webhook manager loaded %d hooks from %s",
+                    len(self._webhooks), self._store_path)
+
+    def _save(self) -> None:
+        if not self._store_path:
+            return
+        try:
+            import tempfile
+            from pathlib import Path
+
+            path = Path(self._store_path)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            payload = {w.id: w.to_dict(include_secret=True)
+                       for w in self._webhooks.values()}
+            fd, tmp = tempfile.mkstemp(dir=str(path.parent), prefix=".webhooks-")
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                json.dump(payload, f, ensure_ascii=False, indent=2)
+            os.chmod(tmp, 0o600)
+            os.replace(tmp, self._store_path)
+        except OSError as e:
+            logger.error("webhook save failed: %s", e)
+
+    def create(self, name: str, graph_id: str, secret: str = "",
+               enabled: bool = True, rate_limit_per_min: int = 30) -> Webhook:
+        webhook_id = f"wh-{self._secrets_mod.token_hex(6)}"
+        if not secret:
+            secret = self._secrets_mod.token_hex(24)
+        webhook = Webhook(
+            id=webhook_id, name=name, secret=secret, graph_id=graph_id,
+            enabled=enabled, created_at=time.time(),
+            rate_limit_per_min=max(1, int(rate_limit_per_min)),
+        )
+        self._webhooks[webhook_id] = webhook
+        self._save()
+        logger.info("webhook created id=%s name=%s graph=%s",
+                    webhook_id, name, graph_id)
+        return webhook
+
+    def delete(self, webhook_id: str) -> bool:
+        if webhook_id not in self._webhooks:
+            return False
+        del self._webhooks[webhook_id]
+        self._handlers.pop(webhook_id, None)
+        self._buckets.pop(webhook_id, None)
+        self._save()
+        logger.info("webhook deleted id=%s", webhook_id)
+        return True
+
+    def set_enabled(self, webhook_id: str, enabled: bool) -> Webhook | None:
+        webhook = self._webhooks.get(webhook_id)
+        if webhook is None:
+            return None
+        webhook.enabled = enabled
+        self._save()
+        return webhook
 
     def register(self, webhook: Webhook, handler: Callable | None = None) -> None:
         self._webhooks[webhook.id] = webhook
         if handler:
             self._handlers[webhook.id] = handler
+        self._save()
 
     def unregister(self, webhook_id: str) -> None:
         self._webhooks.pop(webhook_id, None)
         self._handlers.pop(webhook_id, None)
+        self._save()
 
     def get(self, webhook_id: str) -> Webhook | None:
         return self._webhooks.get(webhook_id)
 
     def list(self) -> list[dict]:
-        return [
-            {"id": w.id, "name": w.name, "graph_id": w.graph_id, "enabled": w.enabled}
-            for w in self._webhooks.values()
-        ]
+        return [w.to_dict() for w in self._webhooks.values()]
+
+    def verify_signature(self, webhook: Webhook, raw_body: bytes,
+                         signature: str) -> bool:
+        if not webhook.secret or not signature:
+            return False
+        expected = hmac.new(webhook.secret.encode(), raw_body,
+                            hashlib.sha256).hexdigest()
+        return hmac.compare_digest(expected, signature.strip().lower())
+
+    def check_rate_limit(self, webhook: Webhook) -> bool:
+        now = time.time()
+        rate = max(1, webhook.rate_limit_per_min)
+        bucket = self._buckets.get(webhook.id)
+        if bucket is None:
+            # First call consumes its own token: effective burst = rate, not
+            # rate+1 (the AC test fires N+1 calls and expects the last to 429).
+            self._buckets[webhook.id] = [float(rate) - 1.0, now]
+            return True
+        tokens, last = bucket
+        tokens = min(float(rate), tokens + (now - last) * (rate / 60.0))
+        if tokens < 1.0:
+            bucket[0], bucket[1] = tokens, now
+            logger.warning("webhook rate limited id=%s rate=%d/min",
+                           webhook.id, rate)
+            return False
+        bucket[0], bucket[1] = tokens - 1.0, now
+        return True
+
+    def idempotent_run_id(self, key: str) -> str:
+        rec = self._idempotency.get(key)
+        if rec is None:
+            return ""
+        run_id, ts = rec
+        if time.time() - ts > self.IDEMPOTENCY_WINDOW_S:
+            self._idempotency.pop(key, None)
+            return ""
+        return run_id
+
+    def record_idempotency(self, key: str, run_id: str) -> None:
+        now = time.time()
+        stale = [k for k, (_, ts) in self._idempotency.items()
+                 if now - ts > self.IDEMPOTENCY_WINDOW_S]
+        for k in stale:
+            self._idempotency.pop(k, None)
+        self._idempotency[key] = (run_id, now)
+
+    def record_invoke(self, webhook: Webhook) -> None:
+        webhook.invoke_count += 1
+        webhook.last_invoked_at = time.time()
+        self._save()
 
     async def handle(
         self, webhook_id: str, payload: dict, headers: dict | None = None
@@ -224,6 +388,21 @@ class WebhookManager:
     @property
     def count(self) -> int:
         return len(self._webhooks)
+
+
+_webhook_manager_instance: "WebhookManager | None" = None
+
+
+def get_webhook_manager() -> WebhookManager:
+    # #455: process-wide singleton backing the /v1/webhooks REST surface.
+    # Persistent store survives daemon restarts.
+    global _webhook_manager_instance
+    if _webhook_manager_instance is None:
+        store_path = os.path.join(
+            os.path.expanduser("~"), ".fusion-agent-studio", "inbound_webhooks.json"
+        )
+        _webhook_manager_instance = WebhookManager(store_path=store_path)
+    return _webhook_manager_instance
 
 
 class CronManager:

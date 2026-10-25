@@ -18,7 +18,6 @@ def daemon():
     ds._version_store = None
     ds._offline_mode = False
     ds._cowork_manager = None
-    ds._langgraph_engine = None
     ds._artifact_manager = None
     ds._agents = {}
     ds._gateway = None

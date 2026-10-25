@@ -246,8 +246,8 @@ async def _rpc_stub(method, params):
     if method == "agent.test":
         return {"status": "completed",
                 "events": [{"type": "message", "content": "hello"}]}
-    if method == "langgraph.create":
-        return {"wf_id": "wf-e2e", "name": params.get("name", ""),
+    if method == "graph.create":
+        return {"graph_id": "graph-e2e", "name": params.get("name", ""),
                 "status": "created"}
     raise AssertionError(f"unexpected rpc {method}")
 
@@ -396,4 +396,4 @@ def test_approved_mutation_executes_graph_create(client):
     assert rec["status"] == "approved"
     # the door dispatched the approved mutation to the execution route
     assert rec["dispatch_status_code"] == 200
-    assert "wf-e2e" in rec["result"]
+    assert "graph-e2e" in rec["result"]

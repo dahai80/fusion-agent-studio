@@ -42,7 +42,15 @@ class TeamDispatcher(SubDispatcher):
             "team.mailbox_inbox": self._handle_team_mailbox_inbox,
             "team.mailbox_ack": self._handle_team_mailbox_ack,
             "team.mailbox_stats": self._handle_team_mailbox_stats,
+            # #457: autonomous inbox consumer observability.
+            "team.inbox_metrics": self._handle_team_inbox_metrics,
         }
+
+    async def _handle_team_inbox_metrics(self, params: dict) -> dict:
+        consumer = getattr(self._daemon, "_inbox_consumer", None)
+        if consumer is None:
+            return {"active": False, "reason": "inbox consumer not started"}
+        return {"active": True, **consumer.stats()}
 
     def _roster(self):
         if getattr(self, "_roster_store", None) is None:
@@ -65,6 +73,8 @@ class TeamDispatcher(SubDispatcher):
             team=params.get("team", ""),
             capabilities=params.get("capabilities") or [],
             status=params.get("status", "idle"),
+            graph_id=params.get("graph_id", ""),
+            autonomous_inbox=bool(params.get("autonomous_inbox", False)),
         )
 
     async def _handle_team_roster_list(self, params: dict) -> dict:

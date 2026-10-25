@@ -1,8 +1,8 @@
 """Tests for issues #29-#37: agent_definition, agent_api, cowork_manager,
-langgraph_engine, artifact_tools.
+artifact_tools.
 
 Importers: pytest test runner.
-Affected API: AgentDefinition, AgentStatusTracker, CoworkManager, LangGraphEngine, ArtifactManager.
+Affected API: AgentDefinition, AgentStatusTracker, CoworkManager, ArtifactManager.
 Data schemas: all dataclasses from the 5 modules under test.
 User instruction: "后续功能也要马上启动落地实施".
 """
@@ -34,13 +34,6 @@ from agent_runtime.artifact_tools import (
     ArtifactRecord,
 )
 from agent_runtime.cowork_manager import CoworkManager
-from agent_runtime.langgraph_engine import (
-    VALID_NODE_TYPES,
-    LangGraphEngine,
-    WorkflowDefinition,
-    WorkflowEdge,
-    WorkflowNode,
-)
 
 
 class TestAgentDefinition:
@@ -208,69 +201,6 @@ class TestCoworkManager:
         self.mgr.add_agent("space-1", "agent-1", "all_member")
         result = self.mgr.inject_context("space-1", mode="full", enable_rag=True)
         assert isinstance(result, list)
-
-
-class TestLangGraphEngine:
-    def setup_method(self):
-        self.engine = LangGraphEngine()
-
-    def _make_simple_wf(self, wf_id="wf-1", name="Test"):
-        nodes = [
-            WorkflowNode(node_id="start-1", node_type="START_NODE"),
-            WorkflowNode(node_id="end-1", node_type="END_NODE"),
-        ]
-        edges = [WorkflowEdge(source_id="start-1", target_id="end-1")]
-        return WorkflowDefinition(
-            wf_id=wf_id,
-            name=name,
-            slash_command=f"/{wf_id}",
-            nodes=nodes,
-            edges=edges,
-            entry_node_id="start-1",
-        )
-
-    def test_create_and_get_workflow(self):
-        wf = self._make_simple_wf("wf-1", "Test Workflow")
-        self.engine.create_workflow(wf)
-        result = self.engine.get_workflow("wf-1")
-        assert result["status"] == "ok"
-        assert result["workflow"]["name"] == "Test Workflow"
-
-    def test_list_workflows(self):
-        self.engine.create_workflow(self._make_simple_wf("wf-a", "A"))
-        self.engine.create_workflow(self._make_simple_wf("wf-b", "B"))
-        result = self.engine.list_workflows()
-        assert len(result) == 2
-
-    def test_delete_workflow(self):
-        self.engine.create_workflow(self._make_simple_wf("wf-del", "Del"))
-        result = self.engine.delete_workflow("wf-del")
-        assert result["status"] == "ok"
-        result = self.engine.get_workflow("wf-del")
-        assert result["status"] == "error"
-
-    def test_validate_workflow_missing_start(self):
-        nodes = [WorkflowNode(node_id="e1", node_type="END_NODE")]
-        edges = []
-        wf = WorkflowDefinition(
-            wf_id="wf-bad",
-            name="Bad",
-            slash_command="/bad",
-            nodes=nodes,
-            edges=edges,
-            entry_node_id="e1",
-        )
-        errors = self.engine.validate_workflow(wf)
-        assert isinstance(errors, list)
-
-    def test_valid_node_types(self):
-        assert "START_NODE" in VALID_NODE_TYPES
-        assert "END_NODE" in VALID_NODE_TYPES
-        assert "CONNECTOR_NODE" in VALID_NODE_TYPES
-        assert "SKILL_NODE" in VALID_NODE_TYPES
-        assert "CONDITION_NODE" in VALID_NODE_TYPES
-        assert "APPROVAL_GATE_NODE" in VALID_NODE_TYPES
-        assert "OUTPUT_NODE" in VALID_NODE_TYPES
 
 
 class TestArtifactManager:

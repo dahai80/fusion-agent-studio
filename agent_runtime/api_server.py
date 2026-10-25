@@ -21,7 +21,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
-from fastapi import Depends, FastAPI, Query, Request, WebSocket, WebSocketDisconnect
+from fastapi import Depends, FastAPI, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse, StreamingResponse
 from pydantic import BaseModel
@@ -927,6 +927,178 @@ async def v1_submit_run(request: Request):
     return {"run_id": run_id, "status": task.get("status", "pending"), "deduped": res.get("deduped", False)}
 
 
+# ---------------- #455: inbound webhooks ----------------
+
+WEBHOOK_MAX_BODY_BYTES = 64 * 1024
+
+
+def _webhook_mgr():
+    from agent_runtime.triggers import get_webhook_manager
+
+    return get_webhook_manager()
+
+
+@app.get("/v1/webhooks", dependencies=[Depends(_require_auth_if_configured)])
+async def v1_list_webhooks():
+    return {"webhooks": _webhook_mgr().list()}
+
+
+@app.post("/v1/webhooks", dependencies=[Depends(_require_auth_if_configured)])
+async def v1_create_webhook(request: Request):
+    body = await request.json()
+    name = str(body.get("name", "")).strip()
+    graph_id = str(body.get("graph_id", "")).strip()
+    if not name or not graph_id:
+        raise_api_error(ErrorCode.PARAM_REQUIRED, param="name, graph_id")
+    try:
+        rate_limit = int(body.get("rate_limit_per_min", 30) or 30)
+    except (TypeError, ValueError):
+        raise_api_error(ErrorCode.PARAM_FORMAT_ERROR, param="rate_limit_per_min")
+    secret = str(body.get("secret", "") or "")
+    webhook = _webhook_mgr().create(
+        name=name, graph_id=graph_id, secret=secret, rate_limit_per_min=rate_limit
+    )
+    _get_audit_logger().log_action(
+        actor_id="api",
+        action="webhook.create",
+        resource_type="webhook",
+        resource_id=webhook.id,
+        details={"name": name, "graph_id": graph_id},
+        result="success",
+    )
+    # Secret is returned exactly once, at creation time.
+    data = webhook.to_dict(include_secret=True)
+    return {"webhook": data}
+
+
+@app.delete("/v1/webhooks/{hook_id}", dependencies=[Depends(_require_auth_if_configured)])
+async def v1_delete_webhook(hook_id: str):
+    if not _webhook_mgr().delete(hook_id):
+        raise_api_error(ErrorCode.AGENT_NOT_FOUND, param="hook_id",
+                        detail=f"webhook not found: {hook_id}")
+    _get_audit_logger().log_action(
+        actor_id="api",
+        action="webhook.delete",
+        resource_type="webhook",
+        resource_id=hook_id,
+        result="success",
+    )
+    return {"deleted": hook_id}
+
+
+@app.post("/v1/webhooks/{hook_id}/enabled", dependencies=[Depends(_require_auth_if_configured)])
+async def v1_set_webhook_enabled(hook_id: str, request: Request):
+    body = await request.json()
+    enabled = bool(body.get("enabled", True))
+    webhook = _webhook_mgr().set_enabled(hook_id, enabled)
+    if webhook is None:
+        raise_api_error(ErrorCode.AGENT_NOT_FOUND, param="hook_id",
+                        detail=f"webhook not found: {hook_id}")
+    return {"webhook": webhook.to_dict()}
+
+
+@app.post("/v1/webhooks/{hook_id}/invoke")
+async def v1_invoke_webhook(hook_id: str, request: Request):
+    # #455: external trigger surface. Auth is mandatory and per-hook:
+    # HMAC-SHA256 hexdigest of the raw request body in X-Signature.
+    mgr = _webhook_mgr()
+    webhook = mgr.get(hook_id)
+    if webhook is None or not webhook.enabled:
+        raise_api_error(ErrorCode.AGENT_NOT_FOUND, param="hook_id",
+                        detail=f"webhook not found: {hook_id}")
+    content_length = int(request.headers.get("content-length", 0) or 0)
+    if content_length > WEBHOOK_MAX_BODY_BYTES or content_length < 0:
+        raise HTTPException(status_code=413, detail="payload exceeds 64KB limit")
+    raw_body = await request.body()
+    if len(raw_body) > WEBHOOK_MAX_BODY_BYTES:
+        raise HTTPException(status_code=413, detail="payload exceeds 64KB limit")
+    signature = request.headers.get("x-signature", "")
+    client_ip = request.client.host if request.client else ""
+    started = time.time()
+    if not mgr.verify_signature(webhook, raw_body, signature):
+        logger.warning("webhook invoke rejected bad signature hook=%s ip=%s", hook_id, client_ip)
+        _get_audit_logger().log_action(
+            actor_id=f"webhook:{hook_id}",
+            action="webhook.invoke",
+            resource_type="webhook",
+            resource_id=hook_id,
+            details={"ip": client_ip, "sig_valid": False, "run_id": ""},
+            result="failure",
+        )
+        raise_api_error(ErrorCode.API_KEY_INVALID,
+                        detail="invalid or missing X-Signature")
+    if not mgr.check_rate_limit(webhook):
+        _get_audit_logger().log_action(
+            actor_id=f"webhook:{hook_id}",
+            action="webhook.invoke",
+            resource_type="webhook",
+            resource_id=hook_id,
+            details={"ip": client_ip, "sig_valid": True, "rate_limited": True},
+            result="failure",
+        )
+        raise_api_error(ErrorCode.RATE_LIMIT_REACHED,
+                        detail="webhook rate limit exceeded, retry later")
+    try:
+        payload = json.loads(raw_body.decode("utf-8")) if raw_body else {}
+    except (UnicodeDecodeError, ValueError):
+        raise_api_error(ErrorCode.PARAM_FORMAT_ERROR, param="body",
+                        detail="body must be valid JSON")
+    if not isinstance(payload, dict):
+        raise_api_error(ErrorCode.PARAM_FORMAT_ERROR, param="body",
+                        detail="body must be a JSON object")
+    idem_key = request.headers.get("x-idempotency-key", "")
+    if idem_key:
+        cache_key = f"{hook_id}:{idem_key}"
+        prior_run_id = mgr.idempotent_run_id(cache_key)
+        if prior_run_id:
+            logger.info("webhook invoke deduped hook=%s key=%s run_id=%s",
+                        hook_id, idem_key, prior_run_id)
+            return {"run_id": prior_run_id, "status": "deduplicated", "deduped": True}
+    goal = str(payload.get("input") or payload.get("goal") or "").strip()
+    submit_params = {
+        "title": f"webhook:{webhook.name}",
+        "description": goal or f"webhook trigger {hook_id}",
+        "graph_id": webhook.graph_id,
+        "trigger": "webhook",
+        "input": goal or json.dumps(payload, ensure_ascii=False)[:2000],
+        "status": "pending",
+        "idempotency_key": idem_key,
+    }
+    res = await _rpc("task.submit", submit_params)
+    task = res.get("task", {}) if isinstance(res, dict) else {}
+    run_id = task.get("task_id", "")
+    mgr.record_invoke(webhook)
+    if idem_key and run_id:
+        mgr.record_idempotency(f"{hook_id}:{idem_key}", run_id)
+    latency_ms = int((time.time() - started) * 1000)
+    _get_audit_logger().log_action(
+        actor_id=f"webhook:{hook_id}",
+        action="webhook.invoke",
+        resource_type="webhook",
+        resource_id=hook_id,
+        details={
+            "ip": client_ip,
+            "sig_valid": True,
+            "run_id": run_id,
+            "latency_ms": latency_ms,
+        },
+        result="success",
+    )
+    logger.info("webhook invoke hook=%s run_id=%s latency_ms=%s", hook_id, run_id, latency_ms)
+    if webhook.graph_id and run_id:
+        try:
+            await _rpc("graph.execute_async", {
+                "graph_id": webhook.graph_id,
+                "input": submit_params["input"],
+                "task_id": run_id,
+            })
+        except Exception as exc:
+            logger.exception("webhook graph.execute_async for %s failed (task queued): %s",
+                             run_id, exc)
+    return {"run_id": run_id, "status": task.get("status", "pending"),
+            "deduped": bool(res.get("deduped")) if isinstance(res, dict) else False}
+
+
 @app.get("/v1/runs/{run_id}")
 async def v1_get_run(run_id: str):
     res = await _rpc("task.get", {"task_id": run_id})
@@ -988,6 +1160,7 @@ async def v1_get_run_events(run_id: str):
 @app.get("/api/v1/runs/{run_id}/events")
 async def api_v1_get_run_events(run_id: str):
     return await v1_get_run_events(run_id)
+
 
 
 # #432: run event stream for the fusion-agent CLI — SSE tail of a run's
