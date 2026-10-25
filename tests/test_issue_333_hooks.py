@@ -142,6 +142,8 @@ def test_hook_max_ms_env_and_override(monkeypatch):
 
 
 async def test_hook_raise_fail_open():
+    # 审计 P-3: 安全门事件 (PRE_TOOL_USE 等) 回调异常必须 fail-closed —
+    # 第一个坏 hook 直接 block, 后续 hook 不再跑。
     eng = HookEngine(auto_register_decorators=False)
     seen = []
 
@@ -155,8 +157,26 @@ async def test_hook_raise_fail_open():
     eng.register(HookConfig(event="PRE_TOOL_USE", callback=bad))
     eng.register(HookConfig(event="PRE_TOOL_USE", callback=good))
     res = await eng.fire("PRE_TOOL_USE", {}, tool_name="x")
-    assert res.decision == "approve"
-    assert seen == ["good"]
+    assert res.decision == "block"
+    assert "fail-closed" in res.reason
+    assert seen == []
+
+    # 非安全门事件保持 fail-open: 坏 hook 跳过, 好 hook 照常裁决
+    eng2 = HookEngine(auto_register_decorators=False)
+    seen2 = []
+
+    def bad2(payload):
+        raise RuntimeError("boom")
+
+    def good2(payload):
+        seen2.append("good")
+        return {"decision": "approve"}
+
+    eng2.register(HookConfig(event="NODE_BEFORE", callback=bad2))
+    eng2.register(HookConfig(event="NODE_BEFORE", callback=good2))
+    res2 = await eng2.fire("NODE_BEFORE", {}, tool_name="")
+    assert res2.decision == "approve"
+    assert seen2 == ["good"]
 
 
 async def test_no_matched_hooks_returns_default_approve():

@@ -273,12 +273,26 @@ class TestIssue391Budget:
 
 class TestIssue391PermissionsNone:
     @pytest.mark.asyncio
-    async def test_missing_engine_warns_and_passes_by_default(self, caplog):
+    async def test_missing_engine_fails_closed_by_default(self, caplog):
+        # fusion-harness #391 follow-up (audit): an absent permission engine
+        # is a wiring bug — deny by default, never a silent allow.
+        funnel = ToolFunnel()
+        outcome = await funnel.admit(ctx=AgentContext(), tool_name="shell_exec", args={})
+        assert outcome.allowed is False
+        assert outcome.blocked_by == "permission"
+        assert any(e["stage"] == "permission" and e["verdict"] == "deny"
+                   for e in outcome.decision_log)
+        assert any("fail_closed" in r.message for r in caplog.records)
+
+    @pytest.mark.asyncio
+    async def test_missing_engine_explicit_optout_passes(self, monkeypatch):
+        # explicit opt-out (headless/CI) still allows, but logs loud + skips
+        monkeypatch.setenv("FUSION_FUNNEL_PERMISSIONS", "0")
         funnel = ToolFunnel()
         outcome = await funnel.admit(ctx=AgentContext(), tool_name="shell_exec", args={})
         assert outcome.allowed is True
-        assert any(e["stage"] == "permission" and e["verdict"] == "skip" for e in outcome.decision_log)
-        assert any("permission engine absent" in r.message for r in caplog.records)
+        assert any(e["stage"] == "permission" and e["verdict"] == "skip"
+                   for e in outcome.decision_log)
 
     @pytest.mark.asyncio
     async def test_missing_engine_fails_closed_when_required(self, monkeypatch):

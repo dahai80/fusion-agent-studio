@@ -199,6 +199,16 @@ class HookEngine:
             try:
                 res = await self._run(h, payload)
             except Exception as e:
+                if event in FAIL_CLOSED_EVENTS:
+                    # 审计 P-3: 安全门事件回调异常必须 block, 不能静默放行.
+                    logger.warning(
+                        "hook run error event=%s err=%s fail_closed=true", event, e
+                    )
+                    return HookResult(
+                        continue_loop=False,
+                        decision="block",
+                        reason=f"hook error on {event} (fail-closed): {e}",
+                    )
                 logger.warning("hook run error event=%s err=%s", event, e)
                 continue
             if res is None:
