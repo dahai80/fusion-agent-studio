@@ -1,6 +1,6 @@
 import pytest
 
-from agent_runtime._compactor_local import CompactionConfig, Compactor, RetentionList
+from agent_runtime.compactor import CompactionConfig, Compactor, RetentionList
 
 
 class _Resp:

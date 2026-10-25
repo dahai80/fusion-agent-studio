@@ -2,10 +2,10 @@ import json
 
 import pytest
 
-import agent_runtime._permissions_local as perms_mod
-from agent_runtime._funnels_local import FunnelOutcome, LLMFunnel, ToolFunnel
-from agent_runtime._hooks_local import HookConfig, HookEngine
-from agent_runtime._permissions_local import PermissionEngine, PermissionMode, PermissionRule
+import agent_runtime.permissions as perms_mod
+from agent_runtime.funnels import FunnelOutcome, LLMFunnel, ToolFunnel
+from agent_runtime.hooks import HookConfig, HookEngine
+from agent_runtime.permissions import PermissionEngine, PermissionMode, PermissionRule
 from agent_runtime.context import AgentContext
 from agent_runtime.graph import AgentGraph, NodeConfig
 from agent_runtime.runtime import AgentRuntime
