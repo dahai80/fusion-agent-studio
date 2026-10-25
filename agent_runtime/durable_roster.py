@@ -185,6 +185,7 @@ class Mailbox:
         body: str = "",
         kind: str = "message",
         team: str = "",
+        _notify: bool = True,
     ) -> dict:
         if not sender or not recipient:
             raise ValueError("sender and recipient required")
@@ -200,6 +201,15 @@ class Mailbox:
                 (message_id, sender, recipient, team, kind, str(body)[:20000], now),
             )
         logger.info("mailbox send id=%s sender=%s recipient=%s", message_id, sender, recipient)
+        if _notify:
+            # #459: push wake to peer daemons sharing this DB — best-effort,
+            # fire-and-forget; the InboxConsumer poll is the safety net.
+            try:
+                from .peer_notify import notify_peers
+
+                notify_peers(team)
+            except Exception as e:
+                logger.debug("peer notify dispatch failed: %s", e)
         return {
             "message_id": message_id,
             "sender": sender,
@@ -215,11 +225,21 @@ class Mailbox:
         self, sender: str, team: str, body: str = "", kind: str = "broadcast"
     ) -> list[dict]:
         targets = DurableRoster(self.path).list(team=team)
-        return [
-            self.send(sender, row["agent_id"], body, kind=kind, team=team)
+        sent = [
+            self.send(sender, row["agent_id"], body, kind=kind, team=team, _notify=False)
             for row in targets
             if row["agent_id"] != sender
         ]
+        # #459: one wake per broadcast, not one per recipient — the peer
+        # consumer drains the whole inbox in one pass.
+        if sent:
+            try:
+                from .peer_notify import notify_peers
+
+                notify_peers(team)
+            except Exception as e:
+                logger.debug("peer notify dispatch failed: %s", e)
+        return sent
 
     def inbox(self, recipient: str, unread_only: bool = True, limit: int = 100) -> list[dict]:
         query = "SELECT * FROM mailbox WHERE recipient = ?"
