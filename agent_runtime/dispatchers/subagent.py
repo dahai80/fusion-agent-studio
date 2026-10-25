@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Callable
 
@@ -14,6 +15,7 @@ class SubAgentDispatcher(SubDispatcher):
     def get_handlers(self) -> dict[str, Callable]:
         return {
             "subagent.run": self._handle_subagent_run,
+            "subagent.run_task": self._handle_subagent_run_task,
             "subagent.register": self._handle_subagent_register,
             "subagent.list": self._handle_subagent_list,
             "subagent.spawn": self._handle_subagent_spawn,
@@ -67,6 +69,74 @@ class SubAgentDispatcher(SubDispatcher):
             spec.name, report.ok, report.turns, report.tokens_used,
         )
         return {"status": "ok", "report": report.to_dict()}
+
+    async def _handle_subagent_run_task(self, params: dict) -> dict:
+        # #460: task-linked background subagent run. HTTP /v1/runs per-run
+        # overrides (tools/model/max_turns/budget_tokens) ride the same
+        # SubAgentRunner path as subagent.run; TaskStore writeback makes
+        # /v1/runs/{id} + /v1/runs/{id}/result polling work unchanged.
+        task_id = str(params.get("task_id", "") or "")
+        if not task_id:
+            return {"status": "error", "message": "task_id required"}
+        runner = self._get_runner()
+        if runner is None:
+            return {"status": "error", "message": "runtime unavailable"}
+        goal = str(params.get("goal", "") or "")
+        agent_id = str(params.get("agent_id", "") or "")
+        spec_raw = dict(params.get("spec") or {})
+        spec_raw.setdefault("name", agent_id or f"run-{task_id[-12:]}")
+        if goal:
+            spec_raw["task"] = goal
+        from ..subagent import SubAgentSpec
+
+        try:
+            spec = SubAgentSpec.from_dict(spec_raw)
+        except (TypeError, ValueError) as e:
+            return {"status": "error", "message": f"invalid spec: {e}"}
+        ts = self._daemon._get_task_store()
+        ts.update_status(task_id, "running")
+        if not hasattr(self, "_run_task_bg_tasks"):
+            self._run_task_bg_tasks = set()
+        bg = asyncio.create_task(self._run_task_bg(runner, spec, task_id))
+        self._run_task_bg_tasks.add(bg)
+        bg.add_done_callback(self._run_task_bg_tasks.discard)
+        logger.info(
+            "subagent.run_task started task=%s name=%s tools=%d model=%r max_turns=%s budget_tokens=%s",
+            task_id, spec.name, len(spec.tools), spec.model, spec.max_turns, spec.budget_tokens,
+        )
+        return {"status": "ok", "task_id": task_id, "name": spec.name}
+
+    async def _run_task_bg(self, runner, spec, task_id: str) -> None:
+        ts = self._daemon._get_task_store()
+        try:
+            report = await runner.run(spec)
+        except Exception as e:
+            logger.exception("subagent.run_task %s crashed", task_id)
+            ts.update_status(task_id, "failed", last_error=str(e))
+            return
+        last_result = {
+            "session_id": report.agent_id,
+            "events": report.turns,
+            "report": report.report,
+            "ok": report.ok,
+            "turns": report.turns,
+            "tokens_used": report.tokens_used,
+            "agent_id": report.agent_id,
+            "partial": report.partial,
+            "duration_ms": report.duration_ms,
+        }
+        if report.ok:
+            ts.update_status(task_id, "completed", last_result=last_result)
+        else:
+            ts.update_status(
+                task_id, "failed",
+                last_result=last_result,
+                last_error=report.error or "subagent run did not succeed",
+            )
+        logger.info(
+            "subagent.run_task done task=%s ok=%s turns=%s tokens=%s partial=%s",
+            task_id, report.ok, report.turns, report.tokens_used, report.partial,
+        )
 
     async def _handle_subagent_register(self, params: dict) -> dict:
         reg = self._get_registry()

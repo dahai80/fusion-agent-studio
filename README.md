@@ -409,6 +409,21 @@ Audit `audit/fusion-agent-studio-vs-langflow-audit-1020.md` closed end-to-end; s
   # → {"run_id":"<task-id>","status":"pending","deduped":false}
   ```
 
+### Per-Run Agent Overrides on POST /v1/runs — #460
+- ✅ **HTTP/UDS parity for per-run control** — `POST /v1/runs` now accepts an optional `spec` object (or top-level `tools` / `model` / `max_turns` / `budget_tokens`) with the same `SubAgentSpec` semantics the UDS `subagent.run` channel uses, so HTTP-only deployments (e.g. fusion-cowork `AgentExecutor` without daemon-socket access) no longer silently drop turn/token caps. Unknown spec keys and bad types are rejected with 400 (explicit, not ignored).
+- ✅ **same execution machinery** — a run submitted with overrides dispatches through the new `subagent.run_task` RPC: background `SubAgentRunner` execution linked to the task record, with TaskStore writeback (`running` → `completed`/`failed`, `last_result` carries report/turns/tokens/agent_id), so `/v1/runs/{id}` polling and `/v1/runs/{id}/result` work unchanged. Cluster (`sandbox: multi-node:…`) delegation keeps its own path — overrides are local-only.
+- ✅ **max_turns off-by-one fix (pre-existing)** — `max_turns` was conflated with the graph-level node-visit iteration cap, so a complete single-answer subagent run consumed the cap on `start`+`llm` before the `end` node ran and reported `Max iterations exceeded` as a failure. The graph cap now gets +2 headroom; `max_turns` caps actual LLM turns.
+- ✅ **end-to-end** (verified against a live daemon + loaded Qwen2.5-32B via fusion-mlx):
+  ```bash
+  curl -s -X POST http://127.0.0.1:11442/v1/runs -H 'content-type: application/json' -d '{
+    "goal": "Reply with exactly the word: acknowledged",
+    "spec": {"model": "mlx-community/Qwen2.5-32B-Instruct-4bit", "tools": [],
+              "max_turns": 2, "budget_tokens": 2000}
+  }'
+  # → {"run_id":"task_…","status":"running","deduped":false,"spec_applied":true}
+  # poll GET /v1/runs/{run_id} → completed; result carries turns=1 tokens=57 report="acknowledged"
+  ```
+
 ### Autonomous Inbox Consumer — #457
 - ✅ **agents read their own mail** — rostered agents registered with `autonomous_inbox: true` and a `graph_id` binding get a daemon-resident background consumer (`FUSION_INBOX_POLL_INTERVAL`, default 5s): each unread mailbox message becomes a durable agent run (message body as input, sender/team context injected), acked **after** the task is durably submitted (at-least-once — a crash mid-conversation redelivers on restart), and the run's final output is posted back to the sender's mailbox as a `kind=reply` message. Human-driven agents are untouched (mail waits for RPC pull). Runs are idempotency-keyed by mailbox message id, so redelivery never double-fires.
 - ✅ **roster config** — `team.roster_register` gains `graph_id` and `autonomous_inbox` (schema migration for pre-existing team.db is automatic). Observability via `team.inbox_metrics` RPC: processed/replies/errors counters, inbox depth, dispatch latency, per-agent breakdown.
