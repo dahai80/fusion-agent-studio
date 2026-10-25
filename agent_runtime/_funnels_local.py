@@ -35,13 +35,17 @@ from .permissions import (
 logger = logging.getLogger(__name__)
 
 
-def _require_permissions() -> bool:
-    return os.environ.get("FUSION_FUNNEL_REQUIRE_PERMISSIONS", "").strip().lower() in (
-        "1",
-        "true",
-        "yes",
-        "on",
-    )
+_PERMISSIONS_OFF_VALUES = ("0", "false", "no", "off", "disabled")
+
+
+def _permissions_disabled_var() -> str | None:
+    # Issue #1: enforcement is fail-closed by default. Opt-out (headless/CI
+    # deployments) must be explicit — and loud, never silent.
+    for var in ("FUSION_FUNNEL_PERMISSIONS", "FUSION_FUNNEL_REQUIRE_PERMISSIONS"):
+        val = os.environ.get(var, "").strip().lower()
+        if val in _PERMISSIONS_OFF_VALUES:
+            return var
+    return None
 
 
 class EventDomain(str, Enum):
@@ -246,23 +250,29 @@ class ToolFunnel:
         # engine's plan gate (ctx.plan_mode + not readonly -> deny).
         readonly = self._readonly_names()
         perm_decision: PermissionDecision | None = None
-        if self.permissions is None:
-            # N8 #391: an absent engine is a wiring bug, never a silent allow.
-            # Default is loud passthrough (backward compat); deployments that
-            # require enforcement set FUSION_FUNNEL_REQUIRE_PERMISSIONS=1.
-            if _require_permissions():
-                _mark("permission", "deny", "permission engine absent (fail-closed)")
-                logger.error(
-                    "tool funnel has no permission engine tool=%s fail_closed=true",
-                    tool_name,
-                )
-                return self._deny(
-                    ctx, tool_name, args, "permission",
-                    log, "permission engine absent (fail-closed)",
-                )
-            self._warn_no_permissions()
-            _mark("permission", "skip", "permission engine absent (unarmed passthrough)")
-        if self.permissions is not None:
+        disabled_var = _permissions_disabled_var()
+        if disabled_var is not None:
+            # Issue #1: explicit opt-out only — and every skipped call logs a
+            # prominent warning so no deployment is silently unarmed.
+            logger.warning(
+                "permission enforcement DISABLED via %s — headless deployment? tool=%s",
+                disabled_var,
+                tool_name,
+            )
+            _mark("permission", "skip", f"enforcement disabled via {disabled_var}")
+        elif self.permissions is None:
+            # Issue #1: an absent engine is a wiring bug, never a silent
+            # allow. Fail-closed by default (N8 #391 precedent).
+            _mark("permission", "deny", "permission engine absent (fail-closed)")
+            logger.error(
+                "tool funnel has no permission engine tool=%s fail_closed=true",
+                tool_name,
+            )
+            return self._deny(
+                ctx, tool_name, args, "permission",
+                log, "permission engine absent (fail-closed)",
+            )
+        else:
             try:
                 perm_decision = self.permissions.evaluate(
                     tool_name, args, ctx=ctx, readonly_hint=tool_name in readonly
@@ -334,15 +344,6 @@ class ToolFunnel:
                 "rule_source": perm_decision.rule_source,
             })
         return out
-
-    def _warn_no_permissions(self) -> None:
-        if getattr(self, "_no_permissions_warned", False):
-            return
-        self._no_permissions_warned = True
-        logger.warning(
-            "tool funnel permission engine absent — tool calls pass without "
-            "permission checks (set FUSION_FUNNEL_REQUIRE_PERMISSIONS=1 to fail closed)"
-        )
 
     def _readonly_names(self) -> set:
         # Support both static sets and a callable provider (registry may gain
@@ -528,3 +529,4 @@ class LLMFunnel:
             self.lifecycle.emit(domain, event, payload, session_id=getattr(ctx, "session_id", "") or "")
         except Exception as e:
             logger.warning("lifecycle emit failed event=%s err=%s", event, e)
+

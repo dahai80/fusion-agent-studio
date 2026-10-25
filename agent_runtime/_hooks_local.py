@@ -92,7 +92,7 @@ class HookConfig:
         }
 
     @classmethod
-    def from_dict(cls, data: dict) -> "HookConfig":
+    def from_dict(cls, data: dict) -> HookConfig:
         return cls(
             event=data["event"],
             matcher=data.get("matcher", "*"),
@@ -265,7 +265,7 @@ class HookEngine:
             stdout, _ = await asyncio.wait_for(
                 proc.communicate(stdin_data), timeout=hook.timeout
             )
-        except asyncio.TimeoutError:
+        except TimeoutError:
             logger.warning(
                 "hook command timed out cmd=%s event=%s fail_closed=%s",
                 hook.command,
@@ -318,3 +318,4 @@ class HookEngine:
                 reason=val,
             )
         return HookResult()
+

@@ -9,7 +9,7 @@ import time
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -125,7 +125,7 @@ class PermissionRule:
         }
 
     @classmethod
-    def from_dict(cls, data: dict) -> "PermissionRule":
+    def from_dict(cls, data: dict) -> PermissionRule:
         data = data or {}
         layer = str(data.get("layer", "global"))
         if layer not in _VALID_LAYERS:
@@ -178,10 +178,10 @@ def _serialize_args(args: Any) -> str:
 class PermissionEngine:
     def __init__(
         self,
-        rules: Optional[list[PermissionRule]] = None,
+        rules: list[PermissionRule] | None = None,
         mode: PermissionMode | str = PermissionMode.DEFAULT,
-        readonly_tools: Optional[set[str]] = None,
-        plan_readonly_tools: Optional[set[str]] = None,
+        readonly_tools: set[str] | None = None,
+        plan_readonly_tools: set[str] | None = None,
     ):
         self.mode = self._normalize_mode(mode)
         self._readonly_tools = set(readonly_tools or ())
@@ -285,8 +285,8 @@ class PermissionEngine:
                     reason=f"dangerous pattern matched: {pattern}",
                 )
 
-        pending_ask: Optional[tuple[str, PermissionRule]] = None
-        pending_allow: Optional[tuple[str, PermissionRule]] = None
+        pending_ask: tuple[str, PermissionRule] | None = None
+        pending_allow: tuple[str, PermissionRule] | None = None
         for layer in _RULE_SCAN_ORDER:
             for rule in self._rules_by_layer[layer]:
                 if not rule.matches(tool_name):
@@ -395,7 +395,7 @@ class PermissionEngine:
     def rules_count(self) -> int:
         return sum(len(rules) for rules in self._rules_by_layer.values())
 
-    def save_to_file(self, path: Optional[Path] = None) -> bool:
+    def save_to_file(self, path: Path | None = None) -> bool:
         # 审计 P-5: persist ALL three layers (global/graph/node) so layered
         # rules survive restarts. Each rule keeps its layer in its own dict.
         target = Path(path) if path else PERMISSIONS_FILE
@@ -425,7 +425,7 @@ class PermissionEngine:
             logger.error("failed to save permissions to %s: %s", target, exc)
             return False
 
-    def load_file_rules(self, path: Optional[Path] = None) -> int:
+    def load_file_rules(self, path: Path | None = None) -> int:
         target = Path(path) if path else PERMISSIONS_FILE
         if not target.exists():
             logger.debug("no permission file at %s", target)
@@ -454,3 +454,4 @@ class PermissionEngine:
         except (OSError, json.JSONDecodeError) as exc:
             logger.warning("failed to parse permission file %s: %s", target, exc)
             return 0
+
