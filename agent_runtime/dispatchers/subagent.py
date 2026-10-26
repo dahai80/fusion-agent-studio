@@ -95,9 +95,12 @@ class SubAgentDispatcher(SubDispatcher):
             return {"status": "error", "message": f"invalid spec: {e}"}
         ts = self._daemon._get_task_store()
         ts.update_status(task_id, "running")
+        effective_overrides = dict(params.get("effective_overrides") or {})
         if not hasattr(self, "_run_task_bg_tasks"):
             self._run_task_bg_tasks = set()
-        bg = asyncio.create_task(self._run_task_bg(runner, spec, task_id))
+        bg = asyncio.create_task(
+            self._run_task_bg(runner, spec, task_id, effective_overrides)
+        )
         self._run_task_bg_tasks.add(bg)
         bg.add_done_callback(self._run_task_bg_tasks.discard)
         logger.info(
@@ -106,7 +109,9 @@ class SubAgentDispatcher(SubDispatcher):
         )
         return {"status": "ok", "task_id": task_id, "name": spec.name}
 
-    async def _run_task_bg(self, runner, spec, task_id: str) -> None:
+    async def _run_task_bg(
+        self, runner, spec, task_id: str, effective_overrides: dict | None = None
+    ) -> None:
         ts = self._daemon._get_task_store()
         try:
             report = await runner.run(spec)
@@ -124,6 +129,8 @@ class SubAgentDispatcher(SubDispatcher):
             "agent_id": report.agent_id,
             "partial": report.partial,
             "duration_ms": report.duration_ms,
+            # #461: what actually constrained this run (post intersection).
+            "effective_overrides": effective_overrides or {},
         }
         if report.ok:
             ts.update_status(task_id, "completed", last_result=last_result)
