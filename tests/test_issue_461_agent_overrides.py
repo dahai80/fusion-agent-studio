@@ -55,6 +55,9 @@ def client(monkeypatch):
 
     monkeypatch.setattr(api_server, "_rpc", fake_rpc)
     monkeypatch.setattr(api_server, "_auth_configured", lambda: False)
+    # keep the run.overrides audit write out of the real audit.db
+    fake_audit = type("A", (), {"log_action": staticmethod(lambda **kw: None)})()
+    monkeypatch.setattr(api_server, "_get_audit_logger", lambda: fake_audit)
     return TestClient(api_server.app), calls
 
 
