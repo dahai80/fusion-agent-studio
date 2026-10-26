@@ -190,9 +190,9 @@ class LLMGateway:
         self._default_model = default_model
         self._default_client: Any = None
         # 经 fusion-gateway 路径时, _default_client 指向 gateway (:11432).
-        # gateway 转发上游失败 (issue #170: gateway 路由 cloud 502) 时,
-        # 直连 fusion-mlx (:11434) 的兜底 client, 避免空输出.
-        self._mlx_direct_client: Any = None
+        # issue #470: 不再有直连 fusion-mlx (:11434) 的静默兜底 —
+        # gateway 自身拥有 local→cloud overflow 策略 (fusion-gateway#301),
+        # 客户端绕过会破坏审计面; gateway 错误直接抛给调用方.
         self._compactor = compactor
         self._llm_concurrency_limit = self._parse_llm_concurrency()
         self._llm_semaphore: asyncio.Semaphore | None = None
@@ -244,12 +244,10 @@ class LLMGateway:
             logger.info("Default client set with default_model=%s", self._default_model)
 
     def set_mlx_direct_client(self, client: Any) -> None:
-        # issue #170: gateway 路径 (:11432) 转发上游失败 (路由 cloud 502) 时,
-        # 用直连 fusion-mlx (:11434) 的 client 兜底, 避免空输出.
-        # 仅 gateway 路径注入; 直连路径 (_default_client 已指 11434) 不需.
-        self._mlx_direct_client = client
+        # issue #470: 静默直连兜底已删除 (cloud→local 绕过 gateway 审计).
+        # 保留方法为 no-op 兼容旧调用方; 新代码不要注入直连 client.
         logger.info(
-            "MLX direct fallback client set (base_url=%s)",
+            "MLX direct fallback client ignored (removed by #470, base_url=%s)",
             getattr(client, "base_url", "?"),
         )
 
@@ -804,39 +802,9 @@ class LLMGateway:
                     model=config.name,
                 )
             except Exception as exc:
+                # issue #470: gateway 错误直接上抛, 不再直连 fusion-mlx 兜底 —
+                # 静默 cloud→local 重试会绕过 gateway 的路由策略/审计/成本上限.
                 logger.warning("Default client call failed for %s: %s", config.name, exc)
-                # issue #170: gateway client 失败 (502/路由 cloud 错) 时,
-                # 直连 fusion-mlx 11434 兜底, 不再空输出.
-                if self._mlx_direct_client is not None:
-                    try:
-                        direct_resp = await self._mlx_direct_client.chat(
-                            model=config.name,
-                            messages=messages,
-                            tools=tools,
-                            temperature=temperature
-                            if temperature is not None
-                            else config.temperature,
-                            max_tokens=max_tokens if max_tokens is not None else config.max_tokens,
-                            tool_choice=tool_choice,
-                        )
-                        logger.info(
-                            "MLX direct fallback ok for %s (gateway had failed)",
-                            config.name,
-                        )
-                        return GatewayResponse(
-                            content=direct_resp.content,
-                            tool_calls=direct_resp.tool_calls,
-                            finish_reason=direct_resp.finish_reason,
-                            usage=direct_resp.usage,
-                            model=config.name,
-                            fallback_from="mlx-direct",
-                        )
-                    except Exception as direct_exc:
-                        logger.warning(
-                            "MLX direct fallback also failed for %s: %s",
-                            config.name,
-                            direct_exc,
-                        )
                 raise
 
         try:

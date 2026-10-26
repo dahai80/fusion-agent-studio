@@ -28,10 +28,13 @@ def client(monkeypatch, tmp_path):
     mgr = WebhookManager()  # transient: no store path
     monkeypatch.setattr(api_server, "_webhook_mgr", lambda: mgr)
 
+    submits = []
+
     async def fake_rpc(method, params):
         if method == "graph.execute_async":
             return {"status": "ok"}
         assert method == "task.submit"
+        submits.append(params)
         return {
             "task": {"task_id": "run-123", "status": "pending"},
             "deduped": False,
@@ -39,7 +42,7 @@ def client(monkeypatch, tmp_path):
 
     monkeypatch.setattr(api_server, "_rpc", fake_rpc)
     monkeypatch.setattr(api_server, "_auth_configured", lambda: False)
-    return TestClient(api_server.app), mgr
+    return TestClient(api_server.app), mgr, submits
 
 
 def _create_hook(client) -> dict:
@@ -51,7 +54,7 @@ def _create_hook(client) -> dict:
 
 
 def test_crud_list_create_delete(client):
-    tc, mgr = client
+    tc, mgr, submits = client
     hook = _create_hook(tc)
     assert hook["id"].startswith("wh-")
     assert hook["secret"]  # returned once at creation
@@ -71,7 +74,7 @@ def test_crud_list_create_delete(client):
 
 
 def test_invoke_valid_signature_starts_run(client):
-    tc, _ = client
+    tc, _, submits = client
     hook = _create_hook(tc)
     body = json.dumps({"text": "hi"}).encode()
     resp = tc.post(
@@ -84,7 +87,7 @@ def test_invoke_valid_signature_starts_run(client):
 
 
 def test_invoke_wrong_signature_401_no_run(client):
-    tc, _ = client
+    tc, _, submits = client
     hook = _create_hook(tc)
     resp = tc.post(
         f"/v1/webhooks/{hook['id']}/invoke",
@@ -92,10 +95,11 @@ def test_invoke_wrong_signature_401_no_run(client):
         headers={"content-type": "application/json", "x-signature": "deadbeef"},
     )
     assert resp.status_code == 401
+    assert submits == []  # #469: rejected invoke must not enqueue a run
 
 
 def test_invoke_missing_signature_401(client):
-    tc, _ = client
+    tc, _, submits = client
     hook = _create_hook(tc)
     resp = tc.post(
         f"/v1/webhooks/{hook['id']}/invoke",
@@ -103,10 +107,11 @@ def test_invoke_missing_signature_401(client):
         headers={"content-type": "application/json"},
     )
     assert resp.status_code == 401
+    assert submits == []  # #469: rejected invoke must not enqueue a run
 
 
 def test_invoke_unknown_hook_404(client):
-    tc, _ = client
+    tc, _, submits = client
     resp = tc.post(
         "/v1/webhooks/wh-nope/invoke",
         content=b"{}",
@@ -116,7 +121,7 @@ def test_invoke_unknown_hook_404(client):
 
 
 def test_invoke_disabled_hook_404(client):
-    tc, _ = client
+    tc, _, submits = client
     hook = _create_hook(tc)
     tc.post(f"/v1/webhooks/{hook['id']}/enabled", json={"enabled": False})
     body = b"{}"
@@ -129,7 +134,7 @@ def test_invoke_disabled_hook_404(client):
 
 
 def test_idempotency_key_dedupes_run(client):
-    tc, _ = client
+    tc, _, submits = client
     hook = _create_hook(tc)
     body = b'{"text":"hi"}'
     headers = {
@@ -147,7 +152,7 @@ def test_idempotency_key_dedupes_run(client):
 
 
 def test_rate_limit_returns_429(client):
-    tc, mgr = client
+    tc, mgr, submits = client
     hook = mgr.create(name="flood", graph_id="g", rate_limit_per_min=3)
     body = b"{}"
     headers = {"x-signature": _hmac_sig(hook.secret, body)}
@@ -157,10 +162,11 @@ def test_rate_limit_returns_429(client):
     ]
     assert statuses[:3] == [200, 200, 200]
     assert statuses[3] == 429
+    assert len(submits) == 3  # #469: rate-limited 4th invoke must not enqueue
 
 
 def test_body_over_64kb_rejected(client):
-    tc, _ = client
+    tc, _, submits = client
     hook = _create_hook(tc)
     big = json.dumps({"blob": "x" * (65 * 1024)}).encode()
     resp = tc.post(
@@ -169,10 +175,11 @@ def test_body_over_64kb_rejected(client):
         headers={"x-signature": _hmac_sig(hook["secret"], big)},
     )
     assert resp.status_code == 413
+    assert submits == []  # #469: oversized body must not enqueue a run
 
 
 def test_invoke_count_audited_on_webhook(client):
-    tc, mgr = client
+    tc, mgr, submits = client
     hook = _create_hook(tc)
     body = b'{"text":"hi"}'
     tc.post(
