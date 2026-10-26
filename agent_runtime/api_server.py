@@ -861,6 +861,45 @@ async def v1_submit_run(request: Request):
     for key in ("tools", "model", "max_turns", "budget_tokens"):
         if body.get(key) is not None:
             spec.setdefault(key, body[key])
+    # #461: agent_overrides alias — same SubAgentSpec constraint fields
+    # under the stricter /v1/runs contract: tools are constraints, never
+    # expansions (intersected with the target agent's own allowlist),
+    # unknown tool names 400, effective overrides surfaced in the
+    # response, run status/result and the audit log.
+    agent_overrides = body.get("agent_overrides")
+    if agent_overrides is not None:
+        if not isinstance(agent_overrides, dict):
+            raise_api_error(
+                ErrorCode.PARAM_FORMAT_ERROR, param="agent_overrides",
+                detail="agent_overrides must be an object",
+            )
+        _OVERRIDE_KEYS = {
+            "tools", "disallowed_tools", "model", "max_turns", "budget_tokens",
+        }
+        unknown = sorted(set(agent_overrides) - _OVERRIDE_KEYS)
+        if unknown:
+            raise_api_error(
+                ErrorCode.PARAM_FORMAT_ERROR, param="agent_overrides",
+                detail=f"unsupported agent_overrides keys: {', '.join(unknown)}",
+            )
+        for key in ("tools", "disallowed_tools"):
+            if key in agent_overrides and not isinstance(agent_overrides[key], list):
+                raise_api_error(
+                    ErrorCode.PARAM_FORMAT_ERROR, param=f"agent_overrides.{key}"
+                )
+        if "model" in agent_overrides and not isinstance(agent_overrides["model"], str):
+            raise_api_error(ErrorCode.PARAM_FORMAT_ERROR, param="agent_overrides.model")
+        try:
+            for key in ("max_turns", "budget_tokens"):
+                if key in agent_overrides:
+                    agent_overrides[key] = int(agent_overrides[key])
+        except (TypeError, ValueError):
+            raise_api_error(
+                ErrorCode.PARAM_FORMAT_ERROR,
+                param="agent_overrides.max_turns, agent_overrides.budget_tokens",
+            )
+        for key, val in dict(agent_overrides).items():
+            spec.setdefault(key, val)
     _SPEC_ALLOWED_KEYS = {
         "name", "model", "tools", "max_turns", "budget_tokens", "system_prompt",
         "disallowed_tools", "mcp_servers", "skills", "permission_mode", "effort",
@@ -884,12 +923,55 @@ async def v1_submit_run(request: Request):
                 spec["budget_tokens"] = int(spec["budget_tokens"])
         except (TypeError, ValueError):
             raise_api_error(ErrorCode.PARAM_FORMAT_ERROR, param="spec.max_turns, spec.budget_tokens")
-        if spec.get("max_turns", 0) <= 0:
+        if "max_turns" in spec and spec["max_turns"] <= 0:
             raise_api_error(ErrorCode.PARAM_FORMAT_ERROR, param="spec.max_turns",
                             detail="max_turns must be > 0")
-        if spec.get("budget_tokens", 0) < 0:
+        if "budget_tokens" in spec and spec["budget_tokens"] < 0:
             raise_api_error(ErrorCode.PARAM_FORMAT_ERROR, param="spec.budget_tokens",
                             detail="budget_tokens must be >= 0")
+    # #461: resolve effective overrides BEFORE task.submit so a 400 never
+    # leaves an orphan pending task behind. Tools are constraints: the
+    # caller allowlist is intersected with the target agent's own tools
+    # (a caller cannot grant tools the agent doesn't have).
+    effective_overrides: dict = {}
+    if spec:
+        for key in ("tools", "disallowed_tools", "model", "max_turns", "budget_tokens"):
+            if key in spec:
+                effective_overrides[key] = spec[key]
+        if spec.get("tools"):
+            toolset = await _rpc("subagent.toolset", {"tools": spec["tools"]})
+            available = {str(t) for t in (toolset or {}).get("available") or []}
+            if available:
+                unknown_tools = sorted({str(t) for t in spec["tools"]} - available)
+                if unknown_tools:
+                    raise_api_error(
+                        ErrorCode.PARAM_FORMAT_ERROR, param="agent_overrides.tools",
+                        detail=f"unknown tool names: {', '.join(unknown_tools)}",
+                    )
+                if agent_id:
+                    own_tools: set[str] = set()
+                    try:
+                        ares = await _rpc("agent.get", {"agent_id": agent_id})
+                        for entry in (ares.get("agent") or {}).get("tools") or []:
+                            own_tools.add(
+                                entry.get("name") if isinstance(entry, dict) else str(entry)
+                            )
+                    except Exception as exc:
+                        logger.warning(
+                            "/v1/runs agent.get for override intersection failed agent=%s: %s",
+                            agent_id, exc,
+                        )
+                    if own_tools:
+                        spec["tools"] = [t for t in spec["tools"] if t in own_tools]
+                        effective_overrides["tools"] = list(spec["tools"])
+                        logger.info(
+                            "/v1/runs override intersection agent=%s effective_tools=%s",
+                            agent_id, spec["tools"],
+                        )
+            else:
+                logger.warning(
+                    "/v1/runs toolset unavailable — skipping tool name validation"
+                )
     # #432: sandbox selection — local (default) or multi-node:<node_id>.
     from agent_runtime.sandbox_router import delegate_run, parse_sandbox
 
@@ -930,9 +1012,24 @@ async def v1_submit_run(request: Request):
     # (same machinery as UDS subagent.run), task-linked background execution.
     # Cluster delegation keeps its own path — overrides are local-only for now.
     if spec and sandbox.is_local and run_id and not res.get("deduped"):
+        # #461: who constrained what — overrides ride the run record + audit log.
+        _get_audit_logger().log_action(
+            actor_id="api",
+            action="run.overrides",
+            resource_type="task",
+            resource_id=run_id,
+            result="success",
+            details={"agent_id": agent_id, "effective_overrides": effective_overrides},
+        )
         run_res = await _rpc(
             "subagent.run_task",
-            {"task_id": run_id, "spec": spec, "goal": goal, "agent_id": agent_id},
+            {
+                "task_id": run_id,
+                "spec": spec,
+                "goal": goal,
+                "agent_id": agent_id,
+                "effective_overrides": effective_overrides,
+            },
         )
         if isinstance(run_res, dict) and run_res.get("status") == "error":
             await _rpc(
@@ -952,6 +1049,7 @@ async def v1_submit_run(request: Request):
             "status": "running",
             "deduped": False,
             "spec_applied": True,
+            "effective_overrides": effective_overrides,
         }
     if not sandbox.is_local and run_id:
         delegation = await delegate_run(sandbox, run_id, agent_id, graph_id, goal)
@@ -1190,6 +1288,8 @@ async def v1_get_run(run_id: str):
         "graph_id": task.get("graph_id", ""),
         "created_at": task.get("created_at", 0),
         "updated_at": task.get("updated_at", 0),
+        # #461: effective overrides so callers can verify constraints stuck.
+        "effective_overrides": (task.get("last_result") or {}).get("effective_overrides", {}),
     }
 
 

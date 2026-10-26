@@ -424,6 +424,23 @@ Audit `audit/fusion-agent-studio-vs-langflow-audit-1020.md` closed end-to-end; s
   # poll GET /v1/runs/{run_id} → completed; result carries turns=1 tokens=57 report="acknowledged"
   ```
 
+### `agent_overrides` Contract on POST /v1/runs — #461
+- ✅ **constraints, never expansions** — `POST /v1/runs` accepts an `agent_overrides` object (`tools`, `disallowed_tools`, `model`, `max_turns`, `budget_tokens`) on top of the #460 `spec` surface. When `agent_id` targets an agent with its own tool allowlist, the caller's `tools` is **intersected** with it — a caller cannot grant tools the agent doesn't have; the intersection is what runs.
+- ✅ **strict validation, no orphans** — unknown `agent_overrides` keys and bad types → 400; tool names are checked against the live tool registry (`subagent.toolset`) **before** `task.submit`, so an unknown tool name (400) never leaves an orphan pending task behind. Also fixed a latent #460 bug: a `spec` without `max_turns`/`budget_tokens` no longer 400s.
+- ✅ **who constrained what, verifiable** — every overridden run writes a `run.overrides` audit row (`actor=api`, effective overrides in `details`), and `effective_overrides` is exposed in three places: the POST response, `GET /v1/runs/{id}`, and the run's `last_result` (so `GET /v1/runs/{id}/result` carries it). Explicit `spec` values win over `agent_overrides` when both are sent.
+- ✅ **end-to-end** (live daemon + loaded model):
+  ```bash
+  curl -s -X POST http://127.0.0.1:11442/v1/runs -H 'content-type: application/json' -d '{
+    "goal": "Reply with exactly: ok",
+    "agent_overrides": {"tools": [], "max_turns": 2, "budget_tokens": 2000}
+  }'
+  # → {"run_id":"task_…","status":"running","spec_applied":true,
+  #    "effective_overrides":{"tools":[],"max_turns":2,"budget_tokens":2000}}
+  # GET /v1/runs/{id} → completed, effective_overrides echoed
+  # GET /v1/runs/{id}/result → last_result.effective_overrides present, report="ok"
+  # unknown tool → 400 "unknown tool names: nuclear_launch", no task created
+  ```
+
 ### Autonomous Inbox Consumer — #457
 - ✅ **agents read their own mail** — rostered agents registered with `autonomous_inbox: true` and a `graph_id` binding get a daemon-resident background consumer (`FUSION_INBOX_POLL_INTERVAL`, default 5s): each unread mailbox message becomes a durable agent run (message body as input, sender/team context injected), acked **after** the task is durably submitted (at-least-once — a crash mid-conversation redelivers on restart), and the run's final output is posted back to the sender's mailbox as a `kind=reply` message. Human-driven agents are untouched (mail waits for RPC pull). Runs are idempotency-keyed by mailbox message id, so redelivery never double-fires.
 - ✅ **roster config** — `team.roster_register` gains `graph_id` and `autonomous_inbox` (schema migration for pre-existing team.db is automatic). Observability via `team.inbox_metrics` RPC: processed/replies/errors counters, inbox depth, dispatch latency, per-agent breakdown.
