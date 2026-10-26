@@ -23,6 +23,17 @@ logger = logging.getLogger(__name__)
 TERMINAL_STATUSES = {"completed", "failed", "canceled"}
 
 
+def final_assistant_text(messages) -> str:
+    # #457: last non-empty assistant message = the run's answer. Used by the
+    # daemon's task writeback so the inbox consumer can post a real reply.
+    for msg in reversed(messages or []):
+        if isinstance(msg, dict) and msg.get("role") == "assistant":
+            content = msg.get("content")
+            if isinstance(content, str) and content.strip():
+                return content.strip()[:20000]
+    return ""
+
+
 class InboxConsumer:
     def __init__(
         self,
