@@ -4061,8 +4061,9 @@ class DaemonServer:
         # issue #225: 池状态走 fusion-mlx /admin/api/models (非 /v1).
         # /v1 经 gateway (:11432) 转发, /admin/* 仅 MLX server 本身暴露,
         # 故池取数必须直连 MLX server root, 不经 gateway.
-        # 默认直连端口 11434 (与 issue #170 direct fallback 一致),
-        # FUSION_MLX_DIRECT_PORT 可显式覆盖 (非 11434 部署).
+        # issue #470: 已接受的直连例外 — gateway 不代理 MLX admin 路由,
+        # 此处仅读取池状态 (无推理流量, 无 cloud→local 重试语义).
+        # 默认直连端口 11434, FUSION_MLX_DIRECT_PORT 可显式覆盖 (非 11434 部署).
         port = os.environ.get("FUSION_MLX_DIRECT_PORT", "11434")
         return f"http://127.0.0.1:{port}"
 
@@ -4205,16 +4206,9 @@ class DaemonServer:
         if loaded:
             self._gateway._default_model = loaded
             self._gateway.register_default_local(name=loaded, base_url=base_url)
-        # issue #170: gateway 路径转发上游失败 (502) 时, 直连 fusion-mlx 11434 兜底.
-        # 直连路径 _default_client 已指 11434, 无需重复.
-        if self._is_gateway_path():
-            mlx_key = self._read_mlx_api_key()
-            direct = FusionMLXClient(base_url="http://127.0.0.1:11434/v1", api_key=mlx_key)
-            self._gateway.set_mlx_direct_client(direct)
-            logger.info(
-                "MLX direct fallback client attached for gateway path (api_key=%s)",
-                "set" if mlx_key else "none",
-            )
+        # issue #470: gateway 路径不再挂直连 fusion-mlx 11434 兜底 client —
+        # gateway 自身拥有 local→cloud overflow 策略 (fusion-gateway#301),
+        # 客户端静默 cloud→local 重试绕过审计面, 已删除.
         logger.info(
             "MLX client attached to gateway (api_key=%s, default_model=%s)",
             "set" if api_key else "none",
