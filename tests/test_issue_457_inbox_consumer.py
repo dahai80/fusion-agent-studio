@@ -206,3 +206,33 @@ async def test_metrics_exposed_via_stats(stores):
     assert stats["replies_sent"] == 1
     assert stats["inbox_depth"] == 0
     assert stats["running"] is False
+
+
+def test_final_assistant_text_picks_last_assistant_message():
+    from agent_runtime.inbox_consumer import final_assistant_text
+
+    messages = [
+        {"role": "user", "content": "hello"},
+        {"role": "assistant", "content": "first answer"},
+        {"role": "user", "content": "again"},
+        {"role": "assistant", "content": "  final answer  "},
+    ]
+    assert final_assistant_text(messages) == "final answer"
+
+
+def test_final_assistant_text_skips_empty_and_missing():
+    from agent_runtime.inbox_consumer import final_assistant_text
+
+    messages = [
+        {"role": "assistant", "content": "   "},
+        {"role": "assistant"},
+        {"role": "user", "content": "q"},
+    ]
+    assert final_assistant_text(messages) == ""
+
+
+def test_final_assistant_text_caps_length():
+    from agent_runtime.inbox_consumer import final_assistant_text
+
+    messages = [{"role": "assistant", "content": "x" * 30000}]
+    assert len(final_assistant_text(messages)) == 20000

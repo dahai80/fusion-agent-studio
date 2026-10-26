@@ -2669,6 +2669,11 @@ class DaemonServer:
                     ts = self._get_task_store()
                     if artifact_ids:
                         ts.add_artifacts(task_id, artifact_ids)
+                    # #457: final assistant text so the inbox consumer can
+                    # post a real reply body instead of a placeholder.
+                    from .inbox_consumer import final_assistant_text
+
+                    final_output = final_assistant_text(exec_ctx.messages)
                     ts.update_status(
                         task_id,
                         "completed",
@@ -2679,6 +2684,7 @@ class DaemonServer:
                             "execution_id": execution_id,
                             "stop_reason": stop_reason,
                             "run_artifact_id": run_artifact_id,
+                            "output": final_output,
                         },
                     )
                     ev_path = str(self._evidence_path(execution_id, team))
