@@ -1616,7 +1616,6 @@ class AgentDispatcher(SubDispatcher):
             "accessNetwork": manifest.web_search_enabled,
         }
 
-    # ── LangGraph handlers (#35) ──
 
     async def _handle_agent_published_list(self, params: dict) -> dict:
         tracker = self._daemon._get_status_tracker()
