@@ -4524,7 +4524,6 @@ class DaemonServer:
             "accessNetwork": manifest.web_search_enabled,
         }
 
-    # ── LangGraph handlers (#35) ──
 
 
 def run_daemon(socket_path: str = ""):
