@@ -305,6 +305,12 @@ python my_agent.py
 - ✅ **优雅降级** — Docker 缺席时 `docker`/`auto` 解析回本地路径并留警告日志；sandbox-exec 回退路径有测试覆盖。可用性探测 60s 缓存，绝不逐调用探测。
 - 测试：`tests/test_issue_495_workspace.py`（22 项）— 后端解析/回退、容器命令构造、terminal/code 工具双后端（PATH 垫片假 `docker`）、灾难命令黑名单仍然生效、manifest config 选择。
 
+### ACP 客户端 — #496
+- ✅ **外部 agent CLI 作为图节点** — 新增 `acp` 节点类型，经 stdio JSON-RPC 驱动任意 Agent Client Protocol agent（如 Claude Code 的 `npx -y @zed-industries/claude-code-acp`）：`agent_runtime/acp_client.py` 负责拉起 CLI（`command`/`args`/`cwd`/`env`/`timeout` 来自 `tool_params`；默认命令取 `FUSION_ACP_COMMAND`），随后 initialize → new_session → prompt → close_session，返回 stop reason、拼接消息、session id 与 token 用量。依赖 `agent-client-protocol>=0.12.1`（PyPI）。
+- ✅ **外部 agent 事件上图事件流** — ACP session update 映射为原生 `AgentEvent`（`agent_message_chunk`→TOKEN、`agent_thought_chunk`→THINKING_TOKEN、`tool_call`→TOOL_CALL_START、`tool_call_update`→TOOL_CALL），SSE 端与运行瀑布流像渲染普通节点一样渲染外部 agent。最终消息写入上下文 messages 并设置 `acp_message`/`acp_stop_reason` 变量，THINK 摘要携带 stop reason、session id 与用量。
+- ✅ **优雅失败 + 安全默认** — CLI 缺失、会话死亡、超时均以结构化 `AcpRunResult(success=False, error=…)` → 图 ERROR 事件呈现，绝不裸崩。权限请求默认拒绝（policy `permission: allow` 时自动选第一个选项）；fs/terminal 客户端回调与 elicitation 以 JSON-RPC `-32601`/decline 应答 — 无人值守运行永不阻塞。`error_handler` 节点可重试失败的 `acp` 节点。
+- 测试：`tests/test_issue_496_acp.py`（15 项）— 假 ACP agent 走真实 stdio JSON-RPC，覆盖成功/流序/CLI 缺失/会话死亡/超时、图端到端与事件映射、逐类型映射单元。
+
 ### 集成
 - ✅ **fusion-mlx** — Apple Silicon 优化模型服务
 - ✅ **OpenAI 兼容 API** — 兼容任何 OpenAI 兼容后端

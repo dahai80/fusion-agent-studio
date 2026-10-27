@@ -1779,6 +1779,12 @@ class _NodeExecutorsMixin:
                         ctx, failed_node, graph, failed_node_id
                     ):
                         yield event
+                elif failed_node.type == "acp":
+                    # #496: ACP node retryable like rag/planner/verify.
+                    async for event in self._execute_acp_node(
+                        ctx, failed_node, graph
+                    ):
+                        yield event
                 else:
                     logger.warning(
                         "error_handler: failed node %s type=%s not retryable",
@@ -2524,6 +2530,166 @@ class _NodeExecutorsMixin:
                 node_id=node.label,
                 metadata={"suggestion": result.suggestion, "verify_failed": True},
             )
+
+    async def _execute_acp_node(
+        self,
+        ctx: AgentContext,
+        node: NodeConfig,
+        graph: AgentGraph,
+    ) -> AsyncIterator[AgentEvent]:
+        """Execute an ACP node — run a prompt through an external agent CLI.
+
+        #496: spawns an ACP agent subprocess (e.g. claude-code-acp), streams
+        its session updates onto the graph event stream (TOKEN / THINKING_TOKEN
+        / TOOL_CALL), and appends the final agent message to ctx.messages.
+        Missing CLI / dead session / timeout surface as a single ERROR event.
+        """
+        try:
+            from .acp_client import AcpRunResult, run_acp_prompt
+        except ImportError:
+            yield AgentEvent(
+                type=AgentEventType.ERROR,
+                content="agent-client-protocol not installed (pip install agent-client-protocol)",
+            )
+            return
+
+        prompt = node.tool_params.get("prompt", "")
+        if not prompt:
+            for msg in reversed(ctx.messages):
+                if isinstance(msg, dict) and msg.get("role") == "user":
+                    prompt = msg.get("content", "")
+                    break
+        if not prompt:
+            prompt = node.system_prompt
+        if not prompt:
+            yield AgentEvent(
+                type=AgentEventType.ERROR,
+                content="ACP node has no prompt (no user message, tool_params.prompt, or system_prompt)",
+                node_id=node.label,
+            )
+            return
+
+        command = node.tool_params.get("command", "")
+        args = node.tool_params.get("args") or []
+        cwd = node.tool_params.get("cwd", "") or ""
+        timeout = float(node.tool_params.get("timeout", 120))
+        permission = node.tool_params.get("permission", "deny")
+        env = node.tool_params.get("env") or None
+
+        queue: asyncio.Queue = asyncio.Queue()
+
+        def on_event(ev: dict) -> None:
+            queue.put_nowait(ev)
+
+        task = asyncio.create_task(
+            run_acp_prompt(
+                prompt,
+                command=command,
+                args=list(args),
+                cwd=cwd,
+                env=env,
+                timeout=timeout,
+                on_event=on_event,
+                permission_policy=permission,
+            )
+        )
+        try:
+            while not task.done():
+                try:
+                    ev = await asyncio.wait_for(queue.get(), timeout=0.2)
+                except asyncio.TimeoutError:
+                    continue
+                for out_ev in self._acp_event_to_agent_event(ev, node):
+                    yield out_ev
+            while not queue.empty():
+                ev = queue.get_nowait()
+                for out_ev in self._acp_event_to_agent_event(ev, node):
+                    yield out_ev
+        except asyncio.CancelledError:
+            task.cancel()
+            raise
+        result: AcpRunResult = await task
+
+        if not result.success:
+            logger.error("acp node %s failed: %s", node.label, result.error)
+            yield AgentEvent(
+                type=AgentEventType.ERROR,
+                content=result.error or "ACP run failed",
+                node_id=node.label,
+                metadata={"acp_events": len(result.events)},
+            )
+            return
+
+        if result.message:
+            ctx.messages.append({"role": "assistant", "content": result.message})
+            ctx.variables.set("acp_message", result.message)
+        ctx.variables.set("acp_stop_reason", result.stop_reason)
+        yield AgentEvent(
+            type=AgentEventType.THINK,
+            content=f"ACP turn complete (stop_reason={result.stop_reason})",
+            node_id=node.label,
+            metadata={
+                "acp": True,
+                "stop_reason": result.stop_reason,
+                "session_id": result.session_id,
+                "usage": result.usage,
+            },
+        )
+
+    def _acp_event_to_agent_event(
+        self, ev: dict, node: NodeConfig
+    ) -> list[AgentEvent]:
+        kind = ev.get("type", "")
+        text = ev.get("text", "")
+        if kind == "agent_message_chunk" and text:
+            return [
+                AgentEvent(
+                    type=AgentEventType.TOKEN,
+                    content=text,
+                    node_id=node.label,
+                    metadata={"acp": True},
+                )
+            ]
+        if kind == "agent_thought_chunk" and text:
+            return [
+                AgentEvent(
+                    type=AgentEventType.THINKING_TOKEN,
+                    content=text,
+                    node_id=node.label,
+                    metadata={"acp": True},
+                )
+            ]
+        if kind == "tool_call":
+            return [
+                AgentEvent(
+                    type=AgentEventType.TOOL_CALL_START,
+                    content=ev.get("title", ""),
+                    name=ev.get("title", ""),
+                    node_id=node.label,
+                    metadata={
+                        "acp": True,
+                        "tool_call_id": ev.get("tool_call_id", ""),
+                        "kind": ev.get("kind", ""),
+                    },
+                )
+            ]
+        if kind == "tool_call_update":
+            return [
+                AgentEvent(
+                    type=AgentEventType.TOOL_CALL,
+                    content=ev.get("title", ""),
+                    name=ev.get("title", ""),
+                    node_id=node.label,
+                    metadata={
+                        "acp": True,
+                        "tool_call_id": ev.get("tool_call_id", ""),
+                        "status": ev.get("status", ""),
+                    },
+                )
+            ]
+        # user_message_chunk / usage_update / plan updates — not surfaced
+        # individually; usage lands in the final THINK metadata.
+        return []
 
     async def _auto_store_memory(self, ctx: AgentContext, graph: AgentGraph) -> None:
         if not self.memory_engine:

@@ -23,6 +23,7 @@ NodeType = Literal[
     "rag",
     "planner",
     "verify",
+    "acp",
 ]
 
 
@@ -297,7 +298,7 @@ class AgentGraph:
     # 进入图后在 runtime 静默空转至 max_iterations.
     _VALID_NODE_TYPES = frozenset({
         "start", "llm", "tool", "condition", "loop", "error_handler",
-        "rag", "planner", "verify", "parallel", "end",
+        "rag", "planner", "verify", "parallel", "acp", "end",
     })
 
     def validate(self, tool_registry: Any = None) -> list[str]:
