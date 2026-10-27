@@ -35,6 +35,47 @@ class SkillsDispatcher(SubDispatcher):
         logger.info("skills.commands count=%d", len(commands))
         return {"status": "ok", "commands": commands}
 
+    async def _admit_skill_invoke(self, name: str, values: dict) -> dict | None:
+        # #476: skills.invoke runs arbitrary skill prompt content — must pass
+        # the ToolFunnel admission chain (hooks -> permission -> budget),
+        # same contract as MCP RPCs (N6 pattern in dispatchers/mcp.py).
+        daemon = self._daemon
+        get_runtime = getattr(daemon, "_get_runtime", None)
+        if not callable(get_runtime):
+            logger.warning("skills.invoke %s: daemon has no runtime, funnel skipped", name)
+            return None
+        runtime = get_runtime()
+        funnel = getattr(runtime, "tool_funnel", None)
+        if funnel is None:
+            logger.warning("skills.invoke %s: runtime has no tool_funnel, funnel skipped", name)
+            return None
+        from ..context import AgentContext
+
+        outcome = await funnel.admit(
+            ctx=AgentContext(),
+            tool_name="skill.invoke",
+            args={"name": name, "params": values},
+            node_label=f"skill:{name}",
+        )
+        if outcome.needs_approval:
+            logger.warning("skill.invoke %s requires approval, RPC path has no approver", name)
+            return {
+                "status": "error",
+                "message": f"skill.invoke requires approval ({outcome.reason})",
+            }
+        if not outcome.allowed:
+            logger.warning(
+                "skill.invoke %s blocked gate=%s reason=%s",
+                name,
+                outcome.blocked_by,
+                outcome.reason,
+            )
+            return {
+                "status": "error",
+                "message": f"Blocked by {outcome.blocked_by}: {outcome.reason}",
+            }
+        return None
+
     async def _handle_invoke(self, params: dict) -> dict:
         name = str(params.get("name", "") or "")
         if not name:
@@ -42,6 +83,9 @@ class SkillsDispatcher(SubDispatcher):
         values = params.get("params") or params.get("arguments") or {}
         if not isinstance(values, dict):
             return {"status": "error", "message": "params must be an object"}
+        blocked = await self._admit_skill_invoke(name, values)
+        if blocked is not None:
+            return blocked
         result = self._store().invoke_skill(name, values)
         if not result.get("ok"):
             return {"status": "error", **{k: v for k, v in result.items() if k != "ok"}}

@@ -129,6 +129,17 @@ class _SafetyApprovalMixin:
             },
             node_id=node_label,
         )
+        # #479: APPROVAL_REQUEST — organic fire point at ask time, right
+        # after the pending event surfaces and the future is registered.
+        await self._fire_observability_hook(
+            "APPROVAL_REQUEST",
+            {
+                "action_id": action_id,
+                "category": category,
+                "level": safety_result.metadata.get("level", ""),
+                "node_id": node_label,
+            },
+        )
 
         try:
             approved = await asyncio.wait_for(future, timeout=self._safety_timeout)
@@ -162,10 +173,24 @@ class _SafetyApprovalMixin:
                 approved = True
             else:
                 ctx.error = f"SafetyGateway: approval timed out for {category}"
+                await self._fire_observability_hook(
+                    "APPROVAL_RESOLVE",
+                    {"action_id": action_id, "category": category, "decision": "timeout"},
+                )
                 yield AgentEvent(type=AgentEventType.ERROR, content=ctx.error)
                 return
 
         self._safety_futures.pop(action_id, None)
+        # #479: APPROVAL_RESOLVE — organic fire point after the future
+        # settles (approved / rejected; timeout handled above).
+        await self._fire_observability_hook(
+            "APPROVAL_RESOLVE",
+            {
+                "action_id": action_id,
+                "category": category,
+                "decision": "approved" if approved else "rejected",
+            },
+        )
 
         if not approved:
             ctx.error = f"SafetyGateway: {category} rejected — {safety_result.reason}"

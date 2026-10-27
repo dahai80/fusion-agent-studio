@@ -714,6 +714,9 @@ class _NodeExecutorsMixin:
                         node_label=node.label,
                     )
                     if funnel_outcome.needs_approval:
+                        self._emit_permission_ask(
+                            ctx, func_name, funnel_outcome.reason, node.label
+                        )
                         if funnel_outcome.safety_result is not None:
                             async for evt in self._await_safety_approval(
                                 ctx, funnel_outcome.safety_result, "tool_call", node.label
@@ -760,6 +763,16 @@ class _NodeExecutorsMixin:
                             func_name,
                             gate,
                             reason,
+                        )
+                        # #479: TOOL_DENY — organic fire point on funnel deny.
+                        await self._fire_observability_hook(
+                            "TOOL_DENY",
+                            {
+                                "tool_name": func_name,
+                                "gate": gate,
+                                "reason": reason,
+                                "node_id": node.label,
+                            },
                         )
                         if gate == "safety":
                             yield AgentEvent(
@@ -1072,6 +1085,9 @@ class _NodeExecutorsMixin:
                             node_label=node.label,
                         )
                         if funnel_outcome.needs_approval:
+                            self._emit_permission_ask(
+                                ctx, fn, funnel_outcome.reason, node.label
+                            )
                             if funnel_outcome.safety_result is not None:
                                 async for evt in self._await_safety_approval(
                                     ctx, funnel_outcome.safety_result, "tool_call", node.label
@@ -1115,6 +1131,17 @@ class _NodeExecutorsMixin:
                                 fn,
                                 gate,
                                 reason,
+                            )
+                            # #479: TOOL_DENY — organic fire point on funnel deny.
+                            await self._fire_observability_hook(
+                                "TOOL_DENY",
+                                {
+                                    "tool_name": fn,
+                                    "gate": gate,
+                                    "reason": reason,
+                                    "node_id": node.label,
+                                    "path": "self_repair",
+                                },
                             )
                             if gate == "safety":
                                 yield AgentEvent(
@@ -1206,6 +1233,9 @@ class _NodeExecutorsMixin:
             node_label=node.label,
         )
         if funnel_outcome.needs_approval:
+            self._emit_permission_ask(
+                ctx, func_name, funnel_outcome.reason, node.label
+            )
             return (
                 f"Error: tool '{func_name}' requires approval; "
                 f"parallel path cannot pause for approval, retry sequentially",
@@ -1224,6 +1254,17 @@ class _NodeExecutorsMixin:
                 funnel_outcome.blocked_by,
                 func_name,
                 reason,
+            )
+            # #479: TOOL_DENY — organic fire point on funnel deny.
+            await self._fire_observability_hook(
+                "TOOL_DENY",
+                {
+                    "tool_name": func_name,
+                    "gate": funnel_outcome.blocked_by,
+                    "reason": reason,
+                    "node_id": node.label,
+                    "path": "parallel",
+                },
             )
             return blocked, True
         if funnel_outcome.args != func_args:
@@ -1249,6 +1290,21 @@ class _NodeExecutorsMixin:
                 result_str[:120],
             )
         return result_str, is_error
+
+    def _emit_permission_ask(self, ctx, tool_name: str, reason: str, node_label: str) -> None:
+        # #479: permission ask emits a lifecycle event at ask time so
+        # subscribers (WS bridge / audit replay) see the ask, not just the
+        # eventual deny/approve. Notify-only — security is enforced by the
+        # funnel, not here.
+        try:
+            self.tool_funnel.lifecycle.emit(
+                "tool",
+                "permission_ask",
+                {"tool_name": tool_name, "reason": reason, "node_id": node_label},
+                session_id=getattr(ctx, "session_id", ""),
+            )
+        except Exception as e:
+            logger.warning("permission_ask lifecycle emit failed tool=%s err=%s", tool_name, e)
 
     async def _fire_tool_hooks(
         self, event: str, tool_name: str, args: dict, result: str | None = None
@@ -1342,6 +1398,9 @@ class _NodeExecutorsMixin:
             node_label=node.label,
         )
         if funnel_outcome.needs_approval:
+            self._emit_permission_ask(
+                ctx, node.tool_name, funnel_outcome.reason, node.label
+            )
             if funnel_outcome.safety_result is not None:
                 async for evt in self._await_safety_approval(
                     ctx, funnel_outcome.safety_result, "tool_call", node.label
@@ -1375,6 +1434,17 @@ class _NodeExecutorsMixin:
                 node.tool_name,
                 gate,
                 reason,
+            )
+            # #479: TOOL_DENY — organic fire point on funnel deny.
+            await self._fire_observability_hook(
+                "TOOL_DENY",
+                {
+                    "tool_name": node.tool_name,
+                    "gate": gate,
+                    "reason": reason,
+                    "node_id": node.label,
+                    "path": "tool_node",
+                },
             )
             if gate == "safety":
                 yield AgentEvent(

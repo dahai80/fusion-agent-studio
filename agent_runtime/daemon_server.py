@@ -368,6 +368,8 @@ class DaemonServer:
                 "AgentRuntime created with %d tools, safety+memory+telemetry wired",
                 len(registry._tools),
             )
+            # #479: funnel deny decisions land in the audit DB (deny rows).
+            self._runtime.set_audit_logger(self._get_audit_logger())
         return self._runtime
 
     def _get_chat_engine(self) -> ChatEngine:
