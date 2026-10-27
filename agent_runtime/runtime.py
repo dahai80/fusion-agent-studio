@@ -200,7 +200,12 @@ class AgentRuntime(_SafetyApprovalMixin, _CheckpointMixin, _DynamicToolsMixin, _
         else:
             self.llm_gateway = LLMGateway()
 
-        self.compactor = Compactor(memory_engine=self.memory_engine)
+        # #478: wire the gateway so compaction-triggered summarize calls run
+        # on the gateway LLM (default :11432) instead of degrading to the
+        # deterministic extractor.
+        self.compactor = Compactor(
+            memory_engine=self.memory_engine, llm_gateway=self.llm_gateway
+        )
         if hasattr(self.llm_gateway, "set_compactor"):
             self.llm_gateway.set_compactor(self.compactor)
 

@@ -434,7 +434,12 @@ class DaemonServer:
         if rt.compactor is None:
             from .compactor import Compactor
 
-            rt.compactor = Compactor(memory_engine=rt.memory_engine)
+            # #478: gateway LLM wired so compaction summarize runs on :11432.
+            rt.compactor = Compactor(
+                memory_engine=rt.memory_engine, llm_gateway=rt.llm_gateway
+            )
+            if hasattr(rt.llm_gateway, "set_compactor"):
+                rt.llm_gateway.set_compactor(rt.compactor)
         return rt.compactor
 
     def _get_protocol_plane(self):

@@ -244,7 +244,15 @@ class TestGatewayReactive413:
             )
 
         gw._call_model_async = fake_call
-        resp = await gw.chat([{"role": "user", "content": "hi"}], model="m1")
+        # #478: retry is gated on the surface generation actually advancing —
+        # a single short message is a no-op strip, so use a corpus the
+        # reactive strip really prunes (>2 non-system messages).
+        msgs = [
+            {"role": "user", "content": "q1"},
+            {"role": "assistant", "content": "a1"},
+            {"role": "user", "content": "q2"},
+        ]
+        resp = await gw.chat(msgs, model="m1")
         assert calls["n"] == 2
         assert resp.finish_reason == "stop"
 
