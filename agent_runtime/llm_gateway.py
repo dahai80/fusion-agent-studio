@@ -10,6 +10,7 @@ OpenAI-compatible APIs across local (fusion-mlx) and cloud providers.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
 import os
 import threading
@@ -194,6 +195,9 @@ class LLMGateway:
         # gateway 自身拥有 local→cloud overflow 策略 (fusion-gateway#301),
         # 客户端绕过会破坏审计面; gateway 错误直接抛给调用方.
         self._compactor = compactor
+        # #478: surface-replacement generation counter — bumped each time a
+        # reactive compaction actually changes the message surface.
+        self._compact_generation = 0
         self._llm_concurrency_limit = self._parse_llm_concurrency()
         self._llm_semaphore: asyncio.Semaphore | None = None
         logger.info("LLMGateway initialized (default_model=%s)", default_model)
@@ -230,6 +234,18 @@ class LLMGateway:
             "prompt is too long",
         )
         return any(m in msg for m in markers)
+
+    @staticmethod
+    def _surface_generation(messages: list[dict]) -> str:
+        # #478: content fingerprint of the message surface — equal values
+        # mean reactive pruning changed nothing and a retry is doomed.
+        h = hashlib.sha256()
+        for m in messages:
+            h.update(str(m.get("role", "")).encode())
+            h.update(str(m.get("content") or "").encode())
+            for tc in m.get("tool_calls") or []:
+                h.update(str(tc.get("id", "")).encode())
+        return f"{len(messages)}:{h.hexdigest()}"
 
     def set_default_client(self, client: Any) -> None:
         """Set the default FusionMLXClient for backward compatibility.
@@ -410,29 +426,45 @@ class LLMGateway:
 
             if self._compactor is not None and self._is_context_too_long(exc):
                 retry_messages = self._compactor.reactive_strip(messages)
-                logger.info(
-                    "context-too-long on %s, reactive_strip msgs %d->%d, retrying same model",
-                    target_config.name,
-                    len(messages),
-                    len(retry_messages),
-                )
-                try:
-                    result = await self._call_model_async(
-                        target_config,
-                        retry_messages,
-                        tools=tools,
-                        temperature=temperature,
-                        max_tokens=max_tokens,
-                        **kwargs,
-                    )
-                    self._record_success(target_config.name, time.time() - start)
-                    return result
-                except Exception as rx_exc:
+                # #478: retry only if pruning advanced the surface generation.
+                # A no-op strip means the doomed retry would resend the same
+                # oversized surface — the original error stays authoritative.
+                if self._surface_generation(retry_messages) == self._surface_generation(
+                    messages
+                ):
                     logger.warning(
-                        "reactive retry on %s also failed: %s",
+                        "context-too-long on %s but reactive_strip did not advance "
+                        "surface generation (%d msgs unchanged), surfacing original error",
                         target_config.name,
-                        rx_exc,
+                        len(messages),
                     )
+                else:
+                    self._compact_generation += 1
+                    logger.info(
+                        "context-too-long on %s, reactive_strip msgs %d->%d "
+                        "(generation=%d), retrying same model",
+                        target_config.name,
+                        len(messages),
+                        len(retry_messages),
+                        self._compact_generation,
+                    )
+                    try:
+                        result = await self._call_model_async(
+                            target_config,
+                            retry_messages,
+                            tools=tools,
+                            temperature=temperature,
+                            max_tokens=max_tokens,
+                            **kwargs,
+                        )
+                        self._record_success(target_config.name, time.time() - start)
+                        return result
+                    except Exception as rx_exc:
+                        logger.warning(
+                            "reactive retry on %s also failed: %s",
+                            target_config.name,
+                            rx_exc,
+                        )
 
             for fallback in self.get_fallback_chain(capability=capability):
                 if fallback.name == target_config.name:
