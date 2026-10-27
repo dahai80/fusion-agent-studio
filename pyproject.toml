@@ -17,6 +17,7 @@ dependencies = [
 
 [project.scripts]
 fusion-agent = "agent_runtime.cli:main"
+fusion-mcp = "agent_runtime.mcp_server:main"
 
 [project.optional-dependencies]
 # #271: multi-tenant identity (env-gated via FUSION_IDENTITY_ENABLED).

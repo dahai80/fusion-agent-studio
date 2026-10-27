@@ -235,6 +235,39 @@ await rpc("task.health", {})
 
 > cron 默认串行变并行（多 job 到点并发 `asyncio.gather`，每个 job 有超时）。任务超过 `FUSION_TASK_TTL`（默认 30 天）会被自动清理。
 
+## 循环模式（#477）：continuous / interval / event_driven
+
+cron job 除了表达式到点，还支持三种循环模式——`cron.register` 加 `loop_mode` 字段：
+
+| loop_mode | 调度 | 说明 |
+|-----------|------|------|
+| `cron`（默认） | 表达式到点 | 现有语义不变 |
+| `continuous` | 上一轮跑完立刻下一轮 | 背靠背循环 |
+| `interval` | 上一轮跑完 + `interval_seconds` | 固定间隔循环 |
+| `event_driven` | 平时休眠，`cron.trigger` 唤醒一次 | 事件驱动，一个事件跑一轮 |
+
+```python
+await rpc("cron.register", {
+    "name": "watch-loop",
+    "expression": "* * * * *",          # continuous/interval/event_driven 下不用于调度
+    "graph_id": "g_watch",
+    "loop_mode": "continuous",
+    "max_iterations": 100,              # 0 = 不限
+    "token_budget": 500000,             # 0 = 不限；跨迭代累计，超了在迭代边界停
+    "permission_mode": "plan",          # 每次迭代生效；"plan" = 只读门禁
+})
+await rpc("cron.trigger", {"id": "<job_id>"})   # 仅 event_driven job 可唤醒
+```
+
+终止语义（都在**迭代边界**判定，绝不在迭代中间杀）：
+
+- `token_budget` 累计超限 → 停，`loop_stop_reason="budget_exceeded"`
+- `max_iterations` 到数 → 停，`loop_stop_reason="max_iterations"`
+- 用户取消 / supervisor 停服 → `loop_stop_reason="cancelled"`（ctx `stop_reason` 同步为 `cancelled`，END 事件带出）
+- 停止后 job 自动 `enabled=False`；`cron.list` 可见 `loop_stop_reason`
+
+> 轮询间隔 `FUSION_CRON_POLL_INTERVAL`（默认 15 秒）控制循环模式唤醒粒度；连续迭代之间不重叠（上一轮执行完才调度下一轮）。
+
 ---
 
 下一篇：[07 程序化集成（SDK）](./07-sdk-programmatic.md)

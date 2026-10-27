@@ -179,3 +179,228 @@ def create_mlx_registry(gateway_base: str = ""):
     reg.register(MLXChatTool())
     reg.register(MLXStatusTool())
     return reg
+
+
+def create_rag_registry(base_url: str = ""):
+    """#481: fusion-rag MCP toolset — knowledge-base search/ask/list over the
+    local fusion-rag service (:11436)."""
+    import os
+
+    from tools.base import BaseTool
+    from tools.registry import ToolRegistry
+
+    base = base_url or os.environ.get("FUSION_RAG_MCP_BASE", "http://localhost:11436")
+
+    class RAGSearchTool(BaseTool):
+        def __init__(self):
+            self.name = "kb_search"
+            self.description = "Vector search over a fusion-rag knowledge base."
+            self.parameters = {
+                "kb_id": {"type": "string", "description": "knowledge base id"},
+                "query": {"type": "string", "description": "search query"},
+                "top_k": {"type": "integer", "description": "max results (default 5)"},
+            }
+            self.readonly = True
+
+        async def execute(self, **kwargs) -> str:
+            import httpx
+
+            payload = {
+                "query": kwargs.get("query", ""),
+                "top_k": int(kwargs.get("top_k", 5) or 5),
+            }
+            async with httpx.AsyncClient(timeout=30) as client:
+                resp = await client.post(
+                    f"{base}/kb/bases/{kwargs.get('kb_id', '')}/search", json=payload
+                )
+                resp.raise_for_status()
+                return json.dumps(resp.json(), ensure_ascii=False)
+
+    class RAGAskTool(BaseTool):
+        def __init__(self):
+            self.name = "kb_ask"
+            self.description = "RAG answer (with sources) over a fusion-rag knowledge base."
+            self.parameters = {
+                "kb_id": {"type": "string", "description": "knowledge base id"},
+                "question": {"type": "string", "description": "question to answer"},
+            }
+            self.readonly = True
+
+        async def execute(self, **kwargs) -> str:
+            import httpx
+
+            payload = {"question": kwargs.get("question", ""), "max_tokens": 1024}
+            async with httpx.AsyncClient(timeout=120) as client:
+                resp = await client.post(
+                    f"{base}/kb/bases/{kwargs.get('kb_id', '')}/ask", json=payload
+                )
+                resp.raise_for_status()
+                return json.dumps(resp.json(), ensure_ascii=False)
+
+    class RAGListBasesTool(BaseTool):
+        def __init__(self):
+            self.name = "kb_list_bases"
+            self.description = "List fusion-rag knowledge bases."
+            self.parameters = {}
+            self.readonly = True
+
+        async def execute(self, **kwargs) -> str:
+            import httpx
+
+            async with httpx.AsyncClient(timeout=10) as client:
+                resp = await client.get(f"{base}/kb/bases")
+                resp.raise_for_status()
+                return json.dumps(resp.json(), ensure_ascii=False)
+
+    reg = ToolRegistry()
+    reg.register(RAGSearchTool())
+    reg.register(RAGAskTool())
+    reg.register(RAGListBasesTool())
+    return reg
+
+
+def create_model_hub_registry(base_url: str = ""):
+    """#481: fusion-model-hub MCP toolset — model catalog list/search over
+    the local model-hub service (:11444)."""
+    import os
+
+    from tools.base import BaseTool
+    from tools.registry import ToolRegistry
+
+    base = (
+        base_url
+        or os.environ.get("FUSION_MODEL_HUB_MCP_BASE", "http://localhost:11444")
+    ).rstrip("/")
+
+    class ModelListTool(BaseTool):
+        def __init__(self):
+            self.name = "modelhub_list"
+            self.description = "List models in the local fusion model hub."
+            self.parameters = {}
+            self.readonly = True
+
+        async def execute(self, **kwargs) -> str:
+            import httpx
+
+            async with httpx.AsyncClient(timeout=15) as client:
+                resp = await client.get(f"{base}/api/v1/models")
+                resp.raise_for_status()
+                return json.dumps(resp.json(), ensure_ascii=False)
+
+    class ModelSearchTool(BaseTool):
+        def __init__(self):
+            self.name = "modelhub_search"
+            self.description = "Search the local fusion model hub by name."
+            self.parameters = {
+                "name": {"type": "string", "description": "model name substring"},
+            }
+            self.readonly = True
+
+        async def execute(self, **kwargs) -> str:
+            import httpx
+
+            async with httpx.AsyncClient(timeout=15) as client:
+                resp = await client.get(
+                    f"{base}/api/v1/models/search",
+                    params={"name": kwargs.get("name", "")},
+                )
+                resp.raise_for_status()
+                return json.dumps(resp.json(), ensure_ascii=False)
+
+    reg = ToolRegistry()
+    reg.register(ModelListTool())
+    reg.register(ModelSearchTool())
+    return reg
+
+
+def create_comfyui_registry(base_url: str = ""):
+    """#481: fusion-comfyui MCP toolset — ComfyUI standard HTTP API
+    (system stats + node definitions) over :11445."""
+    import os
+
+    from tools.base import BaseTool
+    from tools.registry import ToolRegistry
+
+    base = base_url or os.environ.get("FUSION_COMFYUI_MCP_BASE", "http://localhost:11445")
+
+    class ComfyStatusTool(BaseTool):
+        def __init__(self):
+            self.name = "comfy_status"
+            self.description = "ComfyUI system stats (version, devices, VRAM)."
+            self.parameters = {}
+            self.readonly = True
+
+        async def execute(self, **kwargs) -> str:
+            import httpx
+
+            async with httpx.AsyncClient(timeout=15) as client:
+                resp = await client.get(f"{base}/system_stats")
+                resp.raise_for_status()
+                return json.dumps(resp.json(), ensure_ascii=False)
+
+    class ComfyNodesTool(BaseTool):
+        def __init__(self):
+            self.name = "comfy_nodes"
+            self.description = "ComfyUI node definitions (object_info)."
+            self.parameters = {}
+            self.readonly = True
+
+        async def execute(self, **kwargs) -> str:
+            import httpx
+
+            async with httpx.AsyncClient(timeout=15) as client:
+                resp = await client.get(f"{base}/object_info")
+                resp.raise_for_status()
+                return json.dumps(resp.json(), ensure_ascii=False)
+
+    reg = ToolRegistry()
+    reg.register(ComfyStatusTool())
+    reg.register(ComfyNodesTool())
+    return reg
+
+
+REGISTRY_FACTORIES = {
+    "mlx": create_mlx_registry,
+    "rag": create_rag_registry,
+    "model-hub": create_model_hub_registry,
+    "comfyui": create_comfyui_registry,
+}
+
+
+def main(argv: list[str] | None = None) -> int:
+    """#481: CLI launch entrypoint — `python -m agent_runtime.mcp_server`
+    or the `fusion-mcp` console script. Serves the selected local registry
+    over stdio so any standard MCP client can connect."""
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        prog="fusion-mcp",
+        description="Serve a local fusion toolset as a standard MCP stdio server.",
+    )
+    parser.add_argument(
+        "--registry",
+        choices=sorted(REGISTRY_FACTORIES),
+        default="mlx",
+        help="which local toolset to expose (default: mlx)",
+    )
+    parser.add_argument(
+        "--base-url",
+        default="",
+        help="override the backing service base URL (else per-registry env default)",
+    )
+    parser.add_argument(
+        "--name",
+        default="",
+        help="MCP server name reported at initialize (default: fusion-<registry>)",
+    )
+    args = parser.parse_args(argv)
+
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s %(message)s")
+    registry = REGISTRY_FACTORIES[args.registry](args.base_url)
+    server = MCPServer(registry, server_name=args.name or f"fusion-{args.registry}")
+    server.serve()
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

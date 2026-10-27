@@ -180,4 +180,22 @@ asyncio.run(main())
 
 ---
 
+## 反向：把本仓工具暴露为 MCP server（fusion-mcp）
+
+上面的方向是"智能体用别人的 MCP server"。反方向——**把本地能力暴露给任意标准 MCP 客户端**——用随包安装的 `fusion-mcp`（或 `python -m agent_runtime.mcp_server`）：
+
+```bash
+fusion-mcp --registry mlx        # 默认: fusion-mlx 网关 chat/status (经 :11432 网关)
+fusion-mcp --registry rag        # fusion-rag 知识库 search/ask/list (:11436)
+fusion-mcp --registry model-hub  # 模型仓库 list/search (:11444)
+fusion-mcp --registry comfyui    # ComfyUI system_stats/object_info (:11445)
+```
+
+- 标准协议：JSON-RPC 2.0 over stdio、换行分隔、协议版本 `2024-11-05`，零 fork。
+- 任何标准 MCP 客户端（Claude Code、Claude Desktop、其它 host）按 stdio 启动即可握手。
+- 服务地址可用 env 覆盖：`FUSION_MLX_MCP_BASE` / `FUSION_MLX_MCP_KEY` / `FUSION_RAG_MCP_BASE` / `FUSION_MODEL_HUB_MCP_BASE` / `FUSION_COMFYUI_MCP_BASE`，或单次 `--base-url`。
+- 也能自己喂给自己：`mcp.register_server {"stdio_cmd": ["fusion-mcp", "--registry", "mlx"]}`。
+
+---
+
 下一篇：[06 触发与定时任务](./06-triggers-cron.md)

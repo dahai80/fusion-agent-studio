@@ -261,6 +261,11 @@ python my_agent.py
 - ✅ **Daemon RPC** — `mcp.register_server` / `mcp.list_servers` / `mcp.unregister_server` / `mcp.list_resources` / `mcp.list_prompts` (lazy registry, no idle spin until a server is registered)
 - Usage: `mcp.register_server {"server_url": "http://localhost:3000/rpc"}` or `{"stdio_cmd": ["npx", "mcp-server-fs"]}` or `{"sse_url": "...", "post_url": "..."}`
 
+### MCP — outbound (local servers, third-party client reachable)
+- ✅ **Launch entrypoints** — `fusion-mcp` console script and `python -m agent_runtime.mcp_server` serve a local toolset as a standard MCP stdio server (JSON-RPC 2.0, newline-delimited, protocol `2024-11-05`). Verified with a standard `initialize`/`tools/list` client handshake.
+- Registries: `--registry mlx` (default; gateway chat + status, `FUSION_MLX_MCP_BASE`/`FUSION_MLX_MCP_KEY`), `--registry rag` (fusion-rag `:11436` kb_search/kb_ask/kb_list_bases, `FUSION_RAG_MCP_BASE`), `--registry model-hub` (fusion-model-hub `:11444` modelhub_list/modelhub_search, `FUSION_MODEL_HUB_MCP_BASE`), `--registry comfyui` (ComfyUI `:11445` comfy_status/comfy_nodes, `FUSION_COMFYUI_MCP_BASE`). `--base-url` overrides per invocation.
+- Example: `fusion-mcp --registry mlx` — point any standard MCP client at it via stdio (e.g. `{"stdio_cmd": ["fusion-mcp", "--registry", "mlx"]}` in `mcp.register_server`).
+
 ### Plan-as-Mode (C6) — read-only explore + human approval gate
 - ✅ **`graph.plan_mode` flag** — when `True` the graph runs in a read-only explore phase. Write tools (`file_write`, `file_edit`, `file_delete`, `terminal`, …) are gated off with a `plan_mode_blocked` tool result; read tools (`file_read`, `file_list`, `file_grep`, `file_glob`, `text_search`, `text_process`, `exit_plan_mode`, `register_tool`, `unregister_tool`) execute normally.
 - ✅ **`exit_plan_mode` tool** — the transition primitive. The agent calls `exit_plan_mode {plan: "…"}` once a complete plan is presented. The runtime detects the `__EXIT_PLAN_MODE__` sentinel, flips `plan_mode=False`, emits a `PLAN_MODE_EXIT` event, and unlocks write tools for the rest of the run. Tool stays a pure `BaseTool` (no runtime coupling — sentinel is detected in the tool-call loop).
