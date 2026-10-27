@@ -594,6 +594,11 @@ class ChatEngine:
         if graph_id and self.runtime.store:
             graph = self.runtime.store.load_graph(graph_id)
 
+        # #482: agent/tenant/team 标识在图创建前解析 — 默认图 soul 注入与
+        # ctx.persona 声明解析共用一份, 避免重复 resolve.
+        agent_id = self._resolve_session_agent_id(session)
+        meta = getattr(session, "metadata", None) or {}
+
         if not graph:
             from .graph import AgentGraph, NodeConfig
 
@@ -601,8 +606,6 @@ class ChatEngine:
             # C16: 统一 soul.md 加载 — agent 模式默认图用 soul 作 system_prompt.
             from .agent_package import resolve_soul_prompt
 
-            agent_id = self._resolve_session_agent_id(session)
-            meta = getattr(session, "metadata", None) or {}
             soul_prompt = resolve_soul_prompt(
                 agent_id,
                 fallback="You are a helpful assistant.",
@@ -630,6 +633,13 @@ class ChatEngine:
             else:
                 history = []
             ctx = AgentContext()
+            # #482: agent 模式把 agent/tenant/team 标识挂到 ctx, runtime
+            # _resolve_persona_declarations 集中解析 declarations.
+            if agent_id:
+                ctx.agent_id = agent_id
+                for k in ("tenant_id", "team_id"):
+                    if meta.get(k):
+                        ctx.metadata[k] = str(meta[k])
             for msg in history:
                 ctx.add_message(
                     msg.get("role", "user"),

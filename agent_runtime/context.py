@@ -138,6 +138,10 @@ class AgentContext:
     # 审计 P3-1: per-exec 连续 checkpoint 失败计数 (原 rt._checkpoint_fail_count
     # singleton, 并发执行互踩致阈值误判). _save_checkpoint 读写 ctx 版本.
     checkpoint_fail_count: int = 0
+    # #482: per-exec persona declarations (rules/memory_scope/skills), 由
+    # runtime._resolve_persona_declarations 从 persona 层栈解析填充,
+    # PersonaScopedFunnel 消费. per-ctx 审计 A-1 模式, 不落 singleton.
+    persona_declarations: dict = field(default_factory=dict)
 
     def __post_init__(self):
         if not self.session_id:

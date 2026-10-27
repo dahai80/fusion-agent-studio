@@ -76,6 +76,37 @@ class SkillsDispatcher(SubDispatcher):
             }
         return None
 
+    def _persona_skill_check(self, params: dict, name: str) -> dict | None:
+        # #482: 调用方带 agent_id 时, persona skills 声明即白名单 —
+        # 声明了 skills 列表的 agent 只能 invoke 列表内技能.
+        agent_id = str(params.get("agent_id", "") or "")
+        if not agent_id:
+            return None
+        try:
+            from ..persona import resolve_persona
+
+            result = resolve_persona(
+                agent_id=agent_id,
+                tenant_id=str(params.get("tenant_id", "") or ""),
+                team_id=str(params.get("team_id", "") or ""),
+            )
+            declared = (result.get("declarations") or {}).get("skills") or []
+        except Exception as e:
+            logger.warning("skills.invoke persona resolve failed agent=%s: %s", agent_id, e)
+            return None
+        if declared and name not in declared:
+            logger.warning(
+                "skills.invoke %s blocked by persona allowlist agent=%s allowed=%s",
+                name,
+                agent_id,
+                declared,
+            )
+            return {
+                "status": "error",
+                "message": f"skill not in persona skills allowlist: {name}",
+            }
+        return None
+
     async def _handle_invoke(self, params: dict) -> dict:
         name = str(params.get("name", "") or "")
         if not name:
@@ -83,6 +114,9 @@ class SkillsDispatcher(SubDispatcher):
         values = params.get("params") or params.get("arguments") or {}
         if not isinstance(values, dict):
             return {"status": "error", "message": "params must be an object"}
+        blocked = self._persona_skill_check(params, name)
+        if blocked is not None:
+            return blocked
         blocked = await self._admit_skill_invoke(name, values)
         if blocked is not None:
             return blocked
