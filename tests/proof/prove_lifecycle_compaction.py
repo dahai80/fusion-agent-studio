@@ -90,7 +90,7 @@ def prove_tool_funnel_events():
 
     asyncio.run(_run())
     out = outcome_holder["out"]
-    assert out.allowed is False  # TEMP negative check #480
+    assert out.allowed is True
     events = [e.event for e in bus.replay(session_id="lc-proof")]
     assert events == ["tool_before"], events
     logger.info("PASS tool funnel lifecycle events")
