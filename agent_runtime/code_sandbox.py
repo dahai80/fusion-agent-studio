@@ -309,11 +309,24 @@ class DiffPreview:
 class CodeSandbox:
     """Execute code in macOS sandbox-exec isolation."""
 
-    def __init__(self, timeout: int = 30, use_sandbox: bool = True):
+    def __init__(self, timeout: int = 30, use_sandbox: bool = True, workspace: str = "auto"):
         self.timeout = timeout
         self.use_sandbox = use_sandbox
         self._ast_checker = ASTChecker()
         self._diff_preview = DiffPreview()
+        # #495: optional container backend; resolves "docker"|"local".
+        # Only honored when use_sandbox (isolation requested). Python AST
+        # safety check still runs before container exec.
+        self.workspace = workspace
+        try:
+            from .workspace import CONTAINER_LANGUAGES, resolve_workspace_backend
+
+            self._backend = resolve_workspace_backend(workspace)
+            self._container_languages = CONTAINER_LANGUAGES
+        except Exception as e:
+            logger.warning("workspace backend resolve failed: %s", e)
+            self._backend = "local"
+            self._container_languages = set()
 
     @property
     def ast_checker(self) -> ASTChecker:
@@ -357,7 +370,27 @@ class CodeSandbox:
         with tempfile.TemporaryDirectory(prefix=f"sandbox_{exec_id}_") as tmpdir:
             if language in ("cpp", "c"):
                 return self._execute_compiled(code, tmpdir, exec_id, spec["ext"])
+            if self.use_sandbox and self._backend == "docker" and language in self._container_languages:
+                return self._execute_in_container(code, tmpdir, exec_id, language)
             return self._execute_interpreted(code, tmpdir, exec_id, language, spec)
+
+    def _execute_in_container(
+        self, code: str, work_dir: str, exec_id: str, language: str
+    ) -> SandboxResult:
+        # #495: container isolation — script written on host, tmpdir mounted
+        # read-write at /workspace, interpreter runs inside throwaway
+        # container (--network none, 512m, --rm). sandbox-exec path remains
+        # the fallback when Docker absent (resolve_workspace_backend).
+        from .workspace import container_inner_argv, run_in_container
+
+        ext = LANGUAGES[language]["ext"]
+        script_path = Path(work_dir) / f"script.{ext}"
+        script_path.write_text(code, encoding="utf-8")
+        inner = container_inner_argv(language, f"/workspace/script.{ext}")
+        logger.info(
+            "container sandbox exec %s: lang=%s inner=%s", exec_id, language, inner
+        )
+        return run_in_container(inner, work_dir, self.timeout, exec_id=exec_id)
 
     def _execute_interpreted(
         self, code: str, work_dir: str, exec_id: str, language: str, spec: dict

@@ -540,7 +540,7 @@ async def test_e10_code_sandbox_ignores_llm_use_sandbox_false(monkeypatch):
         execution_id = "fake"
 
     class _FakeSandbox:
-        def __init__(self, timeout=30, use_sandbox=True):
+        def __init__(self, timeout=30, use_sandbox=True, workspace="auto"):
             captured["use_sandbox"] = use_sandbox
             captured["timeout"] = timeout
 
@@ -576,7 +576,7 @@ async def test_e10_code_sandbox_env_optout_allows_nosandbox(monkeypatch):
         execution_id = "fake"
 
     class _FakeSandbox:
-        def __init__(self, timeout=30, use_sandbox=True):
+        def __init__(self, timeout=30, use_sandbox=True, workspace="auto"):
             captured["use_sandbox"] = use_sandbox
 
         def execute(self, code, language):
@@ -606,7 +606,7 @@ async def test_e10_code_sandbox_default_still_sandboxed(monkeypatch):
         execution_id = "fake"
 
     class _FakeSandbox:
-        def __init__(self, timeout=30, use_sandbox=True):
+        def __init__(self, timeout=30, use_sandbox=True, workspace="auto"):
             captured["use_sandbox"] = use_sandbox
 
         def execute(self, code, language):
