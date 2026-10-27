@@ -20,7 +20,15 @@ class MarketplaceDispatcher(SubDispatcher):
             "marketplace.list_categories": self._handle_marketplace_list_categories,
             "marketplace.install": self._handle_marketplace_install,
             "marketplace.uninstall": self._handle_marketplace_uninstall,
+            "marketplace.audit": self._handle_marketplace_audit,
         }
+
+    @staticmethod
+    def _tenant(params: dict) -> str:
+        # #481: tenant scoping — explicit param wins; auth context (when
+        # FUSION_IDENTITY_ENABLED resolves it) is consumed by the daemon
+        # layer and passed down the same way.
+        return str(params.get("tenant", "default") or "default")
 
     async def _handle_marketplace_search(self, params: dict) -> dict:
         mp = self._daemon._get_marketplace()
@@ -30,6 +38,7 @@ class MarketplaceDispatcher(SubDispatcher):
             tags=params.get("tags"),
             sort_by=params.get("sort_by", "name"),
             limit=params.get("limit", 50),
+            tenant=self._tenant(params),
         )
         return {"entries": [e.to_dict() for e in results]}
 
@@ -38,7 +47,7 @@ class MarketplaceDispatcher(SubDispatcher):
         if not entry_id:
             return {"status": "error", "message": "entry_id parameter required"}
         mp = self._daemon._get_marketplace()
-        entry = mp.get(entry_id)
+        entry = mp.get(entry_id, tenant=self._tenant(params))
         if entry is None:
             return {"status": "error", "message": f"Entry not found: {entry_id}"}
         return {"entry": entry.to_dict()}
@@ -55,8 +64,9 @@ class MarketplaceDispatcher(SubDispatcher):
             tags=params.get("tags", []),
             version=params.get("version", "1.0.0"),
             graph_data=params.get("graph_data", {}),
+            visibility=str(params.get("visibility", "public") or "public"),
         )
-        entry_id = mp.publish(entry)
+        entry_id = mp.publish(entry, tenant=self._tenant(params))
         logger.info("marketplace.publish: id=%s name=%s", entry_id, entry.name)
         return {"entry_id": entry_id}
 
@@ -65,7 +75,7 @@ class MarketplaceDispatcher(SubDispatcher):
         if not entry_id:
             return {"status": "error", "message": "entry_id parameter required"}
         mp = self._daemon._get_marketplace()
-        ok = mp.unpublish(entry_id)
+        ok = mp.unpublish(entry_id, tenant=self._tenant(params))
         return {"unpublished": ok}
 
     async def _handle_marketplace_list_categories(self, params: dict) -> dict:
@@ -77,7 +87,9 @@ class MarketplaceDispatcher(SubDispatcher):
         if not entry_id:
             return {"status": "error", "message": "entry_id parameter required"}
         mp = self._daemon._get_marketplace()
-        result = mp.install(entry_id, target_dir=params.get("target_dir"))
+        result = mp.install(
+            entry_id, target_dir=params.get("target_dir"), tenant=self._tenant(params)
+        )
         if result is None:
             return {"status": "error", "message": f"Install failed for: {entry_id}"}
         logger.info("marketplace.install: id=%s path=%s", entry_id, result)
@@ -88,11 +100,20 @@ class MarketplaceDispatcher(SubDispatcher):
         if not entry_id:
             return {"status": "error", "message": "entry_id parameter required"}
         mp = self._daemon._get_marketplace()
-        entry = mp.get(entry_id)
+        entry = mp.get(entry_id, tenant=self._tenant(params))
         if not entry:
             return {"success": False, "message": f"Entry not found: {entry_id}"}
-        ok = mp.unpublish(entry_id)
+        ok = mp.unpublish(entry_id, tenant=self._tenant(params))
         logger.info("marketplace.uninstall: id=%s success=%s", entry_id, ok)
         return {"success": ok}
+
+    async def _handle_marketplace_audit(self, params: dict) -> dict:
+        mp = self._daemon._get_marketplace()
+        tenant = params.get("tenant")
+        records = mp.audit_records(
+            tenant=str(tenant) if tenant is not None else None,
+            limit=int(params.get("limit", 100) or 100),
+        )
+        return {"records": records}
 
     # ── Chat Session Handlers ──
