@@ -11,6 +11,7 @@ ACs:
 import asyncio
 import sqlite3
 import time
+from pathlib import Path
 
 import pytest
 
@@ -270,23 +271,32 @@ class TestRuntimeCancellation:
 class TestDaemonWiring:
     @pytest.fixture
     async def daemon_stub(self, tmp_path):
+        import shutil
+        import tempfile
+
         from agent_runtime.daemon_server import DaemonServer
 
-        socket_path = str(tmp_path / "studio.sock")
-        store_db = str(tmp_path / "store.db")
-        d = DaemonServer(
-            socket_path=socket_path,
-            ws_port=0,
-            cluster_port=0,
-            http_port=0,
-            store_path=store_db,
-        )
-        await d.start()
-        d._gateway._default_client = None
-        d._gateway._default_model = ""
-        d._gateway._models.clear()
-        yield d
-        await d.stop()
+        # CI runners have deep tmp_path trees that blow past the macOS
+        # 104-char AF_UNIX limit — park the socket in a short temp dir.
+        short_dir = Path(tempfile.mkdtemp(prefix="fas477-"))
+        try:
+            socket_path = str(short_dir / "s.sock")
+            store_db = str(tmp_path / "store.db")
+            d = DaemonServer(
+                socket_path=socket_path,
+                ws_port=0,
+                cluster_port=0,
+                http_port=0,
+                store_path=store_db,
+            )
+            await d.start()
+            d._gateway._default_client = None
+            d._gateway._default_model = ""
+            d._gateway._models.clear()
+            yield d
+            await d.stop()
+        finally:
+            shutil.rmtree(short_dir, ignore_errors=True)
 
     async def test_cron_handler_forwards_permission_mode(self, daemon_stub):
         captured = {}
