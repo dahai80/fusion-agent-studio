@@ -22,17 +22,12 @@ _SECTION_RE = re.compile(r"^##\s+(.+?)\s*$", re.MULTILINE)
 _FRONTMATTER_RE = re.compile(r"\A---\s*\n(.*?)\n---\s*(?:\n|$)", re.DOTALL)
 
 
-def parse_frontmatter(md: str) -> tuple[dict, str]:
+def _parse_meta_block(block: str) -> dict:
     # N16 #390: minimal YAML-ish frontmatter reader. Supports `key: value`,
     # `key: [a, b]`, quoted scalars and block lists (`key:` + `- item`).
-    if not md or not md.startswith("---"):
-        return {}, md
-    m = _FRONTMATTER_RE.match(md)
-    if not m:
-        return {}, md
     meta: dict = {}
     current_list: str = ""
-    for raw in m.group(1).splitlines():
+    for raw in block.splitlines():
         line = raw.rstrip()
         if not line.strip():
             continue
@@ -57,23 +52,62 @@ def parse_frontmatter(md: str) -> tuple[dict, str]:
             ]
         else:
             meta[key] = value.strip("'\"")
-    return meta, md[m.end():]
+    return meta
+
+
+def parse_frontmatter(md: str) -> tuple[dict, str]:
+    if not md or not md.startswith("---"):
+        return {}, md
+    m = _FRONTMATTER_RE.match(md)
+    if not m:
+        return {}, md
+    return _parse_meta_block(m.group(1)), md[m.end():]
+
+
+_ALL_FRONTMATTER_RE = re.compile(
+    r"^---\s*\n(.*?)\n---\s*(?:\n|$)", re.DOTALL | re.MULTILINE
+)
+
+
+def _strip_frontmatter_blocks(md: str) -> str:
+    # #482: 移除全部 frontmatter 块 (shard 拼接后非首块也要剥掉).
+    # 块内解析不出任何 key 才保留原文 (避免误吃正文里的 --- 分隔线).
+    def _repl(m):
+        return "" if _parse_meta_block(m.group(1)) else m.group(0)
+
+    return _ALL_FRONTMATTER_RE.sub(_repl, md)
 
 
 def parse_declarations(md: str) -> dict:
     # N16 #390: rules fragments / memory_scope / skills declarations carried
     # in persona frontmatter and surfaced to the runtime.
-    meta, _ = parse_frontmatter(md)
-    rules = meta.get("rules", [])
-    if isinstance(rules, str):
-        rules = [rules]
-    skills = meta.get("skills", [])
-    if isinstance(skills, str):
-        skills = [skills]
+    # #482: shard layout — load_layer 拼接 agent.md + persona/*.md 后,
+    # 声明可能分布在多个 frontmatter 块, 全部扫描合并.
+    rules: list[str] = []
+    skills: list[str] = []
+    memory_scope = ""
+    for m in _ALL_FRONTMATTER_RE.finditer(md or ""):
+        meta = _parse_meta_block(m.group(1))
+        if not meta:
+            continue
+        raw_rules = meta.get("rules", [])
+        if isinstance(raw_rules, str):
+            raw_rules = [raw_rules]
+        for r in raw_rules:
+            if str(r).strip() and str(r).strip() not in rules:
+                rules.append(str(r).strip())
+        raw_skills = meta.get("skills", [])
+        if isinstance(raw_skills, str):
+            raw_skills = [raw_skills]
+        for s in raw_skills:
+            if str(s).strip() and str(s).strip() not in skills:
+                skills.append(str(s).strip())
+        if meta.get("memory_scope"):
+            memory_scope = str(meta["memory_scope"])
     return {
-        "rules": [str(r) for r in rules if str(r).strip()],
-        "memory_scope": str(meta.get("memory_scope", "") or ""),
-        "skills": [str(s) for s in skills if str(s).strip()],
+        "rules": rules,
+        "memory_scope": memory_scope,
+        "skills": skills,
     }
 
 
@@ -89,16 +123,51 @@ def _layer_path(layer: str, name: str = "") -> Path:
     raise ValueError(f"unknown persona layer: {layer}")
 
 
+def _layer_dir(layer: str, name: str = "") -> Path:
+    if layer == "global":
+        return PERSONA_ROOT
+    safe = re.sub(r"[^A-Za-z0-9_-]", "-", name)[:64]
+    return PERSONA_ROOT / ("tenants" if layer == "tenant" else "teams") / safe
+
+
 def load_layer(layer: str, name: str = "") -> str:
+    # #482: shard layout — agent.md 入口 + persona/*.md 碎片 (sorted 确定性
+    # 顺序) + rules/*.md (一文件一条 rule, 取首个非空行). 单 agent.md 布局
+    # 向后兼容 (无 shard/rule 目录时行为与旧版一致).
     if not _LAYER_RE.match(layer):
         raise ValueError(f"unknown persona layer: {layer}")
-    p = _layer_path(layer, name)
+    d = _layer_dir(layer, name)
+    parts: list[str] = []
     try:
-        if p.is_file():
-            return p.read_text(encoding="utf-8")
+        agent_md = d / "agent.md"
+        if agent_md.is_file():
+            parts.append(agent_md.read_text(encoding="utf-8"))
+        shard_dir = d / "persona"
+        if shard_dir.is_dir():
+            for p in sorted(shard_dir.glob("*.md")):
+                try:
+                    parts.append(p.read_text(encoding="utf-8"))
+                except OSError as e:
+                    logger.warning("persona shard read failed path=%s: %s", p, e)
+        rule_dir = d / "rules"
+        if rule_dir.is_dir():
+            for p in sorted(rule_dir.glob("*.md")):
+                try:
+                    body = p.read_text(encoding="utf-8").strip()
+                except OSError as e:
+                    logger.warning("persona rule file read failed path=%s: %s", p, e)
+                    continue
+                first = next(
+                    (ln.strip() for ln in body.splitlines() if ln.strip()), ""
+                )
+                if first:
+                    parts.append(f"---\nrules:\n  - {first}\n---")
     except OSError as e:
         logger.warning("persona layer read failed layer=%s: %s", layer, e)
-    return ""
+        return ""
+    if not parts:
+        return ""
+    return "\n\n".join(parts)
 
 
 def save_layer(layer: str, content: str, name: str = "") -> Path:
@@ -116,7 +185,8 @@ def save_layer(layer: str, content: str, name: str = "") -> Path:
 def parse_sections(md: str) -> dict[str, str]:
     if not md:
         return {}
-    _, md = parse_frontmatter(md)
+    # #482: shard 拼接后正文里可能残留非首 frontmatter 块, 全部剥掉再切节.
+    md = _strip_frontmatter_blocks(md)
     out: dict[str, str] = {}
     matches = list(_SECTION_RE.finditer(md))
     if not matches:

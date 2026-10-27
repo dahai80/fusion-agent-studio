@@ -18,6 +18,7 @@ from .context import AgentContext, AgentEvent, AgentEventType
 from .debugger import StepDebugger
 from .graph import AgentGraph
 from .llm_gateway import LLMGateway
+from .persona_gate import PersonaScopedFunnel
 from .prompt_templates import PromptTemplateManager
 from .sub_graph import SubGraphRegistry
 from .token_budget import TokenBudget
@@ -213,7 +214,7 @@ class AgentRuntime(_SafetyApprovalMixin, _CheckpointMixin, _DynamicToolsMixin, _
         # append-only lifecycle event source. Built after llm_gateway so the
         # LLMFunnel can carry the compactor; hooks wire late via the
         # AgentRuntime.hooks property (daemon attaches HookEngine post-init).
-        from .funnels import LifecycleBus, LLMFunnel, ToolFunnel
+        from .funnels import LifecycleBus, LLMFunnel
         from .permissions import PermissionEngine
 
         # Registry may be a mock in tests — tolerate missing annotation API.
@@ -233,7 +234,10 @@ class AgentRuntime(_SafetyApprovalMixin, _CheckpointMixin, _DynamicToolsMixin, _
         # readonly set may grow (dynamic/plugin tools) — funnel re-reads via
         # callable so late registrations are honored.
         _ro = _ro_names()
-        self.tool_funnel = ToolFunnel(
+        # #482: PersonaScopedFunnel 包一层 — ctx.persona_declarations 有内容时
+        # 先过 persona gate (结构化 rules deny / memory_scope 改写 / skills),
+        # 其余行为与裸 ToolFunnel 一致. 单一 choke point, 6 个 admit 调用点全覆盖.
+        self.tool_funnel = PersonaScopedFunnel(
             hooks=self._hooks_engine,
             permissions=self.permission_engine,
             lifecycle_bus=self.lifecycle_bus,
@@ -398,6 +402,35 @@ class AgentRuntime(_SafetyApprovalMixin, _CheckpointMixin, _DynamicToolsMixin, _
         except Exception as e:
             logger.warning("observability hook error event=%s err=%s", event, e)
 
+    def _resolve_persona_declarations(self, ctx: AgentContext) -> None:
+        # #482: per-exec 解析 persona declarations. 失败 fail-open (声明层
+        # 只能收紧不能放大攻击面, 解析报错不应弄挂执行).
+        try:
+            agent_id = getattr(ctx, "agent_id", "") or ctx.metadata.get(
+                "agent_id", ""
+            )
+            if not agent_id:
+                return
+            from .persona import resolve_persona
+
+            result = resolve_persona(
+                agent_id=agent_id,
+                tenant_id=ctx.metadata.get("tenant_id", ""),
+                team_id=ctx.metadata.get("team_id", ""),
+            )
+            declarations = result.get("declarations") or {}
+            if any(
+                declarations.get(k) for k in ("rules", "memory_scope", "skills")
+            ):
+                ctx.persona_declarations = declarations
+                logger.info(
+                    "persona declarations resolved agent=%s layers=%s",
+                    agent_id,
+                    result.get("layers_applied", []),
+                )
+        except Exception as e:
+            logger.warning("persona declaration resolve failed: %s", e)
+
     async def _run_with_trajectory(
         self,
         graph: AgentGraph,
@@ -421,6 +454,9 @@ class AgentRuntime(_SafetyApprovalMixin, _CheckpointMixin, _DynamicToolsMixin, _
         # graph-level budget cap. Explicit caller graph_id wins.
         if not getattr(ctx, "graph_id", ""):
             ctx.graph_id = getattr(graph, "id", "") or ""
+        # #482: 集中解析 persona declarations (per-ctx, 审计 A-1 模式) —
+        # execute_graph / execute_graph_stream / daemon / api 全走这里, 单点.
+        self._resolve_persona_declarations(ctx)
         # N9 #348: thinking channel visibility — run-level override seeds
         # ctx vars; nodes may still opt out via tool_params.thinking=false.
         if show_thinking is not None:
