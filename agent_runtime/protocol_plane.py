@@ -25,7 +25,8 @@ PROTOCOL_KINDS = ("mcp", "skill", "plugin")
 
 # Governance surface shared by all three kinds. Tool-bearing artifacts
 # (MCP tools, plugin tools) execute via ToolFunnel; skills execute via
-# skill.execute which is itself funnel/permission-gated at the runtime.
+# the skills.invoke RPC which runs the same ToolFunnel admission chain
+# before touching the skills store (#476).
 GOVERNANCE_CHAIN = ("hooks", "permission", "budget")
 
 X_FUSION_PREFIX = "x-fusion-"

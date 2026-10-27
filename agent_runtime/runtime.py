@@ -51,6 +51,27 @@ from ._runtime_nodes import _NodeExecutorsMixin
 from ._runtime_safety import _SafetyApprovalMixin
 
 
+class _FunnelAuditAdapter:
+    # #479: adapt the harness funnel audit contract (.log(actor, action,
+    # resource, details)) onto the repo AuditLogger (log_action). Deny
+    # decisions from any funnel gate land in ~/.fusion-agent-studio/audit.db.
+    def __init__(self, audit_logger):
+        self._audit_logger = audit_logger
+
+    def log(self, actor, action, resource, details=None):
+        try:
+            self._audit_logger.log_action(
+                actor_id=actor,
+                action=action,
+                resource_type="tool",
+                resource_id=resource,
+                details=details or {},
+                result="deny",
+            )
+        except Exception as e:
+            logger.warning("funnel audit adapter write failed action=%s err=%s", action, e)
+
+
 class AgentRuntime(_SafetyApprovalMixin, _CheckpointMixin, _DynamicToolsMixin, _NodeExecutorsMixin):
     """Agent runtime engine — state machine driving the agent execution loop.
 
@@ -283,6 +304,13 @@ class AgentRuntime(_SafetyApprovalMixin, _CheckpointMixin, _DynamicToolsMixin, _
         if llm_funnel is not None:
             llm_funnel.hooks = value
 
+    def set_audit_logger(self, audit_logger) -> None:
+        # #479: wire the funnel deny path onto AuditLogger. Every funnel
+        # deny (permission/safety/hook/budget gate) becomes an audit row.
+        adapter = _FunnelAuditAdapter(audit_logger)
+        self.tool_funnel.audit_logger = adapter
+        logger.info("funnel audit logger wired")
+
     def set_tool_configs(self, definition: Any) -> None:
         # 声明式工具配置注入 (#125): 从 AgentDefinition.tools[].config 构建
         # tool_name -> config dict 映射, 工具执行时作为默认参数合并.
@@ -421,6 +449,15 @@ class AgentRuntime(_SafetyApprovalMixin, _CheckpointMixin, _DynamicToolsMixin, _
             except Exception as e:
                 logger.warning("telemetry start_span graph.execute failed: %s", e)
         status = "completed"
+        # #479: GRAPH_BEFORE — organic fire point at graph execution entry.
+        await self._fire_observability_hook(
+            "GRAPH_BEFORE",
+            {
+                "graph_id": getattr(graph, "id", ""),
+                "graph_name": graph.name,
+                "session_id": ctx.session_id,
+            },
+        )
         # N14 #353: resident reviewer — verify node with resident:true upgrades
         # to a standing reviewer on the event stream (deterministic checks).
         resident = None
@@ -485,6 +522,17 @@ class AgentRuntime(_SafetyApprovalMixin, _CheckpointMixin, _DynamicToolsMixin, _
             status = "error"
             raise
         finally:
+            # #479: GRAPH_AFTER — organic fire point covering success, error
+            # and exception paths (finally). status carries the outcome.
+            await self._fire_observability_hook(
+                "GRAPH_AFTER",
+                {
+                    "graph_id": getattr(graph, "id", ""),
+                    "graph_name": graph.name,
+                    "session_id": ctx.session_id,
+                    "status": status,
+                },
+            )
             # N11 #350: session duration feeds SLO baselines.
             if self.telemetry_engine is not None and getattr(ctx, "started_at", 0):
                 try:
@@ -673,298 +721,319 @@ class AgentRuntime(_SafetyApprovalMixin, _CheckpointMixin, _DynamicToolsMixin, _
             if self.debugger:
                 await self.debugger.check_pause(current_node_id, ctx.variables.to_dict())
 
-            if node.type == "start":
-                next_id = graph.get_next_node(current_node_id)
-                current_node_id = next_id or ""
-                continue
+            # #479: NODE_BEFORE — organic fire point per node visit.
+            await self._fire_observability_hook(
+                "NODE_BEFORE",
+                {
+                    "node_id": current_node_id,
+                    "node_type": node.type,
+                    "iteration": ctx.iteration_count,
+                },
+            )
+            try:
+                if node.type == "start":
+                    next_id = graph.get_next_node(current_node_id)
+                    current_node_id = next_id or ""
+                    continue
 
-            elif node.type == "llm":
-                async for event in self._execute_llm_node(
-                    ctx, node, graph, model, tools_schema, system_prompt, stream=stream
-                ):
-                    yield event
-                    if event.type == AgentEventType.ERROR:
-                        return
-
-                if self.auto_checkpoint:
-                    await self._save_checkpoint(ctx, graph)
-
-                if token_budget:
-                    usage = ctx.token_usage()
-                    token_budget.record_usage(
-                        usage.get("prompt_tokens", 0), usage.get("completion_tokens", 0)
-                    )
-                    # Proactive context pruning at 70% budget
-                    if (
-                        token_budget.max_tokens > 0
-                        and token_budget.spent_tokens >= int(token_budget.max_tokens * 0.7)
-                        and self.compactor
+                elif node.type == "llm":
+                    async for event in self._execute_llm_node(
+                        ctx, node, graph, model, tools_schema, system_prompt, stream=stream
                     ):
-                        if not getattr(ctx, "_pruning_done", False):
-                            ctx._pruning_done = True
-                            artifact_tokens = 0
-                            if self.artifact_manager:
-                                try:
-                                    budget_info = self.artifact_manager.get_context_budget(
-                                        agent_id=getattr(ctx, "agent_id", "")
-                                    )
-                                    artifact_tokens = budget_info.get("total_tokens", 0)
-                                except (ValueError, TypeError, RuntimeError, OSError):
-                                    pass
-                            logger.info(
-                                "Proactive context pruning at %d/%d tokens (70%% threshold), artifact_tokens=%d",
-                                token_budget.spent_tokens,
-                                token_budget.max_tokens,
-                                artifact_tokens,
-                            )
-                            await self._fire_tool_hooks(
-                                "PRE_COMPACT",
-                                "",
-                                {
-                                    "graph_id": graph.id,
-                                    "node_id": node.label or "",
-                                    "reason": "token_budget_pruning",
-                                },
-                            )
-                            # 审计修复: compact() 同步返回 list[dict] (compactor.py:74),
-                            # 不能 await (TypeError 'list' object can't be awaited), 且
-                            # 须赋回 ctx.messages (原丢弃结果致压缩未生效). 对齐 L742 用法.
-                            ctx.messages = self.compactor.compact(ctx.messages)
-                            yield AgentEvent(
-                                type=AgentEventType.THINK,
-                                content="Context proactively pruned at 70% budget",
-                                metadata={
-                                    "pruning_threshold": 0.7,
-                                    "artifact_tokens": artifact_tokens,
-                                },
-                            )
-                    if token_budget.is_exceeded():
-                        mode = "stream" if stream else "batch"
-                        logger.warning(
-                            "Token budget exceeded (%s): %d/%d",
-                            mode,
-                            token_budget.spent_tokens,
-                            token_budget.max_tokens,
-                        )
-                        yield AgentEvent(
-                            type=AgentEventType.TOKEN_BUDGET_EXCEEDED,
-                            content=f"Token budget exceeded: {token_budget.spent_tokens}/{token_budget.max_tokens}",
-                            metadata=token_budget.status(),
-                        )
-                        ctx.stop_reason = "budget_exceeded"
-                        ctx.finished_at = time.time()
-                        return
+                        yield event
+                        if event.type == AgentEventType.ERROR:
+                            return
 
-                # Agent Loop: 内生多轮工具回灌 (loop_mode=="agent")
-                # 末条为 tool 结果 => stop_reason=tool_use, 回灌 LLM 继续推理
-                if node.loop_mode == "agent":
-                    max_iter = node.max_loop_iterations or 25
-                    for loop_i in range(max_iter):
-                        last_msg = ctx.messages[-1] if ctx.messages else {}
-                        if last_msg.get("role") != "tool":
-                            break
-                        # 审计 P1-10/R-5: 内生 agent loop 独立计数器 loop_i, 不累加
-                        # ctx.iteration_count -> is_max_iterations_reached 盲区, 无上限
-                        # 防护. 每轮累加会话级计数, 达 max 即停.
-                        ctx.iteration_count += 1
-                        if ctx.is_max_iterations_reached():
-                            logger.warning(
-                                "agent loop session max iterations reached: %d node=%s",
-                                ctx.iteration_count,
-                                current_node_id,
-                            )
-                            if not ctx.stop_reason:
-                                ctx.stop_reason = "max_iterations"
-                            break
-                        # Compaction 接入点 (M2): 超阈值先压缩再回灌
-                        if self.compactor is not None:
-                            level = self.compactor.should_compact(ctx.messages)
-                            if level != "none":
-                                before = len(ctx.messages)
-                                # Issue #175: lifecycle hook — pre-compact.
+                    if self.auto_checkpoint:
+                        await self._save_checkpoint(ctx, graph)
+
+                    if token_budget:
+                        usage = ctx.token_usage()
+                        token_budget.record_usage(
+                            usage.get("prompt_tokens", 0), usage.get("completion_tokens", 0)
+                        )
+                        # Proactive context pruning at 70% budget
+                        if (
+                            token_budget.max_tokens > 0
+                            and token_budget.spent_tokens >= int(token_budget.max_tokens * 0.7)
+                            and self.compactor
+                        ):
+                            if not getattr(ctx, "_pruning_done", False):
+                                ctx._pruning_done = True
+                                artifact_tokens = 0
+                                if self.artifact_manager:
+                                    try:
+                                        budget_info = self.artifact_manager.get_context_budget(
+                                            agent_id=getattr(ctx, "agent_id", "")
+                                        )
+                                        artifact_tokens = budget_info.get("total_tokens", 0)
+                                    except (ValueError, TypeError, RuntimeError, OSError):
+                                        pass
+                                logger.info(
+                                    "Proactive context pruning at %d/%d tokens (70%% threshold), artifact_tokens=%d",
+                                    token_budget.spent_tokens,
+                                    token_budget.max_tokens,
+                                    artifact_tokens,
+                                )
                                 await self._fire_tool_hooks(
                                     "PRE_COMPACT",
                                     "",
                                     {
                                         "graph_id": graph.id,
-                                        "node_id": current_node_id,
-                                        "before": before,
-                                        "level": level,
+                                        "node_id": node.label or "",
+                                        "reason": "token_budget_pruning",
                                     },
                                 )
-                                ctx.messages = self.compactor.compact(ctx.messages, level)
-                                logger.info(
-                                    "compaction applied level=%s before=%d after=%d node=%s",
-                                    level,
-                                    before,
-                                    len(ctx.messages),
+                                # 审计修复: compact() 同步返回 list[dict] (compactor.py:74),
+                                # 不能 await (TypeError 'list' object can't be awaited), 且
+                                # 须赋回 ctx.messages (原丢弃结果致压缩未生效). 对齐 L742 用法.
+                                ctx.messages = self.compactor.compact(ctx.messages)
+                                yield AgentEvent(
+                                    type=AgentEventType.THINK,
+                                    content="Context proactively pruned at 70% budget",
+                                    metadata={
+                                        "pruning_threshold": 0.7,
+                                        "artifact_tokens": artifact_tokens,
+                                    },
+                                )
+                        if token_budget.is_exceeded():
+                            mode = "stream" if stream else "batch"
+                            logger.warning(
+                                "Token budget exceeded (%s): %d/%d",
+                                mode,
+                                token_budget.spent_tokens,
+                                token_budget.max_tokens,
+                            )
+                            yield AgentEvent(
+                                type=AgentEventType.TOKEN_BUDGET_EXCEEDED,
+                                content=f"Token budget exceeded: {token_budget.spent_tokens}/{token_budget.max_tokens}",
+                                metadata=token_budget.status(),
+                            )
+                            ctx.stop_reason = "budget_exceeded"
+                            ctx.finished_at = time.time()
+                            return
+
+                    # Agent Loop: 内生多轮工具回灌 (loop_mode=="agent")
+                    # 末条为 tool 结果 => stop_reason=tool_use, 回灌 LLM 继续推理
+                    if node.loop_mode == "agent":
+                        max_iter = node.max_loop_iterations or 25
+                        for loop_i in range(max_iter):
+                            last_msg = ctx.messages[-1] if ctx.messages else {}
+                            if last_msg.get("role") != "tool":
+                                break
+                            # 审计 P1-10/R-5: 内生 agent loop 独立计数器 loop_i, 不累加
+                            # ctx.iteration_count -> is_max_iterations_reached 盲区, 无上限
+                            # 防护. 每轮累加会话级计数, 达 max 即停.
+                            ctx.iteration_count += 1
+                            if ctx.is_max_iterations_reached():
+                                logger.warning(
+                                    "agent loop session max iterations reached: %d node=%s",
+                                    ctx.iteration_count,
                                     current_node_id,
                                 )
-                                # N11 #350: compaction count feeds SLO baselines.
-                                if self.telemetry_engine is not None:
-                                    self.telemetry_engine.record_slo("compaction")
-                        # Hooks 接入点 (M3)
-                        ctx.tool_call_chain_count = 0
-                        logger.info(
-                            "agent loop iter=%d/%d node=%s msgs=%d",
-                            loop_i + 1,
-                            max_iter,
-                            current_node_id,
-                            len(ctx.messages),
-                        )
-                        async for event in self._execute_llm_node(
-                            ctx,
-                            node,
-                            graph,
-                            model,
-                            tools_schema,
-                            system_prompt,
-                            stream=stream,
-                        ):
-                            yield event
-                            if event.type == AgentEventType.ERROR:
-                                return
-                        if self.auto_checkpoint:
-                            await self._save_checkpoint(ctx, graph)
-                    else:
-                        logger.warning(
-                            "agent loop max iterations reached: %d node=%s",
-                            max_iter,
-                            current_node_id,
-                        )
-                        # Issue #175: lifecycle hook — stop (agent-loop cap).
-                        await self._fire_tool_hooks(
-                            "STOP",
-                            "",
-                            {
-                                "graph_id": graph.id,
-                                "node_id": current_node_id,
-                                "reason": "agent_loop_max",
-                            },
-                        )
+                                if not ctx.stop_reason:
+                                    ctx.stop_reason = "max_iterations"
+                                break
+                            # Compaction 接入点 (M2): 超阈值先压缩再回灌
+                            if self.compactor is not None:
+                                level = self.compactor.should_compact(ctx.messages)
+                                if level != "none":
+                                    before = len(ctx.messages)
+                                    # Issue #175: lifecycle hook — pre-compact.
+                                    await self._fire_tool_hooks(
+                                        "PRE_COMPACT",
+                                        "",
+                                        {
+                                            "graph_id": graph.id,
+                                            "node_id": current_node_id,
+                                            "before": before,
+                                            "level": level,
+                                        },
+                                    )
+                                    ctx.messages = self.compactor.compact(ctx.messages, level)
+                                    logger.info(
+                                        "compaction applied level=%s before=%d after=%d node=%s",
+                                        level,
+                                        before,
+                                        len(ctx.messages),
+                                        current_node_id,
+                                    )
+                                    # N11 #350: compaction count feeds SLO baselines.
+                                    if self.telemetry_engine is not None:
+                                        self.telemetry_engine.record_slo("compaction")
+                            # Hooks 接入点 (M3)
+                            ctx.tool_call_chain_count = 0
+                            logger.info(
+                                "agent loop iter=%d/%d node=%s msgs=%d",
+                                loop_i + 1,
+                                max_iter,
+                                current_node_id,
+                                len(ctx.messages),
+                            )
+                            async for event in self._execute_llm_node(
+                                ctx,
+                                node,
+                                graph,
+                                model,
+                                tools_schema,
+                                system_prompt,
+                                stream=stream,
+                            ):
+                                yield event
+                                if event.type == AgentEventType.ERROR:
+                                    return
+                            if self.auto_checkpoint:
+                                await self._save_checkpoint(ctx, graph)
+                        else:
+                            logger.warning(
+                                "agent loop max iterations reached: %d node=%s",
+                                max_iter,
+                                current_node_id,
+                            )
+                            # Issue #175: lifecycle hook — stop (agent-loop cap).
+                            await self._fire_tool_hooks(
+                                "STOP",
+                                "",
+                                {
+                                    "graph_id": graph.id,
+                                    "node_id": current_node_id,
+                                    "reason": "agent_loop_max",
+                                },
+                            )
 
-                last_msg = ctx.messages[-1] if ctx.messages else {}
-                if last_msg.get("tool_calls"):
-                    pass
-                else:
-                    ctx.tool_call_chain_count = 0
-                    # Issue #149: optional per-node model unload. Only fire
-                    # when the node is fully done (advancing to the next
-                    # node), never during tool-call re-entry on the same
-                    # node. Non-fatal: a failed/already-evicted unload is a
-                    # warning, not a workflow error.
-                    if self.unload_model_after_node:
-                        served_model = node.model or model
-                        if served_model:
-                            await self.llm_gateway.unload_model(served_model)
+                    last_msg = ctx.messages[-1] if ctx.messages else {}
+                    if last_msg.get("tool_calls"):
+                        pass
+                    else:
+                        ctx.tool_call_chain_count = 0
+                        # Issue #149: optional per-node model unload. Only fire
+                        # when the node is fully done (advancing to the next
+                        # node), never during tool-call re-entry on the same
+                        # node. Non-fatal: a failed/already-evicted unload is a
+                        # warning, not a workflow error.
+                        if self.unload_model_after_node:
+                            served_model = node.model or model
+                            if served_model:
+                                await self.llm_gateway.unload_model(served_model)
+                        next_id = graph.get_next_node(current_node_id)
+                        current_node_id = next_id or ""
+
+                elif node.type == "tool":
+                    async for event in self._execute_tool_node(ctx, node, graph):
+                        yield event
+                        if event.type == AgentEventType.ERROR:
+                            return
+
+                    if self.auto_checkpoint:
+                        await self._save_checkpoint(ctx, graph)
+
                     next_id = graph.get_next_node(current_node_id)
                     current_node_id = next_id or ""
 
-            elif node.type == "tool":
-                async for event in self._execute_tool_node(ctx, node, graph):
+                elif node.type == "condition":
+                    event = self._execute_condition_node(ctx, node)
                     yield event
-                    if event.type == AgentEventType.ERROR:
-                        return
+                    current_node_id = (
+                        graph.get_next_node(current_node_id, condition_result=event.content) or ""
+                    )
 
-                if self.auto_checkpoint:
-                    await self._save_checkpoint(ctx, graph)
-
-                next_id = graph.get_next_node(current_node_id)
-                current_node_id = next_id or ""
-
-            elif node.type == "condition":
-                event = self._execute_condition_node(ctx, node)
-                yield event
-                current_node_id = (
-                    graph.get_next_node(current_node_id, condition_result=event.content) or ""
-                )
-
-            elif node.type == "loop":
-                event = self._execute_loop_node(ctx, node, graph)
-                yield event
-                if event.content == "loop_continue":
-                    loop_start = node.tool_params.get("loop_start_node", "")
-                    if loop_start and graph.get_node(loop_start):
-                        current_node_id = loop_start
+                elif node.type == "loop":
+                    event = self._execute_loop_node(ctx, node, graph)
+                    yield event
+                    if event.content == "loop_continue":
+                        loop_start = node.tool_params.get("loop_start_node", "")
+                        if loop_start and graph.get_node(loop_start):
+                            current_node_id = loop_start
+                        else:
+                            next_id = graph.get_next_node(current_node_id)
+                            current_node_id = next_id or ""
                     else:
                         next_id = graph.get_next_node(current_node_id)
                         current_node_id = next_id or ""
-                else:
+
+                elif node.type == "error_handler":
+                    async for event in self._execute_error_handler_node(ctx, node, graph):
+                        yield event
                     next_id = graph.get_next_node(current_node_id)
                     current_node_id = next_id or ""
 
-            elif node.type == "error_handler":
-                async for event in self._execute_error_handler_node(ctx, node, graph):
-                    yield event
-                next_id = graph.get_next_node(current_node_id)
-                current_node_id = next_id or ""
+                elif node.type == "rag":
+                    async for event in self._execute_rag_node(
+                        ctx, node, graph, model, tools_schema, system_prompt, stream=stream
+                    ):
+                        yield event
+                        if event.type == AgentEventType.ERROR:
+                            return
+                    next_id = graph.get_next_node(current_node_id)
+                    current_node_id = next_id or ""
 
-            elif node.type == "rag":
-                async for event in self._execute_rag_node(
-                    ctx, node, graph, model, tools_schema, system_prompt, stream=stream
-                ):
-                    yield event
-                    if event.type == AgentEventType.ERROR:
-                        return
-                next_id = graph.get_next_node(current_node_id)
-                current_node_id = next_id or ""
+                elif node.type == "planner":
+                    async for event in self._execute_planner_node(ctx, node, graph):
+                        yield event
+                        if event.type == AgentEventType.ERROR:
+                            return
+                    next_id = graph.get_next_node(current_node_id)
+                    current_node_id = next_id or ""
 
-            elif node.type == "planner":
-                async for event in self._execute_planner_node(ctx, node, graph):
-                    yield event
-                    if event.type == AgentEventType.ERROR:
-                        return
-                next_id = graph.get_next_node(current_node_id)
-                current_node_id = next_id or ""
+                elif node.type == "verify":
+                    async for event in self._execute_verify_node(ctx, node, graph):
+                        yield event
+                        if event.type == AgentEventType.ERROR:
+                            return
+                    next_id = graph.get_next_node(current_node_id)
+                    current_node_id = next_id or ""
 
-            elif node.type == "verify":
-                async for event in self._execute_verify_node(ctx, node, graph):
-                    yield event
-                    if event.type == AgentEventType.ERROR:
-                        return
-                next_id = graph.get_next_node(current_node_id)
-                current_node_id = next_id or ""
+                elif node.type == "parallel":
+                    async for ev in self._execute_parallel_node(
+                        ctx, node, graph, current_node_id, stream=stream
+                    ):
+                        yield ev
+                        if ev.type == AgentEventType.ERROR:
+                            return
+                    next_id = ev.metadata.get("next_id", "") if ev.metadata else ""
+                    current_node_id = next_id
 
-            elif node.type == "parallel":
-                async for ev in self._execute_parallel_node(
-                    ctx, node, graph, current_node_id, stream=stream
-                ):
-                    yield ev
-                    if ev.type == AgentEventType.ERROR:
-                        return
-                next_id = ev.metadata.get("next_id", "") if ev.metadata else ""
-                current_node_id = next_id
+                elif node.type == "end":
+                    if not ctx.stop_reason:
+                        ctx.stop_reason = "end_turn"
+                    yield AgentEvent(
+                        type=AgentEventType.END,
+                        content="Graph execution complete",
+                        metadata={"stop_reason": ctx.stop_reason},
+                    )
+                    ctx.finished_at = time.time()
+                    await self._auto_store_memory(ctx, graph)
+                    # Issue #175: lifecycle hook — session end (clean completion).
+                    await self._fire_tool_hooks(
+                        "SESSION_END",
+                        "",
+                        {"graph_id": graph.id, "status": "completed"},
+                    )
+                    return
 
-            elif node.type == "end":
-                if not ctx.stop_reason:
-                    ctx.stop_reason = "end_turn"
-                yield AgentEvent(
-                    type=AgentEventType.END,
-                    content="Graph execution complete",
-                    metadata={"stop_reason": ctx.stop_reason},
+                else:
+                    # 审计 L-1: 未知 node.type 原本无 else 分支 — 不匹配任何
+                    # elif 时静默跳过, current_node_id 不更新, while 循环空转
+                    # 至 max_iterations 才报错, 既浪费又误导 (报 "max iterations"
+                    # 而非 "unknown node type"). 现显式报错并终止.
+                    ctx.error = (
+                        f"Unknown node type '{node.type}' on node '{node.label}' "
+                        f"(id={current_node_id})"
+                    )
+                    logger.error("unknown node type=%s node=%s id=%s", node.type, node.label, current_node_id)
+                    yield AgentEvent(type=AgentEventType.ERROR, content=ctx.error, node_id=node.label)
+                    return
+            finally:
+                # #479: NODE_AFTER — fires on advance, continue and
+                # early return alike (finally on the node dispatch).
+                await self._fire_observability_hook(
+                    "NODE_AFTER",
+                    {
+                        "node_id": current_node_id,
+                        "node_type": node.type,
+                        "iteration": ctx.iteration_count,
+                    },
                 )
-                ctx.finished_at = time.time()
-                await self._auto_store_memory(ctx, graph)
-                # Issue #175: lifecycle hook — session end (clean completion).
-                await self._fire_tool_hooks(
-                    "SESSION_END",
-                    "",
-                    {"graph_id": graph.id, "status": "completed"},
-                )
-                return
-
-            else:
-                # 审计 L-1: 未知 node.type 原本无 else 分支 — 不匹配任何
-                # elif 时静默跳过, current_node_id 不更新, while 循环空转
-                # 至 max_iterations 才报错, 既浪费又误导 (报 "max iterations"
-                # 而非 "unknown node type"). 现显式报错并终止.
-                ctx.error = (
-                    f"Unknown node type '{node.type}' on node '{node.label}' "
-                    f"(id={current_node_id})"
-                )
-                logger.error("unknown node type=%s node=%s id=%s", node.type, node.label, current_node_id)
-                yield AgentEvent(type=AgentEventType.ERROR, content=ctx.error, node_id=node.label)
-                return
 
         if ctx.is_max_iterations_reached():
             if not ctx.stop_reason:
