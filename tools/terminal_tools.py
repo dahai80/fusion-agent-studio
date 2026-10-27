@@ -64,6 +64,12 @@ class TerminalTool(BaseTool):
             "description": "Working directory (default: current directory)",
             "default": "",
         },
+        "workspace": {
+            "type": "string",
+            "description": "Execution backend: docker (isolated container) or local (default: auto)",
+            "default": "auto",
+            "enum": ["auto", "docker", "local"],
+        },
     }
 
     async def execute(self, **kwargs) -> str:
@@ -90,6 +96,34 @@ class TerminalTool(BaseTool):
                         "dd to disk, shutdown, raw disk write) and is blocked by default. "
                         "Set FUSION_TERMINAL_UNRESTRICTED=1 to allow."
                     )
+
+        # #495: optional container isolation. tool config `workspace: docker`
+        # (manifest) or LLM arg routes exec through a throwaway container
+        # (--network none, 512m, --rm); Docker absent -> local fallback.
+        try:
+            from agent_runtime.workspace import resolve_workspace_backend, run_in_container
+
+            backend = resolve_workspace_backend(str(kwargs.get("workspace", "")))
+        except Exception as e:
+            logger.warning("workspace backend resolve failed: %s", e)
+            backend = "local"
+        if backend == "docker":
+            result = await asyncio.to_thread(
+                run_in_container,
+                ["bash", "-lc", command],
+                workdir,
+                timeout,
+            )
+            if result.timed_out:
+                return f"Error: Command timed out after {timeout}s"
+            if result.success:
+                out = result.stdout.strip()
+                if result.stderr.strip():
+                    out = f"{out}\n[STDERR]\n{result.stderr.strip()}" if out else result.stderr.strip()
+                return out if out else "Command completed (exit code 0, no output)"
+            prefix = f"Error: Command exited with code {result.exit_code}"
+            detail = result.stderr.strip() or result.stdout.strip()
+            return f"{prefix}:\n{detail}" if detail else prefix
 
         try:
             proc = await asyncio.create_subprocess_shell(

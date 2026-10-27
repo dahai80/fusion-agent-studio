@@ -300,6 +300,11 @@ python my_agent.py
 - ✅ **子代理记忆作用域 (#434)** — `memory: user|project|local` 在运行前注入对应作用域记忆、结束后回写持久知识；`off` 不产生记忆流量。
 - 测试：见英文 README 同名小节；指南：`docs/guides/13-cli-and-sdk.md`。
 
+### 容器工作区后端 — #495
+- ✅ **shell/code 工具可选容器隔离** — `terminal` / `code_execute` / `code_sandbox` 接受 `workspace` 参数（`auto`/`docker`/`local`，也可经 manifest `config: {workspace: docker}` 或环境变量 `FUSION_WORKSPACE_BACKEND` 按 per-tool 选择）。docker 模式每次调用跑一次性容器（`--rm`、`--network none`、512m 内存、256 pids、workdir 挂载到 `/workspace`）；镜像经 `FUSION_WORKSPACE_IMAGE` 配置（默认 `python:3.12-slim`）。Python AST 安全检查在容器执行前仍生效；非容器语言（node/go/swift/cpp）保持本地 sandbox-exec 路径。
+- ✅ **优雅降级** — Docker 缺席时 `docker`/`auto` 解析回本地路径并留警告日志；sandbox-exec 回退路径有测试覆盖。可用性探测 60s 缓存，绝不逐调用探测。
+- 测试：`tests/test_issue_495_workspace.py`（22 项）— 后端解析/回退、容器命令构造、terminal/code 工具双后端（PATH 垫片假 `docker`）、灾难命令黑名单仍然生效、manifest config 选择。
+
 ### 集成
 - ✅ **fusion-mlx** — Apple Silicon 优化模型服务
 - ✅ **OpenAI 兼容 API** — 兼容任何 OpenAI 兼容后端

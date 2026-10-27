@@ -16,6 +16,12 @@ class CodeExecuteTool(BaseTool):
     parameters = {
         "code": {"type": "string", "description": "Python code to execute"},
         "timeout": {"type": "integer", "description": "Timeout in seconds", "default": 10},
+        "workspace": {
+            "type": "string",
+            "description": "Execution backend: docker (isolated container) or local sandbox-exec (default: auto)",
+            "default": "auto",
+            "enum": ["auto", "docker", "local"],
+        },
     }
 
     async def execute(self, **kwargs) -> str:
@@ -27,9 +33,14 @@ class CodeExecuteTool(BaseTool):
         # 统一走 CodeSandbox (macOS sandbox-exec profile + Python AST 安全
         # 检查), 与 CodeSandboxTool 同一隔离层, 消除"危险的那套被默认用".
         # use_sandbox 默认 True; 非 macOS 自动降级但仍过 AST 检查.
+        # #495: workspace 参数可选容器后端 (Docker 缺席回退 sandbox-exec).
         try:
             from agent_runtime.code_sandbox import CodeSandbox
-            sandbox = CodeSandbox(timeout=timeout, use_sandbox=True)
+            sandbox = CodeSandbox(
+                timeout=timeout,
+                use_sandbox=True,
+                workspace=str(kwargs.get("workspace", "auto")),
+            )
             logger.info("code_execute: rerouted to CodeSandbox timeout=%s", timeout)
             result = await asyncio.to_thread(sandbox.execute, code, "python")
         except asyncio.TimeoutError:
@@ -88,6 +99,12 @@ class CodeSandboxTool(BaseTool):
             "description": "Use sandbox-exec isolation (default: true). Set false to bypass on non-macOS.",
             "default": True,
         },
+        "workspace": {
+            "type": "string",
+            "description": "Execution backend: docker (isolated container) or local sandbox-exec (default: auto)",
+            "default": "auto",
+            "enum": ["auto", "docker", "local"],
+        },
     }
 
     async def execute(self, **kwargs) -> str:
@@ -114,10 +131,14 @@ class CodeSandboxTool(BaseTool):
         try:
             from agent_runtime.code_sandbox import CodeSandbox
 
-            sandbox = CodeSandbox(timeout=timeout, use_sandbox=use_sandbox)
+            sandbox = CodeSandbox(
+                timeout=timeout,
+                use_sandbox=use_sandbox,
+                workspace=str(kwargs.get("workspace", "auto")),
+            )
             logger.info(
-                "code_sandbox: lang=%s timeout=%s sandbox=%s",
-                language, timeout, use_sandbox,
+                "code_sandbox: lang=%s timeout=%s sandbox=%s workspace=%s",
+                language, timeout, use_sandbox, kwargs.get("workspace", "auto"),
             )
             result = await asyncio.to_thread(
                 sandbox.execute, code, language
