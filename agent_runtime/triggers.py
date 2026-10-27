@@ -26,6 +26,47 @@ def _cron_job_timeout() -> float:
     return val
 
 
+def _cron_poll_interval() -> float:
+    # #477: poll tick override (tests drive continuous/interval loops fast).
+    raw = os.environ.get("FUSION_CRON_POLL_INTERVAL", "15").strip()
+    try:
+        val = float(raw)
+    except ValueError:
+        return 15.0
+    return max(0.05, val)
+
+
+LOOP_MODES = ("cron", "continuous", "interval", "event_driven")
+
+
+def _normalize_loop_mode(raw: str) -> str:
+    mode = (raw or "cron").strip().lower().replace("-", "_")
+    if mode not in LOOP_MODES:
+        logger.warning("invalid loop_mode %r, fallback 'cron'", raw)
+        return "cron"
+    return mode
+
+
+def _extract_loop_tokens(result) -> int:
+    # #477: handler result -> per-iteration token spend. Accepts
+    # {"usage": {"total_tokens": N}} / {"total_tokens": N} shapes.
+    if not isinstance(result, dict):
+        return 0
+    usage = result.get("usage")
+    if isinstance(usage, dict):
+        for key in ("total_tokens", "completion_tokens", "prompt_tokens"):
+            try:
+                val = int(usage.get(key) or 0)
+            except (TypeError, ValueError):
+                continue
+            if val > 0:
+                return val
+    try:
+        return int(result.get("total_tokens") or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
 def _detect_local_tz():
     # #270: 解析系统本地时区, 不硬编码 UTC. 优先 datetime.now().astimezone()
     # 拿到的 tzinfo (含 IANA 名); 退化用 time.localtime().tm_gmtoff 构造固定偏移.
@@ -121,6 +162,17 @@ class CronJob:
     max_retries: int = 0
     retry_count: int = 0
     one_shot: bool = False  # #141 priority-3: 一次性定时任务 (run_at), 触发后自动注销
+    # #477: loop modes. cron = expression-driven (existing semantics);
+    # continuous = back-to-back; interval = fixed interval_seconds;
+    # event_driven = armed only by CronManager.trigger_event().
+    loop_mode: str = "cron"
+    interval_seconds: int = 60
+    max_iterations: int = 0  # 0 = unbounded
+    iteration_count: int = 0
+    token_budget: int = 0  # cumulative across iterations, 0 = none
+    tokens_used: int = 0
+    permission_mode: str = ""  # per-iteration permission mode ("" = inherit)
+    loop_stop_reason: str = ""  # "" | budget_exceeded | max_iterations | cancelled
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -136,6 +188,14 @@ class CronJob:
             "max_retries": self.max_retries,
             "retry_count": self.retry_count,
             "one_shot": self.one_shot,
+            "loop_mode": self.loop_mode,
+            "interval_seconds": self.interval_seconds,
+            "max_iterations": self.max_iterations,
+            "iteration_count": self.iteration_count,
+            "token_budget": self.token_budget,
+            "tokens_used": self.tokens_used,
+            "permission_mode": self.permission_mode,
+            "loop_stop_reason": self.loop_stop_reason,
         }
 
     @classmethod
@@ -153,6 +213,14 @@ class CronJob:
             max_retries=data.get("max_retries", 0),
             retry_count=data.get("retry_count", 0),
             one_shot=data.get("one_shot", False),
+            loop_mode=_normalize_loop_mode(str(data.get("loop_mode", "cron"))),
+            interval_seconds=int(data.get("interval_seconds", 60) or 0),
+            max_iterations=int(data.get("max_iterations", 0) or 0),
+            iteration_count=int(data.get("iteration_count", 0) or 0),
+            token_budget=int(data.get("token_budget", 0) or 0),
+            tokens_used=int(data.get("tokens_used", 0) or 0),
+            permission_mode=str(data.get("permission_mode", "") or ""),
+            loop_stop_reason=str(data.get("loop_stop_reason", "") or ""),
         )
 
 
@@ -444,7 +512,15 @@ class CronManager:
                 input_data TEXT DEFAULT '',
                 max_retries INTEGER DEFAULT 0,
                 retry_count INTEGER DEFAULT 0,
-                one_shot INTEGER DEFAULT 0
+                one_shot INTEGER DEFAULT 0,
+                loop_mode TEXT DEFAULT 'cron',
+                interval_seconds INTEGER DEFAULT 60,
+                max_iterations INTEGER DEFAULT 0,
+                iteration_count INTEGER DEFAULT 0,
+                token_budget INTEGER DEFAULT 0,
+                tokens_used INTEGER DEFAULT 0,
+                permission_mode TEXT DEFAULT '',
+                loop_stop_reason TEXT DEFAULT ''
             )
         """)
         self._conn.execute("""
@@ -469,6 +545,7 @@ class CronManager:
     def _run_schema_migrations(self, conn) -> None:
         migrations = [
             self._migration_v1_one_shot,
+            self._migration_v2_loop_modes,
         ]
         current = conn.execute("PRAGMA user_version").fetchone()[0]
         for idx, migrate in enumerate(migrations, start=1):
@@ -487,6 +564,24 @@ class CronManager:
         if "one_shot" not in cols:
             conn.execute("ALTER TABLE cron_jobs ADD COLUMN one_shot INTEGER DEFAULT 0")
             logger.info("CronManager migrated cron_jobs: added one_shot column")
+
+    def _migration_v2_loop_modes(self, conn) -> None:
+        # #477: loop-mode columns for old DBs (CREATE IF NOT EXISTS adds none).
+        cols = {row[1] for row in conn.execute("PRAGMA table_info(cron_jobs)").fetchall()}
+        additions = {
+            "loop_mode": "TEXT DEFAULT 'cron'",
+            "interval_seconds": "INTEGER DEFAULT 60",
+            "max_iterations": "INTEGER DEFAULT 0",
+            "iteration_count": "INTEGER DEFAULT 0",
+            "token_budget": "INTEGER DEFAULT 0",
+            "tokens_used": "INTEGER DEFAULT 0",
+            "permission_mode": "TEXT DEFAULT ''",
+            "loop_stop_reason": "TEXT DEFAULT ''",
+        }
+        for col, decl in additions.items():
+            if col not in cols:
+                conn.execute(f"ALTER TABLE cron_jobs ADD COLUMN {col} {decl}")
+        logger.info("CronManager migrated cron_jobs: loop-mode columns (#477)")
 
     def _load_jobs(self) -> None:
         if not self._conn:
@@ -507,6 +602,14 @@ class CronManager:
                     max_retries=row[9],
                     retry_count=row[10],
                     one_shot=bool(row[11]) if len(row) > 11 else False,
+                    loop_mode=_normalize_loop_mode(str(row[12]) if len(row) > 12 else "cron"),
+                    interval_seconds=int(row[13]) if len(row) > 13 else 60,
+                    max_iterations=int(row[14]) if len(row) > 14 else 0,
+                    iteration_count=int(row[15]) if len(row) > 15 else 0,
+                    token_budget=int(row[16]) if len(row) > 16 else 0,
+                    tokens_used=int(row[17]) if len(row) > 17 else 0,
+                    permission_mode=str(row[18]) if len(row) > 18 else "",
+                    loop_stop_reason=str(row[19]) if len(row) > 19 else "",
                 )
                 self._jobs[job.id] = job
         logger.info("Loaded %d cron jobs from DB", len(self._jobs))
@@ -517,8 +620,9 @@ class CronManager:
         with self._write_lock:
             self._conn.execute(
                 """INSERT OR REPLACE INTO cron_jobs
-                   (id, name, expression, graph_id, enabled, last_run, next_run, created_at, input_data, max_retries, retry_count, one_shot)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                   (id, name, expression, graph_id, enabled, last_run, next_run, created_at, input_data, max_retries, retry_count, one_shot,
+                    loop_mode, interval_seconds, max_iterations, iteration_count, token_budget, tokens_used, permission_mode, loop_stop_reason)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     job.id,
                     job.name,
@@ -532,6 +636,14 @@ class CronManager:
                     job.max_retries,
                     job.retry_count,
                     int(job.one_shot),
+                    job.loop_mode,
+                    job.interval_seconds,
+                    job.max_iterations,
+                    job.iteration_count,
+                    job.token_budget,
+                    job.tokens_used,
+                    job.permission_mode,
+                    job.loop_stop_reason,
                 ),
             )
             self._conn.commit()
@@ -571,25 +683,61 @@ class CronManager:
                 logger.info("Cleaned up %d expired cron execution records", result.rowcount)
             self._conn.commit()
 
+    def _next_run_for(self, job: CronJob) -> float:
+        # #477: mode-aware scheduling. cron/one_shot = expression; interval =
+        # fixed offset; continuous = back-to-back (next tick); event_driven =
+        # dormant (0) until trigger_event() arms it.
+        if job.one_shot or job.loop_mode == "cron":
+            return self._compute_next_run(job.expression)
+        if job.loop_mode == "interval":
+            interval = int(job.interval_seconds or 0)
+            if interval < 1:
+                logger.warning("job %s interval_seconds<1, fallback 60", job.id)
+                interval = 60
+            return time.time() + interval
+        if job.loop_mode == "continuous":
+            return time.time()
+        return 0.0
+
+    def trigger_event(self, job_id: str) -> bool:
+        # #477: arm an event_driven job for one run on the next tick.
+        job = self._jobs.get(job_id)
+        if job is None or not job.enabled:
+            logger.warning("trigger_event: job %s missing or disabled", job_id)
+            return False
+        if job.loop_mode != "event_driven":
+            logger.warning("trigger_event: job %s loop_mode=%s, not event_driven",
+                           job_id, job.loop_mode)
+            return False
+        job.next_run = time.time()
+        self._save_job(job)
+        logger.info("event_driven job %s armed for next tick", job_id)
+        return True
+
     def register(self, job: CronJob, handler: Callable | None = None) -> None:
-        job.next_run = self._compute_next_run(job.expression)
+        job.loop_mode = _normalize_loop_mode(job.loop_mode)
+        job.loop_stop_reason = ""
+        job.next_run = self._next_run_for(job)
         if not job.created_at:
             job.created_at = time.time()
         self._jobs[job.id] = job
         if handler:
             self._handlers[job.id] = handler
         self._save_job(job)
-        logger.info("Cron job registered: %s (%s)", job.id, job.expression)
+        logger.info("Cron job registered: %s (%s, mode=%s)", job.id, job.expression, job.loop_mode)
 
     async def aregister(self, job: CronJob, handler: Callable | None = None) -> None:
-        job.next_run = self._compute_next_run(job.expression)
+        job.loop_mode = _normalize_loop_mode(job.loop_mode)
+        job.loop_stop_reason = ""
+        job.next_run = self._next_run_for(job)
         if not job.created_at:
             job.created_at = time.time()
         self._jobs[job.id] = job
         if handler:
             self._handlers[job.id] = handler
         await asyncio.to_thread(self._save_job, job)
-        logger.info("Cron job registered (async): %s (%s)", job.id, job.expression)
+        logger.info("Cron job registered (async): %s (%s, mode=%s)",
+                    job.id, job.expression, job.loop_mode)
 
     def _build_once_job(
         self,
@@ -716,9 +864,20 @@ class CronManager:
         if self._task:
             self._task.cancel()
             self._task = None
+        # #477: supervisor stop terminates every still-enabled recurring job —
+        # record the cancellation so the stop reason is queryable, not silent.
+        stopped = 0
+        for job in self._jobs.values():
+            if job.enabled and not job.one_shot:
+                job.loop_stop_reason = "cancelled"
+                self._save_job(job)
+                stopped += 1
+        if stopped:
+            logger.info("CronManager stopped: %d recurring jobs marked cancelled", stopped)
         logger.info("CronManager stopped")
 
     async def _run_loop(self) -> None:
+        poll = _cron_poll_interval()
         while self._running:
             now = time.time()
             due_jobs = []
@@ -730,10 +889,13 @@ class CronManager:
             if due_jobs:
                 tasks = [self._run_single_job(job) for job in due_jobs]
                 await asyncio.gather(*tasks, return_exceptions=True)
-            await asyncio.sleep(15)
+            await asyncio.sleep(poll)
 
     async def _run_single_job(self, job: CronJob) -> None:
         now = time.time()
+        if job.loop_stop_reason == "cancelled":
+            # stale supervisor-stop marker from a previous daemon lifetime
+            job.loop_stop_reason = ""
         exe = CronExecution(
             id=f"exe_{job.id}_{int(now)}",
             job_id=job.id,
@@ -741,6 +903,7 @@ class CronManager:
         )
         handler = self._handlers.get(job.id) or self._default_handler
         timeout = _cron_job_timeout()
+        result = None
         if handler:
             try:
                 result = await asyncio.wait_for(handler(job), timeout=timeout or None)
@@ -768,8 +931,40 @@ class CronManager:
             self._handlers.pop(job.id, None)
             await asyncio.to_thread(self._delete_job, job.id)
         else:
-            job.next_run = self._compute_next_run(job.expression)
+            # #477: iteration-boundary accounting — budget/iteration caps stop
+            # the loop between iterations, never mid-run.
+            stop_reason = self._post_iteration_accounting(job, result)
+            if stop_reason:
+                job.enabled = False
+                job.loop_stop_reason = stop_reason
+                logger.info(
+                    "loop job %s stopped: %s (iters=%d/%s tokens=%d/%s)",
+                    job.id,
+                    stop_reason,
+                    job.iteration_count,
+                    job.max_iterations or "unbounded",
+                    job.tokens_used,
+                    job.token_budget or "none",
+                )
+            elif job.loop_mode == "event_driven":
+                # one run per event: go dormant until the next trigger_event
+                job.next_run = 0.0
+            else:
+                job.next_run = self._next_run_for(job)
             await asyncio.to_thread(self._save_job, job)
+
+    def _post_iteration_accounting(self, job: CronJob, result) -> str:
+        # #477: returns loop_stop_reason when the loop must terminate at this
+        # iteration boundary, "" to continue.
+        job.iteration_count += 1
+        tokens = _extract_loop_tokens(result)
+        if tokens:
+            job.tokens_used += tokens
+        if job.token_budget > 0 and job.tokens_used >= job.token_budget:
+            return "budget_exceeded"
+        if job.max_iterations > 0 and job.iteration_count >= job.max_iterations:
+            return "max_iterations"
+        return ""
 
     def _handle_retry(self, job: CronJob) -> None:
         if job.retry_count < job.max_retries:

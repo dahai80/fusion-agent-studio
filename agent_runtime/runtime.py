@@ -523,6 +523,14 @@ class AgentRuntime(_SafetyApprovalMixin, _CheckpointMixin, _DynamicToolsMixin, _
                 if event.type == AgentEventType.START:
                     writer.record_iteration(ctx.session_id, getattr(ctx, "iteration_count", 0))
                 yield event
+        except asyncio.CancelledError:
+            # #477: hard cancel (graph.cancel bg_task.cancel / supervisor stop).
+            # Mark the context so evidence/checkpoint serialization carries the
+            # reason; daemon cancel path surfaces it in run_end + task writeback.
+            ctx.stop_reason = "cancelled"
+            ctx.finished_at = time.time()
+            logger.info("graph cancelled: %s session=%s", graph.name, ctx.session_id)
+            raise
         except Exception:
             status = "error"
             raise
