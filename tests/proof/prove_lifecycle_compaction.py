@@ -73,8 +73,15 @@ def prove_jsonl_persistence():
 
 
 def prove_tool_funnel_events():
+    from agent_runtime.permissions import PermissionEngine, PermissionRule
+
     bus = LifecycleBus()
-    funnel = ToolFunnel(permissions=None, lifecycle_bus=bus)
+    # #480: harness fail-closed hardening (#391) denies a ToolFunnel built
+    # with no permission engine. Wire an armed engine with an explicit allow
+    # rule — the proof then exercises the real allow path + lifecycle events.
+    eng = PermissionEngine(mode="approved")
+    eng.add_rule(PermissionRule(action="allow", tool="t1", layer="global"), layer="global")
+    funnel = ToolFunnel(permissions=eng, lifecycle_bus=bus)
     outcome_holder = {}
 
     async def _run():

@@ -56,6 +56,20 @@ jobs:
       - name: Proof 3 — publish idempotent (restart no re-send)
         run: python tests/proof/prove_publish_idempotent.py
 
+      # #480: funnel-era proofs — previously cited as acceptance evidence
+      # but invisible to CI. Same job as the legacy proofs.
+      - name: Proof 4 — funnel chain (compaction events + metering)
+        run: python tests/proof/prove_funnel_chain.py
+
+      - name: Proof 5 — permission deny-first (safety gateway never invoked)
+        run: python tests/proof/prove_permission_deny_first.py
+
+      - name: Proof 6 — lifecycle compaction (bus + funnel wiring)
+        run: python tests/proof/prove_lifecycle_compaction.py
+
+      - name: Proof 7 — long-session compaction (level escalation)
+        run: python tests/proof/prove_long_session_compaction.py
+
   # #327: web UI — typecheck + build the union-web shell module. Self-contained:
   # @fusion/web-ui and @fusion/web-sdk are vendored in web/vendor/@fusion (no
   # registry/network fetch beyond bun + vite themselves).
