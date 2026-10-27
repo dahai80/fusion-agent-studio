@@ -1062,27 +1062,35 @@ class _NodeExecutorsMixin:
                             )
                             tool_errors.append(f"{fn}: {r}")
                             continue
-                        if self.safety_gateway:
-                            sr = self.safety_gateway.evaluate_action(
-                                category="tool_call",
-                                content=f"{fn}({fa})",
-                                context=f"tool={fn} node={node.label} path=self_repair",
-                            )
-                            if sr.action.value == "block" and not sr.requires_approval:
-                                r = f"SafetyGateway blocked tool call: {sr.reason}"
-                                logger.warning(
-                                    "safety blocked self_repair tool=%s node=%s reason=%s",
+                        # #475: self-repair retry走 ToolFunnel 统一准入链
+                        # (hooks -> permission deny-first -> safety -> budget),
+                        # 与主 LLM 路径同构, 不再内联 evaluate_action.
+                        funnel_outcome = await self.tool_funnel.admit(
+                            ctx=ctx,
+                            tool_name=fn,
+                            args=fa,
+                            node_label=node.label,
+                        )
+                        if funnel_outcome.needs_approval:
+                            if funnel_outcome.safety_result is not None:
+                                async for evt in self._await_safety_approval(
+                                    ctx, funnel_outcome.safety_result, "tool_call", node.label
+                                ):
+                                    yield evt
+                                    if evt.type == AgentEventType.ERROR:
+                                        return
+                            else:
+                                r = (
+                                    f"Error: tool '{fn}' requires approval "
+                                    f"(permission rule {funnel_outcome.reason}); "
+                                    f"no approval backend wired"
+                                )
+                                logger.info(
+                                    "funnel permission-ask no backend self_repair tool=%s node=%s",
                                     fn,
                                     node.label,
-                                    sr.reason,
                                 )
                                 ctx.add_message("tool", r, tool_call_id=tc.get("id", ""))
-                                yield AgentEvent(
-                                    type=AgentEventType.SAFETY_APPROVAL,
-                                    content=sr.reason,
-                                    metadata={"action": "blocked", "category": "tool_call", "path": "self_repair"},
-                                    node_id=node.label,
-                                )
                                 yield AgentEvent(
                                     type=AgentEventType.TOOL_RESULT,
                                     content=r,
@@ -1091,19 +1099,61 @@ class _NodeExecutorsMixin:
                                 )
                                 tool_errors.append(f"{fn}: {r}")
                                 continue
-                            if sr.requires_approval:
-                                async for evt in self._await_safety_approval(
-                                    ctx, sr, "tool_call", node.label
-                                ):
-                                    yield evt
-                                    if evt.type == AgentEventType.ERROR:
-                                        return
+                        elif not funnel_outcome.allowed:
+                            reason = funnel_outcome.reason or "denied"
+                            gate = funnel_outcome.blocked_by
+                            if gate == "safety":
+                                r = f"SafetyGateway blocked tool call: {reason}"
+                            elif gate == "hook":
+                                r = f"Blocked by hook: {reason}"
+                            elif gate == "permission":
+                                r = f"Permission denied tool call: {reason}"
                             else:
+                                r = f"Blocked by {gate}: {reason}"
+                            logger.warning(
+                                "funnel blocked self_repair tool=%s gate=%s reason=%s",
+                                fn,
+                                gate,
+                                reason,
+                            )
+                            if gate == "safety":
                                 yield AgentEvent(
                                     type=AgentEventType.SAFETY_APPROVAL,
-                                    content=sr.reason or "approved",
-                                    metadata={"action": "approved", "category": "tool_call", "path": "self_repair"},
+                                    content=reason,
+                                    metadata={
+                                        "action": "blocked",
+                                        "category": "tool_call",
+                                        "path": "self_repair",
+                                    },
                                     node_id=node.label,
+                                )
+                            ctx.add_message("tool", r, tool_call_id=tc.get("id", ""))
+                            yield AgentEvent(
+                                type=AgentEventType.TOOL_RESULT,
+                                content=r,
+                                name=fn,
+                                node_id=node.label,
+                            )
+                            tool_errors.append(f"{fn}: {r}")
+                            continue
+                        else:
+                            if funnel_outcome.safety_result is not None:
+                                yield AgentEvent(
+                                    type=AgentEventType.SAFETY_APPROVAL,
+                                    content=funnel_outcome.reason or "approved",
+                                    metadata={
+                                        "action": "approved",
+                                        "category": "tool_call",
+                                        "path": "self_repair",
+                                    },
+                                    node_id=node.label,
+                                )
+                            if funnel_outcome.args != fa:
+                                fa = funnel_outcome.args
+                                logger.info(
+                                    "funnel hook rewrote args self_repair tool=%s node=%s",
+                                    fn,
+                                    node.label,
                                 )
                         try:
                             t = self.tools.get(fn)
