@@ -46,6 +46,7 @@ class InfraDispatcher(SubDispatcher):
             "cron.unregister": self._handle_cron_unregister,
             "cron.list": self._handle_cron_list,
             "cron.list_executions": self._handle_cron_list_executions,
+        "cron.trigger": self._handle_cron_trigger,
             "task.submit": self._handle_task_submit,
             "task.list": self._handle_task_list,
             "task.get": self._handle_task_get,
@@ -223,6 +224,12 @@ class InfraDispatcher(SubDispatcher):
             enabled=params.get("enabled", True),
             input_data=params.get("input_data", ""),
             max_retries=params.get("max_retries", 0),
+            # #477: loop modes — continuous / interval / event_driven.
+            loop_mode=str(params.get("loop_mode", "cron") or "cron"),
+            interval_seconds=int(params.get("interval_seconds", 60) or 0),
+            max_iterations=int(params.get("max_iterations", 0) or 0),
+            token_budget=int(params.get("token_budget", 0) or 0),
+            permission_mode=str(params.get("permission_mode", "") or ""),
         )
         await cm.aregister(job)
         return {"status": "ok", "job": job.to_dict()}
@@ -244,6 +251,19 @@ class InfraDispatcher(SubDispatcher):
         job_id = params.get("job_id", "")
         limit = params.get("limit", 20)
         return {"executions": await cm.alist_executions(job_id=job_id, limit=limit)}
+
+    async def _handle_cron_trigger(self, params: dict) -> dict:
+        # #477: arm an event_driven loop job for one run on the next tick.
+        job_id = params.get("id", "")
+        if not job_id:
+            return {"status": "error", "message": "id parameter required"}
+        cm = self._daemon._get_cron_manager()
+        if not cm.trigger_event(job_id):
+            return {
+                "status": "error",
+                "message": "job not found, disabled, or not event_driven",
+            }
+        return {"status": "ok", "triggered": job_id}
 
     # ── Task handlers (#141 priority 1: task.* 持久化) ──
 

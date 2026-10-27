@@ -2137,6 +2137,34 @@ class DaemonServer:
         except Exception:
             return None
 
+    def _execution_token_usage(self, execution_id: str, team: str = "default") -> dict:
+        # #477: sum usage metadata over the run spans — result events carry
+        # usage (per-token events are not spanned). Feeds cron loop budgets.
+        path = self._run_spans_path(execution_id, team)
+        total = 0
+        if not path or not path.exists():
+            return {"total_tokens": 0}
+        try:
+            with open(path, encoding="utf-8") as f:
+                for line in f:
+                    try:
+                        rec = json.loads(line)
+                    except ValueError:
+                        continue
+                    usage = (rec.get("metadata") or {}).get("usage") or {}
+                    if isinstance(usage, dict):
+                        try:
+                            total += int(
+                                usage.get("total_tokens")
+                                or usage.get("completion_tokens")
+                                or 0
+                            )
+                        except (TypeError, ValueError):
+                            pass
+        except OSError as exc:
+            logger.warning("token usage read failed %s: %s", execution_id, exc)
+        return {"total_tokens": total}
+
     def _append_run_span(self, execution_id: str, team: str, record: dict) -> None:
         path = self._run_spans_path(execution_id, team)
         if path is None:
@@ -2516,6 +2544,14 @@ class DaemonServer:
             agent_id = params.get("agent_id", "") or getattr(graph, "agent_id", "")
             exec_ctx = AgentContext(session_id=session_id)
             exec_ctx.agent_id = agent_id
+            # #477: per-iteration permission mode from the trigger job — "plan"
+            # maps to the ctx read-only gate the permission engine consults on
+            # every tool call of this execution.
+            if str(params.get("permission_mode", "") or "") == "plan":
+                exec_ctx.plan_mode = True
+                logger.info(
+                    "execute_async %s permission_mode=plan (read-only gate on)", execution_id
+                )
             initial_vars = params.get("variables", {})
             if isinstance(initial_vars, dict):
                 exec_ctx.variables = VariableManager()
@@ -2712,31 +2748,46 @@ class DaemonServer:
                 len(artifact_ids),
             )
         except asyncio.CancelledError:
-            # cancel: 写 cancelled 证据 + task cancelled
+            # cancel: 写 cancelled 证据 + task cancelled. #477: stop_reason is
+            # set by the real cancellation path (bg_task.cancel / supervisor
+            # stop) and surfaced on every downstream record.
             self._append_run_span(
                 execution_id,
                 team,
                 {
                     "type": "run_end",
                     "status": "cancelled",
+                    "stop_reason": "cancelled",
                     "events_count": events_count,
                     "ts": time.time(),
                 },
             )
             self._write_evidence(
                 execution_id,
-                {"type": "execution.cancelled", "events_count": events_count},
+                {
+                    "type": "execution.cancelled",
+                    "events_count": events_count,
+                    "stop_reason": "cancelled",
+                },
                 team=team,
             )
             await self._broadcast_event(
                 "execution.cancelled",
-                {"execution_id": execution_id, "events_count": events_count},
+                {
+                    "execution_id": execution_id,
+                    "events_count": events_count,
+                    "stop_reason": "cancelled",
+                },
                 team=team,
             )
             if task_id:
                 try:
                     ts = self._get_task_store()
-                    ts.update_status(task_id, "canceled")
+                    ts.update_status(
+                        task_id,
+                        "canceled",
+                        last_result={"stop_reason": "cancelled"},
+                    )
                 except Exception:
                     logger.warning("execute_async cancel task %s writeback failed", task_id)
             logger.info("graph.execute_async %s cancelled", execution_id)
@@ -3516,9 +3567,30 @@ class DaemonServer:
             "variables": variables,
             "task_id": task.task_id,
             "team": team,
+            # #477: per-iteration permission mode — honored on every iteration.
+            "permission_mode": str(getattr(job, "permission_mode", "") or ""),
         }
         try:
             result = await self._handle_graph_execute_async(exec_params)
+            exec_id = result.get("execution_id", "")
+            # #477: loop jobs (continuous/interval/event_driven) run iterations
+            # back-to-back — await the background execution so iterations never
+            # overlap and the run's token usage feeds the manager's per-
+            # iteration budget accounting.
+            usage: dict = {}
+            if getattr(job, "loop_mode", "cron") != "cron":
+                bg_task = self._active_executions.get(exec_id)
+                if bg_task is not None and not bg_task.done():
+                    try:
+                        await asyncio.shield(bg_task)
+                    except asyncio.CancelledError:
+                        pass
+                    except Exception as exc:
+                        logger.warning(
+                            "Cron job %s iteration execution %s ended: %s",
+                            job.id, exec_id, exc,
+                        )
+                usage = self._execution_token_usage(exec_id, team)
             await self._broadcast_event(
                 "task.created",
                 {
@@ -3526,15 +3598,18 @@ class DaemonServer:
                     "graph_id": job.graph_id,
                     "trigger": "cron",
                     "cron_job_id": job.id,
-                    "execution_id": result.get("execution_id", ""),
+                    "execution_id": exec_id,
                     "team": team,
                 },
             )
-            return {
+            out = {
                 "status": "triggered",
                 "task_id": task.task_id,
-                "execution_id": result.get("execution_id", ""),
+                "execution_id": exec_id,
             }
+            if usage:
+                out["usage"] = usage
+            return out
         except Exception as exc:
             logger.exception("Cron job %s execute_async failed: %s", job.id, exc)
             try:
