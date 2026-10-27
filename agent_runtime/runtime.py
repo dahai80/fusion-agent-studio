@@ -1032,6 +1032,16 @@ class AgentRuntime(_SafetyApprovalMixin, _CheckpointMixin, _DynamicToolsMixin, _
                     next_id = graph.get_next_node(current_node_id)
                     current_node_id = next_id or ""
 
+                elif node.type == "acp":
+                    # #496: external agent CLI via ACP — events stream onto
+                    # the SSE surface like any other node.
+                    async for event in self._execute_acp_node(ctx, node, graph):
+                        yield event
+                        if event.type == AgentEventType.ERROR:
+                            return
+                    next_id = graph.get_next_node(current_node_id)
+                    current_node_id = next_id or ""
+
                 elif node.type == "parallel":
                     async for ev in self._execute_parallel_node(
                         ctx, node, graph, current_node_id, stream=stream
