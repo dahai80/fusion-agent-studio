@@ -19,3 +19,6 @@ ar2.md
 CLAUDE.md
 .fusion-agent-studio.pid
 logs/
+
+# local-only agent role definition, never push
+AGENTS.md
