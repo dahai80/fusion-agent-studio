@@ -19,6 +19,7 @@ class SkillsDispatcher(SubDispatcher):
             "skills.delete": self._handle_delete,
             "skills.commands": self._handle_commands,
             "skills.invoke": self._handle_invoke,
+            "skills.match": self._handle_match,
         }
 
     def _store(self):
@@ -106,6 +107,22 @@ class SkillsDispatcher(SubDispatcher):
                 "message": f"skill not in persona skills allowlist: {name}",
             }
         return None
+
+    async def _handle_match(self, params: dict) -> dict:
+        # #498: AgentSkills trigger matching — keyword substring on text +
+        # fnmatch globs on path. Matched skills get their allowed-tools mapped
+        # onto the runtime permission engine (role-scoped allow rules) so a
+        # role="skill:<name>" execution is enforced there.
+        text = str(params.get("text", "") or "")
+        path = str(params.get("path", "") or "")
+        engine = None
+        get_runtime = getattr(self._daemon, "_get_runtime", None)
+        if callable(get_runtime):
+            engine = getattr(get_runtime(), "permission_engine", None)
+        from ..skill_permissions import register_matched_skill_rules
+
+        matched = register_matched_skill_rules(engine, self._store(), text=text, path=path)
+        return {"status": "ok", "matched": matched, "count": len(matched)}
 
     async def _handle_invoke(self, params: dict) -> dict:
         name = str(params.get("name", "") or "")

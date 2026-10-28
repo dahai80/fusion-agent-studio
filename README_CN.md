@@ -317,6 +317,13 @@ python my_agent.py
 - ✅ **任意已结束/失败运行可分叉续跑** — `run.fork` 把 path-to-root 事件前缀复制到新 run id，注册分支，并返回分叉点会话快照；`graph.execute_async` 接受 `fork_from: {run_id, at_event_id}` 用该快照播种新运行上下文（fail-fast 校验 — 未知 run 在 ≤5s 契约内直接拒绝）。REST：`POST /v1/runs/{run_id}/fork`、`GET /v1/runs/{run_id}/branches`、`POST /v1/runs/{run_id}/branches/{branch_id}/activate`；`run_id` 既接受 execution id 也接受其 task id。
 - 测试：`tests/test_issue_497_event_tree.py`（16 项）— store 单元（追加/跳 token/路径/消息/分叉前缀复制/分支激活/task-id 解析/新 `AgentStore` 实例重启持久化）、遗留事件 round-trip、runtime id 打链、daemon 全流程（执行 → END 处分叉 → fork_from 带历史续跑 → 分支列表/激活 → 跨实例持久化）。
 
+### AgentSkills SKILL.md 兼容 — #498
+- ✅ **原生 SKILL.md 免修改加载触发** — `SkillMeta` 新增 `triggers` 面，解析 OpenHands/AgentSkills 全部 frontmatter 形态（`triggers:` dict 含 keywords/paths、裸列表、裸字符串、平铺 `keywords:`/`paths:` 键）；触发键被消费，绝不落进 `meta.extra`。`SkillsStore` 接受 user/project 之外的 SKILL.md 目录 — `~/.fusion-agent-studio/plugins/<skill>/SKILL.md` 与原生 `.py` 插件同目录被发现，frontmatter 名与目录名不一致亦可解析。
+- ✅ **关键词 + 路径 glob 触发匹配** — `SkillsStore.match_skills(text, path)` 对用户文本做大小写不敏感关键词子串匹配、对工作文件路径做 `fnmatch` glob 匹配。`skills.match` RPC（`{text, path}`）返回命中的技能元数据，并一步完成各命中技能 allowed-tools 到 runtime 权限引擎的注册。
+- ✅ **allowed-tools 由权限引擎强制** — `agent_runtime/skill_permissions.py` 把每个声明工具映射为角色域 allow 规则（`roles=["skill:<name>"]`）；`role="skill:<name>"` 的执行自动放行其声明工具，其余升级为 "ask"（注册即布防引擎）。技能面工具（`skill_search`/`skill_invoke`/`skill.invoke`）保持全局放行，流程绝不自锁；注册幂等。
+- ✅ **命中技能自动暴露给 LLM** — runtime 注册两个新工具（`tools/skill_tools.py`）：`skill_search`（触发匹配 + 规则注册，返回 name/description/triggers/allowed-tools/command）与 `skill_invoke`（经既有渐进披露 store 渲染技能 prompt）。
+- 测试：`tests/test_issue_498_skill_md_compat.py`（24 项）— 触发形态解析矩阵、关键词/路径匹配、插件目录发现、角色域强制（允许→allow、未允许→ask、角色不匹配、面工具、幂等）、LLM 工具、runtime 接线、`skills.match` RPC。
+
 ### 集成
 - ✅ **fusion-mlx** — Apple Silicon 优化模型服务
 - ✅ **OpenAI 兼容 API** — 兼容任何 OpenAI 兼容后端
