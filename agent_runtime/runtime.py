@@ -19,10 +19,10 @@ from .context import AgentContext, AgentEvent, AgentEventType
 from .debugger import StepDebugger
 from .graph import AgentGraph
 from .llm_gateway import LLMGateway
-from .persona_gate import PersonaScopedFunnel
 from .prompt_templates import PromptTemplateManager
 from .sub_graph import SubGraphRegistry
 from .token_budget import TokenBudget
+from .tool_pipeline import PipelineScopedFunnel
 from .trajectory_writer import get_trajectory_writer
 from .variable_manager import VariableManager
 
@@ -149,8 +149,10 @@ class AgentRuntime(_SafetyApprovalMixin, _CheckpointMixin, _DynamicToolsMixin, _
         # prompt; the LLM finds them via the tool_search tool at need.
         # Opt-out: FUSION_TOOLSEARCH=0/false/no restores full inline schemas.
         self._memory_tools_registered = False
-        self._toolsearch_enabled = (
-            os.environ.get("FUSION_TOOLSEARCH", "1").strip().lower() not in ("0", "false", "no")
+        self._toolsearch_enabled = os.environ.get("FUSION_TOOLSEARCH", "1").strip().lower() not in (
+            "0",
+            "false",
+            "no",
         )
         # #498: LLM-facing SKILL.md surface — see _register_skill_tools().
         # NOT wired here: subagent/orchestrator pass caller-owned filtered
@@ -204,9 +206,7 @@ class AgentRuntime(_SafetyApprovalMixin, _CheckpointMixin, _DynamicToolsMixin, _
         # #478: wire the gateway so compaction-triggered summarize calls run
         # on the gateway LLM (default :11432) instead of degrading to the
         # deterministic extractor.
-        self.compactor = Compactor(
-            memory_engine=self.memory_engine, llm_gateway=self.llm_gateway
-        )
+        self.compactor = Compactor(memory_engine=self.memory_engine, llm_gateway=self.llm_gateway)
         if hasattr(self.llm_gateway, "set_compactor"):
             self.llm_gateway.set_compactor(self.compactor)
 
@@ -237,7 +237,12 @@ class AgentRuntime(_SafetyApprovalMixin, _CheckpointMixin, _DynamicToolsMixin, _
         # #482: PersonaScopedFunnel 包一层 — ctx.persona_declarations 有内容时
         # 先过 persona gate (结构化 rules deny / memory_scope 改写 / skills),
         # 其余行为与裸 ToolFunnel 一致. 单一 choke point, 6 个 admit 调用点全覆盖.
-        self.tool_funnel = PersonaScopedFunnel(
+        # #5 AC4 (fusion-harness): PipelineScopedFunnel — every admit runs the
+        # kernel ToolPipeline (five-stage segmented admission); the funnel
+        # chain (hooks -> permission -> safety -> budget) is the pipeline's
+        # policy stage, interactive approval resolves inside stage 3.
+        self.tool_funnel = PipelineScopedFunnel(
+            runtime=self,
             hooks=self._hooks_engine,
             permissions=self.permission_engine,
             lifecycle_bus=self.lifecycle_bus,
@@ -374,10 +379,58 @@ class AgentRuntime(_SafetyApprovalMixin, _CheckpointMixin, _DynamicToolsMixin, _
     ) -> AsyncIterator[AgentEvent]:
         # 审计 P1-18: max_iterations 调用点覆盖 (per-agent). None=用 runtime 默认.
         async for event in self._run_with_trajectory(
-            graph, initial_input, context, token_budget,
-            stream=False, max_iterations=max_iterations,
+            graph,
+            initial_input,
+            context,
+            token_budget,
+            stream=False,
+            max_iterations=max_iterations,
         ):
             yield event
+
+    def _make_session_event_log(self, ctx: AgentContext, graph: AgentGraph):
+        # #4 AC4 (fusion-harness): durable append-only session event log.
+        # One JSONL per session under ~/.fusion-agent-studio/session-events
+        # (override: FUSION_SESSION_EVENT_LOG_DIR; disable:
+        # FUSION_SESSION_EVENT_LOG=off). Never breaks the run on failure.
+        from fusion_harness import SessionEventLog
+
+        if os.environ.get("FUSION_SESSION_EVENT_LOG", "").strip().lower() in (
+            "0",
+            "off",
+            "false",
+            "no",
+        ):
+            return None
+        log_dir = os.environ.get("FUSION_SESSION_EVENT_LOG_DIR") or os.path.expanduser(
+            "~/.fusion-agent-studio/session-events"
+        )
+        try:
+            log = SessionEventLog(ctx.session_id, log_dir=log_dir)
+            log.append(
+                "session_start",
+                {
+                    "graph": getattr(graph, "name", ""),
+                    "graph_id": getattr(ctx, "graph_id", ""),
+                    "agent_id": getattr(ctx, "agent_id", ""),
+                },
+            )
+            logger.info("session event log started session=%s dir=%s", ctx.session_id, log_dir)
+            return log
+        except Exception as e:
+            logger.warning("session event log init failed session=%s err=%s", ctx.session_id, e)
+            return None
+
+    def _session_log(self, ctx, event_type: str, payload: dict | None = None) -> None:
+        # #4: single append helper for node/tool paths; failures are logged
+        # and never break the graph run.
+        log = getattr(ctx, "session_event_log", None)
+        if log is None:
+            return
+        try:
+            log.append(event_type, payload or {})
+        except Exception as e:
+            logger.warning("session event log append failed type=%s err=%s", event_type, e)
 
     async def execute_graph_stream(
         self,
@@ -389,8 +442,13 @@ class AgentRuntime(_SafetyApprovalMixin, _CheckpointMixin, _DynamicToolsMixin, _
         show_thinking: bool | None = None,
     ) -> AsyncIterator[AgentEvent]:
         async for event in self._run_with_trajectory(
-            graph, initial_input, context, token_budget,
-            stream=True, max_iterations=max_iterations, show_thinking=show_thinking,
+            graph,
+            initial_input,
+            context,
+            token_budget,
+            stream=True,
+            max_iterations=max_iterations,
+            show_thinking=show_thinking,
         ):
             yield event
 
@@ -406,9 +464,7 @@ class AgentRuntime(_SafetyApprovalMixin, _CheckpointMixin, _DynamicToolsMixin, _
         # #482: per-exec 解析 persona declarations. 失败 fail-open (声明层
         # 只能收紧不能放大攻击面, 解析报错不应弄挂执行).
         try:
-            agent_id = getattr(ctx, "agent_id", "") or ctx.metadata.get(
-                "agent_id", ""
-            )
+            agent_id = getattr(ctx, "agent_id", "") or ctx.metadata.get("agent_id", "")
             if not agent_id:
                 return
             from .persona import resolve_persona
@@ -419,9 +475,7 @@ class AgentRuntime(_SafetyApprovalMixin, _CheckpointMixin, _DynamicToolsMixin, _
                 team_id=ctx.metadata.get("team_id", ""),
             )
             declarations = result.get("declarations") or {}
-            if any(
-                declarations.get(k) for k in ("rules", "memory_scope", "skills")
-            ):
+            if any(declarations.get(k) for k in ("rules", "memory_scope", "skills")):
                 ctx.persona_declarations = declarations
                 logger.info(
                     "persona declarations resolved agent=%s layers=%s",
@@ -457,6 +511,10 @@ class AgentRuntime(_SafetyApprovalMixin, _CheckpointMixin, _DynamicToolsMixin, _
         # #482: 集中解析 persona declarations (per-ctx, 审计 A-1 模式) —
         # execute_graph / execute_graph_stream / daemon / api 全走这里, 单点.
         self._resolve_persona_declarations(ctx)
+        # #4 AC4 (fusion-harness): durable append-only session event log —
+        # one JSONL per session, replayable after crash/restart. Lives on
+        # ctx so every node/tool path appends through the same instance.
+        ctx.session_event_log = self._make_session_event_log(ctx, graph)
         # N9 #348: thinking channel visibility — run-level override seeds
         # ctx vars; nodes may still opt out via tool_params.thinking=false.
         if show_thinking is not None:
@@ -524,7 +582,11 @@ class AgentRuntime(_SafetyApprovalMixin, _CheckpointMixin, _DynamicToolsMixin, _
         try:
             last_event_id = ""
             async for event in self._execute_graph_inner(
-                graph, initial_input, ctx, token_budget, stream=stream,
+                graph,
+                initial_input,
+                ctx,
+                token_budget,
+                stream=stream,
                 max_iterations=max_iterations,
             ):
                 # #497: event tree — stamp event_id/parent_id chain so every
@@ -643,6 +705,15 @@ class AgentRuntime(_SafetyApprovalMixin, _CheckpointMixin, _DynamicToolsMixin, _
                 writer.flush(ctx_ref.session_id, status=status)
             except (OSError, ValueError, TypeError) as e:
                 logger.warning("trajectory flush failed: %s", e)
+            # #4: durable session log — session boundary + fsync-close.
+            # Outside the trajectory try so a flush failure still closes it.
+            _session_log = getattr(ctx_ref, "session_event_log", None)
+            if _session_log is not None:
+                try:
+                    _session_log.append("session_end", {"status": status})
+                    _session_log.close()
+                except Exception as e:
+                    logger.warning("session event log close failed: %s", e)
             if tele_span is not None and self.telemetry_engine is not None:
                 try:
                     self.telemetry_engine.end_span(tele_span.span_id, status=status)
@@ -729,15 +800,11 @@ class AgentRuntime(_SafetyApprovalMixin, _CheckpointMixin, _DynamicToolsMixin, _
             # N15/#354: recall injection token budget hard cap — memory must
             # not crowd out working context.
             inject_cap = self._memory_inject_tokens()
-            mem_ctx = await asyncio.to_thread(
-                self.memory_engine.recall_relevant, initial_input, 5
-            )
+            mem_ctx = await asyncio.to_thread(self.memory_engine.recall_relevant, initial_input, 5)
             if mem_ctx:
                 if len(mem_ctx) > inject_cap:
                     mem_ctx = mem_ctx[:inject_cap]
-                    logger.info(
-                        "memory injection truncated to %d chars (budget)", inject_cap
-                    )
+                    logger.info("memory injection truncated to %d chars (budget)", inject_cap)
                 ctx.add_message("system", f"[Relevant memory]: {mem_ctx}")
                 logger.info("Auto-loaded memory for input")
 
@@ -767,7 +834,8 @@ class AgentRuntime(_SafetyApprovalMixin, _CheckpointMixin, _DynamicToolsMixin, _
                 tools_schema = tools_schema[:inline_cap]
                 logger.info(
                     "ToolSearch deferral: %d schemas deferred (inline cap %d)",
-                    len(deferred), inline_cap,
+                    len(deferred),
+                    inline_cap,
                 )
 
         current_node_id = graph.start_node_id
@@ -1097,8 +1165,12 @@ class AgentRuntime(_SafetyApprovalMixin, _CheckpointMixin, _DynamicToolsMixin, _
                         f"Unknown node type '{node.type}' on node '{node.label}' "
                         f"(id={current_node_id})"
                     )
-                    logger.error("unknown node type=%s node=%s id=%s", node.type, node.label, current_node_id)
-                    yield AgentEvent(type=AgentEventType.ERROR, content=ctx.error, node_id=node.label)
+                    logger.error(
+                        "unknown node type=%s node=%s id=%s", node.type, node.label, current_node_id
+                    )
+                    yield AgentEvent(
+                        type=AgentEventType.ERROR, content=ctx.error, node_id=node.label
+                    )
                     return
             finally:
                 # #479: NODE_AFTER — fires on advance, continue and
@@ -1212,9 +1284,7 @@ class AgentRuntime(_SafetyApprovalMixin, _CheckpointMixin, _DynamicToolsMixin, _
                     fut.cancel()
                     reaped += 1
         if reaped:
-            logger.warning(
-                "A-1 reaped %d stranded futures for exec_id=%s", reaped, exec_id
-            )
+            logger.warning("A-1 reaped %d stranded futures for exec_id=%s", reaped, exec_id)
 
     def _seed_ctx_variables(self, ctx: AgentContext) -> None:
         # 审计 A-1/A-2 Tier3: ctx.variables 播种. dispatch 入口 + 直接调用
