@@ -166,6 +166,8 @@ def _get_runtime() -> AgentRuntime:
         _runtime._register_skill_tools()
         # #488: ToolSearch ON by default — same rule, top-level surface only.
         _runtime._register_toolsearch()
+        # #487: subagent_spawn ON by default — same rule, top-level surface only.
+        _runtime._register_subagent_tools()
     return _runtime
 
 
