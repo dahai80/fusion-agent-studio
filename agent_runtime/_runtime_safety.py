@@ -11,6 +11,7 @@ import time
 from typing import AsyncIterator
 
 from ._runtime_helpers import logger
+from .confirmation_policy import policy_from_ctx, score_tool_risk
 from .context import AgentContext, AgentEvent, AgentEventType
 
 
@@ -77,17 +78,103 @@ class _SafetyApprovalMixin:
         except Exception as e:
             logger.warning("approval SLO record failed: %s", e)
 
+    def _confirmation_policy_meta(
+        self,
+        ctx: AgentContext,
+        requires_approval: bool,
+        tool_name: str = "",
+        params: dict | None = None,
+    ) -> dict | None:
+        # #499: confirmation policy tier decision — {"tier", "risk_score",
+        # "decision"}. None when no graph-level policy is active (legacy
+        # behavior). Deterministic risk scorer, never LLM-judged.
+        policy = policy_from_ctx(ctx)
+        if policy is None:
+            return None
+        risk_score = score_tool_risk(tool_name, params)
+        decision, tier, risk_score = policy.decide(requires_approval, risk_score, tool_name)
+        logger.info(
+            "confirmation policy tier=%s tool=%s risk=%.2f decision=%s",
+            tier,
+            tool_name or "-",
+            risk_score,
+            decision,
+        )
+        return {"tier": tier, "risk_score": risk_score, "decision": decision}
+
+    def _policy_escalation_verdict(self, ctx: AgentContext, tool_name: str, params: dict | None = None):
+        # #499: AlwaysConfirm / ConfirmRisk(at/above threshold) escalate
+        # actions the funnel auto-passed into the human approval flow.
+        # Returns a synthesized SafetyVerdict for _await_safety_approval,
+        # or None when the policy lets the action run.
+        meta = self._confirmation_policy_meta(ctx, False, tool_name, params)
+        if meta is None or meta["decision"] != "confirm":
+            return None
+        from .safety import SafetyAction, SafetyVerdict
+
+        return SafetyVerdict(
+            action=SafetyAction.PREVIEW,
+            reason=(
+                f"confirmation policy tier '{meta['tier']}' requires approval "
+                f"for {tool_name} (risk {meta['risk_score']:.2f})"
+            ),
+            requires_approval=True,
+            metadata={"level": "L2", "source": "confirmation_policy"},
+        )
+
     async def _await_safety_approval(
-        self, ctx: AgentContext, safety_result, category: str, node_label: str
+        self,
+        ctx: AgentContext,
+        safety_result,
+        category: str,
+        node_label: str,
+        tool_name: str = "",
+        params: dict | None = None,
     ) -> AsyncIterator[AgentEvent] | None:
-        if not safety_result.requires_approval:
+        # #499: the graph-level confirmation policy decides the confirmation
+        # step on top of the safety verdict. "auto" -> approve without asking
+        # ("never" tier, or "risk" below threshold); "confirm" -> the ask flow
+        # below (also escalates actions the safety flow would auto-pass).
+        policy_meta = self._confirmation_policy_meta(
+            ctx, safety_result.requires_approval, tool_name, params
+        )
+        if policy_meta is not None and policy_meta["decision"] == "auto":
             yield AgentEvent(
                 type=AgentEventType.SAFETY_APPROVAL,
-                content=safety_result.reason or "approved",
-                metadata={"action": "approved", "category": category},
+                content=safety_result.reason or "auto-approved by confirmation policy",
+                metadata={
+                    "action": "approved",
+                    "category": category,
+                    "confirmation_policy": policy_meta,
+                },
                 node_id=node_label,
             )
             return
+        escalated = bool(
+            policy_meta is not None
+            and policy_meta["decision"] == "confirm"
+            and not safety_result.requires_approval
+        )
+        if not safety_result.requires_approval and not escalated:
+            approved_meta: dict = {"action": "approved", "category": category}
+            if policy_meta is not None:
+                approved_meta["confirmation_policy"] = policy_meta
+            yield AgentEvent(
+                type=AgentEventType.SAFETY_APPROVAL,
+                content=safety_result.reason or "approved",
+                metadata=approved_meta,
+                node_id=node_label,
+            )
+            return
+        if escalated:
+            # Auto-passed verdicts carry a "nothing to ask" reason; the
+            # pending card must say what the policy is asking about.
+            safety_result.reason = (
+                f"confirmation policy tier '{policy_meta['tier']}' requires "
+                f"approval for {tool_name or category} "
+                f"(risk {policy_meta['risk_score']:.2f})"
+            )
+            safety_result.requires_approval = True
 
         action_id = safety_result.metadata.get("action_id", "")
         if not action_id:
@@ -115,18 +202,21 @@ class _SafetyApprovalMixin:
                 )
             self.safety_gateway._pending_approvals[action_id] = future
 
+        pending_meta = {
+            "action": "pending_approval",
+            "category": category,
+            "action_id": action_id,
+            "level": safety_result.metadata.get("level", ""),
+            "diff_preview": safety_result.diff_preview.to_dict()
+            if safety_result.diff_preview
+            else None,
+        }
+        if policy_meta is not None:
+            pending_meta["confirmation_policy"] = policy_meta
         yield AgentEvent(
             type=AgentEventType.SAFETY_APPROVAL,
             content=safety_result.reason,
-            metadata={
-                "action": "pending_approval",
-                "category": category,
-                "action_id": action_id,
-                "level": safety_result.metadata.get("level", ""),
-                "diff_preview": safety_result.diff_preview.to_dict()
-                if safety_result.diff_preview
-                else None,
-            },
+            metadata=pending_meta,
             node_id=node_label,
         )
         # #479: APPROVAL_REQUEST — organic fire point at ask time, right

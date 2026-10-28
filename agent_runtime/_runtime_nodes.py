@@ -268,19 +268,14 @@ class _NodeExecutorsMixin:
                 )
                 yield AgentEvent(type=AgentEventType.ERROR, content=ctx.error)
                 return
-            if safety_result.requires_approval:
-                async for evt in self._await_safety_approval(
-                    ctx, safety_result, "llm_call", node.label
-                ):
-                    yield evt
-                    if evt.type == AgentEventType.ERROR:
-                        return
-            else:
-                yield AgentEvent(
-                    type=AgentEventType.SAFETY_APPROVAL,
-                    content=safety_result.reason or "approved",
-                    metadata={"action": "approved", "category": "llm_call"},
-                )
+            # #499: approval chokepoint handles both ask and auto-pass
+            # verdicts — the confirmation policy may escalate or auto-approve.
+            async for evt in self._await_safety_approval(
+                ctx, safety_result, "llm_call", node.label
+            ):
+                yield evt
+                if evt.type == AgentEventType.ERROR:
+                    return
 
         capability = node.tool_params.get("capability", "")
         effort = node.effort or ""
@@ -713,13 +708,32 @@ class _NodeExecutorsMixin:
                         args=func_args,
                         node_label=node.label,
                     )
-                    if funnel_outcome.needs_approval:
-                        self._emit_permission_ask(
-                            ctx, func_name, funnel_outcome.reason, node.label
+                    # #499: confirmation-policy escalation turns an
+                    # auto-passed call into an approval ask (AlwaysConfirm /
+                    # ConfirmRisk at/above threshold).
+                    escalation = (
+                        self._policy_escalation_verdict(ctx, func_name, func_args)
+                        if funnel_outcome.allowed and not funnel_outcome.needs_approval
+                        else None
+                    )
+                    if funnel_outcome.needs_approval or escalation is not None:
+                        if funnel_outcome.needs_approval:
+                            self._emit_permission_ask(
+                                ctx, func_name, funnel_outcome.reason, node.label
+                            )
+                        approval_result = (
+                            funnel_outcome.safety_result
+                            if funnel_outcome.safety_result is not None
+                            else escalation
                         )
-                        if funnel_outcome.safety_result is not None:
+                        if approval_result is not None:
                             async for evt in self._await_safety_approval(
-                                ctx, funnel_outcome.safety_result, "tool_call", node.label
+                                ctx,
+                                approval_result,
+                                "tool_call",
+                                node.label,
+                                tool_name=func_name,
+                                params=func_args,
                             ):
                                 yield evt
                                 if evt.type == AgentEventType.ERROR:
@@ -957,20 +971,13 @@ class _NodeExecutorsMixin:
                             )
                             yield AgentEvent(type=AgentEventType.ERROR, content=ctx.error, node_id=node.label)
                             return
-                        if safety_result.requires_approval:
-                            async for evt in self._await_safety_approval(
-                                ctx, safety_result, "llm_call", node.label
-                            ):
-                                yield evt
-                                if evt.type == AgentEventType.ERROR:
-                                    return
-                        else:
-                            yield AgentEvent(
-                                type=AgentEventType.SAFETY_APPROVAL,
-                                content=safety_result.reason or "approved",
-                                metadata={"action": "approved", "category": "llm_call", "path": "self_repair"},
-                                node_id=node.label,
-                            )
+                        # #499: unified approval chokepoint (policy-aware).
+                        async for evt in self._await_safety_approval(
+                            ctx, safety_result, "llm_call", node.label
+                        ):
+                            yield evt
+                            if evt.type == AgentEventType.ERROR:
+                                return
 
                     # 审计 P-2: self-repair retry is a separate LLM call and
                     # must pass the same LLMFunnel (budget -> hooks ->
@@ -1084,13 +1091,31 @@ class _NodeExecutorsMixin:
                             args=fa,
                             node_label=node.label,
                         )
-                        if funnel_outcome.needs_approval:
-                            self._emit_permission_ask(
-                                ctx, fn, funnel_outcome.reason, node.label
+                        # #499: confirmation-policy escalation (see main
+                        # tool-call funnel site above).
+                        escalation = (
+                            self._policy_escalation_verdict(ctx, fn, fa)
+                            if funnel_outcome.allowed and not funnel_outcome.needs_approval
+                            else None
+                        )
+                        if funnel_outcome.needs_approval or escalation is not None:
+                            if funnel_outcome.needs_approval:
+                                self._emit_permission_ask(
+                                    ctx, fn, funnel_outcome.reason, node.label
+                                )
+                            approval_result = (
+                                funnel_outcome.safety_result
+                                if funnel_outcome.safety_result is not None
+                                else escalation
                             )
-                            if funnel_outcome.safety_result is not None:
+                            if approval_result is not None:
                                 async for evt in self._await_safety_approval(
-                                    ctx, funnel_outcome.safety_result, "tool_call", node.label
+                                    ctx,
+                                    approval_result,
+                                    "tool_call",
+                                    node.label,
+                                    tool_name=fn,
+                                    params=fa,
                                 ):
                                     yield evt
                                     if evt.type == AgentEventType.ERROR:
@@ -1238,6 +1263,17 @@ class _NodeExecutorsMixin:
             )
             return (
                 f"Error: tool '{func_name}' requires approval; "
+                f"parallel path cannot pause for approval, retry sequentially",
+                True,
+            )
+        # #499: confirmation-policy escalation can't pause here either —
+        # degrade the same way; the sequential retry carries the ask.
+        if (
+            funnel_outcome.allowed
+            and self._policy_escalation_verdict(ctx, func_name, func_args) is not None
+        ):
+            return (
+                f"Error: confirmation policy requires approval for '{func_name}'; "
                 f"parallel path cannot pause for approval, retry sequentially",
                 True,
             )
@@ -1397,13 +1433,32 @@ class _NodeExecutorsMixin:
             args=params,
             node_label=node.label,
         )
-        if funnel_outcome.needs_approval:
-            self._emit_permission_ask(
-                ctx, node.tool_name, funnel_outcome.reason, node.label
+        # #499: confirmation-policy escalation (see main tool-call funnel
+        # site above) — AlwaysConfirm / ConfirmRisk at/above threshold turn
+        # an auto-passed tool node into an approval ask.
+        escalation = (
+            self._policy_escalation_verdict(ctx, node.tool_name, params)
+            if funnel_outcome.allowed and not funnel_outcome.needs_approval
+            else None
+        )
+        if funnel_outcome.needs_approval or escalation is not None:
+            if funnel_outcome.needs_approval:
+                self._emit_permission_ask(
+                    ctx, node.tool_name, funnel_outcome.reason, node.label
+                )
+            approval_result = (
+                funnel_outcome.safety_result
+                if funnel_outcome.safety_result is not None
+                else escalation
             )
-            if funnel_outcome.safety_result is not None:
+            if approval_result is not None:
                 async for evt in self._await_safety_approval(
-                    ctx, funnel_outcome.safety_result, "tool_call", node.label
+                    ctx,
+                    approval_result,
+                    "tool_call",
+                    node.label,
+                    tool_name=node.tool_name,
+                    params=params,
                 ):
                     yield evt
                     if evt.type == AgentEventType.ERROR:

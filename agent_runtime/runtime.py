@@ -688,6 +688,13 @@ class AgentRuntime(_SafetyApprovalMixin, _CheckpointMixin, _DynamicToolsMixin, _
             logger.info("Graph %s entered plan_mode (read-only explore)", graph.id)
         elif context is None:
             ctx.plan_mode = False
+        # #499: graph-level confirmation policy per-exec -> ctx.metadata,
+        # mirroring plan_mode (A-1 Tier2: never on the singleton). The policy
+        # layer in _await_safety_approval reads it via policy_from_ctx().
+        _cp = getattr(graph, "confirmation_policy", None)
+        if _cp:
+            ctx.metadata["confirmation_policy"] = _cp
+            logger.info("Graph %s confirmation policy active: %s", graph.id, _cp)
         # 审计 A-1/A-2 Tier3: variables per-exec. ctx.variables 为空时从
         # runtime seed (self.variables) 快照 copy — 隔离不共享, 并发/sub
         # 互不污染. sub runtime 把 sub_vars 传进 ctor (self.variables=sub_vars),

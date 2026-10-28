@@ -187,6 +187,10 @@ class AgentGraph:
     # must fail loud (e.g. cron-driven production graphs whose silent
     # partial-success is indistinguishable from real success).
     stop_on_tool_error: bool = False
+    # #499: graph-level confirmation policy — {"tier": "always"|"never"|"risk",
+    # "risk_threshold": 0.5, "tool_overrides": {tool: tier}}. None = legacy
+    # behavior (safety gateway alone decides approval).
+    confirmation_policy: dict | None = None
 
     def __post_init__(self):
         if not self.id:
@@ -223,6 +227,7 @@ class AgentGraph:
             agent_id=self.agent_id,
             plan_mode=self.plan_mode,
             stop_on_tool_error=self.stop_on_tool_error,
+            confirmation_policy=self.confirmation_policy,
         )
         sub.edges = [e for e in self.edges if e.source_id in keep and e.target_id in keep]
         logger.info(
@@ -406,6 +411,7 @@ class AgentGraph:
             "agent_id": self.agent_id,
             "plan_mode": self.plan_mode,
             "stop_on_tool_error": self.stop_on_tool_error,
+            "confirmation_policy": self.confirmation_policy,
         }
 
     def to_json(self, indent: int = 2) -> str:
@@ -442,6 +448,7 @@ class AgentGraph:
             agent_id=data.get("agent_id", ""),
             plan_mode=data.get("plan_mode", False),
             stop_on_tool_error=data.get("stop_on_tool_error", False),
+            confirmation_policy=data.get("confirmation_policy"),
         )
 
     @classmethod
