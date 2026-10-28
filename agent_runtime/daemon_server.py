@@ -375,9 +375,33 @@ class DaemonServer:
             self._runtime._register_toolsearch()
             # #487: subagent_spawn ON by default — same rule, top-level surface only.
             self._runtime._register_subagent_tools()
+            # #485: production LifecycleBus consumer — mirrors lifecycle
+            # events into the WS event ring (governance stream) and the
+            # sessions.lifecycle feed.
+            self._get_lifecycle_feed()
             # #479: funnel deny decisions land in the audit DB (deny rows).
             self._runtime.set_audit_logger(self._get_audit_logger())
         return self._runtime
+
+    def _get_lifecycle_feed(self):
+        # #485: single SessionLifecycleFeed per daemon. Sink forwards bus
+        # events into the daemon event ring so WS clients pick them up via
+        # Last-Event-ID catch-up (live push stays async in _broadcast_event).
+        if getattr(self, "_lifecycle_feed", None) is None:
+            from .lifecycle_consumer import SessionLifecycleFeed
+
+            def _sink(d: dict) -> None:
+                team = str((d.get("payload") or {}).get("team") or "default")
+                self._append_event("lifecycle.event", d, team=team)
+
+            # Assign before attach — attach re-enters _get_runtime, which
+            # re-enters here; the getattr guard must see the feed already set.
+            self._lifecycle_feed = SessionLifecycleFeed(
+                jsonl_dir=os.environ.get("FUSION_LIFECYCLE_JSONL_DIR", "") or None,
+                sink=_sink,
+            )
+            self._lifecycle_feed.attach(self._get_runtime().lifecycle_bus)
+        return self._lifecycle_feed
 
     def _get_chat_engine(self) -> ChatEngine:
         if self._chat_engine is None:

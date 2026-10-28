@@ -23,6 +23,7 @@ class SessionDispatcher(SubDispatcher):
             "sessions.fork": self._handle_fork,
             "sessions.inject_input": self._handle_inject_input,
             "sessions.store_info": self._handle_store_info,
+            "sessions.lifecycle": self._handle_lifecycle,
             "file_checkpoint.snapshot": self._handle_fc_snapshot,
             "file_checkpoint.list": self._handle_fc_list,
             "file_checkpoint.rollback": self._handle_fc_rollback,
@@ -158,6 +159,31 @@ class SessionDispatcher(SubDispatcher):
             "status": "ok",
             "backend": backend,
             "env": os.environ.get("FUSION_SESSION_STORE", "sqlite"),
+        }
+
+    async def _handle_lifecycle(self, params: dict) -> dict:
+        # #485: governance/canvas run-event surface reading from the
+        # lifecycle bus feed instead of a parallel path. In-memory feed
+        # first; empty (post-restart) feeds reconstruct from the bus JSONL.
+        session_id = str(params.get("session_id", "") or "")
+        limit = int(params.get("limit", 0) or 0)
+        feed = self._daemon._get_lifecycle_feed()
+        events = feed.events(session_id, limit=limit)
+        restored = 0
+        if not events:
+            restored = feed.restore_from_jsonl(session_id)
+            events = feed.events(session_id, limit=limit)
+        summary = feed.summary(session_id)
+        logger.info(
+            "sessions.lifecycle session=%s events=%d restored=%d domains=%s",
+            session_id, len(events), restored, summary.get("by_domain"),
+        )
+        return {
+            "status": "ok",
+            "session_id": session_id,
+            "restored_from_jsonl": restored,
+            "events": events,
+            "summary": summary,
         }
 
     async def _handle_fc_snapshot(self, params: dict) -> dict:
