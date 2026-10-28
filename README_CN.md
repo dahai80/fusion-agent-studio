@@ -324,6 +324,12 @@ python my_agent.py
 - ✅ **命中技能自动暴露给 LLM** — runtime 注册两个新工具（`tools/skill_tools.py`）：`skill_search`（触发匹配 + 规则注册，返回 name/description/triggers/allowed-tools/command）与 `skill_invoke`（经既有渐进披露 store 渲染技能 prompt）。
 - 测试：`tests/test_issue_498_skill_md_compat.py`（24 项）— 触发形态解析矩阵、关键词/路径匹配、插件目录发现、角色域强制（允许→allow、未允许→ask、角色不匹配、面工具、幂等）、LLM 工具、runtime 接线、`skills.match` RPC。
 
+### 确认策略层级 — #499
+- ✅ **图级确认策略** — `AgentGraph.confirmation_policy` 在安全审批流之上叠加 OpenHands 对齐的确认层级：`{"tier": "always"|"never"|"risk", "risk_threshold": 0.5, "tool_overrides": {"file_write": "never"}}`。默认 `None` 保持遗留行为 — 仅由安全网关决定审批。按次执行暂存进 `ctx.metadata`（并发安全，与 plan_mode 同法），在唯一审批收口读取。
+- ✅ **确定性风险评分，绝不 LLM 判定** — `agent_runtime/confirmation_policy.py` 按固定分带为每个受控动作打分：0.9 破坏性命令模式（`rm -rf`、`drop table`、`git push --force` 等）、0.6 参数含网络出访、0.3 写类工具、0.0 只读。`ConfirmRisk` 在 `risk_threshold` 及以上确认、以下自动放行；`AlwaysConfirm` 全确认；`NeverConfirm` 自动放行待审批裁决。per-tool `tool_overrides` 优先于图层级。
+- ✅ **升级 + 决策可见** — `AlwaysConfirm`/`ConfirmRisk` 会把安全漏斗自动放行的动作升级进人工审批流（合成裁决）；硬安全拦截不受影响 — 策略只治理确认这一步。每次决策均记日志，并以 `confirmation_policy: {tier, risk_score, decision}` 出现在 `SAFETY_APPROVAL` 事件 metadata。并行扇出路径无法暂停，被升级调用降级 fail-closed 并明确报错"请改顺序重试"。
+- 测试：`tests/test_issue_499_confirmation_policy.py`（30 项）— 策略对象矩阵、风险分带评分、图字段 round-trip/子图传播、收口层级行为（never 自动放行、risk 阈值上下、always 升级自动放行动作、工具覆盖优先、无策略不变）、含审批的端到端图执行。
+
 ### 集成
 - ✅ **fusion-mlx** — Apple Silicon 优化模型服务
 - ✅ **OpenAI 兼容 API** — 兼容任何 OpenAI 兼容后端
@@ -469,7 +475,7 @@ python -c "from tools.plugin_manager import PluginManager; from tools.registry i
 ```
 
 ### 测试统计
-- **3050 个测试**，0 失败
+- **3545 个测试**，0 失败
 - **94%+ 语句覆盖率**
 - **Python 3.11+** 兼容
 - **16 个业务场景集成测试** 覆盖：智能体生命周期 (创建→配置→执行→删除)、技能管理、灵魂管理、市场 (发布→搜索→安装)、记忆 (存储→召回→删除)、安全 (检查→评估→策略)、规划器、部署导入/导出、模板、图 CRUD、智能体过滤、环境健康、RAG、ping
