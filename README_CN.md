@@ -354,6 +354,12 @@ python my_agent.py
 - ✅ **telemetry/SLO 面暴露拆分** — `llm.call` span 属性携带 `reasoning_tokens`，telemetry 引擎在 `tokens_prompt`/`tokens_completion` 旁计量 `tokens_reasoning` 计数器（`telemetry.metrics` counters 可见）。
 - 测试：`tests/test_issue_483_reasoning_tokens.py` — 预算拆分 + 仅总量阈值 + roundtrip、上下文聚合（扁平与嵌套）、客户端归一化、telemetry 计数器、runtime 计量调用签名契约。
 
+### 审批噪声基线测量 — #486
+- ✅ **前后基线存在且进 CI** — `tests/proof/prove_approval_noise.py`（CI proof job）用固定 100 次调用工作负载（60 只读 / 20 回环 HTTP / 15 写 / 5 破坏性）跑两遍权限引擎：基线臂（自动分级关闭 — 非拒绝调用全部询问：95 询问/100 调用）对比生产武装引擎（只读 + 回环自动放行：15 询问/100 调用）。
+- ✅ **实测结果：审批噪声降低 84.2%**（目标是 ≥ 70%）— proof 打印、CI 断言，任何人可用 `python tests/proof/prove_approval_noise.py` 复现。
+- ✅ **指标进 telemetry** — `TelemetryEngine.record_permission_noise()` 把每次询问/百次决策算入 `approval_asks_per_100_calls` gauge（附 `permission_decisions`）；`telemetry.metrics` RPC 从活权限引擎刷新，数字持续可得而非一次性。
+- 测试：`tests/test_issue_486_approval_noise.py` — 比率计算、零/全询问边界、gauge 隔离、proof 工作负载降幅断言。
+
 ### 集成
 - ✅ **fusion-mlx** — Apple Silicon 优化模型服务
 - ✅ **OpenAI 兼容 API** — 兼容任何 OpenAI 兼容后端

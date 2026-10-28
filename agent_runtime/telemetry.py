@@ -138,6 +138,9 @@ class TelemetryEngine:
             "approvals": [],
             "sessions": [],
         }
+        # #486: point-in-time gauges (approval noise etc.) — refreshed by
+        # callers from live engine state, exposed via metrics().
+        self._gauges: dict[str, float] = {}
         logger.info("TelemetryEngine initialized")
 
     def _prune_spans(self) -> None:
@@ -390,6 +393,25 @@ class TelemetryEngine:
         else:
             logger.warning("record_slo unknown kind=%s", kind)
 
+    def record_permission_noise(self, stats: dict) -> float:
+        # #486: approval-noise metric — asks per 100 permission decisions.
+        # Reproducible from telemetry.metrics() instead of a one-off claim;
+        # the baseline/armed delta is proven by tests/proof/prove_approval_noise.py.
+        asks = int(stats.get("asks", 0) or 0)
+        auto = int(stats.get("auto_allow_readonly", 0) or 0) + int(
+            stats.get("auto_allow_loopback", 0) or 0
+        )
+        denies = int(stats.get("denies", 0) or 0)
+        total = asks + auto + denies
+        rate = (asks / total * 100.0) if total else 0.0
+        self._gauges["approval_asks_per_100_calls"] = rate
+        self._gauges["permission_decisions"] = float(total)
+        logger.debug(
+            "permission noise gauge: asks=%d auto=%d denies=%d rate=%.1f",
+            asks, auto, denies, rate,
+        )
+        return rate
+
     def slo_summary(self) -> dict:
         avg_latencies = {}
         for key, vals in self._latencies.items():
@@ -449,6 +471,8 @@ class TelemetryEngine:
         return {
             "counters": dict(self._counters),
             "latencies": avg_latencies,
+            # #486: gauges — approval_asks_per_100_calls + decision count.
+            "gauges": dict(self._gauges),
             "total_spans": len(self._spans),
             "total_traces": len(self._traces),
             "active_spans": len(self._active_spans),

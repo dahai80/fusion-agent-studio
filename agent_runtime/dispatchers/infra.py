@@ -113,8 +113,14 @@ class InfraDispatcher(SubDispatcher):
 
     async def _handle_telemetry_metrics(self, params: dict) -> dict:
         engine = self._daemon._get_telemetry_engine()
-        metrics = engine.metrics()
-        return metrics
+        # #486: refresh the approval-noise gauge from the live permission
+        # engine so asks/100-calls is reproducible from telemetry.metrics.
+        try:
+            rt = self._daemon._get_runtime()
+            engine.record_permission_noise(rt.permission_engine.stats())
+        except Exception as e:
+            logger.warning("permission noise gauge refresh failed: %s", e)
+        return engine.metrics()
 
     async def _handle_telemetry_session_slo(self, params: dict) -> dict:
         # N11 #350: long-session SLO baselines (fusion-bench feed).
