@@ -815,7 +815,9 @@ class AgentRuntime(_SafetyApprovalMixin, _CheckpointMixin, _DynamicToolsMixin, _
                     if token_budget:
                         usage = ctx.token_usage()
                         token_budget.record_usage(
-                            usage.get("prompt_tokens", 0), usage.get("completion_tokens", 0)
+                            usage.get("prompt_tokens", 0),
+                            usage.get("completion_tokens", 0),
+                            reasoning_tokens=usage.get("reasoning_tokens", 0),
                         )
                         # Proactive context pruning at 70% budget
                         if (

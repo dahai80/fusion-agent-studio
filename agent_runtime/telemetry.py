@@ -123,6 +123,8 @@ class TelemetryEngine:
             "errors": 0,
             "tokens_prompt": 0,
             "tokens_completion": 0,
+            # #483: reasoning split for reasoning models (N8 #345 residual)
+            "tokens_reasoning": 0,
             # N11 #350: long-session SLO counters
             "compactions": 0,
             "approvals": 0,
@@ -238,6 +240,9 @@ class TelemetryEngine:
             self._counters["tokens_prompt"] += span.attributes.get("prompt_tokens", 0)
             self._counters["tokens_completion"] += span.attributes.get(
                 "completion_tokens", 0
+            )
+            self._counters["tokens_reasoning"] += span.attributes.get(
+                "reasoning_tokens", 0
             )
             self._prune_latencies("llm_calls")
         elif span.name == "tool.call":

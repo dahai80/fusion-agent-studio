@@ -348,6 +348,12 @@ python my_agent.py
 - 依赖：核心依赖新增 `setproctitle>=1.3.0`（helper 无它时优雅降级）。
 - 测试：`tests/test_issue_490_proctitle.py` — helper 分层（fusion_core → 直接 → no-op）、api_server 接线、真实子进程探针断言标题落入 `ps`、start.sh 模式守卫。
 
+### 推理 Token 计量 — #483
+- ✅ **预算账目独立推理轴** — `TokenBudget` 在 prompt/completion 之外独立记录 `reasoning_tokens`；硬上限（会话/日/图）仍按 prompt+completion 总量评估（文档化契约 — 服务端把推理嵌入 `completion_tokens`，再加进总量会双计），拆分经 `budget.status` 可见。
+- ✅ **客户端 usage 归一化** — `FusionMLXClient` 在非流式与 SSE 流式两条路径都把服务端 usage 归一为扁平 `reasoning_tokens` 键，接受扁平键（mlx-lm/gateway）或 OpenAI 风格 `completion_tokens_details.reasoning_tokens`；`AgentContext.token_usage()` 跨全部消息聚合拆分。
+- ✅ **telemetry/SLO 面暴露拆分** — `llm.call` span 属性携带 `reasoning_tokens`，telemetry 引擎在 `tokens_prompt`/`tokens_completion` 旁计量 `tokens_reasoning` 计数器（`telemetry.metrics` counters 可见）。
+- 测试：`tests/test_issue_483_reasoning_tokens.py` — 预算拆分 + 仅总量阈值 + roundtrip、上下文聚合（扁平与嵌套）、客户端归一化、telemetry 计数器、runtime 计量调用签名契约。
+
 ### 集成
 - ✅ **fusion-mlx** — Apple Silicon 优化模型服务
 - ✅ **OpenAI 兼容 API** — 兼容任何 OpenAI 兼容后端
