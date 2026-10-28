@@ -1391,6 +1391,49 @@ async def v1_cancel_run(run_id: str):
     return {"run_id": run_id, "status": "canceled"}
 
 
+# #497: event tree — fork a finished/failed run at any recorded event and
+# continue from there (submit the next execution with fork_from + the forked
+# run id); list branches of a run family; switch the active branch pointer.
+@app.post("/v1/runs/{run_id}/fork", dependencies=[Depends(_require_auth_if_configured)])
+async def v1_fork_run(run_id: str, request: Request):
+    body = {}
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    res = await _rpc("run.fork", {
+        "run_id": run_id,
+        "at_event_id": str((body or {}).get("at_event_id", "") or ""),
+        "title": str((body or {}).get("title", "") or ""),
+    })
+    if isinstance(res, dict) and res.get("status") == "error":
+        raise_api_error(ErrorCode.AGENT_NOT_FOUND, param="run_id", detail=res.get("message", ""))
+    logger.info("/v1/runs forked run_id=%s -> %s", run_id, res.get("run_id"))
+    return res
+
+
+@app.get("/v1/runs/{run_id}/branches", dependencies=[Depends(_require_auth_if_configured)])
+async def v1_list_run_branches(run_id: str):
+    res = await _rpc("run.branches", {"run_id": run_id})
+    if isinstance(res, dict) and res.get("status") == "error":
+        raise_api_error(ErrorCode.AGENT_NOT_FOUND, param="run_id", detail=res.get("message", ""))
+    return res
+
+
+@app.post(
+    "/v1/runs/{run_id}/branches/{branch_id}/activate",
+    dependencies=[Depends(_require_auth_if_configured)],
+)
+async def v1_activate_run_branch(run_id: str, branch_id: str):
+    res = await _rpc("run.branch.activate", {"run_id": run_id, "branch_id": branch_id})
+    if isinstance(res, dict) and res.get("status") == "error":
+        raise_api_error(
+            ErrorCode.AGENT_NOT_FOUND, param="branch_id", detail=res.get("message", "")
+        )
+    logger.info("/v1/runs branch activated run_id=%s branch=%s", run_id, branch_id)
+    return res
+
+
 # #425: session management REST surface (list/messages/resume/fork/rename/inject).
 @app.get("/v1/sessions")
 async def v1_list_sessions(limit: int = 50, offset: int = 0, tag: str = ""):
