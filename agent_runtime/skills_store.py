@@ -4,6 +4,7 @@ import logging
 import re
 import shutil
 from dataclasses import dataclass, field
+from fnmatch import fnmatch
 from pathlib import Path
 
 import yaml
@@ -11,6 +12,7 @@ import yaml
 logger = logging.getLogger(__name__)
 
 DEFAULT_SKILLS_DIR = str(Path.home() / ".fusion-agent-studio" / "skills")
+DEFAULT_PLUGIN_SKILLS_DIR = str(Path.home() / ".fusion-agent-studio" / "plugins")
 PROJECT_SKILLS_DIRS = (".fusion-agent-studio/skills", ".claude/skills")
 
 _FRONTMATTER_RE = re.compile(r"^---\s*\n(.*?)\n---\s*\n?", re.DOTALL)
@@ -28,6 +30,10 @@ class SkillMeta:
     output_template: str = ""
     parameters: dict = field(default_factory=dict)
     source: str = ""
+    # #498: AgentSkills trigger surface — {"keywords": [...], "paths": [...]}.
+    # Keywords match the user text (case-insensitive substring); paths are
+    # fnmatch globs matched against the working-file context.
+    triggers: dict = field(default_factory=dict)
     extra: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
@@ -41,8 +47,44 @@ class SkillMeta:
             "output_template": self.output_template,
             "parameters": self.parameters,
             "source": self.source,
+            "triggers": {
+                "keywords": list(self.triggers.get("keywords") or []),
+                "paths": list(self.triggers.get("paths") or []),
+            },
             "extra": self.extra,
         }
+
+
+def _parse_triggers(data: dict) -> dict:
+    # #498: AgentSkills frontmatter accepts several trigger shapes:
+    #   triggers: {keywords: [..], paths: [..]}   (OpenHands style)
+    #   triggers: [kw1, kw2]                       (bare list = keywords)
+    #   triggers: "kw"                             (bare string = one keyword)
+    #   keywords: [..] / paths: [..]               (flat keys)
+    keywords: list[str] = []
+    paths: list[str] = []
+
+    def _extend(target: list[str], value) -> None:
+        if value is None:
+            return
+        if isinstance(value, str):
+            target.append(value)
+        elif isinstance(value, (list, tuple)):
+            target.extend(str(v) for v in value)
+
+    trig = data.get("triggers")
+    if isinstance(trig, dict):
+        _extend(keywords, trig.get("keywords"))
+        _extend(paths, trig.get("paths"))
+    else:
+        _extend(keywords, trig)
+    _extend(keywords, data.get("keywords"))
+    _extend(paths, data.get("paths"))
+    out = {
+        "keywords": [k for k in keywords if str(k).strip()],
+        "paths": [p for p in paths if str(p).strip()],
+    }
+    return out if (out["keywords"] or out["paths"]) else {}
 
 
 def parse_skill_md(content: str, fallback_name: str = "") -> tuple[SkillMeta, str]:
@@ -73,6 +115,8 @@ def parse_skill_md(content: str, fallback_name: str = "") -> tuple[SkillMeta, st
             meta.output_template = str(template)
             params = data.get("parameters") or data.get("arguments") or {}
             meta.parameters = params if isinstance(params, dict) else {}
+            # #498: AgentSkills trigger surface (keywords + path globs)
+            meta.triggers = _parse_triggers(data)
             known = {
                 "name",
                 "description",
@@ -86,6 +130,9 @@ def parse_skill_md(content: str, fallback_name: str = "") -> tuple[SkillMeta, st
                 "output_template",
                 "parameters",
                 "arguments",
+                "triggers",
+                "keywords",
+                "paths",
             }
             meta.extra = {k: v for k, v in data.items() if k not in known}
     if not meta.name:
@@ -161,30 +208,74 @@ def render_skill_prompt(body: str, params: dict, output_template: str = "") -> s
 
 
 class SkillsStore:
-    def __init__(self, skills_dir: str = DEFAULT_SKILLS_DIR, project_dir: str = ""):
+    def __init__(
+        self,
+        skills_dir: str = DEFAULT_SKILLS_DIR,
+        project_dir: str = "",
+        extra_dirs: list[str] | None = None,
+    ):
         self.skills_dir = Path(skills_dir)
         self.project_dir = Path(project_dir) if project_dir else None
+        # #498: SKILL.md dirs beyond user/project — plugin dir ships
+        # AgentSkills-format skills alongside native plugins.
+        self.extra_dirs = [Path(d) for d in (extra_dirs or [])]
         self.skills_dir.mkdir(parents=True, exist_ok=True)
         logger.info(
-            "SkillsStore init user_dir=%s project_dir=%s",
+            "SkillsStore init user_dir=%s project_dir=%s extra_dirs=%s",
             self.skills_dir,
             self.project_dir or "-",
+            [str(d) for d in self.extra_dirs],
         )
 
     @classmethod
-    def with_project_dirs(cls, skills_dir: str = DEFAULT_SKILLS_DIR, project_root: str = "") -> SkillsStore:
+    def with_project_dirs(
+        cls,
+        skills_dir: str = DEFAULT_SKILLS_DIR,
+        project_root: str = "",
+        extra_dirs: list[str] | None = None,
+    ) -> SkillsStore:
         root = Path(project_root or Path.cwd())
         project_dir = next(
             (str(root / rel) for rel in PROJECT_SKILLS_DIRS if (root / rel).is_dir()),
             "",
         )
-        return cls(skills_dir=skills_dir, project_dir=project_dir)
+        return cls(
+            skills_dir=skills_dir,
+            project_dir=project_dir,
+            extra_dirs=extra_dirs if extra_dirs is not None else [DEFAULT_PLUGIN_SKILLS_DIR],
+        )
 
     def search_dirs(self) -> list[Path]:
         dirs = [self.skills_dir]
         if self.project_dir is not None:
             dirs.append(self.project_dir)
+        dirs.extend(self.extra_dirs)
         return dirs
+
+    def match_skills(self, text: str = "", path: str = "") -> list[dict]:
+        # #498: keyword (case-insensitive substring) + path-glob (fnmatch)
+        # trigger matching over every discoverable skill.
+        text_l = (text or "").lower()
+        path_str = str(path or "")
+        matched: list[dict] = []
+        for row in self.list_skills():
+            trig = row.get("triggers") or {}
+            keywords = [str(k).lower() for k in (trig.get("keywords") or [])]
+            paths = [str(p) for p in (trig.get("paths") or [])]
+            hit = False
+            if text_l and any(k and k in text_l for k in keywords):
+                hit = True
+            if path_str and any(fnmatch(path_str, p) for p in paths):
+                hit = True
+            if hit:
+                matched.append(row)
+        logger.info(
+            "match_skills text_len=%d path=%s matched=%s",
+            len(text_l),
+            path_str or "-",
+            [m["name"] for m in matched],
+        )
+        return matched
 
     def _skill_path(self, name: str) -> Path:
         if not re.match(r"^[A-Za-z0-9_-]+$", name):
@@ -198,6 +289,11 @@ class SkillsStore:
             candidate = base / name / "SKILL.md"
             if candidate.exists():
                 return candidate
+        # #498: stock drop-ins may carry a frontmatter name different from
+        # the directory — resolve via the discovered frontmatter names too.
+        for row in self.list_skills():
+            if row["name"] == name and row.get("path"):
+                return Path(row["path"])
         return None
 
     # Progressive disclosure: list returns metadata only, never bodies.

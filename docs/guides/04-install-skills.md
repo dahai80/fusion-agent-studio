@@ -164,6 +164,35 @@ await rpc("agent.delete_skill", {"agent_id": AGENT_ID, "skill_name": "check_disk
 
 技能是**每智能体独立**的，装在 A 上的技能 B 看不到。要跨智能体复用，把 `skill_def` 存成文件，给每个智能体 `add_skill`。
 
+## AgentSkills SKILL.md 兼容（#498）
+
+除上面每智能体的 skill_def 外，还有一个 **SKILL.md 技能库**（Anthropic AgentSkills 格式，OpenHands 技能可免修改直接使用）：
+
+```python
+# 安装（目录 = 技能名；frontmatter name 可不同，两者都能解析）
+await rpc("skills.install", {"name": "gen-pr", "content": SKILL_MD})
+
+# 触发匹配：关键词命中用户文本 + path glob 命中工作文件
+await rpc("skills.match", {"text": "please write a pr description", "path": "diff.txt"})
+# -> {"matched": [{name, description, triggers, allowed_tools, command}, ...]}
+# 同时把每个命中技能的 allowed-tools 注册为角色域 allow 规则（幂等）
+```
+
+frontmatter 触发形态全兼容：
+
+```yaml
+triggers:            # 以下形态均可：
+  keywords: [pdf]    # dict（keywords + paths）
+  paths: ["*.pdf"]   # 或裸列表 = keywords；或裸字符串；或平铺 keys:/paths: 键
+allowed-tools:       # 声明的工具在 role="skill:<name>" 执行下自动放行，
+  - file_read        # 未声明工具升级为 "ask"（权限引擎强制）
+  - terminal
+```
+
+搜索目录：`~/.fusion-agent-studio/skills/`、项目内 `.fusion-agent-studio/skills/` 或 `.claude/skills/`、以及 `~/.fusion-agent-studio/plugins/<skill>/SKILL.md`（与原生插件同目录）。
+
+LLM 侧自动暴露两个工具：`skill_search`（按触发匹配返回技能元数据 + 注册权限规则）、`skill_invoke`（渲染技能 prompt）。带 `role="skill:<name>"` 的 `graph.execute` 即在 allowed-tools 约束下执行。
+
 ## 技能 vs 工具 vs 系统提示，何时用哪个
 
 | | 系统提示 | 工具 | 技能 |

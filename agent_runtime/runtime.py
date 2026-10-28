@@ -158,6 +158,11 @@ class AgentRuntime(_SafetyApprovalMixin, _CheckpointMixin, _DynamicToolsMixin, _
             except Exception as e:
                 logger.warning("ToolSearch init failed: %s", e)
                 self._toolsearch_enabled = False
+        # #498: LLM-facing SKILL.md surface — see _register_skill_tools().
+        # NOT wired here: subagent/orchestrator pass caller-owned filtered
+        # registries whose exact tool sets are asserted (allowlist/denylist
+        # isolation); only the top-level LLM surfaces (daemon/api) register.
+        self._skills_store = None
         # #284: pluggable post-action assertion fn for tool nodes. Signature:
         #   (ctx, node, tool_result, frame_b64, frame_w, frame_h) -> str
         # Returns "" on pass, an error message on fail. Set via SDK; None = off.
@@ -1139,6 +1144,36 @@ class AgentRuntime(_SafetyApprovalMixin, _CheckpointMixin, _DynamicToolsMixin, _
             logger.info("memory tool group registered (4 tools)")
         except Exception as e:
             logger.warning("memory tools registration failed: %s", e)
+
+    def _get_skills_store(self):
+        # #498: lazy SkillsStore for the skill tool providers — same dirs as
+        # the daemon's skills RPC surface (user + project + plugins).
+        if self._skills_store is None:
+            from .skills_store import SkillsStore
+
+            self._skills_store = SkillsStore.with_project_dirs()
+        return self._skills_store
+
+    def _register_skill_tools(self) -> None:
+        # #498: LLM-facing SKILL.md surface — skill_search (trigger match +
+        # rule registration) and skill_invoke (rendered prompt). Providers keep
+        # the store/engine lazy so wiring stays cheap. Called by the top-level
+        # LLM surfaces (daemon / api_server), never by subagent runtimes whose
+        # registries are caller-filtered.
+        if self.tools is None:
+            return
+        try:
+            from tools.skill_tools import SkillInvokeTool, SkillSearchTool
+
+            self.tools.register(
+                SkillSearchTool(self._get_skills_store, lambda: self.permission_engine)
+            )
+            self.tools.register(
+                SkillInvokeTool(self._get_skills_store, lambda: self.permission_engine)
+            )
+            logger.info("skill tools registered (issue #498)")
+        except Exception as e:
+            logger.warning("skill tools init failed: %s", e)
 
     def _register_exec_future(self, exec_id: str, key: str) -> None:
         # 审计 A-1 Tier1: future 创建时登记归属 exec_id, 供 reap 索引.

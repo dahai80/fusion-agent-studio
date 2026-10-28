@@ -134,11 +134,17 @@ class TestSkillDiscovery:
         assert alpha["body"] == "proj body"
         assert alpha["meta"]["source"] == "project"
 
-    def test_with_project_dirs_uses_dot_dirs(self, tmp_path):
+    def test_with_project_dirs_uses_dot_dirs(self, tmp_path, monkeypatch):
+        # #498: with_project_dirs also scans the plugins dir by default —
+        # pin it under tmp_path so the real ~/.fusion-agent-studio/plugins
+        # can't leak into the assertion on dev machines.
+        import agent_runtime.skills_store as ss
+
+        monkeypatch.setattr(ss, "DEFAULT_PLUGIN_SKILLS_DIR", str(tmp_path / "plugins"))
         root = tmp_path / "repo"
         skills = root / ".claude" / "skills"
         self._write(skills, "compat", "---\nname: compat\n---\nbody")
-        store = SkillsStore.with_project_dirs(
+        store = ss.SkillsStore.with_project_dirs(
             skills_dir=str(tmp_path / "user"), project_root=str(root)
         )
         assert [d.name for d in store.search_dirs() if d.exists()] == ["user", "skills"]

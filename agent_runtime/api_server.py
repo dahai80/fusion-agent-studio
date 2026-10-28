@@ -155,6 +155,8 @@ def _get_runtime() -> AgentRuntime:
         from tools import create_default_registry
 
         _runtime = AgentRuntime(tool_registry=create_default_registry())
+        # #498: LLM-facing SKILL.md tools on the top-level REST runtime too.
+        _runtime._register_skill_tools()
     return _runtime
 
 

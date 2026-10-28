@@ -368,6 +368,9 @@ class DaemonServer:
                 "AgentRuntime created with %d tools, safety+memory+telemetry wired",
                 len(registry._tools),
             )
+            # #498: LLM-facing SKILL.md tools on the daemon runtime only —
+            # subagent/orchestrator registries stay caller-filtered.
+            self._runtime._register_skill_tools()
             # #479: funnel deny decisions land in the audit DB (deny rows).
             self._runtime.set_audit_logger(self._get_audit_logger())
         return self._runtime
