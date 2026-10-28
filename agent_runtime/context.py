@@ -69,6 +69,10 @@ class AgentEvent:
     node_id: str = ""
     timestamp: float = 0.0
     metadata: dict = field(default_factory=dict)
+    # #497: event tree linkage. Empty = unlinked (flat-stream consumers
+    # ignore both fields; the runtime stamps them on every yielded event).
+    event_id: str = ""
+    parent_id: str = ""
 
     def __post_init__(self):
         if not self.timestamp:
@@ -83,6 +87,8 @@ class AgentEvent:
             "node_id": self.node_id,
             "timestamp": self.timestamp,
             "metadata": self.metadata,
+            "event_id": self.event_id,
+            "parent_id": self.parent_id,
         }
 
     @classmethod
@@ -95,6 +101,8 @@ class AgentEvent:
             node_id=data.get("node_id", ""),
             timestamp=data.get("timestamp", 0.0),
             metadata=data.get("metadata", {}),
+            event_id=data.get("event_id", ""),
+            parent_id=data.get("parent_id", ""),
         )
 
 

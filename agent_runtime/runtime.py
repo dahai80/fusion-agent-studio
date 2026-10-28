@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import os
 import time
+import uuid
 from typing import TYPE_CHECKING, Any, AsyncIterator
 
 from .compactor import Compactor
@@ -522,10 +523,19 @@ class AgentRuntime(_SafetyApprovalMixin, _CheckpointMixin, _DynamicToolsMixin, _
         except ImportError as e:
             logger.warning("resident reviewer unavailable: %s", e)
         try:
+            last_event_id = ""
             async for event in self._execute_graph_inner(
                 graph, initial_input, ctx, token_budget, stream=stream,
                 max_iterations=max_iterations,
             ):
+                # #497: event tree — stamp event_id/parent_id chain so every
+                # run carries a linked event history (fork lands on it). Flat
+                # consumers ignore the extra fields.
+                if not event.event_id:
+                    event.event_id = f"evt-{uuid.uuid4().hex[:12]}"
+                if not event.parent_id:
+                    event.parent_id = last_event_id
+                last_event_id = event.event_id
                 writer.record_event(ctx.session_id, event.to_dict())
                 if resident is not None:
                     for finding in resident.observe(event):

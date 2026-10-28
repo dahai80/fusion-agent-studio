@@ -311,6 +311,12 @@ python my_agent.py
 - ✅ **优雅失败 + 安全默认** — CLI 缺失、会话死亡、超时均以结构化 `AcpRunResult(success=False, error=…)` → 图 ERROR 事件呈现，绝不裸崩。权限请求默认拒绝（policy `permission: allow` 时自动选第一个选项）；fs/terminal 客户端回调与 elicitation 以 JSON-RPC `-32601`/decline 应答 — 无人值守运行永不阻塞。`error_handler` 节点可重试失败的 `acp` 节点。
 - 测试：`tests/test_issue_496_acp.py`（15 项）— 假 ACP agent 走真实 stdio JSON-RPC，覆盖成功/流序/CLI 缺失/会话死亡/超时、图端到端与事件映射、逐类型映射单元。
 
+### 事件树 + 会话分叉 — #497
+- ✅ **每次运行都是带链路的事件树** — `AgentEvent` 新增 `event_id`/`parent_id`（默认空，平面流消费者无感知）；runtime 在单一收口（`_run_with_trajectory`）为每个产出事件打上两字段，`execute_graph` 与 `execute_graph_stream` 因此每次运行都携带链式事件史。逐 token 帧永不入树。
+- ✅ **SQLite 事件日志 + 分支注册表** — `agent_runtime/event_tree.py`（`EventTreeStore`，复用 AgentStore WAL 连接）持久化三张表：`run_event_log`（逐事件 JSON + 会话 `messages` 快照，run+event 主键）、`run_meta`（血缘：`root_run_id`/`parent_run_id`/`fork_event_id`，task-id 建索引）、`run_branches`（家族分支行 + active 指针）。全部天然跨 daemon 重启存活。
+- ✅ **任意已结束/失败运行可分叉续跑** — `run.fork` 把 path-to-root 事件前缀复制到新 run id，注册分支，并返回分叉点会话快照；`graph.execute_async` 接受 `fork_from: {run_id, at_event_id}` 用该快照播种新运行上下文（fail-fast 校验 — 未知 run 在 ≤5s 契约内直接拒绝）。REST：`POST /v1/runs/{run_id}/fork`、`GET /v1/runs/{run_id}/branches`、`POST /v1/runs/{run_id}/branches/{branch_id}/activate`；`run_id` 既接受 execution id 也接受其 task id。
+- 测试：`tests/test_issue_497_event_tree.py`（16 项）— store 单元（追加/跳 token/路径/消息/分叉前缀复制/分支激活/task-id 解析/新 `AgentStore` 实例重启持久化）、遗留事件 round-trip、runtime id 打链、daemon 全流程（执行 → END 处分叉 → fork_from 带历史续跑 → 分支列表/激活 → 跨实例持久化）。
+
 ### 集成
 - ✅ **fusion-mlx** — Apple Silicon 优化模型服务
 - ✅ **OpenAI 兼容 API** — 兼容任何 OpenAI 兼容后端

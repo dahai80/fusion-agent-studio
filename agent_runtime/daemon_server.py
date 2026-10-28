@@ -1224,6 +1224,9 @@ class DaemonServer:
             "graph.purge_test": self._handle_graph_purge_test,
             "graph.execute": self._handle_graph_execute,
             "graph.execute_async": self._handle_graph_execute_async,
+            "run.fork": self._handle_run_fork,
+            "run.branches": self._handle_run_branches,
+            "run.branch.activate": self._handle_run_branch_activate,
             "graph.status": self._handle_graph_status,
             "graph.cancel": self._handle_graph_cancel,
             "graph.resume": self._handle_graph_resume,
@@ -2331,6 +2334,18 @@ class DaemonServer:
         if graph is None:
             raise ValueError(f"Graph not found: {graph_id}")
 
+        # #497: fork_from 校验前置 (fail-fast, 守住 ≤5s 返回契约) —
+        # 未知 run / 无事件在启动前拒绝, 不等后台任务跑挂.
+        fork_from = params.get("fork_from") or {}
+        if isinstance(fork_from, dict) and fork_from.get("run_id"):
+            fork_msgs = self._get_event_tree().messages_at(
+                str(fork_from["run_id"]), str(fork_from.get("at_event_id") or "")
+            )
+            if fork_msgs is None:
+                raise ValueError(
+                    f"fork_from run not found or has no events: {fork_from['run_id']}"
+                )
+
         # 写启动证据
         self._write_evidence(
             execution_id,
@@ -2380,6 +2395,41 @@ class DaemonServer:
             "session_id": session_id,
             "task_id": task_id,
         }
+
+    async def _handle_run_fork(self, params: dict) -> dict:
+        # #497: fork a finished/failed run at any recorded event. Copies the
+        # path-to-root event prefix into a new run id, registers a branch and
+        # returns the conversation snapshot at the fork point.
+        run_id = str(params.get("run_id", "") or "")
+        if not run_id:
+            raise ValueError("run_id is required")
+        at_event_id = str(params.get("at_event_id", "") or "")
+        title = str(params.get("title", "") or "")
+        result = self._get_event_tree().fork_run(run_id, at_event_id=at_event_id, title=title)
+        if result is None:
+            raise ValueError(f"cannot fork run: {run_id} (unknown run, empty log or bad event)")
+        return result
+
+    async def _handle_run_branches(self, params: dict) -> dict:
+        # #497: branch listing for a run family (run_id resolves to its root).
+        run_id = str(params.get("run_id", "") or "")
+        if not run_id:
+            raise ValueError("run_id is required")
+        listing = self._get_event_tree().list_branches(run_id)
+        if listing is None:
+            raise ValueError(f"run not found: {run_id}")
+        return listing
+
+    async def _handle_run_branch_activate(self, params: dict) -> dict:
+        # #497: switch the active branch pointer of a run family.
+        run_id = str(params.get("run_id", "") or "")
+        branch_id = str(params.get("branch_id", "") or "")
+        if not run_id or not branch_id:
+            raise ValueError("run_id and branch_id are required")
+        result = self._get_event_tree().activate_branch(run_id, branch_id)
+        if result is None:
+            raise ValueError(f"cannot activate branch {branch_id} for {run_id}")
+        return result
 
     async def _run_chain_async(self, chain_id, steps, team, params):
         # M3-2 issue#324: orchestrator. Create N dependent tasks, execute in dep
@@ -2544,6 +2594,44 @@ class DaemonServer:
             agent_id = params.get("agent_id", "") or getattr(graph, "agent_id", "")
             exec_ctx = AgentContext(session_id=session_id)
             exec_ctx.agent_id = agent_id
+            # #497: fork continuation — seed the context with the forked
+            # conversation (messages snapshot at the fork event) so the new
+            # run resumes history instead of starting cold.
+            fork_from = params.get("fork_from") or {}
+            fork_parent_run = ""
+            if isinstance(fork_from, dict) and fork_from.get("run_id"):
+                fork_parent_run = str(fork_from["run_id"])
+                fork_messages = self._get_event_tree().messages_at(
+                    fork_parent_run, str(fork_from.get("at_event_id") or "")
+                )
+                if fork_messages is None:
+                    raise ValueError(
+                        f"fork_from run not found or has no events: {fork_parent_run}"
+                    )
+                exec_ctx.messages = list(fork_messages)
+                logger.info(
+                    "execute_async %s forked from %s at %s messages=%d",
+                    execution_id,
+                    fork_parent_run,
+                    fork_from.get("at_event_id", "(last)"),
+                    len(fork_messages),
+                )
+            # #497: register the run in the event tree (execution id keyed;
+            # task id indexed so run.fork accepts either).
+            try:
+                self._get_event_tree().register_run(
+                    execution_id,
+                    graph_id=graph_id,
+                    session_id=session_id,
+                    task_id=task_id,
+                    team=team,
+                    parent_run_id=fork_parent_run,
+                    fork_event_id=str(fork_from.get("at_event_id") or "")
+                    if isinstance(fork_from, dict)
+                    else "",
+                )
+            except Exception as exc:
+                logger.warning("execute_async %s event-tree register failed: %s", execution_id, exc)
             # #477: per-iteration permission mode from the trigger job — "plan"
             # maps to the ctx read-only gate the permission engine consults on
             # every tool call of this execution.
@@ -2589,6 +2677,15 @@ class DaemonServer:
                 ):
                     ev_dict = event.to_dict() if hasattr(event, "to_dict") else {"type": str(event)}
                     events_count += 1
+                    # #497: append structural events to the run event tree
+                    # (fork surface). Per-token frames skipped inside the
+                    # store; failures never break the run itself.
+                    try:
+                        self._get_event_tree().append_event(
+                            execution_id, ev_dict, messages=list(exec_ctx.messages)
+                        )
+                    except Exception as exc:
+                        logger.warning("event tree append failed %s: %s", execution_id, exc)
                     if spans_file is not None and spans_written < _RUN_SPANS_MAX_LINES:
                         if str(ev_dict.get("type")) not in ("token", "thinking_token"):
                             try:
@@ -3479,6 +3576,15 @@ class DaemonServer:
             )
             self._task_store = TaskStore(db_path=db_path)
         return self._task_store
+
+    def _get_event_tree(self):
+        # #497: run event tree (fork/branches). Shares the AgentStore db so
+        # branch state survives daemon restart by construction.
+        if not hasattr(self, "_event_tree") or self._event_tree is None:
+            from .event_tree import EventTreeStore
+
+            self._event_tree = EventTreeStore(self.store)
+        return self._event_tree
 
     async def _cron_default_handler(self, job) -> dict:
         # M1-5: cron 降为触发器. job 触发 = 创建 Task(idempotency_key=job_id+fire_time)
