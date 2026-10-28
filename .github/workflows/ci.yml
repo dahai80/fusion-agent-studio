@@ -95,6 +95,13 @@ jobs:
         working-directory: web
         run: bun run typecheck
 
+      # #489: component tests for the governance-critical surfaces
+      # (GovernancePage tabs/mutations, canvas safety approve/reject,
+      # RPC-failure error paths).
+      - name: Component tests
+        working-directory: web
+        run: bun run test
+
       - name: Build
         working-directory: web
         run: bun run build
