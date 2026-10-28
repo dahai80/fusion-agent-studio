@@ -541,6 +541,10 @@ def _cluster_utilization() -> float:
 def run_cluster_server(host: str = "127.0.0.1", port: int = CLUSTER_PORT):
     import uvicorn
 
+    # #490: cluster entrypoint shows the product name, not bare Python.
+    from agent_runtime.proctitle import set_process_title
+
+    set_process_title(f"fusion-agent-studio cluster :{port}")
     uvicorn.run(app, host=host, port=port, log_level="info")
 
 

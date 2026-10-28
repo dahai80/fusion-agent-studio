@@ -87,7 +87,9 @@ is_running() {
     if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; then
         return 0
     fi
-    pgrep -f "agent_runtime.daemon_server" >/dev/null 2>&1
+    # #490: setproctitle rewrites argv on macOS — match either the module
+    # invocation (pre-title window) or the product title (post-title).
+    pgrep -f "agent_runtime.daemon_server|fusion-agent-studio daemon" >/dev/null 2>&1
 }
 
 # Health = process alive AND socket file present (socket is created by the daemon).
@@ -220,7 +222,7 @@ status() {
         local pid
         pid=$(get_pid)
         if [[ -z "$pid" ]]; then
-            pid=$(pgrep -f "agent_runtime.daemon_server" | head -1)
+            pid=$(pgrep -f "agent_runtime.daemon_server|fusion-agent-studio daemon" | head -1)
             [[ -n "$pid" ]] && echo "running (PID ${pid}, launchd-managed, socket=${SOCKET})" && exit 0
         fi
         echo "running (PID ${pid}, socket=${SOCKET})"

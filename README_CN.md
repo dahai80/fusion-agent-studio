@@ -342,6 +342,12 @@ python my_agent.py
 - ✅ **StdioMCPTransport JSON-RPC id 匹配** — `_rpc` 不再把 stdout 首行当答案。持续读取直到携带本请求 id 的响应到达，安全跳过夹在中间的通知（`notifications/initialized`、progress、logging）、空行/非 JSON 行、以及服务端反向请求（外来 id）。安静服务器与标准聒噪服务器均正确配对。
 - 测试：`tests/test_issue_343_toolsearch.py` — 默认开启 + 退出开关运行时测试，外加子进程拉起的聒噪 MCP 服务器（每个响应前夹通知与 `sampling/createMessage` 请求），验证连续请求配对稳定。
 
+### 进程标题修复 — #490
+- ✅ **`ps`/活动监视器显示产品名** — 所有长驻入口（daemon、独立 REST api、cluster server、`fusion-mcp` stdio server）经 `agent_runtime/proctitle.py` 设置进程标题，`ps -axww -o comm` 显示 `fusion-agent-studio daemon` 而非裸 homebrew `Python`。helper 优先共享 `fusion_core.set_process_title`，回退直接 `setproctitle` 导入，再回退 no-op 日志 — 服务始终能启动。
+- ✅ **start.sh 进程匹配更新** — `pgrep -f` 匹配 `agent_runtime.daemon_server|fusion-agent-studio daemon`（macOS 上 setproctitle 重写 argv，改名前的模块调用与改名后的标题都要能匹配）；stop/status/restart 已对改名后 daemon 实测。
+- 依赖：核心依赖新增 `setproctitle>=1.3.0`（helper 无它时优雅降级）。
+- 测试：`tests/test_issue_490_proctitle.py` — helper 分层（fusion_core → 直接 → no-op）、api_server 接线、真实子进程探针断言标题落入 `ps`、start.sh 模式守卫。
+
 ### 集成
 - ✅ **fusion-mlx** — Apple Silicon 优化模型服务
 - ✅ **OpenAI 兼容 API** — 兼容任何 OpenAI 兼容后端

@@ -4725,6 +4725,11 @@ def run_daemon(socket_path: str = ""):
         level=logging.INFO,
         format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
     )
+    # #490: bare `Python` in ps/Activity Monitor is unidentifiable — the
+    # daemon must advertise the product name (start.sh pgrep matches it too).
+    from agent_runtime.proctitle import set_process_title
+
+    set_process_title("fusion-agent-studio daemon")
     parser = argparse.ArgumentParser(description="fusion-agent-studio daemon")
     parser.add_argument("--socket-path", default=socket_path, help="UDS socket path")
     parser.add_argument("--store-path", default="", help="AgentStore db path (test isolation)")
