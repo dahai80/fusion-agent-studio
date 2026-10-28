@@ -5,6 +5,7 @@ parallel/sub_graph/rag/planner/verify) + their static helpers + parallel
 tool fan-out + tool hooks + output mapping + memory auto-store. Method
 bodies are verbatim moves from runtime.py; AgentRuntime inherits this mixin.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -29,7 +30,6 @@ from .variable_manager import VariableManager
 
 
 class _NodeExecutorsMixin:
-
     @staticmethod
     def _thinking_visible(ctx: AgentContext, node: NodeConfig) -> bool:
         # N9 #348: run-level ctx var AND node-level opt-out. Default visible.
@@ -65,6 +65,7 @@ class _NodeExecutorsMixin:
         if lines:
             return lines[-1][:300]
         return content[-300:]
+
     async def _execute_llm_node(
         self,
         ctx: AgentContext,
@@ -120,8 +121,8 @@ class _NodeExecutorsMixin:
         if allowlist:
             want = set(allowlist)
             tools_schema = [
-                t for t in (tools_schema or [])
-                if t.get("function", {}).get("name") in want]
+                t for t in (tools_schema or []) if t.get("function", {}).get("name") in want
+            ]
 
         node_prompt = node.system_prompt or system_prompt
         if node_prompt:
@@ -539,6 +540,9 @@ class _NodeExecutorsMixin:
             if can_parallel and parsed_calls:
                 # 并行路径: 先发所有 TOOL_CALL, gather 执行, 按输入序发 TOOL_RESULT。
                 for fn, fa, _tcid in parsed_calls:
+                    # #4: durable session event log — tool_call before the
+                    # parallel fan-out; result pairing by call_id.
+                    self._session_log(ctx, "tool_call", {"call_id": _tcid, "tool": fn, "args": fa})
                     yield AgentEvent(
                         type=AgentEventType.TOOL_CALL,
                         name=fn,
@@ -546,10 +550,7 @@ class _NodeExecutorsMixin:
                         node_id=node.label,
                     )
                 results = await asyncio.gather(
-                    *(
-                        self._exec_parallel_tool(ctx, node, fn, fa)
-                        for fn, fa, _tcid in parsed_calls
-                    )
+                    *(self._exec_parallel_tool(ctx, node, fn, fa) for fn, fa, _tcid in parsed_calls)
                 )
                 for (fn, fa, tcid), res in zip(parsed_calls, results):
                     result_str, is_error = res
@@ -574,6 +575,14 @@ class _NodeExecutorsMixin:
                         ctx.error = f"Invalid tool call: {e}"
                         yield AgentEvent(type=AgentEventType.ERROR, content=str(e))
                         return
+
+                    # #4: durable session event log — tool_call before
+                    # admission; result pairing by call_id in add_message.
+                    self._session_log(
+                        ctx,
+                        "tool_call",
+                        {"call_id": tc.get("id", ""), "tool": func_name, "args": func_args},
+                    )
 
                     # C6 plan-as-mode: gate write tools during read-only explore.
                     # exit_plan_mode is the transition primitive (handled below).
@@ -623,9 +632,7 @@ class _NodeExecutorsMixin:
                             if funnel_outcome.blocked_by == "safety":
                                 result = f"SafetyGateway blocked tool call: {reason}"
                             else:
-                                result = (
-                                    f"Blocked by {funnel_outcome.blocked_by}: {reason}"
-                                )
+                                result = f"Blocked by {funnel_outcome.blocked_by}: {reason}"
                             logger.warning(
                                 "funnel blocked register_tool node=%s gate=%s reason=%s",
                                 node.label,
@@ -664,9 +671,7 @@ class _NodeExecutorsMixin:
                             if funnel_outcome.blocked_by == "safety":
                                 result = f"SafetyGateway blocked tool call: {reason}"
                             else:
-                                result = (
-                                    f"Blocked by {funnel_outcome.blocked_by}: {reason}"
-                                )
+                                result = f"Blocked by {funnel_outcome.blocked_by}: {reason}"
                             logger.warning(
                                 "funnel blocked unregister_tool node=%s gate=%s reason=%s",
                                 node.label,
@@ -702,22 +707,26 @@ class _NodeExecutorsMixin:
                     # deny-first -> safety gateway backend -> budget). Replaces
                     # the scattered PRE_TOOL_USE hook fire + evaluate_action
                     # block here (audit D-2 alignment preserved via the funnel).
+                    # #5 AC4 (fusion-harness): the funnel now runs the kernel
+                    # ToolPipeline on every admit — the segmented single
+                    # admission path. interactive=True surfaces asks from
+                    # the pipeline policy stage (safety ask or #499
+                    # escalation) as needs_approval with the verdict
+                    # attached; the interactive flow below drives the user
+                    # ask, then re-admits with the recorded decision
+                    # (approved=True). Execution only happens on a pipeline
+                    # allow — approving at the call site WITHOUT the phase-2
+                    # re-admit would be a side door around pipeline stage 3.
                     funnel_outcome = await self.tool_funnel.admit(
                         ctx=ctx,
                         tool_name=func_name,
                         args=func_args,
                         node_label=node.label,
+                        interactive=True,
                     )
-                    # #499: confirmation-policy escalation turns an
-                    # auto-passed call into an approval ask (AlwaysConfirm /
-                    # ConfirmRisk at/above threshold).
-                    escalation = (
-                        self._policy_escalation_verdict(ctx, func_name, func_args)
-                        if funnel_outcome.allowed and not funnel_outcome.needs_approval
-                        else None
-                    )
-                    if funnel_outcome.needs_approval or escalation is not None:
-                        if funnel_outcome.needs_approval:
+                    if funnel_outcome.needs_approval:
+                        escalation = getattr(funnel_outcome, "escalation", None)
+                        if escalation is None:
                             self._emit_permission_ask(
                                 ctx, func_name, funnel_outcome.reason, node.label
                             )
@@ -726,21 +735,7 @@ class _NodeExecutorsMixin:
                             if funnel_outcome.safety_result is not None
                             else escalation
                         )
-                        if approval_result is not None:
-                            async for evt in self._await_safety_approval(
-                                ctx,
-                                approval_result,
-                                "tool_call",
-                                node.label,
-                                tool_name=func_name,
-                                params=func_args,
-                            ):
-                                yield evt
-                                if evt.type == AgentEventType.ERROR:
-                                    break
-                            if ctx.error:
-                                continue
-                        else:
+                        if approval_result is None:
                             # Permission ask with no approval backend wired.
                             result = (
                                 f"Error: tool '{func_name}' requires approval "
@@ -761,7 +756,31 @@ class _NodeExecutorsMixin:
                             )
                             tool_errors.append(f"{func_name}: {result}")
                             continue
-                    elif not funnel_outcome.allowed:
+                        async for evt in self._await_safety_approval(
+                            ctx,
+                            approval_result,
+                            "tool_call",
+                            node.label,
+                            tool_name=func_name,
+                            params=func_args,
+                        ):
+                            yield evt
+                            if evt.type == AgentEventType.ERROR:
+                                break
+                        if ctx.error:
+                            continue
+                        # User approved — phase-2 re-admit through the
+                        # pipeline with the recorded decision; a gate that
+                        # flipped to deny since phase 1 still wins.
+                        funnel_outcome = await self.tool_funnel.admit(
+                            ctx=ctx,
+                            tool_name=func_name,
+                            args=func_args,
+                            node_label=node.label,
+                            interactive=True,
+                            approved=True,
+                        )
+                    if not funnel_outcome.allowed or funnel_outcome.needs_approval:
                         reason = funnel_outcome.reason or "denied"
                         gate = funnel_outcome.blocked_by
                         if gate == "safety":
@@ -803,21 +822,20 @@ class _NodeExecutorsMixin:
                             node_id=node.label,
                         )
                         continue
-                    else:
-                        if funnel_outcome.safety_result is not None:
-                            yield AgentEvent(
-                                type=AgentEventType.SAFETY_APPROVAL,
-                                content=funnel_outcome.reason or "approved",
-                                metadata={"action": "approved", "category": "tool_call"},
-                                node_id=node.label,
-                            )
-                        if funnel_outcome.args != func_args:
-                            func_args = funnel_outcome.args
-                            logger.info(
-                                "funnel hook rewrote args tool=%s node=%s",
-                                func_name,
-                                node.label,
-                            )
+                    if funnel_outcome.safety_result is not None:
+                        yield AgentEvent(
+                            type=AgentEventType.SAFETY_APPROVAL,
+                            content=funnel_outcome.reason or "approved",
+                            metadata={"action": "approved", "category": "tool_call"},
+                            node_id=node.label,
+                        )
+                    if funnel_outcome.args != func_args:
+                        func_args = funnel_outcome.args
+                        logger.info(
+                            "funnel hook rewrote args tool=%s node=%s",
+                            func_name,
+                            node.label,
+                        )
 
                     # C13: tool.call span — 计数+延迟. 在 try 之前初始化,
                     # KeyError(tool 不存在)在 start_span 之前抛出时 except 仍安全.
@@ -827,7 +845,9 @@ class _NodeExecutorsMixin:
                         if tool is None:
                             raise KeyError(func_name)
                         validated_args = self._validate_tool_args(tool, func_args)
-                        validated_args = self._merge_tool_config_defaults(func_name, validated_args, ctx)
+                        validated_args = self._merge_tool_config_defaults(
+                            func_name, validated_args, ctx
+                        )
                         if self.telemetry_engine is not None:
                             try:
                                 tool_span = self.telemetry_engine.start_span(
@@ -910,13 +930,9 @@ class _NodeExecutorsMixin:
             # 错误塞进 tool_errors 然后继续走 retry_on_error, 从不尊重
             # stop_on_tool_error — 节点级开关在 LLM 驱动路径静默失效.
             if tool_errors and getattr(graph, "stop_on_tool_error", False):
-                ctx.error = (
-                    f"Tool errors in LLM node '{node.label}': "
-                    + "; ".join(tool_errors)
-                )
+                ctx.error = f"Tool errors in LLM node '{node.label}': " + "; ".join(tool_errors)
                 logger.warning(
-                    "llm_func_call errors stop cascade (stop_on_tool_error=True) "
-                    "node=%s errors=%s",
+                    "llm_func_call errors stop cascade (stop_on_tool_error=True) node=%s errors=%s",
                     node.label,
                     "; ".join(tool_errors)[:200],
                 )
@@ -961,15 +977,24 @@ class _NodeExecutorsMixin:
                             content=retry_prompt,
                             context=f"model={model} node={node.label} path=self_repair",
                         )
-                        if safety_result.action.value == "block" and not safety_result.requires_approval:
+                        if (
+                            safety_result.action.value == "block"
+                            and not safety_result.requires_approval
+                        ):
                             ctx.error = f"SafetyGateway blocked self-repair LLM call: {safety_result.reason}"
                             yield AgentEvent(
                                 type=AgentEventType.SAFETY_APPROVAL,
                                 content=safety_result.reason,
-                                metadata={"action": "blocked", "category": "llm_call", "path": "self_repair"},
+                                metadata={
+                                    "action": "blocked",
+                                    "category": "llm_call",
+                                    "path": "self_repair",
+                                },
                                 node_id=node.label,
                             )
-                            yield AgentEvent(type=AgentEventType.ERROR, content=ctx.error, node_id=node.label)
+                            yield AgentEvent(
+                                type=AgentEventType.ERROR, content=ctx.error, node_id=node.label
+                            )
                             return
                         # #499: unified approval chokepoint (policy-aware).
                         async for evt in self._await_safety_approval(
@@ -1258,9 +1283,7 @@ class _NodeExecutorsMixin:
             node_label=node.label,
         )
         if funnel_outcome.needs_approval:
-            self._emit_permission_ask(
-                ctx, func_name, funnel_outcome.reason, node.label
-            )
+            self._emit_permission_ask(ctx, func_name, funnel_outcome.reason, node.label)
             return (
                 f"Error: tool '{func_name}' requires approval; "
                 f"parallel path cannot pause for approval, retry sequentially",
@@ -1374,9 +1397,11 @@ class _NodeExecutorsMixin:
         # command 含变量插值一律挡, 需 FUSION_TERMINAL_ALLOW_INTERP=1 显式 opt-in
         # (受控 CI). 转义 (shlex.quote) 仍漏多命令语义注入, 故硬挡更安全.
         if node.tool_name == "terminal":
-            _allow_interp = os.environ.get(
-                "FUSION_TERMINAL_ALLOW_INTERP", ""
-            ).strip().lower() in ("1", "true", "yes")
+            _allow_interp = os.environ.get("FUSION_TERMINAL_ALLOW_INTERP", "").strip().lower() in (
+                "1",
+                "true",
+                "yes",
+            )
             _cmd_template = node.tool_params.get("command", "")
             if isinstance(_cmd_template, str) and "{{" in _cmd_template and not _allow_interp:
                 ctx.error = (
@@ -1385,9 +1410,7 @@ class _NodeExecutorsMixin:
                     "vector. Use a non-shell tool, or set FUSION_TERMINAL_ALLOW_INTERP=1 "
                     "for controlled environments."
                 )
-                logger.warning(
-                    "E-4 blocked terminal command interpolation node=%s", node.label
-                )
+                logger.warning("E-4 blocked terminal command interpolation node=%s", node.label)
                 yield AgentEvent(
                     type=AgentEventType.ERROR,
                     content=ctx.error,
@@ -1427,53 +1450,70 @@ class _NodeExecutorsMixin:
         # N0 ToolFunnel: tool-node admission via the single chain (hooks ->
         # permission deny-first -> safety backend -> budget). Event contract
         # preserved: SAFETY_APPROVAL blocked/approved, approval future flow.
+        # #5 AC4 (fusion-harness): the funnel runs the kernel ToolPipeline on
+        # every admit — interactive=True surfaces asks from the pipeline
+        # policy stage (safety ask or #499 escalation) as needs_approval
+        # with the verdict attached; the interactive flow below drives the
+        # user ask, then re-admits with the recorded decision (approved=
+        # True). Execution only happens on a pipeline allow — no side door
+        # around pipeline stage 3.
+        # #4: durable session event log — deterministic call_id pairs with
+        # the add_message("tool", ..., tool_call_id=f"tool_{...}") below.
+        self._session_log(
+            ctx,
+            "tool_call",
+            {"call_id": f"tool_{node.tool_name}", "tool": node.tool_name, "args": params},
+        )
         funnel_outcome = await self.tool_funnel.admit(
             ctx=ctx,
             tool_name=node.tool_name,
             args=params,
             node_label=node.label,
+            interactive=True,
         )
-        # #499: confirmation-policy escalation (see main tool-call funnel
-        # site above) — AlwaysConfirm / ConfirmRisk at/above threshold turn
-        # an auto-passed tool node into an approval ask.
-        escalation = (
-            self._policy_escalation_verdict(ctx, node.tool_name, params)
-            if funnel_outcome.allowed and not funnel_outcome.needs_approval
-            else None
-        )
-        if funnel_outcome.needs_approval or escalation is not None:
-            if funnel_outcome.needs_approval:
-                self._emit_permission_ask(
-                    ctx, node.tool_name, funnel_outcome.reason, node.label
-                )
+        if funnel_outcome.needs_approval:
+            escalation = getattr(funnel_outcome, "escalation", None)
+            if escalation is None:
+                self._emit_permission_ask(ctx, node.tool_name, funnel_outcome.reason, node.label)
             approval_result = (
                 funnel_outcome.safety_result
                 if funnel_outcome.safety_result is not None
                 else escalation
             )
-            if approval_result is not None:
-                async for evt in self._await_safety_approval(
-                    ctx,
-                    approval_result,
-                    "tool_call",
-                    node.label,
-                    tool_name=node.tool_name,
-                    params=params,
-                ):
-                    yield evt
-                    if evt.type == AgentEventType.ERROR:
-                        return
-            else:
+            if approval_result is None:
+                # Unresolved ask — no approval backend wired. Fail closed.
                 ctx.error = (
                     f"Permission denied tool call: tool '{node.tool_name}' requires "
                     f"approval ({funnel_outcome.reason}); no approval backend wired"
                 )
-                logger.info(
-                    "funnel permission-ask no backend tool-node=%s", node.label
-                )
+                logger.info("funnel permission-ask no backend tool-node=%s", node.label)
                 yield AgentEvent(type=AgentEventType.ERROR, content=ctx.error)
                 return
-        elif not funnel_outcome.allowed:
+            async for evt in self._await_safety_approval(
+                ctx,
+                approval_result,
+                "tool_call",
+                node.label,
+                tool_name=node.tool_name,
+                params=params,
+            ):
+                yield evt
+                if evt.type == AgentEventType.ERROR:
+                    return
+            if ctx.error:
+                return
+            # User approved — phase-2 re-admit through the pipeline with the
+            # recorded decision; a gate that flipped to deny since phase 1
+            # still wins.
+            funnel_outcome = await self.tool_funnel.admit(
+                ctx=ctx,
+                tool_name=node.tool_name,
+                args=params,
+                node_label=node.label,
+                interactive=True,
+                approved=True,
+            )
+        if not funnel_outcome.allowed or funnel_outcome.needs_approval:
             reason = funnel_outcome.reason or "denied"
             gate = funnel_outcome.blocked_by
             if gate == "safety":
@@ -1509,16 +1549,15 @@ class _NodeExecutorsMixin:
                 )
             yield AgentEvent(type=AgentEventType.ERROR, content=ctx.error)
             return
-        else:
-            if funnel_outcome.safety_result is not None:
-                yield AgentEvent(
-                    type=AgentEventType.SAFETY_APPROVAL,
-                    content=funnel_outcome.reason or "approved",
-                    metadata={"action": "approved", "category": "tool_call"},
-                )
-            if funnel_outcome.args != params:
-                params = funnel_outcome.args
-                logger.info("funnel hook rewrote tool-node args node=%s", node.label)
+        if funnel_outcome.safety_result is not None:
+            yield AgentEvent(
+                type=AgentEventType.SAFETY_APPROVAL,
+                content=funnel_outcome.reason or "approved",
+                metadata={"action": "approved", "category": "tool_call"},
+            )
+        if funnel_outcome.args != params:
+            params = funnel_outcome.args
+            logger.info("funnel hook rewrote tool-node args node=%s", node.label)
 
         try:
             tool = self.tools.get(node.tool_name)
@@ -1560,16 +1599,13 @@ class _NodeExecutorsMixin:
                         parsed = json.loads(stripped)
                         if isinstance(parsed, dict) and "error" in parsed:
                             is_tool_error = True
-                            error_detail = json.dumps(
-                                parsed, ensure_ascii=False
-                            )
+                            error_detail = json.dumps(parsed, ensure_ascii=False)
                     except (ValueError, TypeError):
                         pass
         if is_tool_error and getattr(graph, "stop_on_tool_error", False):
             ctx.error = f"Tool '{node.tool_name}' (node '{node.label}') failed: {error_detail}"
             logger.warning(
-                "tool node error stops cascade (stop_on_tool_error=True) "
-                "tool=%s node=%s error=%s",
+                "tool node error stops cascade (stop_on_tool_error=True) tool=%s node=%s error=%s",
                 node.tool_name,
                 node.label,
                 error_detail[:200],
@@ -1820,14 +1856,10 @@ class _NodeExecutorsMixin:
                     ):
                         yield event
                 elif failed_node.type == "planner":
-                    async for event in self._execute_planner_node(
-                        ctx, failed_node, graph
-                    ):
+                    async for event in self._execute_planner_node(ctx, failed_node, graph):
                         yield event
                 elif failed_node.type == "verify":
-                    async for event in self._execute_verify_node(
-                        ctx, failed_node, graph
-                    ):
+                    async for event in self._execute_verify_node(ctx, failed_node, graph):
                         yield event
                 elif failed_node.type == "parallel":
                     async for event in self._execute_parallel_node(
@@ -1836,14 +1868,13 @@ class _NodeExecutorsMixin:
                         yield event
                 elif failed_node.type == "acp":
                     # #496: ACP node retryable like rag/planner/verify.
-                    async for event in self._execute_acp_node(
-                        ctx, failed_node, graph
-                    ):
+                    async for event in self._execute_acp_node(ctx, failed_node, graph):
                         yield event
                 else:
                     logger.warning(
                         "error_handler: failed node %s type=%s not retryable",
-                        failed_node_id, failed_node.type,
+                        failed_node_id,
+                        failed_node.type,
                     )
 
             if not ctx.error:
@@ -2152,7 +2183,9 @@ class _NodeExecutorsMixin:
         if self._sub_graph_depth >= max_depth:
             logger.warning(
                 "E-16 sub-graph depth limit hit depth=%d max=%d node=%s",
-                self._sub_graph_depth, max_depth, parent_node.label,
+                self._sub_graph_depth,
+                max_depth,
+                parent_node.label,
             )
             yield AgentEvent(
                 type=AgentEventType.ERROR,
@@ -2575,10 +2608,7 @@ class _NodeExecutorsMixin:
             # 审计 P2-19: verify 失败须置 ctx.error, 否则下游 condition(检查 ctx.error)
             # 不路由 error_handler, verify 失败静默跳过容错路径. 不发 ERROR (会让
             # dispatch 直接 return 绕过 error_handler), 用 ctx.error 驱动条件路由.
-            ctx.error = (
-                f"Verify failed (score={result.score:.2f}): "
-                f"{'; '.join(result.issues)}"
-            )
+            ctx.error = f"Verify failed (score={result.score:.2f}): {'; '.join(result.issues)}"
             yield AgentEvent(
                 type=AgentEventType.THINK,
                 content=f"Verification issues: {'; '.join(result.issues)}",
@@ -2691,9 +2721,7 @@ class _NodeExecutorsMixin:
             },
         )
 
-    def _acp_event_to_agent_event(
-        self, ev: dict, node: NodeConfig
-    ) -> list[AgentEvent]:
+    def _acp_event_to_agent_event(self, ev: dict, node: NodeConfig) -> list[AgentEvent]:
         kind = ev.get("type", "")
         text = ev.get("text", "")
         if kind == "agent_message_chunk" and text:
@@ -2795,6 +2823,7 @@ class _NodeExecutorsMixin:
         )
         logger.info(
             "Auto-stored execution result to memory (scope=%s type=%s source=%s)",
-            scope, mem_type, "llm" if llm_sourced else "user",
+            scope,
+            mem_type,
+            "llm" if llm_sourced else "user",
         )
-

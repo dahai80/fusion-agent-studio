@@ -174,12 +174,39 @@ class AgentContext:
         if usage:
             msg["usage"] = usage
         self.messages.append(msg)
+        # #4 (fusion-harness): durable session event log — message and
+        # tool_result/tool_error events ride the single add_message
+        # chokepoint; failures never break the run.
+        _selog = getattr(self, "session_event_log", None)
+        if _selog is not None:
+            try:
+                if role == "tool":
+                    _ok = not str(content).startswith(
+                        ("Error:", "Blocked by", "SafetyGateway blocked")
+                    )
+                    _selog.append(
+                        "tool_result" if _ok else "tool_error",
+                        {
+                            "call_id": tool_call_id,
+                            "ok": _ok,
+                            "preview": str(content)[:500],
+                        },
+                    )
+                else:
+                    _selog.append(
+                        "message",
+                        {"role": role, "content": str(content)[:2000]},
+                    )
+            except Exception as _e:
+                logger.warning("session event log append failed: %s", _e)
         # 审计 P1-11/A-8: 消息软上限. 超限裁剪最旧非 system 消息 (保留 system
         # 上下文), 防长会话无界增长 OOM. 默认 0=不限.
         cap = _context_max_messages()
         if cap > 0 and len(self.messages) > cap:
             kept = [m for m in self.messages if isinstance(m, dict) and m.get("role") == "system"]
-            non_sys = [m for m in self.messages if not (isinstance(m, dict) and m.get("role") == "system")]
+            non_sys = [
+                m for m in self.messages if not (isinstance(m, dict) and m.get("role") == "system")
+            ]
             overflow = len(non_sys) - max(0, cap - len(kept))
             if overflow > 0:
                 trimmed = non_sys[overflow:]
