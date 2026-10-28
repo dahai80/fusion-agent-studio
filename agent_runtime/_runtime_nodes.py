@@ -445,6 +445,16 @@ class _NodeExecutorsMixin:
                     llm_span.attributes["completion_tokens"] = usage.get(
                         "completion_tokens", 0
                     )
+                    # #483: reasoning split rides the span attributes so the
+                    # telemetry counter picks it up in end_span.
+                    _details = usage.get("completion_tokens_details")
+                    llm_span.attributes["reasoning_tokens"] = usage.get(
+                        "reasoning_tokens", 0
+                    ) or (
+                        _details.get("reasoning_tokens", 0)
+                        if isinstance(_details, dict)
+                        else 0
+                    )
                 self.telemetry_engine.end_span(llm_span.span_id, status=llm_status)
             except Exception as e:
                 logger.warning("telemetry end_span llm.call failed: %s", e)

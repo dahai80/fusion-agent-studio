@@ -211,13 +211,23 @@ class AgentContext:
         """Aggregate token usage from all messages."""
         prompt = 0
         completion = 0
+        reasoning = 0
         for msg in self.messages:
             usage = msg.get("usage", {}) if isinstance(msg, dict) else {}
             prompt += usage.get("prompt_tokens", 0)
             completion += usage.get("completion_tokens", 0)
+            # #483: reasoning split — flat `reasoning_tokens` (mlx-lm/gateway)
+            # or OpenAI `completion_tokens_details.reasoning_tokens`.
+            details = usage.get("completion_tokens_details")
+            reasoning += usage.get("reasoning_tokens", 0) or (
+                details.get("reasoning_tokens", 0)
+                if isinstance(details, dict)
+                else 0
+            )
         return {
             "prompt_tokens": prompt,
             "completion_tokens": completion,
+            "reasoning_tokens": reasoning,
             "total": prompt + completion,
         }
 

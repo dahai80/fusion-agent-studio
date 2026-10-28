@@ -54,6 +54,22 @@ def _reasoning_delta(delta: dict) -> str:
     return ""
 
 
+def _normalize_usage(usage: dict) -> dict:
+    # #483: reasoning-token split — meter downstream reads a single flat
+    # `reasoning_tokens` key. Servers either report it flat (mlx-lm/gateway)
+    # or nested OpenAI-style (`completion_tokens_details.reasoning_tokens`).
+    # Total (prompt+completion) stays untouched: servers already embed
+    # reasoning inside completion_tokens.
+    if not isinstance(usage, dict):
+        return {}
+    out = dict(usage)
+    if not out.get("reasoning_tokens"):
+        details = out.get("completion_tokens_details")
+        if isinstance(details, dict) and details.get("reasoning_tokens"):
+            out["reasoning_tokens"] = details["reasoning_tokens"]
+    return out
+
+
 @dataclass
 class MCPTool:
     """An MCP tool definition discovered from a server."""
@@ -168,7 +184,7 @@ class FusionMLXClient:
             content=message.get("content") or "",
             tool_calls=message.get("tool_calls") or [],
             finish_reason=choice.get("finish_reason") or "stop",
-            usage=data.get("usage") or {},
+            usage=_normalize_usage(data.get("usage") or {}),
             reasoning=_reasoning_delta(message),
         )
 
@@ -290,7 +306,7 @@ class FusionMLXClient:
                     delta_content=delta.get("content") or "",
                     delta_tool_calls=delta.get("tool_calls") or [],
                     finish_reason=finish_reason,
-                    usage=usage or {},
+                    usage=_normalize_usage(usage or {}),
                     delta_reasoning=_reasoning_delta(delta),
                 )
                 yield chunk

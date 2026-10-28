@@ -20,6 +20,10 @@ class TokenBudget:
     spent_tokens: int = 0
     prompt_tokens: int = 0
     completion_tokens: int = 0
+    # #483: reasoning tokens metered separately for reasoning models (N8 #345
+    # §9.6 residual). Total caps stay on prompt+completion — servers embed
+    # reasoning inside completion_tokens, so adding it again would double-count.
+    reasoning_tokens: int = 0
     pricing: dict[str, dict[str, float]] = field(
         default_factory=lambda: dict(_DEFAULT_PRICING)
     )
@@ -36,6 +40,7 @@ class TokenBudget:
             "spent_tokens": self.spent_tokens,
             "prompt_tokens": self.prompt_tokens,
             "completion_tokens": self.completion_tokens,
+            "reasoning_tokens": self.reasoning_tokens,
             "pricing": self.pricing,
             "day_max_tokens": self.day_max_tokens,
             "day_spent_tokens": self.day_spent_tokens,
@@ -51,6 +56,7 @@ class TokenBudget:
             spent_tokens=data.get("spent_tokens", 0),
             prompt_tokens=data.get("prompt_tokens", 0),
             completion_tokens=data.get("completion_tokens", 0),
+            reasoning_tokens=data.get("reasoning_tokens", 0),
             pricing=data.get("pricing", dict(_DEFAULT_PRICING)),
             day_max_tokens=data.get("day_max_tokens", 0),
             day_spent_tokens=data.get("day_spent_tokens", 0),
@@ -76,11 +82,16 @@ class TokenBudget:
             self.day_spent_tokens = 0
 
     def record_usage(
-        self, prompt_tokens: int, completion_tokens: int, graph_id: str = ""
+        self,
+        prompt_tokens: int,
+        completion_tokens: int,
+        graph_id: str = "",
+        reasoning_tokens: int = 0,
     ) -> None:
         total = int(prompt_tokens or 0) + int(completion_tokens or 0)
         self.prompt_tokens += prompt_tokens
         self.completion_tokens += completion_tokens
+        self.reasoning_tokens += int(reasoning_tokens or 0)
         self.spent_tokens = self.prompt_tokens + self.completion_tokens
         self._roll_day()
         self.day_spent_tokens += total
@@ -89,9 +100,10 @@ class TokenBudget:
                 self.graph_spent_tokens.get(graph_id, 0) + total
             )
         logger.debug(
-            "Token usage recorded: prompt=%d completion=%d total=%d day=%d graph=%s",
+            "Token usage recorded: prompt=%d completion=%d reasoning=%d total=%d day=%d graph=%s",
             prompt_tokens,
             completion_tokens,
+            self.reasoning_tokens,
             self.spent_tokens,
             self.day_spent_tokens,
             graph_id or "-",
@@ -143,6 +155,7 @@ class TokenBudget:
             "spent_tokens": self.spent_tokens,
             "prompt_tokens": self.prompt_tokens,
             "completion_tokens": self.completion_tokens,
+            "reasoning_tokens": self.reasoning_tokens,
             "remaining": self.remaining(graph_id),
             "exceeded": self.is_exceeded(graph_id),
             "estimated_cost": self.estimate_cost(model),
