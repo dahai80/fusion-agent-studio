@@ -119,20 +119,46 @@ class StdioMCPTransport(MCPTransport):
 
         await self._ensure_started()
         self._id += 1
-        payload = {"jsonrpc": "2.0", "id": self._id, "method": method}
+        req_id = self._id
+        payload = {"jsonrpc": "2.0", "id": req_id, "method": method}
         if params is not None:
             payload["params"] = params
         line = json.dumps(payload) + "\n"
         self._writer.write(line.encode("utf-8"))
         await self._writer.drain()
 
-        raw = await asyncio.wait_for(self._reader.readline(), timeout=30)
-        if not raw:
-            raise RuntimeError(f"MCP stdio server closed connection (method={method})")
-        try:
-            return json.loads(raw.decode("utf-8"))
-        except json.JSONDecodeError as e:
-            raise RuntimeError(f"MCP stdio bad JSON response: {e}") from e
+        # #488: standard MCP servers interleave notifications (progress,
+        # logging, notifications/initialized) and even server-to-client
+        # requests between responses. Read lines until the JSON-RPC response
+        # with OUR id arrives; skip everything else instead of treating the
+        # first line as the answer.
+        while True:
+            raw = await asyncio.wait_for(self._reader.readline(), timeout=30)
+            if not raw:
+                raise RuntimeError(f"MCP stdio server closed connection (method={method})")
+            text = raw.decode("utf-8", errors="replace").strip()
+            if not text:
+                continue
+            try:
+                msg = json.loads(text)
+            except json.JSONDecodeError as e:
+                logger.warning("stdio MCP skipping non-JSON line: %s", e)
+                continue
+            if not isinstance(msg, dict):
+                logger.warning("stdio MCP skipping non-object message: %r", msg)
+                continue
+            if "id" not in msg:
+                logger.info("stdio MCP notification skipped: %s", msg.get("method"))
+                continue
+            if msg["id"] != req_id:
+                logger.info(
+                    "stdio MCP skipping message with foreign id %s (want %s)",
+                    msg["id"], req_id,
+                )
+                continue
+            if "error" in msg:
+                logger.info("stdio MCP rpc error for %s: %s", method, msg["error"])
+            return msg
 
     async def call_tool(self, name: str, arguments: dict) -> dict:
         return await self._rpc("tools/call", {"name": name, "arguments": arguments})

@@ -337,6 +337,11 @@ python my_agent.py
 - ✅ **CI 作业** — `.github/workflows/ci.yml` 新增 `e2e` 作业（构建 web dist、装 playwright + chromium、跑 `pytest tests/e2e -m e2e`）与 `mutation` 作业（`continue-on-error`，发布 `mutmut results` + junit 产物 — 仅信息性，绝不阻塞合并）。
 - 测试：`tests/e2e/test_core_flows.py`（5 项）+ `tests/test_issue_499_confirmation_policy.py` 变异加固增补（21 项）。
 
+### MCP 出站遗留修复 — #488
+- ✅ **ToolSearch 默认开启** — 懒加载工具 schema 不再藏在 `FUSION_TOOLSEARCH=1` 后面：默认启用，超过 `TOOLSEARCH_INLINE_LIMIT`（默认 25）的 schema 移出 prompt，LLM 经 `tool_search` 按需发现。`FUSION_TOOLSEARCH=0|false|no` 变为退出开关，恢复全量内联 schema；`daemon.status` capabilities 上报实际状态。`tool_search` 只在顶层 LLM 表面（daemon / api_server，经 `_register_toolsearch()`）注册 — subagent/orchestrator 注册表保持调用方过滤，allowlist/denylist 隔离继续断言精确工具集。
+- ✅ **StdioMCPTransport JSON-RPC id 匹配** — `_rpc` 不再把 stdout 首行当答案。持续读取直到携带本请求 id 的响应到达，安全跳过夹在中间的通知（`notifications/initialized`、progress、logging）、空行/非 JSON 行、以及服务端反向请求（外来 id）。安静服务器与标准聒噪服务器均正确配对。
+- 测试：`tests/test_issue_343_toolsearch.py` — 默认开启 + 退出开关运行时测试，外加子进程拉起的聒噪 MCP 服务器（每个响应前夹通知与 `sampling/createMessage` 请求），验证连续请求配对稳定。
+
 ### 集成
 - ✅ **fusion-mlx** — Apple Silicon 优化模型服务
 - ✅ **OpenAI 兼容 API** — 兼容任何 OpenAI 兼容后端
