@@ -366,6 +366,12 @@ python my_agent.py
 - ✅ **指标进 telemetry** — `TelemetryEngine.record_permission_noise()` 把每次询问/百次决策算入 `approval_asks_per_100_calls` gauge（附 `permission_decisions`）；`telemetry.metrics` RPC 从活权限引擎刷新，数字持续可得而非一次性。
 - 测试：`tests/test_issue_486_approval_noise.py` — 比率计算、零/全询问边界、gauge 隔离、proof 工作负载降幅断言。
 
+### LifecycleBus 生产消费者 — #485
+- ✅ **生命周期总线有了生产订阅者** — `SessionLifecycleFeed`（`agent_runtime/lifecycle_consumer.py`）在 daemon 创建 runtime 时挂到 `LifecycleBus`；总线事件（tool/llm/agent 三域、按会话）镜像进有界会话环，并作为 `lifecycle.event` 转发进 daemon WS 事件环（Last-Event-ID 补发），治理/画布消费端读一条流而非各挖内部。
+- ✅ **`sessions.lifecycle` RPC** — 会话分发器新面：返回会话事件序列 + 分域摘要；内存 feed 为空（重启后的 daemon）时自动从总线 JSONL 持久化（`FUSION_LIFECYCLE_JSONL_DIR`）重建状态。
+- ✅ **回放 + JSONL round-trip 已验证** — 重启重建（新 feed 从 JSONL 载入一致的事件序列与摘要）与写入/重载/回放一致性均有测试断言，含经新 daemon RPC 的端到端路径。
+- 测试：`tests/test_issue_485_lifecycle_consumer.py` — feed 订阅/镜像、sink 转发、daemon 接入事件环、RPC 服务、重启后 RPC 重建、JSONL round-trip 一致性、关闭/缺路径边界。
+
 ### 集成
 - ✅ **fusion-mlx** — Apple Silicon 优化模型服务
 - ✅ **OpenAI 兼容 API** — 兼容任何 OpenAI 兼容后端
