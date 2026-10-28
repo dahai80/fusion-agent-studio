@@ -164,6 +164,8 @@ def _get_runtime() -> AgentRuntime:
         _runtime = AgentRuntime(tool_registry=create_default_registry())
         # #498: LLM-facing SKILL.md tools on the top-level REST runtime too.
         _runtime._register_skill_tools()
+        # #488: ToolSearch ON by default — same rule, top-level surface only.
+        _runtime._register_toolsearch()
     return _runtime
 
 

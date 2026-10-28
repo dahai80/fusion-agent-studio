@@ -144,20 +144,14 @@ class AgentRuntime(_SafetyApprovalMixin, _CheckpointMixin, _DynamicToolsMixin, _
         # nodes awaiting approval (mirrors _safety_futures pattern).
         self.plan_mode: bool = False
         self._plan_futures: dict[str, asyncio.Future[bool]] = {}
-        # N6/#343 ToolSearch: env-gated lazy tool schema loading. When on,
+        # N6/#343 ToolSearch: lazy tool schema loading. ON by default (#488):
         # schemas beyond TOOLSEARCH_INLINE_LIMIT are deferred out of the
         # prompt; the LLM finds them via the tool_search tool at need.
+        # Opt-out: FUSION_TOOLSEARCH=0/false/no restores full inline schemas.
         self._memory_tools_registered = False
-        self._toolsearch_enabled = os.environ.get("FUSION_TOOLSEARCH", "") == "1"
-        if self._toolsearch_enabled and self.tools is not None:
-            try:
-                from tools.tool_search import ToolSearchTool
-
-                self.tools.register(ToolSearchTool(lambda: self.tools))
-                logger.info("ToolSearch enabled: tool_search registered")
-            except Exception as e:
-                logger.warning("ToolSearch init failed: %s", e)
-                self._toolsearch_enabled = False
+        self._toolsearch_enabled = (
+            os.environ.get("FUSION_TOOLSEARCH", "1").strip().lower() not in ("0", "false", "no")
+        )
         # #498: LLM-facing SKILL.md surface — see _register_skill_tools().
         # NOT wired here: subagent/orchestrator pass caller-owned filtered
         # registries whose exact tool sets are asserted (allowlist/denylist
@@ -1160,6 +1154,22 @@ class AgentRuntime(_SafetyApprovalMixin, _CheckpointMixin, _DynamicToolsMixin, _
 
             self._skills_store = SkillsStore.with_project_dirs()
         return self._skills_store
+
+    def _register_toolsearch(self) -> None:
+        # N6/#343/#488: lazy tool-schema loading — tool_search registered on
+        # the top-level LLM surfaces (daemon / api_server) only, never by
+        # subagent runtimes whose registries are caller-filtered (allowlist /
+        # denylist isolation asserts exact tool sets).
+        if not self._toolsearch_enabled or self.tools is None:
+            return
+        try:
+            from tools.tool_search import ToolSearchTool
+
+            self.tools.register(ToolSearchTool(lambda: self.tools))
+            logger.info("ToolSearch enabled: tool_search registered")
+        except Exception as e:
+            logger.warning("ToolSearch init failed: %s", e)
+            self._toolsearch_enabled = False
 
     def _register_skill_tools(self) -> None:
         # #498: LLM-facing SKILL.md surface — skill_search (trigger match +

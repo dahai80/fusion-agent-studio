@@ -371,6 +371,8 @@ class DaemonServer:
             # #498: LLM-facing SKILL.md tools on the daemon runtime only —
             # subagent/orchestrator registries stay caller-filtered.
             self._runtime._register_skill_tools()
+            # #488: ToolSearch ON by default — same rule, top-level surface only.
+            self._runtime._register_toolsearch()
             # #479: funnel deny decisions land in the audit DB (deny rows).
             self._runtime.set_audit_logger(self._get_audit_logger())
         return self._runtime
@@ -1429,8 +1431,10 @@ class DaemonServer:
             "failed_plugins": self._get_tool_registry().failed_plugins,
             # 审计 N6: env-gated surfaces must be observable so GUI can state
             # whether outbound MCP discover and ToolSearch are on.
+            # #488: ToolSearch is ON by default (opt-out via FUSION_TOOLSEARCH).
             "capabilities": {
-                "toolsearch": os.environ.get("FUSION_TOOLSEARCH", "") == "1",
+                "toolsearch": os.environ.get("FUSION_TOOLSEARCH", "1").strip().lower()
+                not in ("0", "false", "no"),
                 "mcp_outbound": True,
                 "subagent_tools": os.environ.get("FUSION_SUBAGENT_TOOLS", "").strip()
                 in ("1", "true", "yes"),

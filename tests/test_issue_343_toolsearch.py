@@ -63,20 +63,77 @@ def test_runtime_defers_schemas(monkeypatch):
     r = _registry(10)
     rt = AgentRuntime(tool_registry=r)
     assert rt._toolsearch_enabled is True
+    # #488: registration moved to top-level surfaces (_register_toolsearch);
+    # __init__ keeps subagent registries caller-filtered.
+    rt._register_toolsearch()
     assert r.has("tool_search")
     schemas = r.to_openai_schemas()
     names = [s["function"]["name"] for s in schemas]
     assert "tool_search" in names
 
 
-def test_runtime_toolsearch_off_by_default(monkeypatch):
+def test_runtime_toolsearch_on_by_default(monkeypatch):
+    # #488: flipped default — ToolSearch ships ON; FUSION_TOOLSEARCH is the
+    # opt-OUT (0/false/no restores full inline schemas)
     monkeypatch.delenv("FUSION_TOOLSEARCH", raising=False)
+    from agent_runtime.runtime import AgentRuntime
+
+    r = _registry(3)
+    rt = AgentRuntime(tool_registry=r)
+    assert rt._toolsearch_enabled is True
+    # #488: top-level surfaces call _register_toolsearch after construction;
+    # the plain runtime must NOT auto-register (subagent isolation).
+    assert not r.has("tool_search")
+    rt._register_toolsearch()
+    assert r.has("tool_search")
+
+
+def test_runtime_toolsearch_opt_out(monkeypatch):
+    monkeypatch.setenv("FUSION_TOOLSEARCH", "0")
     from agent_runtime.runtime import AgentRuntime
 
     r = _registry(3)
     rt = AgentRuntime(tool_registry=r)
     assert rt._toolsearch_enabled is False
     assert not r.has("tool_search")
+
+
+async def test_stdio_transport_skips_interleaved_notifications(tmp_path):
+    # #488: a chatty standard MCP server — notifications (progress, logging,
+    # initialized) and a server-to-client request interleaved between
+    # responses — must not desynchronize request/response pairing.
+    import sys
+
+    from tools.mcp_tool import StdioMCPTransport
+
+    script = tmp_path / "chatty_mcp_server.py"
+    script.write_text(
+        "import json, sys\n"
+        "for line in sys.stdin:\n"
+        "    req = json.loads(line)\n"
+        "    rid = req['id']\n"
+        "    # notification-style noise BEFORE the response\n"
+        "    print(json.dumps({'jsonrpc': '2.0', 'method': 'notifications/initialized'}))\n"
+        "    print(json.dumps({'jsonrpc': '2.0', 'method': 'notifications/progress',\n"
+        "                       'params': {'progress': 1}}))\n"
+        "    # server-to-client request (has an id, but not ours)\n"
+        "    print(json.dumps({'jsonrpc': '2.0', 'id': 999, 'method': 'sampling/createMessage',\n"
+        "                       'params': {}}))\n"
+        "    print(json.dumps({'jsonrpc': '2.0', 'id': rid, 'result': {'echo': req['method']}}))\n"
+        "    sys.stdout.flush()\n"
+    )
+    transport = StdioMCPTransport([sys.executable, str(script)])
+    try:
+        resp = await transport._rpc("tools/list")
+        # _initialize already consumed id 1
+        assert resp["id"] == 2
+        assert resp["result"] == {"echo": "tools/list"}
+        # second request on the same connection — id must advance and still pair
+        resp2 = await transport._rpc("tools/call", {"name": "x"})
+        assert resp2["id"] == 3
+        assert resp2["result"] == {"echo": "tools/call"}
+    finally:
+        await transport.close()
 
 
 def test_mcp_output_cap_truncates(monkeypatch):
