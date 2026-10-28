@@ -70,6 +70,11 @@ jobs:
       - name: Proof 7 — long-session compaction (level escalation)
         run: python tests/proof/prove_long_session_compaction.py
 
+      # #486: approval-noise baseline measurement — asks/100-calls on a fixed
+      # 100-call workload, baseline vs armed engine, asserts >= 70% reduction.
+      - name: Proof 8 — approval noise (baseline vs armed, >= 70%)
+        run: python tests/proof/prove_approval_noise.py
+
   # #327: web UI — typecheck + build the union-web shell module. Self-contained:
   # @fusion/web-ui and @fusion/web-sdk are vendored in web/vendor/@fusion (no
   # registry/network fetch beyond bun + vite themselves).
