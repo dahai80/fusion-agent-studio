@@ -372,6 +372,12 @@ python my_agent.py
 - ✅ **回放 + JSONL round-trip 已验证** — 重启重建（新 feed 从 JSONL 载入一致的事件序列与摘要）与写入/重载/回放一致性均有测试断言，含经新 daemon RPC 的端到端路径。
 - 测试：`tests/test_issue_485_lifecycle_consumer.py` — feed 订阅/镜像、sink 转发、daemon 接入事件环、RPC 服务、重启后 RPC 重建、JSONL round-trip 一致性、关闭/缺路径边界。
 
+### 治理页面 Web 组件测试 — #489
+- ✅ **vitest + jsdom + Testing Library 基建** — `web/vitest.config.ts`（React 插件、jsdom、`globals`、自动清理）与 `web/src/test/setup.ts`（jest-dom 匹配器、React Flow 所需 ResizeObserver/DOMMatrix 桩、localStorage/sessionStorage 内存兜底）；仅 dev 依赖，新增 `bun run test` 脚本，不动构建路径。
+- ✅ **GovernancePage 全覆盖** — 预算页渲染状态并提交 `budget.set`（成功 toast）；权限页渲染 agent + 工具等级，Allow/Deny 触发 `permission.update`；事件页渲染 SLO 卡片 + 遥测计数；工件页打开运行工件三联（图定义/环境快照/会话归档）。两条错误路径：`budget.status` 401 呈现带重试控件的 ErrorState（不是无声白屏），`budget.set` 失败弹错误 toast 且页面数据保留。
+- ✅ **WorkflowCanvasPage 安全面覆盖** — 治理面板渲染待审批动作；Approve/Deny 触发 `safety.approve`/`safety.reject`、刷新并 toast 确认；审批失败弹错误 toast 且动作保持待审批（失败的决定绝不丢动作）。面板加载按生产路径驱动（sessionStorage 预选图 → loadGraph → refreshGovernance）。
+- ✅ **CI 执行** — web 作业在 typecheck 与 build 之间执行 `bun run test`，页面回归即使通过类型检查也会挂构建。
+
 ### 集成
 - ✅ **fusion-mlx** — Apple Silicon 优化模型服务
 - ✅ **OpenAI 兼容 API** — 兼容任何 OpenAI 兼容后端
