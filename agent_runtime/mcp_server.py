@@ -396,6 +396,10 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s %(message)s")
+    # #490: long-running stdio server shows the product name, not bare Python.
+    from agent_runtime.proctitle import set_process_title
+
+    set_process_title(f"fusion-agent-studio mcp {args.registry}")
     registry = REGISTRY_FACTORIES[args.registry](args.base_url)
     server = MCPServer(registry, server_name=args.name or f"fusion-{args.registry}")
     server.serve()

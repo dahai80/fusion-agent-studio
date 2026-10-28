@@ -2575,6 +2575,10 @@ else:
 def run_server(host: str = "127.0.0.1", port: int = 11442):
     import uvicorn
 
+    # #490: standalone REST entrypoint shows the product name, not bare Python.
+    from agent_runtime.proctitle import set_process_title
+
+    set_process_title(f"fusion-agent-studio api :{port}")
     uvicorn.run(app, host=host, port=port, log_level="info")
 
 
