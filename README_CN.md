@@ -354,6 +354,12 @@ python my_agent.py
 - ✅ **telemetry/SLO 面暴露拆分** — `llm.call` span 属性携带 `reasoning_tokens`，telemetry 引擎在 `tokens_prompt`/`tokens_completion` 旁计量 `tokens_reasoning` 计数器（`telemetry.metrics` counters 可见）。
 - 测试：`tests/test_issue_483_reasoning_tokens.py` — 预算拆分 + 仅总量阈值 + roundtrip、上下文聚合（扁平与嵌套）、客户端归一化、telemetry 计数器、runtime 计量调用签名契约。
 
+### 子代理名册 + 默认开启委派 — #487
+- ✅ **派生子代理自动登记 DurableRoster** — `SubAgentRunner.run()` 在 spawn 后立刻以 `running` 状态登记（名称/团队/能力），完成时落定为 `done`/`failed`，团队查询即时可见在线子代理；名册失败仅记日志，绝不中断运行。
+- ✅ **`subagent_spawn` 默认开启** — LLM 侧委派工具不再需要 `FUSION_SUBAGENT_TOOLS=1`；用 `FUSION_SUBAGENT_TOOLS=0/false/no` 关闭。注册沿用 toolsearch/skill-tools 模式：顶层 LLM 面（daemon/api_server）调用 `_register_subagent_tools()`，裸 runtime 与子代理注册表保持精确工具集隔离（#341）。
+- ✅ **能力标记同步** — `daemon.status` 按同样默认开/可关规则上报 `subagent_tools: true`，GUI 可准确展示委派可用性。
+- 测试：`tests/test_issue_487_subagent_roster_default.py` — spawn 后名册可查（团队 + done 状态）、失败运行名册状态、名册故障韧性、默认开 + 各关闭值、幂等注册、裸 runtime 隔离。
+
 ### 审批噪声基线测量 — #486
 - ✅ **前后基线存在且进 CI** — `tests/proof/prove_approval_noise.py`（CI proof job）用固定 100 次调用工作负载（60 只读 / 20 回环 HTTP / 15 写 / 5 破坏性）跑两遍权限引擎：基线臂（自动分级关闭 — 非拒绝调用全部询问：95 询问/100 调用）对比生产武装引擎（只读 + 回环自动放行：15 询问/100 调用）。
 - ✅ **实测结果：审批噪声降低 84.2%**（目标是 ≥ 70%）— proof 打印、CI 断言，任何人可用 `python tests/proof/prove_approval_noise.py` 复现。

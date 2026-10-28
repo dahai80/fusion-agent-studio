@@ -457,6 +457,24 @@ class SubAgentRunner:
                 task=spec.task,
                 spec=spec.to_dict(),
             )
+        # #487: spawned subagents auto-register into the DurableRoster so
+        # team queries see live subagents immediately. Best-effort — roster
+        # failures never break the run.
+        try:
+            from .durable_roster import DurableRoster
+
+            DurableRoster().register(
+                agent_id,
+                name=spec.name,
+                team=spec.team,
+                capabilities=spec.tools,
+                status="running",
+            )
+        except Exception as e:
+            logger.warning(
+                "roster register failed agent=%s name=%s err=%s",
+                agent_id, spec.name, e,
+            )
         self._emit_lifecycle(
             "subagent_start",
             {
@@ -494,6 +512,13 @@ class SubAgentRunner:
             error=report.error,
         )
         self._commit_scoped_memory(spec, report)
+        # #487: final roster status — done/failed, best-effort.
+        try:
+            from .durable_roster import DurableRoster
+
+            DurableRoster().set_status(agent_id, "done" if report.ok else "failed")
+        except Exception as e:
+            logger.warning("roster status update failed agent=%s err=%s", agent_id, e)
         self._emit_lifecycle(
             "subagent_stop",
             {

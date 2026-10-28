@@ -255,27 +255,17 @@ class AgentRuntime(_SafetyApprovalMixin, _CheckpointMixin, _DynamicToolsMixin, _
             compactor=self.compactor,
             telemetry_engine=self.telemetry_engine,
         )
-        # PRD N4: subagent protocol. Runner/registry lazy; SubAgentTool
-        # registered only when FUSION_SUBAGENT_TOOLS=1 (env-gated like other
-        # integrations — keeps the default tool surface/prompt size unchanged).
+        # PRD N4: subagent protocol. #487: subagent_spawn is ON by default
+        # (opt-out FUSION_SUBAGENT_TOOLS=0/false/no) — delegation must be
+        # visible to the model without an undocumented env var. Registration
+        # happens on the top-level LLM surfaces only (see
+        # _register_subagent_tools); runner/registry stay lazy so bare
+        # runtimes and subagent registries keep exact tool-set isolation.
         self.subagent_runner = None
         self.subagent_registry = None
-        if os.environ.get("FUSION_SUBAGENT_TOOLS", "").strip() in ("1", "true", "yes") and self.tools is not None:
-            from tools.subagent_tool import SubAgentTool
-
-            from .subagent import SubAgentRegistry, SubAgentRunner
-
-            self.subagent_runner = SubAgentRunner(self)
-            self.subagent_registry = SubAgentRegistry()
-            from .subagent_defs import get_definition_registry
-
-            self.tools.register(
-                SubAgentTool(
-                    runner_provider=lambda: self.subagent_runner,
-                    definition_provider=get_definition_registry().get,
-                )
-            )
-            logger.info("subagent tool registered (FUSION_SUBAGENT_TOOLS=1)")
+        self._subagent_tools_enabled = os.environ.get(
+            "FUSION_SUBAGENT_TOOLS", "1"
+        ).strip().lower() not in ("0", "false", "no")
         logger.info(
             "harness funnels wired: tool_funnel=%s llm_funnel=%s permissions=%d rules",
             "on",
@@ -1244,6 +1234,36 @@ class AgentRuntime(_SafetyApprovalMixin, _CheckpointMixin, _DynamicToolsMixin, _
         except Exception as e:
             logger.warning("ToolSearch init failed: %s", e)
             self._toolsearch_enabled = False
+
+    def _register_subagent_tools(self) -> None:
+        # #487: LLM-facing subagent_spawn tool — ON by default (opt-out via
+        # FUSION_SUBAGENT_TOOLS=0/false/no). Same rule as toolsearch/skill
+        # tools: registered on the top-level LLM surfaces (daemon/api_server)
+        # only, never by subagent runtimes whose registries are
+        # caller-filtered (allowlist/denylist isolation asserts exact sets).
+        if not self._subagent_tools_enabled or self.tools is None:
+            return
+        if self.tools.has("subagent_spawn"):
+            return
+        try:
+            from tools.subagent_tool import SubAgentTool
+
+            from .subagent import SubAgentRegistry, SubAgentRunner
+            from .subagent_defs import get_definition_registry
+
+            if self.subagent_runner is None:
+                self.subagent_runner = SubAgentRunner(self)
+            if self.subagent_registry is None:
+                self.subagent_registry = SubAgentRegistry()
+            self.tools.register(
+                SubAgentTool(
+                    runner_provider=lambda: self.subagent_runner,
+                    definition_provider=get_definition_registry().get,
+                )
+            )
+            logger.info("subagent tools registered (#487 default-on)")
+        except Exception as e:
+            logger.warning("subagent tools init failed: %s", e)
 
     def _register_skill_tools(self) -> None:
         # #498: LLM-facing SKILL.md surface — skill_search (trigger match +

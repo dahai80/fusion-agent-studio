@@ -373,6 +373,8 @@ class DaemonServer:
             self._runtime._register_skill_tools()
             # #488: ToolSearch ON by default — same rule, top-level surface only.
             self._runtime._register_toolsearch()
+            # #487: subagent_spawn ON by default — same rule, top-level surface only.
+            self._runtime._register_subagent_tools()
             # #479: funnel deny decisions land in the audit DB (deny rows).
             self._runtime.set_audit_logger(self._get_audit_logger())
         return self._runtime
@@ -1436,8 +1438,11 @@ class DaemonServer:
                 "toolsearch": os.environ.get("FUSION_TOOLSEARCH", "1").strip().lower()
                 not in ("0", "false", "no"),
                 "mcp_outbound": True,
-                "subagent_tools": os.environ.get("FUSION_SUBAGENT_TOOLS", "").strip()
-                in ("1", "true", "yes"),
+                # #487: subagent_spawn default ON (opt-out 0/false/no).
+                "subagent_tools": os.environ.get("FUSION_SUBAGENT_TOOLS", "1")
+                .strip()
+                .lower()
+                not in ("0", "false", "no"),
                 "runtime_review": _runtime_review_enabled(),
                 "ws": _ws_enabled(),
             },

@@ -432,6 +432,12 @@ Audit `audit/fusion-agent-studio-vs-langflow-audit-1020.md` closed end-to-end; s
 - ✅ **telemetry/SLO surfaces expose the split** — `llm.call` span attributes carry `reasoning_tokens`, and the telemetry engine meters a `tokens_reasoning` counter next to `tokens_prompt`/`tokens_completion` (visible in `telemetry.metrics` counters).
 - Tests: `tests/test_issue_483_reasoning_tokens.py` — budget split + total-only thresholds + roundtrip, context aggregation (flat and nested), client normalization, telemetry counter, and the runtime metering call-signature contract.
 
+### Subagent Roster + Default-On Delegation — #487
+- ✅ **spawned subagents auto-register into the DurableRoster** — `SubAgentRunner.run()` registers the agent (name/team/capabilities) with status `running` right after spawn and settles it to `done`/`failed` at completion, so team queries see live subagents immediately; roster failures are logged and never break the run.
+- ✅ **`subagent_spawn` is ON by default** — the LLM-facing delegation tool no longer requires `FUSION_SUBAGENT_TOOLS=1`; opt out with `FUSION_SUBAGENT_TOOLS=0/false/no`. Registration follows the toolsearch/skill-tools pattern: top-level LLM surfaces (daemon/api_server) call `_register_subagent_tools()`, while bare runtimes and subagent registries keep exact tool-set isolation (#341).
+- ✅ **capability flag updated** — `daemon.status` reports `subagent_tools: true` under the same default-on/opt-out rule, so the GUI can state delegation availability accurately.
+- Tests: `tests/test_issue_487_subagent_roster_default.py` — roster queryable after spawn (team + done status), failed-run roster status, roster-outage resilience, default-on + opt-out values, idempotent registration, and bare-runtime isolation.
+
 ### Approval-Noise Baseline Measurement — #486
 - ✅ **before/after baseline exists and runs in CI** — `tests/proof/prove_approval_noise.py` (CI proof job) replays a fixed 100-call workload (60 readonly / 20 loopback HTTP / 15 write / 5 destructive) through the permission engine twice: baseline arm (auto-grading off — every non-denied call asks: 95 asks/100-calls) vs the production armed engine (readonly + loopback auto-allow: 15 asks/100-calls).
 - ✅ **measured result: 84.2% approval-noise reduction** on that workload (claim was ≥ 70%) — printed by the proof, asserted by CI, and reproducible by anyone via `python tests/proof/prove_approval_noise.py`.
