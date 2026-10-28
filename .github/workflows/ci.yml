@@ -94,3 +94,72 @@ jobs:
         working-directory: web
         run: bun run build
 
+  # #500: E2E — real daemon subprocess + stub MLX + Playwright chromium
+  # against the built web dist. The suite self-skips when playwright or the
+  # dist is missing, so this job stays green even if setup regresses.
+  e2e:
+    runs-on: macos-14
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[test]"
+          pip install playwright
+
+      - name: Install Playwright chromium
+        run: playwright install chromium
+
+      - name: Build web dist
+        working-directory: web
+        run: |
+          bun install --frozen-lockfile
+          bun run build
+
+      - name: E2E (stubbed LLM, real daemon + browser)
+        run: pytest tests/e2e -m e2e -v --timeout=180
+
+  # #500: mutation pilot — agent_runtime/confirmation_policy.py (setup.cfg).
+  # Informational: survivors are reported but never fail the build; the pilot
+  # exists to surface weak-test spots, not to gate merges.
+  mutation:
+    runs-on: macos-14
+    timeout-minutes: 25
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[test]"
+          pip install mutmut
+
+      - name: Run mutation pilot
+        run: |
+          mutmut run || true
+          mutmut results || true
+          mutmut junitxml > mutation-report.xml || true
+
+      - name: Upload mutation report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mutation-report
+          path: mutation-report.xml
+

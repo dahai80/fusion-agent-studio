@@ -4,7 +4,9 @@ version = "0.13.1"
 description = "Fusion-MLX Agent Studio — Local Agent Development Platform for Apple Silicon"
 requires-python = ">=3.11"
 dependencies = [
-    "fusion-harness>=0.2.0",
+    # #499/#500: >=0.2.2 — FunnelOutcome.confirmation (confirmation-policy
+    # tiers) is absent from the v0.2.1 wheel
+    "fusion-harness>=0.2.2",
     "httpx>=0.27.0",
     "pydantic>=2.0.0",
     "aiofiles>=23.0.0",
@@ -64,6 +66,12 @@ plugins-extra = [
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+markers = [
+    # #500: E2E browser tests — real daemon subprocess + stub MLX + Playwright.
+    # Default run excludes them (`-m "not e2e"`); CI e2e job runs `pytest -m e2e`.
+    "e2e: end-to-end browser tests (daemon subprocess + stub MLX + Playwright)",
+]
+addopts = '-m "not e2e"'
 filterwarnings = [
     # pytest-asyncio 在 Python 3.14 触发的弃用警告 (第三方库, 待上游修复)
     "ignore::DeprecationWarning:pytest_asyncio.*",

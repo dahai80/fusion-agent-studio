@@ -133,7 +133,14 @@ def set_daemon(daemon: Any) -> None:
 def _get_store() -> AgentStore:
     global _store
     if _store is None:
-        _store = AgentStore()
+        # #500: daemon 模式必须复用 daemon.store —— --store-path 测试隔离对
+        # REST/SSE 图端点同样生效; 此前这里懒建默认用户库, 隔离形同虚设.
+        daemon_store = getattr(_daemon, "store", None)
+        _store = daemon_store if daemon_store is not None else AgentStore()
+        logger.info(
+            "api_server store resolved: %s",
+            getattr(_store, "db_path", "<default>"),
+        )
     return _store
 
 
