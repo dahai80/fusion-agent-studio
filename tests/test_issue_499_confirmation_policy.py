@@ -12,6 +12,8 @@ Runner: pytest tests/test_issue_499_confirmation_policy.py
 
 from __future__ import annotations
 
+import logging
+
 import pytest
 
 from agent_runtime.confirmation_policy import (
@@ -324,3 +326,145 @@ class TestGraphExecution:
         ]
         assert [e for e in events if e.type == AgentEventType.TOOL_RESULT]
 
+
+
+class TestMutationHardening:
+    """#500: kill the mutmut survivors from the confirmation_policy pilot.
+
+    Pilot score 83.3% (90/108). Survivors clustered on from_dict defaults,
+    policy_from_ctx fallbacks and decide() default arguments — every one is
+    a contract the GUI depends on, so pin them explicitly."""
+
+    def test_from_dict_empty_dict_returns_none(self):
+        # falsy guard: {} is treated as "no policy", not defaults
+        assert ConfirmationPolicy.from_dict({}) is None
+
+    def test_from_dict_partial_dict_fills_only_missing_keys(self):
+        policy = ConfirmationPolicy.from_dict({"tier": "always"})
+        assert policy is not None
+        assert policy.tier == "always"
+        assert policy.risk_threshold == 0.5
+        assert policy.tool_overrides == {}
+
+    def test_from_dict_coerces_threshold_and_override_values(self):
+        policy = ConfirmationPolicy.from_dict(
+            {"risk_threshold": "0.7", "tool_overrides": {"file_write": "never"}}
+        )
+        assert policy is not None
+        assert policy.risk_threshold == 0.7
+        assert policy.tool_overrides == {"file_write": "never"}
+        assert policy.effective_tier("file_write") == "never"
+
+    def test_from_dict_invalid_tier_returns_none_not_raise(self):
+        assert ConfirmationPolicy.from_dict({"tier": "sometimes"}) is None
+        assert ConfirmationPolicy.from_dict({"tool_overrides": {"t": "maybe"}}) is None
+
+    def test_from_dict_non_dict_returns_none(self):
+        assert ConfirmationPolicy.from_dict(["risk"]) is None
+        assert ConfirmationPolicy.from_dict("risk") is None
+
+    def test_from_dict_passthrough_is_identity(self):
+        policy = ConfirmationPolicy(tier="never")
+        assert ConfirmationPolicy.from_dict(policy) is policy
+
+    def test_policy_from_ctx_without_metadata_attr(self):
+        class Bare:
+            pass
+
+        assert policy_from_ctx(Bare()) is None
+
+    def test_policy_from_ctx_with_none_metadata(self):
+        class Ctx:
+            metadata = None
+
+        assert policy_from_ctx(Ctx()) is None
+
+    def test_policy_from_ctx_metadata_without_policy_key(self):
+        class Ctx:
+            metadata = {"other": 1}
+
+        assert policy_from_ctx(Ctx()) is None
+
+    def test_policy_from_ctx_reads_stashed_policy(self):
+        class Ctx:
+            metadata = {"confirmation_policy": {"tier": "always"}}
+
+        policy = policy_from_ctx(Ctx())
+        assert policy is not None
+        assert policy.tier == "always"
+
+    def test_decide_default_risk_score_is_zero(self):
+        policy = ConfirmationPolicy(tier="risk", risk_threshold=0.5)
+        assert policy.decide(requires_approval=True) == ("auto", "risk", 0.0)
+        assert policy.decide(requires_approval=True, risk_score=0.5) == (
+            "confirm",
+            "risk",
+            0.5,
+        )
+
+    def test_decide_default_tool_name_uses_graph_tier(self):
+        policy = ConfirmationPolicy(
+            tier="never", tool_overrides={"file_write": "always"}
+        )
+        assert policy.decide(requires_approval=True) == ("auto", "never", 0.0)
+        assert policy.decide(requires_approval=True, tool_name="file_write") == (
+            "confirm",
+            "always",
+            0.0,
+        )
+
+    def test_effective_tier_empty_tool_name_ignores_overrides(self):
+        policy = ConfirmationPolicy(tier="risk", tool_overrides={"file_write": "never"})
+        assert policy.effective_tier() == "risk"
+        assert policy.effective_tier("") == "risk"
+
+    def test_score_tool_risk_none_params_and_scalar_coercion(self):
+        assert score_tool_risk("unknown_tool") == 0.0
+        assert score_tool_risk("unknown_tool", None) == 0.0
+        # numeric param values join the scanned text, bools are skipped
+        assert score_tool_risk("t", {"n": 7}) == 0.0
+        assert score_tool_risk("t", {"b": True}) == 0.0
+
+    def test_score_tool_risk_network_hint_only_in_params(self):
+        # tool name carries no url; the hint must come from param text
+        assert score_tool_risk("fetcher", {"url": "https://x.example"}) == 0.6
+        assert score_tool_risk("fetcher", {}) == 0.0
+
+    def test_post_init_error_messages_pin_content(self):
+        with pytest.raises(ValueError, match="must be one of \(.*\), got 'sometimes'"):
+            ConfirmationPolicy(tier="sometimes")
+        with pytest.raises(ValueError, match="tool override for 'file_write' must be one of"):
+            ConfirmationPolicy(tool_overrides={"file_write": "maybe"})
+
+    def test_from_dict_parse_failure_logs_reason(self, caplog):
+        caplog.set_level(logging.WARNING, logger="agent_runtime.confirmation_policy")
+        assert ConfirmationPolicy.from_dict({"tier": "sometimes"}) is None
+        messages = [r.getMessage() for r in caplog.records]
+        assert any(
+            m.startswith("confirmation policy parse failed") and "sometimes" in m
+            for m in messages
+        ), messages
+
+    def test_to_dict_exact_shape(self):
+        policy = ConfirmationPolicy(
+            tier="never", risk_threshold=0.25, tool_overrides={"a": "always"}
+        )
+        assert policy.to_dict() == {
+            "tier": "never",
+            "risk_threshold": 0.25,
+            "tool_overrides": {"a": "always"},
+        }
+
+    def test_default_tool_name_never_matches_overrides(self):
+        # the "" default must not collide with any real override key
+        policy = ConfirmationPolicy(tier="risk", tool_overrides={"XXXX": "never"})
+        assert policy.effective_tier() == "risk"
+        assert policy.decide(True) == ("auto", "risk", 0.0)
+
+    def test_score_tool_risk_params_joined_with_single_space(self):
+        # destructive pattern spanning two param values proves the separator
+        assert score_tool_risk("t", {"a": "rm ", "b": "-rf /"}) == 0.9
+
+    def test_score_tool_risk_readonly_true_beats_write_name(self):
+        assert score_tool_risk("file_write", {}, readonly=True) == 0.0
+        assert score_tool_risk("file_write", {}, readonly=False) == 0.3

@@ -168,6 +168,9 @@ def test_funnel_outcome_to_dict():
         "reason": "r",
         "needs_approval": True,
         "decision_log": [{"stage": "hook", "verdict": "deny"}],
+        # #499 confirmation-policy landing added the confirmation slot;
+        # default None round-trips through to_dict like the other fields
+        "confirmation": None,
     }
 
 

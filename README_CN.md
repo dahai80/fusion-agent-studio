@@ -328,7 +328,14 @@ python my_agent.py
 - ✅ **图级确认策略** — `AgentGraph.confirmation_policy` 在安全审批流之上叠加 OpenHands 对齐的确认层级：`{"tier": "always"|"never"|"risk", "risk_threshold": 0.5, "tool_overrides": {"file_write": "never"}}`。默认 `None` 保持遗留行为 — 仅由安全网关决定审批。按次执行暂存进 `ctx.metadata`（并发安全，与 plan_mode 同法），在唯一审批收口读取。
 - ✅ **确定性风险评分，绝不 LLM 判定** — `agent_runtime/confirmation_policy.py` 按固定分带为每个受控动作打分：0.9 破坏性命令模式（`rm -rf`、`drop table`、`git push --force` 等）、0.6 参数含网络出访、0.3 写类工具、0.0 只读。`ConfirmRisk` 在 `risk_threshold` 及以上确认、以下自动放行；`AlwaysConfirm` 全确认；`NeverConfirm` 自动放行待审批裁决。per-tool `tool_overrides` 优先于图层级。
 - ✅ **升级 + 决策可见** — `AlwaysConfirm`/`ConfirmRisk` 会把安全漏斗自动放行的动作升级进人工审批流（合成裁决）；硬安全拦截不受影响 — 策略只治理确认这一步。每次决策均记日志，并以 `confirmation_policy: {tier, risk_score, decision}` 出现在 `SAFETY_APPROVAL` 事件 metadata。并行扇出路径无法暂停，被升级调用降级 fail-closed 并明确报错"请改顺序重试"。
-- 测试：`tests/test_issue_499_confirmation_policy.py`（30 项）— 策略对象矩阵、风险分带评分、图字段 round-trip/子图传播、收口层级行为（never 自动放行、risk 阈值上下、always 升级自动放行动作、工具覆盖优先、无策略不变）、含审批的端到端图执行。
+- 测试：`tests/test_issue_499_confirmation_policy.py`（51 项）— 策略对象矩阵、风险分带评分、图字段 round-trip/子图传播、收口层级行为（never 自动放行、risk 阈值上下、always 升级自动放行动作、工具覆盖优先、无策略不变）、含审批的端到端图执行，外加变异加固断言（精确报错文案、to_dict 形状、告警前缀、默认参数与分隔符边界）。
+
+### E2E 套件 + 变异测试 — #500
+- ✅ **封闭 Playwright E2E，对真实 daemon** — `tests/e2e/` 以子进程拉起真实 daemon（私有 UDS socket、SQLite store、ws/cluster/http 端口、`HOME` 重定向、确定性 `FUSION_AGENT_STUDIO_API_KEY`），配 stub fusion-mlx：临时端口上的线程 HTTP 服务器，回应 OpenAI 形状的 `/v1/models` + `/v1/chat/completions`。五个用例覆盖 #500 验收路径：仪表盘/工作流页面由 daemon 托管的 `web/dist` 渲染、REST 建图出现在工作流列表、REST 执行返回 stub-LLM 事件、同源 SSE 流式（`EventSource` 不能设 header，端点接受 `?api_key=`）、以及完整 HITL 闭环 — `confirmation_policy: always` 挂起工具动作，Safety 页面在浏览器里批准，被阻塞的运行以 `pending_approval`/`approved` 收尾。guard 掉线 fail-closed 行为保持不变（不动产品代码）：PYTHONPATH stub 包鸭类型 `fusion_guard.NativeGuardClient`，供无 guard daemon 的 CI 使用。
+- ✅ **`e2e` pytest 标记，自动跳过** — `pyproject.toml` 注册标记，默认 `addopts` 反选（`-m "not e2e"`），标准套件不受影响；`pytest tests/e2e -m e2e` 跑浏览器套件。playwright 或构建产物缺失时 fixture 干净跳过。
+- ✅ **变异试点 100%** — `setup.cfg` 将 mutmut 范围锁定 `agent_runtime/confirmation_policy.py`（108 个变异体，#500 核心运行时试点目标）。21 个加固用例修复弱测试发现：存活变异覆盖报错文案、`to_dict` 键名、解析失败日志行、`""` 默认工具名（绝不可与覆盖键碰撞）、风险评分参数拼接的单空格分隔符。最终：108/108 全杀。
+- ✅ **CI 作业** — `.github/workflows/ci.yml` 新增 `e2e` 作业（构建 web dist、装 playwright + chromium、跑 `pytest tests/e2e -m e2e`）与 `mutation` 作业（`continue-on-error`，发布 `mutmut results` + junit 产物 — 仅信息性，绝不阻塞合并）。
+- 测试：`tests/e2e/test_core_flows.py`（5 项）+ `tests/test_issue_499_confirmation_policy.py` 变异加固增补（21 项）。
 
 ### 集成
 - ✅ **fusion-mlx** — Apple Silicon 优化模型服务

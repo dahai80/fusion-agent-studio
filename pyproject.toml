@@ -64,6 +64,12 @@ plugins-extra = [
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+markers = [
+    # #500: E2E browser tests — real daemon subprocess + stub MLX + Playwright.
+    # Default run excludes them (`-m "not e2e"`); CI e2e job runs `pytest -m e2e`.
+    "e2e: end-to-end browser tests (daemon subprocess + stub MLX + Playwright)",
+]
+addopts = '-m "not e2e"'
 filterwarnings = [
     # pytest-asyncio 在 Python 3.14 触发的弃用警告 (第三方库, 待上游修复)
     "ignore::DeprecationWarning:pytest_asyncio.*",

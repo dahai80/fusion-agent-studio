@@ -22,3 +22,7 @@ logs/
 
 # local-only agent role definition, never push
 AGENTS.md
+
+# mutmut mutation-testing cache (process data, #500)
+mutants/
+.mutmut-cache
