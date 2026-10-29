@@ -38,7 +38,7 @@ interface AgentVersion {
     note?: string;
 }
 
-const TABS = ['soul', 'skills', 'versions', 'test'] as const;
+const TABS = ['soul', 'skills', 'versions', 'test', 'persona'] as const;
 
 export function AgentDetailPage({ agentId }: { agentId: string }) {
     const t = useT();
@@ -120,7 +120,9 @@ export function AgentDetailPage({ agentId }: { agentId: string }) {
                                       ? t('技能', 'Skills')
                                       : k === 'versions'
                                         ? t('版本', 'Versions')
-                                        : t('测试', 'Test'),
+                                        : k === 'persona'
+                                          ? t('人设', 'Persona')
+                                          : t('测试', 'Test'),
                         }))}
                         active={tab}
                         onChange={setTab}
@@ -130,6 +132,7 @@ export function AgentDetailPage({ agentId }: { agentId: string }) {
                         {tab === 'skills' ? <SkillsSection agentId={agentId} /> : null}
                         {tab === 'versions' ? <VersionsSection agentId={agentId} /> : null}
                         {tab === 'test' ? <TestSection agentId={agentId} /> : null}
+                        {tab === 'persona' ? <PersonaSection agentId={agentId} /> : null}
                     </div>
                 </>
             )}
@@ -406,6 +409,224 @@ function TestSection({ agentId }: { agentId: string }) {
                     </pre>
                 </div>
             ) : null}
+        </div>
+    );
+}
+
+interface PersonaResolve {
+    layers_applied?: string[];
+    conflicts?: { section: string; winner: string; loser: string }[];
+    declarations?: { rules: string[]; memory_scope: string; skills: string[] };
+}
+
+function PersonaSection({ agentId }: { agentId: string }) {
+    const t = useT();
+    const { data, error, loading, attempt, manualRetry } = useAutoRetry<PersonaResolve>(
+        () => rpc<PersonaResolve>('agent.resolve_persona', { agent_id: agentId }),
+        [agentId]
+    );
+    const [layer, setLayer] = useState<'global' | 'tenant' | 'team'>('global');
+    const [name, setName] = useState('');
+    const [files, setFiles] = useState<string[]>([]);
+    const [selected, setSelected] = useState('');
+    const [content, setContent] = useState('');
+    const [newPath, setNewPath] = useState('');
+    const [saving, setSaving] = useState(false);
+
+    const loadFiles = async (l: string, n: string) => {
+        try {
+            const res = await rpc<{ files: string[] }>('agent.list_persona_files', {
+                layer: l,
+                name: n,
+            });
+            setFiles(res.files ?? []);
+            setSelected('');
+            setContent('');
+        } catch (e) {
+            sdk.toast.show({ level: 'error', message: (e as Error).message });
+        }
+    };
+
+    const open = async (p: string) => {
+        try {
+            const res = await rpc<{ content: string }>('agent.get_persona_file', {
+                layer,
+                name,
+                path: p,
+            });
+            setSelected(p);
+            setContent(res.content ?? '');
+        } catch (e) {
+            sdk.toast.show({ level: 'error', message: (e as Error).message });
+        }
+    };
+
+    const save = async () => {
+        if (!selected) return;
+        setSaving(true);
+        try {
+            await rpc('agent.set_persona_file', { layer, name, path: selected, content });
+            sdk.toast.show({ level: 'success', message: t('已保存', 'saved') });
+        } catch (e) {
+            sdk.toast.show({ level: 'error', message: (e as Error).message });
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    const createFile = async () => {
+        const p = newPath.trim();
+        if (!p) return;
+        (await rpc('agent.set_persona_file', { layer, name, path: p, content: '' })) as unknown;
+        setNewPath('');
+        await loadFiles(layer, name);
+        await open(p);
+    };
+    if (loading && attempt === 0) {
+        return (
+            <div className="px-4">
+                <SkeletonLines rows={6} />
+            </div>
+        );
+    }
+    if (error) {
+        return (
+            <div className="px-4">
+                <ErrorState
+                    message={error.message}
+                    retryLabel={t('重试', 'Retry')}
+                    onRetry={manualRetry}
+                    retrying={attempt}
+                />
+            </div>
+        );
+    }
+    const decls = data?.declarations ?? { rules: [], memory_scope: '', skills: [] };
+    const conflicts = data?.conflicts ?? [];
+    return (
+        <div className="flex flex-col gap-4 px-4 pb-4">
+            <div className="rounded-card border border-border bg-bg-elevated p-4">
+                <div className="text-sm font-medium text-text-primary">
+                    {t('生效人设', 'Effective persona')}
+                </div>
+                <div className="mt-1 text-xs text-text-muted">
+                    {t('应用层', 'Layers')}: {(data?.layers_applied ?? []).join(' → ') || '-'}
+                </div>
+                <div className="mt-2 text-xs text-text-muted">
+                    {t('规则', 'Rules')}: {decls.rules.length ? decls.rules.join('; ') : '-'}
+                </div>
+                <div className="mt-1 text-xs text-text-muted">
+                    {t('记忆范围', 'Memory scope')}: {decls.memory_scope || '-'}
+                </div>
+                <div className="mt-1 text-xs text-text-muted">
+                    {t('技能', 'Skills')}: {decls.skills.length ? decls.skills.join('; ') : '-'}
+                </div>
+                <div className="mt-2">
+                    {conflicts.length === 0 ? (
+                        <span className="text-xs text-text-muted">
+                            {t('无冲突', 'No conflicts')}
+                        </span>
+                    ) : (
+                        <ul className="list-disc pl-4 text-xs text-warning">
+                            {conflicts.map((c, i) => (
+                                <li key={i}>
+                                    {c.section}: {c.winner} ← {c.loser}
+                                </li>
+                            ))}
+                        </ul>
+                    )}
+                </div>
+            </div>
+
+            <div className="rounded-card border border-border bg-bg-elevated p-4">
+                <div className="text-sm font-medium text-text-primary">
+                    {t('层级文件', 'Layer files')}
+                </div>
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                    {(['global', 'tenant', 'team'] as const).map((l) => (
+                        <button
+                            key={l}
+                            type="button"
+                            onClick={() => {
+                                setLayer(l);
+                                loadFiles(l, name);
+                            }}
+                            className={`rounded-md border px-3 py-1.5 text-xs ${
+                                layer === l
+                                    ? 'border-brand bg-brand/10 text-text-primary'
+                                    : 'border-border text-text-primary hover:bg-bg-muted'
+                            }`}
+                        >
+                            {l}
+                        </button>
+                    ))}
+                    <input
+                        value={name}
+                        onChange={(e) => setName(e.target.value)}
+                        placeholder={t('租户/团队名', 'tenant/team name')}
+                        className="w-40 rounded-md border border-border bg-bg px-2 py-1.5 text-xs text-text-primary focus:outline-none"
+                    />
+                    <button
+                        type="button"
+                        onClick={() => loadFiles(layer, name)}
+                        className="rounded-md border border-border px-3 py-1.5 text-xs text-text-primary hover:bg-bg-muted"
+                    >
+                        {t('加载', 'Load')}
+                    </button>
+                </div>
+                <div className="mt-3 flex flex-wrap gap-2">
+                    {files.length === 0 ? (
+                        <span className="text-xs text-text-muted">-</span>
+                    ) : (
+                        files.map((f) => (
+                            <button
+                                key={f}
+                                type="button"
+                                onClick={() => open(f)}
+                                className={`rounded-md border px-2 py-1 font-mono text-xs ${
+                                    selected === f
+                                        ? 'border-brand bg-brand/10 text-text-primary'
+                                        : 'border-border text-text-secondary hover:bg-bg-muted'
+                                }`}
+                            >
+                                {f}
+                            </button>
+                        ))
+                    )}
+                </div>
+                <div className="mt-3 flex items-center gap-2">
+                    <input
+                        value={newPath}
+                        onChange={(e) => setNewPath(e.target.value)}
+                        placeholder={t(
+                            '新文件路径 (persona/tone.md)',
+                            'new file path (persona/tone.md)'
+                        )}
+                        className="w-64 rounded-md border border-border bg-bg px-2 py-1.5 text-xs text-text-primary focus:outline-none"
+                    />
+                    <button
+                        type="button"
+                        onClick={createFile}
+                        className="rounded-md border border-border px-3 py-1.5 text-xs text-text-primary hover:bg-bg-muted"
+                    >
+                        {t('新建', 'Create')}
+                    </button>
+                </div>
+                {selected ? (
+                    <div className="mt-3">
+                        <FormField label={selected}>
+                            <Textarea value={content} onChange={setContent} rows={12} mono />
+                        </FormField>
+                        <div className="mt-2">
+                            <SubmitButton
+                                label={t('保存文件', 'Save file')}
+                                onAction={save}
+                                disabled={saving}
+                            />
+                        </div>
+                    </div>
+                ) : null}
+            </div>
         </div>
     );
 }

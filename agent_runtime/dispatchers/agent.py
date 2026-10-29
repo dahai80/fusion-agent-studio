@@ -135,6 +135,9 @@ class AgentDispatcher(SubDispatcher):
         "agent.resolve_persona": self._handle_agent_resolve_persona,
         "agent.get_persona_layer": self._handle_agent_get_persona_layer,
         "agent.set_persona_layer": self._handle_agent_set_persona_layer,
+        "agent.list_persona_files": self._handle_agent_list_persona_files,
+        "agent.get_persona_file": self._handle_agent_get_persona_file,
+        "agent.set_persona_file": self._handle_agent_set_persona_file,
         "agent.import_agents_md": self._handle_agent_import_agents_md,
         "agent.export_agents_md": self._handle_agent_export_agents_md,
             "agent.update_soul": self._handle_agent_update_soul,
@@ -1055,6 +1058,41 @@ class AgentDispatcher(SubDispatcher):
             return {"status": "error", "message": str(e)}
         logger.info("agent.set_persona_layer layer=%s path=%s", layer, path)
         return {"layer": layer, "path": str(path)}
+
+    async def _handle_agent_list_persona_files(self, params: dict) -> dict:
+        from agent_runtime.persona import list_layer_files
+
+        layer = str(params.get("layer", "") or "")
+        files = list_layer_files(layer, name=str(params.get("name", "") or ""))
+        return {"layer": layer, "files": files}
+
+    async def _handle_agent_get_persona_file(self, params: dict) -> dict:
+        from agent_runtime.persona import read_layer_file
+
+        layer = str(params.get("layer", "") or "")
+        path = str(params.get("path", "") or "")
+        try:
+            content = read_layer_file(
+                layer, str(params.get("name", "") or ""), path
+            )
+        except ValueError as e:
+            return {"status": "error", "message": str(e)}
+        return {"layer": layer, "path": path, "content": content}
+
+    async def _handle_agent_set_persona_file(self, params: dict) -> dict:
+        from agent_runtime.persona import write_layer_file
+
+        layer = str(params.get("layer", "") or "")
+        path = str(params.get("path", "") or "")
+        content = str(params.get("content", "") or "")
+        try:
+            written = write_layer_file(
+                layer, str(params.get("name", "") or ""), path, content
+            )
+        except ValueError as e:
+            return {"status": "error", "message": str(e)}
+        logger.info("agent.set_persona_file layer=%s path=%s", layer, written)
+        return {"layer": layer, "path": path, "status": "ok"}
 
     async def _handle_agent_import_agents_md(self, params: dict) -> dict:
         from agent_runtime.persona import import_agents_md

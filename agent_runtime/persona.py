@@ -182,6 +182,50 @@ def save_layer(layer: str, content: str, name: str = "") -> Path:
     return p
 
 
+_FILE_PATH_RE = re.compile(r"^(agent\.md|(?:persona|rules)/[A-Za-z0-9_-]+\.md)$")
+
+
+def _layer_file_path(layer: str, name: str, path: str) -> Path:
+    # #504: shard-level file access for the GUI — path allowlist blocks
+    # traversal and arbitrary writes under the persona root.
+    if not _LAYER_RE.match(layer):
+        raise ValueError(f"unknown persona layer: {layer}")
+    if layer != "global" and not name:
+        raise ValueError(f"{layer} layer requires name")
+    if not _FILE_PATH_RE.match(path or ""):
+        raise ValueError(f"persona file path not allowed: {path!r}")
+    return _layer_dir(layer, name) / path
+
+
+def list_layer_files(layer: str, name: str = "") -> list[str]:
+    d = _layer_dir(layer, name) if _LAYER_RE.match(layer or "") else None
+    if d is None or not d.is_dir():
+        return []
+    files: list[str] = []
+    if (d / "agent.md").is_file():
+        files.append("agent.md")
+    for sub in ("persona", "rules"):
+        sub_dir = d / sub
+        if sub_dir.is_dir():
+            files.extend(f"{sub}/{p.name}" for p in sorted(sub_dir.glob("*.md")))
+    return files
+
+
+def read_layer_file(layer: str, name: str, path: str) -> str:
+    p = _layer_file_path(layer, name, path)
+    if not p.is_file():
+        raise ValueError(f"persona file not found: {path}")
+    return p.read_text(encoding="utf-8")
+
+
+def write_layer_file(layer: str, name: str, path: str, content: str) -> Path:
+    p = _layer_file_path(layer, name, path)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(content, encoding="utf-8")
+    logger.info("persona file saved layer=%s name=%s path=%s", layer, name, p)
+    return p
+
+
 def parse_sections(md: str) -> dict[str, str]:
     if not md:
         return {}
