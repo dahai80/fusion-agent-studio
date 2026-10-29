@@ -95,6 +95,19 @@ class AgentStore:
                 updated_at REAL NOT NULL
             );
 
+            CREATE TABLE IF NOT EXISTS graph_versions (
+                graph_id TEXT NOT NULL,
+                version INTEGER NOT NULL,
+                name TEXT DEFAULT '',
+                description TEXT DEFAULT '',
+                data TEXT NOT NULL,
+                created_at REAL NOT NULL,
+                PRIMARY KEY (graph_id, version)
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_graph_versions_graph
+                ON graph_versions(graph_id, version DESC);
+
             CREATE TABLE IF NOT EXISTS sessions (
                 session_id TEXT PRIMARY KEY,
                 graph_id TEXT NOT NULL,
@@ -159,6 +172,7 @@ class AgentStore:
             self._migration_v1_checkpoint_columns,
             self._migration_v2_team_state,
             self._migration_v3_resource_leases,
+            self._migration_v4_graph_versions,
         ]
         current = conn.execute("PRAGMA user_version").fetchone()[0]
         for idx, migrate in enumerate(migrations, start=1):
@@ -211,6 +225,61 @@ class AgentStore:
                     now,
                 ),
             )
+            # #484: 每次保存产出不可变版本记录; 保存与版本记录同事务.
+            try:
+                self._record_graph_version(conn, graph, now)
+            except Exception:
+                logger.exception("graph version record failed for %s", graph.id)
+
+    GRAPH_VERSION_HISTORY_CAP = 50
+
+    def _record_graph_version(self, conn, graph: AgentGraph, now: float) -> None:
+        data = graph.to_json()
+        row = conn.execute(
+            "SELECT COALESCE(MAX(version), 0) FROM graph_versions WHERE graph_id = ?",
+            (graph.id,),
+        ).fetchone()
+        next_version = (row[0] or 0) + 1
+        conn.execute(
+            """INSERT INTO graph_versions (graph_id, version, name, description, data, created_at)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            (graph.id, next_version, graph.name, graph.description, data, now),
+        )
+        conn.execute(
+            """DELETE FROM graph_versions
+               WHERE graph_id = ? AND version <= ? - ?""",
+            (graph.id, next_version, self.GRAPH_VERSION_HISTORY_CAP),
+        )
+        logger.debug(
+            "graph %s version %d recorded (cap %d)",
+            graph.id,
+            next_version,
+            self.GRAPH_VERSION_HISTORY_CAP,
+        )
+
+    def list_graph_versions(self, graph_id: str) -> list[dict[str, Any]]:
+        with self._cursor() as conn:
+            rows = conn.execute(
+                """SELECT version, name, description, created_at FROM graph_versions
+                   WHERE graph_id = ? ORDER BY version DESC""",
+                (graph_id,),
+            ).fetchall()
+        results: list[dict[str, Any]] = []
+        for r in rows:
+            d = dict(r)
+            d["graph_id"] = graph_id
+            results.append(d)
+        return results
+
+    def load_graph_version(self, graph_id: str, version: int) -> AgentGraph | None:
+        with self._cursor() as conn:
+            row = conn.execute(
+                "SELECT data FROM graph_versions WHERE graph_id = ? AND version = ?",
+                (graph_id, version),
+            ).fetchone()
+        if row is None:
+            return None
+        return AgentGraph.from_json(row["data"])
 
     def load_graph(self, graph_id: str) -> AgentGraph | None:
         """Load an agent graph by ID."""
@@ -685,6 +754,23 @@ class AgentStore:
                 ON resource_leases(task_id);
             CREATE INDEX IF NOT EXISTS idx_rlease_expires
                 ON resource_leases(expires_at);
+        """)
+
+    def _migration_v4_graph_versions(self, conn) -> None:
+        # #484: 图版本历史 — 每次保存产出不可变版本记录, 支持列表/回滚.
+        # CREATE IF NOT EXISTS 幂等, 老库重跑安全.
+        conn.executescript("""
+            CREATE TABLE IF NOT EXISTS graph_versions (
+                graph_id TEXT NOT NULL,
+                version INTEGER NOT NULL,
+                name TEXT DEFAULT '',
+                description TEXT DEFAULT '',
+                data TEXT NOT NULL,
+                created_at REAL NOT NULL,
+                PRIMARY KEY (graph_id, version)
+            );
+            CREATE INDEX IF NOT EXISTS idx_graph_versions_graph
+                ON graph_versions(graph_id, version DESC);
         """)
 
     # ── M1-4 Resource Registry + Lease CRUD ──
