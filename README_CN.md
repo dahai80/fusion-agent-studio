@@ -386,6 +386,13 @@ python my_agent.py
 - ✅ **缓存标记降级说明** — PRD 的节点级缓存标记（§7.4 第 4 项）暂缓：画布已有"仅试跑此节点"+"从此节点跑下游"，覆盖了"不必整图重跑"的价值；LLM 节点输出非确定性，跨运行复用结果有静默旧答案风险；且运行时目前没有可做复用键的节点级结果存储。待性能剖析证明重跑成本显著时再评估。
 - 测试：`tests/test_issue_484_graph_versioning.py`（10）+ 3 个画布组件测试（版本列表/回滚 RPC、测试侧栏控件）。
 
+### Persona 包市场分发 — #503
+- ✅ **包格式** — persona 包是一个目录，承载单层栈（`agent.md` + `persona/*.md` 碎片 + `rules/*.md`）加 `manifest.json`（每文件 sha256 校验和 + 包签名，签名为文件列表规范 JSON 的 sha256 — 与 v0.8.9 市场 sha256 同族）。`build_manifest()` 签名；`verify_manifest()` 逐文件复检哈希与签名。
+- ✅ **签名发布 + 校验安装** — `PersonaPackManager.publish` 校验源包、复制入存储（`~/.fusion-agent-studio/persona_packs/`）、**对副本再次校验**，并以 tenant + visibility（`private` 包对其他租户不可见）入索引。`install` 在写入任何文件前复检哈希与签名，再解包到 persona 根 — tenant 包落入**安装方租户**作用域（`persona/tenants/<tenant>/`），team 包落 `persona/teams/<team>/`，global 包落根。
+- ✅ **拒绝放宽 deny** — 包的 `rules/` 若会移除既有 deny 规则（与 `load_layer` 同一"首个非空行"契约），安装被显式拒绝且不写任何文件；persona 规则只收紧权限，包绝不放宽。重申相同 deny 可通过。
+- ✅ **审计链路** — 发布/安装/拒绝均追加到市场 JSONL 审计（`persona_pack_publish` / `persona_pack_install` / `persona_pack_install_refused`，按 #481 租户隔离）。RPC 面：`marketplace.persona_pack_publish` / `.persona_pack_install` / `.persona_pack_list`。
+- 测试：`tests/test_issue_503_persona_pack.py`（13）— manifest 往返 + 篡改拒绝（文件哈希/签名/缺 manifest）、发布安装往返（租户作用域）、审计记录、私有包可见性、存储侧篡改拒绝、deny 移除拒绝（单测 + 端到端）、daemon RPC 往返。
+
 ### 自动化 REST 面 + Cron 失败告警 — #501
 - ✅ **触发器定义可经 REST 编辑** — cron 触发器定义即 JSON 数据，经六条鉴权路由管理：`GET/POST /v1/cron`（列表 / 注册：`id`、`name`、`expression`、`graph_id`、`input_data`、`loop_mode`、`interval_seconds` 等）、`GET /v1/cron/{job_id}`、`DELETE /v1/cron/{job_id}`（缺失返回 404）、`GET /v1/cron/executions?job_id=&limit=`（运行历史）与 `POST /v1/cron/{job_id}/trigger`（手动触发；RPC 层 `status:error` 映射为 HTTP 4xx，绝不静默 200）。所有变更操作写入审计日志（`cron.create` / `cron.delete` / `cron.trigger`）。
 - ✅ **计划任务在 daemon 重启后存活** — 任务持久化在 CronManager SQLite 存储（`cron.db`，WAL），启动时重载；daemon 启动即开启调度循环，注册了 cron 表达式的图按计划自动触发，无需用户交互。触发经 `idempotency_key=cron:{job_id}:{fire_time}` 去重后走 `task.submit(TRIGGER_CRON)`（M1-5）。

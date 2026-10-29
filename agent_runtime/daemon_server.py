@@ -254,6 +254,7 @@ class DaemonServer:
         self._agents: dict[str, dict] = {}
         self._agents_index_loaded = False
         self._marketplace = None
+        self._persona_pack_manager = None
         self._chat_engine: ChatEngine | None = None
         self._orchestrator = None
         self._swarm = None
@@ -4018,6 +4019,20 @@ class DaemonServer:
             self._marketplace = AgentMarketplace()
             logger.info("AgentMarketplace created at %s", self._marketplace.store_dir)
         return self._marketplace
+
+    def _get_persona_pack_manager(self):
+        # #503: signed persona-pack publish/install on the marketplace
+        # audit trail; persona root shared with agent_runtime.persona.
+        if self._persona_pack_manager is None:
+            from .persona_pack import PersonaPackManager
+
+            self._persona_pack_manager = PersonaPackManager(
+                marketplace=self._get_marketplace()
+            )
+            logger.info(
+                "PersonaPackManager created at %s", self._persona_pack_manager.store_dir
+            )
+        return self._persona_pack_manager
 
     def _agent_dir(self, agent_id: str) -> Path:
         return Path.home() / ".fusion-agent-studio" / "agents" / agent_id
