@@ -34,7 +34,9 @@ class ModelConfig:
     name: str = ""
     provider: str = "local"
     base_url: str = DEFAULT_LOCAL_BASE_URL
-    api_key: str = os.environ.get("FUSION_MLX_API_KEY", "")
+    # #509: 不在 import 期读 env — 实际解析收敛到 FusionMLXClient 构造时
+    # 经 fusion_core.config client_key() 单点完成 (dev 匿名 "", prod fail-fast)。
+    api_key: str = ""
     priority: int = 0
     context_length: int = 4096
     capabilities: list[str] = field(default_factory=lambda: ["chat"])

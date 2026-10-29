@@ -30,6 +30,7 @@ class TestFusionMLXClient:
         monkeypatch.delenv("FUSION_GATEWAY_URL", raising=False)
         monkeypatch.delenv("FUSION_MLX_PORT", raising=False)
         monkeypatch.delenv("FUSION_MLX_API_KEY", raising=False)
+        monkeypatch.delenv("FUSION_CLIENT_KEY", raising=False)
         import importlib
 
         import server.fusion_mlx_client as mod

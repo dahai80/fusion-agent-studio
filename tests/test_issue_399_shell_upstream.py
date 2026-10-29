@@ -73,7 +73,7 @@ class TestLoopWiring:
         path.write_text(json.dumps(manifest))
         monkeypatch.setenv("FUSION_SHELL_MANIFEST", str(path))
         monkeypatch.setenv("FUSION_SHELL_GATEWAY_URL", "http://127.0.0.1:19999")
-        monkeypatch.setenv("FUSION_GATEWAY_ADMIN_KEY", "admin")
+        monkeypatch.setenv("FUSION_ADMIN_KEY", "admin")
         monkeypatch.setenv("FUSION_AGENT_STUDIO_API_KEY", "fk-mod-secret")
         if env_upstream is not None:
             monkeypatch.setenv("FUSION_SHELL_UPSTREAM", env_upstream)

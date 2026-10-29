@@ -20,7 +20,7 @@ DEFAULT_ROOT = Path.home() / ".fusion-agent-studio" / "run_artifacts"
 _ENV_KEYS = (
     "FUSION_MLX_PORT",
     "FUSION_GATEWAY_URL",
-    "FUSION_MLX_API_KEY",
+    "FUSION_CLIENT_KEY",
     "FUSION_RAG_BACKEND",
     "FUSION_IDENTITY_ENABLED",
     "FUSION_FSB_ENABLED",
@@ -34,8 +34,9 @@ def snapshot_environment(extra: dict[str, Any] | None = None) -> dict[str, Any]:
     except Exception:
         DEFAULT_LOCAL_BASE_URL = ""
     env = {k: os.environ.get(k, "") for k in _ENV_KEYS}
-    # api key value is a secret — record presence only
-    env["FUSION_MLX_API_KEY"] = "set" if os.environ.get("FUSION_MLX_API_KEY") else ""
+    # #509: key presence recorded under the standard name (FUSION_CLIENT_KEY);
+    # value is a secret — presence only.
+    env["FUSION_CLIENT_KEY"] = "set" if os.environ.get("FUSION_CLIENT_KEY") else ""
     snap = {
         "python_version": platform.python_version(),
         "python_implementation": platform.python_implementation(),

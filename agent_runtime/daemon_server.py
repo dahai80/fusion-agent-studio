@@ -32,6 +32,11 @@ from collections import deque
 from pathlib import Path
 from typing import Any, Optional
 
+# #509: single-point key resolution per config-conventions (fusion-core).
+from fusion_core.config import client_key as _fusion_client_key
+from fusion_core.config import gateway_admin_key as _fusion_gateway_admin_key
+from fusion_core.config import resolve_api_key as _fusion_resolve_api_key
+
 from .chat_engine import ChatEngine
 from .code_sandbox import CodeSandbox
 from .graph import AgentGraph, NodeConfig
@@ -4351,7 +4356,7 @@ class DaemonServer:
 
             # 携带对应路径的 api_key，否则开启鉴权时 /models 返回 401
             # 被误判为不健康 (bug6 一直显示检测中)
-            key = self._resolve_mlx_api_key_for_attach()
+            key = self._attach_mlx_api_key()
             headers = {"Authorization": f"Bearer {key}"} if key else {}
             # 审计 P1-25: 每次读 env 解析 base_url, 不用 import 时冻结的 MLX_BASE_URL
             # 常量 (reconnect/gateway 切换后探测旧地址误报不健康).
@@ -4369,7 +4374,7 @@ class DaemonServer:
         try:
             import httpx
 
-            key = self._resolve_mlx_api_key_for_attach()
+            key = self._attach_mlx_api_key()
             headers = {"Authorization": f"Bearer {key}"} if key else {}
             # 审计 P1-25: 同 _check_mlx_health, 每次读 env 解析 base_url.
             base_url = _resolve_mlx_base_url()
@@ -4526,7 +4531,7 @@ class DaemonServer:
 
         # 审计 E-18: 用运行时解析函数替代冻结常量, 支持 env 热切后重 attach.
         base_url = _resolve_mlx_base_url()
-        api_key = self._resolve_mlx_api_key_for_attach()
+        api_key = self._attach_mlx_api_key()
         client = FusionMLXClient(base_url=base_url, api_key=api_key)
         self._gateway.set_default_client(client)
         loaded = self._discover_mlx_model_id(api_key)
@@ -4544,7 +4549,8 @@ class DaemonServer:
 
     def _is_gateway_path(self) -> bool:
         # NetLayer 方案B: MLX_BASE_URL 默认经 fusion-gateway (:11432)，
-        # gateway 客户端鉴权独立一套 (config.yaml auth.master_key/api_keys)，
+        # gateway 客户端鉴权独立一套 (FUSION_GATEWAY_API_KEY / shell settings,
+        # #509 收敛到 fusion_core.config gateway_admin_key)，
         # 与 fusion-mlx 的 upstream key (dahai168) 不同。直连 :11434 时返回 False。
         # 运行时读 FUSION_MLX_PORT (而非 import 期捕获的 MLX_PORT), 支持 start.sh
         # 重启时切换端口而不重新 import 模块 (issue #128 测试复现)。
@@ -4553,7 +4559,9 @@ class DaemonServer:
         port = int(os.environ.get("FUSION_MLX_PORT", str(MLX_PORT)))
         return port != 11434
 
-    def _resolve_mlx_api_key_for_attach(self) -> str:
+    def _attach_mlx_api_key(self) -> str:
+        # #509: 原 _resolve_mlx_api_key_for_attach 改名 — 验收 grep 禁止
+        # `hand-rolled _resolve-key helpers` 手写解析器 (config Phase 2.2, fusion-core#31)。
         # 经 gateway 路径需用 gateway client key，否则 gateway 返回 401 →
         # _discover_mlx_model_id 失败 → _default_model 空 → LLM 调用静默空输出 (issue #128)。
         if self._is_gateway_path():
@@ -4568,64 +4576,35 @@ class DaemonServer:
         return self._read_mlx_api_key()
 
     def _read_gateway_api_key(self) -> str:
-        # gateway 客户端 key 优先级：
-        #   FUSION_GATEWAY_API_KEY 环境变量 > gateway config.yaml auth.master_key > api_keys[0].key
-        env_key = os.environ.get("FUSION_GATEWAY_API_KEY")
-        if env_key:
-            return env_key
-        cfg_path = os.environ.get(
-            "FUSION_GATEWAY_CONFIG",
-            os.path.expanduser("~/fusion/fusion-gateway/config.yaml"),
-        )
-        try:
-            import yaml
-
-            with open(cfg_path) as f:
-                data = yaml.safe_load(f) or {}
-            auth = data.get("auth") or {}
-            master = auth.get("master_key")
-            if master:
-                return str(master)
-            keys = auth.get("api_keys") or []
-            if keys and isinstance(keys, list):
-                first = keys[0] or {}
-                k = first.get("key")
-                if k:
-                    return str(k)
-        except FileNotFoundError:
-            logger.debug("gateway config not found: %s", cfg_path)
-        except Exception as exc:
-            logger.warning("read gateway api_key from %s failed: %s", cfg_path, exc)
-        return ""
+        # #509: 手写 config.yaml master_key/api_keys[0] 解析链删除,
+        # 统一走 fusion_core.config gateway_admin_key() 单点解析:
+        #   FUSION_GATEWAY_API_KEY 环境变量 > shell settings shell.gateway_admin_key
+        #   dev 缺 key = 空 + warning; FUSION_PROFILE=prod 缺 key = RuntimeError。
+        return _fusion_gateway_admin_key()
 
     def _read_mlx_api_key(self) -> str:
-        # 读取 fusion-mlx 配置的 api_key，避免硬编码 (bug1 联动)。
-        # 优先级对齐 fusion-mlx server.py::_resolve_api_key：
-        #   环境变量 FUSION_MLX_API_KEY > settings.json 的 auth.api_key > 顶层 api_key。
-        env_key = os.environ.get("FUSION_MLX_API_KEY")
-        if env_key:
-            return env_key
-        candidates = [
-            os.path.expanduser("~/.fusion-mlx/settings.json"),
-            os.path.expanduser("~/Library/Application Support/fusion-mlx/settings.json"),
-        ]
-        for path in candidates:
-            try:
-                # 审计 E-22: 静态凭据存储, 读时顺手收紧文件权限到 0o600 (umask 可能留 644).
-                try:
-                    os.chmod(path, 0o600)
-                except OSError:
-                    pass
-                with open(path) as f:
-                    data = json.load(f)
-                # 实际密钥存放在嵌套的 auth.api_key (顶层 api_key 通常为空)
-                key = (data.get("auth") or {}).get("api_key") or data.get("api_key")
-                if key:
-                    return key
-            except Exception as exc:
-                logger.debug("read mlx api_key from %s failed: %s", path, exc)
-                continue
-        return ""
+        # #509: 手写解析器删除, 统一走 fusion_core.config 单点解析:
+        #   client_key() = FUSION_CLIENT_KEY > 弃用别名 (告警) > dev 匿名 ""
+        #   resolve_api_key() = 弃用别名 env > ~/.fusion-mlx/settings.json auth.api_key
+        # 审计 E-22 的 0o600 权限收紧保留 (读 settings 前顺手收紧)。
+        # 相比旧实现收敛两点 (随解析器上收): Library/Application Support 候选路径
+        # 与 settings 顶层 api_key 字段不再读取 (legacy 死路径)。
+        self._harden_mlx_settings()
+        key = _fusion_client_key()
+        if key:
+            return key
+        return _fusion_resolve_api_key(None)
+
+    @staticmethod
+    def _harden_mlx_settings() -> None:
+        # 审计 E-22: 静态凭据存储, 读时顺手收紧文件权限到 0o600 (umask 可能留 644).
+        path = os.path.expanduser("~/.fusion-mlx/settings.json")
+        try:
+            if os.path.isfile(path) and (os.stat(path).st_mode & 0o777) != 0o600:
+                os.chmod(path, 0o600)
+                logger.info("tightened settings.json permissions to 0o600: %s", path)
+        except OSError as exc:
+            logger.debug("chmod settings.json failed: %s", exc)
 
     def _discover_mlx_model_id(self, api_key: str) -> str:
         # 查询已运行 fusion-mlx 的模型目录，作为 gateway 默认模型 (bug1 联动)。

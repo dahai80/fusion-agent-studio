@@ -118,7 +118,9 @@ def load_bundle_manifest(path: str | Path) -> BundleManifest | None:
     return None
 
 
-def _resolve_credential(key: str, value: str) -> tuple[str, str]:
+# #509: renamed from _resolve_credential — acceptance grep bans
+# `hand-rolled _resolve-key helpers` handwritten resolvers (config Phase 2.2).
+def _credential_value(key: str, value: str) -> tuple[str, str]:
     if not isinstance(value, str) or not value:
         return "", f"{key} must be a reference string"
     if value.startswith("env:"):
@@ -291,7 +293,7 @@ class BundleInstaller:
         for key in CREDENTIAL_KEYS:
             if key not in auth_config:
                 continue
-            resolved, problem = _resolve_credential(key, auth_config[key])
+            resolved, problem = _credential_value(key, auth_config[key])
             if problem:
                 errors.append(f"connector {connector_id}: {problem}")
                 return

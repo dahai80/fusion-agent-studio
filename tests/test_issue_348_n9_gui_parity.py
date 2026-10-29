@@ -224,9 +224,9 @@ class TestRunArtifacts:
         assert len(store.list(limit=0)) == 3
 
     def test_environment_masks_api_key(self, tmp_path, monkeypatch):
-        monkeypatch.setenv("FUSION_MLX_API_KEY", "super-secret")
+        monkeypatch.setenv("FUSION_CLIENT_KEY", "super-secret")
         snap = snapshot_environment(extra={"note": "x"})
-        assert snap["env"]["FUSION_MLX_API_KEY"] == "set"
+        assert snap["env"]["FUSION_CLIENT_KEY"] == "set"
         assert "super-secret" not in json.dumps(snap)
         assert snap["note"] == "x"
         assert snap["python_version"]

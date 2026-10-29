@@ -405,6 +405,10 @@ python my_agent.py
 - ✅ **失败告警钩子** — `CronManager` 接受 `failure_callback(job, execution)`，执行超时/异常时调用（在重试记账之后）；回调异常只记日志并吞掉 — 告警接收端故障绝不拖垮调度循环。daemon 接线 `_on_cron_execution_failure`：广播 `cron.execution_failed` WS 事件（job id/name、graph id、execution id、status、error[:500]）并写审计记录（`actor_id=cron:{job_id}`，result=failure）。Webhook HMAC 触发已在 #455 覆盖，此处不重复。
 - 测试：`tests/test_issue_501_automations.py`（10）— REST CRUD 往返 + 404 + 错误映射（TestClient，monkeypatch `_rpc`）、重启持久性（注册 → 关闭 → 同库重载 → 到期任务无人工干预自动触发）、失败回调送达（`exe.status="failed"`）与回调异常隔离。
 
+### 密钥单点解析 — #509
+- ✅ **fusion_core.config 采纳** — MLX client key、gateway client/admin key、daemon 侧 key 注入全部收敛到 `fusion_core.config` 单点（`client_key()` / `gateway_admin_key()` / `admin_key()` / `resolve_api_key()`）：`FUSION_CLIENT_KEY`、`FUSION_GATEWAY_API_KEY` 与 `FUSION_ADMIN_KEY` 为标准环境变量名；旧别名（`FUSION_MLX_API_KEY`、`MLX_API_KEY`）仍生效但带一次性弃用告警；dev 档回退匿名或 `~/.fusion-mlx/settings.json`（`auth.api_key` / `shell.gateway_admin_key`），`FUSION_PROFILE=prod` 缺 key 直接 RuntimeError 快速失败。`fusion-core>=0.8.0` 升级为硬依赖（非 PyPI 包，CI 经 `git+https` 安装）。
+- 测试：`tests/test_issue_509_config_adoption.py`。
+
 ### 集成
 - ✅ **fusion-mlx** — Apple Silicon 优化模型服务
 - ✅ **OpenAI 兼容 API** — 兼容任何 OpenAI 兼容后端

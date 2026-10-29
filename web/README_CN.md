@@ -66,7 +66,7 @@ web_shell:
       api_key: <~/.fusion-agent-studio/web_module_key 文件内容>
 ```
 
-设置 `FUSION_SHELL_GATEWAY_URL` 与 `FUSION_GATEWAY_ADMIN_KEY` 后，daemon
+设置 `FUSION_SHELL_GATEWAY_URL` 与 `FUSION_ADMIN_KEY` 后，daemon
 还会自注册：启动时把 `web/manifest.json` POST 到
 `POST /api/v1/shell/manifests`，之后每 15 秒心跳
 （`agent_runtime/shell_registry.py`）；心跳 404（gateway 重启后）自动重注册。

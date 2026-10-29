@@ -129,9 +129,10 @@ start() {
         log_warn "FUSION_WS_PORT 与 fusion-cowork sync 默认口同端口, 二者须改其一 (FUSION_WS_PORT / FUSION_COWORK_SYNC_PORT)"
     fi
 
-    # 运维修补：清掉 shell 继承的 FUSION_MLX_API_KEY（可能过期 → daemon 调 mlx_script 401）。
-    # 统一走 ~/.fusion-mlx/settings.json auth.api_key，与 mlx daemon / comfyui 同源。
-    unset FUSION_MLX_API_KEY
+    # #509: 旧 unset 运维修补移除 — key 解析收敛到 fusion_core.config 单点
+    # (client_key(): FUSION_CLIENT_KEY > 弃用别名(告警) > dev 匿名)。过期别名
+    # 现在会带弃用告警生效, 而非被静默丢弃。settings.json auth.api_key 仍经
+    # resolve_api_key() 加载, 与 mlx daemon / comfyui 同源。
 
     # #327: union-web 模块 key — gateway /shell/<id>/ 代理注入为上游 Bearer。
     # 首次生成并持久化 (0600)；daemon (含 launchd 直启, 经 shell_registry 兜底
@@ -147,17 +148,17 @@ start() {
     fi
 
     # #327: union-web shell 注册 (manifest + 心跳, 见 agent_runtime/shell_registry.py)。
-    # 默认指向本机 gateway；管理密钥经 FUSION_GATEWAY_ADMIN_KEY env 或
-    # ~/.fusion-agent-studio/gateway_admin_key 文件提供，两者皆缺则跳过注册
-    # (daemon 仍可本地直连, 仅 shell 菜单不展示)。
+    # 默认指向本机 gateway；管理密钥经 FUSION_ADMIN_KEY env (#509 标准名, 由
+    # fusion_core.config 单点解析) 或 ~/.fusion-agent-studio/gateway_admin_key
+    # 文件提供，两者皆缺则跳过注册 (daemon 仍可本地直连, 仅 shell 菜单不展示)。
     export FUSION_SHELL_GATEWAY_URL="${FUSION_SHELL_GATEWAY_URL:-http://127.0.0.1:11432}"
-    if [[ -z "${FUSION_GATEWAY_ADMIN_KEY:-}" && -s "${HOME}/.fusion-agent-studio/gateway_admin_key" ]]; then
-        export FUSION_GATEWAY_ADMIN_KEY="$(cat "${HOME}/.fusion-agent-studio/gateway_admin_key")"
+    if [[ -z "${FUSION_ADMIN_KEY:-}" && -s "${HOME}/.fusion-agent-studio/gateway_admin_key" ]]; then
+        export FUSION_ADMIN_KEY="$(cat "${HOME}/.fusion-agent-studio/gateway_admin_key")"
     fi
-    if [[ -n "${FUSION_GATEWAY_ADMIN_KEY:-}" ]]; then
+    if [[ -n "${FUSION_ADMIN_KEY:-}" ]]; then
         log_info "shell registry: gateway=${FUSION_SHELL_GATEWAY_URL} (manifest + heartbeat)"
     else
-        log_warn "shell registry: FUSION_GATEWAY_ADMIN_KEY unset — union-web menu registration skipped"
+        log_warn "shell registry: FUSION_ADMIN_KEY unset — union-web menu registration skipped"
     fi
 
     # Clean stale socket from a previous crash.
@@ -302,7 +303,7 @@ PLIST
     launchctl load "${_LAUNCHD_PLIST}" 2>/dev/null || true
     log_info "LaunchAgent installed and loaded: ${_LAUNCHD_PLIST}"
     log_info "Daemon will auto-start on login and restart on crash/stop"
-    log_info "NOTE: FUSION_MLX_API_KEY intentionally NOT set in plist -> daemon uses ~/.fusion-mlx/settings.json (dahai168)"
+    log_info "NOTE: mlx client key resolved via fusion_core.config single point -> settings.json / client_key() (dahai168)"
 }
 
 uninstall_launchd() {
