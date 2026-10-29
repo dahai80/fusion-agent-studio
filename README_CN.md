@@ -386,6 +386,12 @@ python my_agent.py
 - ✅ **缓存标记降级说明** — PRD 的节点级缓存标记（§7.4 第 4 项）暂缓：画布已有"仅试跑此节点"+"从此节点跑下游"，覆盖了"不必整图重跑"的价值；LLM 节点输出非确定性，跨运行复用结果有静默旧答案风险；且运行时目前没有可做复用键的节点级结果存储。待性能剖析证明重跑成本显著时再评估。
 - 测试：`tests/test_issue_484_graph_versioning.py`（10）+ 3 个画布组件测试（版本列表/回滚 RPC、测试侧栏控件）。
 
+### GUI 人设文件编辑器 — #504
+- ✅ **碎片级人设文件 RPC** — N16 人设层是碎片目录结构（`agent.md` + `persona/*.md` + `rules/*.md`），但 GUI 此前只能编辑扁平合并层（`agent.get/set_persona_layer`）。新增三个白名单 RPC 补齐缺口：`agent.list_persona_files {layer,name}` 列出碎片文件（`agent.md` 在前，`persona/`+`rules/` 片段排序在后），`agent.get_persona_file` 与 `agent.set_persona_file` 读/写单个文件。路径白名单正则（`^(agent\.md|(?:persona|rules)/[A-Za-z0-9_-]+\.md)$`）阻断目录穿越与任意扩展名写入 — 任何内容都不会逃出层级目录。
+- ✅ **Agent 详情页新增人设页签** — 新 "人设" 页签渲染**生效人设**（应用层、规则/记忆范围/技能声明、`agent.resolve_persona` 的冲突记录）与**层级文件编辑器**：选 global/tenant/team，输入租户/团队名，加载文件列表，在 Markdown 编辑器中打开文件，新建碎片文件，经 `agent.set_persona_file` 保存 — 与 `load_layer` 合并所用磁盘格式端到端往返。
+- ✅ **web RPC 白名单 + standalone HTTP 修复（实测发现）** — 三个新方法补入 `WEB_RPC_ALLOWLIST`（/v1/rpc 桥拒绝非白名单方法，否则人设页签必然 404）；`web/src/sdk.ts` 的 standalone+鉴权 `keyedHttp()` 传输现转发 `method`/`body`/`headers`，不再静默强制 GET（此前 standalone 下所有 RPC 都落在 `GET /v1/rpc` → 404；嵌入式 shell 模式不受影响）。
+- 测试：`tests/test_issue_504_persona_gui.py`（7）— 文件往返 + 排序、空/缺失层、路径白名单（穿越/扩展名/大小写，无内容逃出层级目录）、global 与命名层契约、多行 rules 保留、web 白名单成员、daemon RPC 往返（list → set → list → get → 非法路径报错 → resolve 声明）。
+
 ### Persona 包市场分发 — #503
 - ✅ **包格式** — persona 包是一个目录，承载单层栈（`agent.md` + `persona/*.md` 碎片 + `rules/*.md`）加 `manifest.json`（每文件 sha256 校验和 + 包签名，签名为文件列表规范 JSON 的 sha256 — 与 v0.8.9 市场 sha256 同族）。`build_manifest()` 签名；`verify_manifest()` 逐文件复检哈希与签名。
 - ✅ **签名发布 + 校验安装** — `PersonaPackManager.publish` 校验源包、复制入存储（`~/.fusion-agent-studio/persona_packs/`）、**对副本再次校验**，并以 tenant + visibility（`private` 包对其他租户不可见）入索引。`install` 在写入任何文件前复检哈希与签名，再解包到 persona 根 — tenant 包落入**安装方租户**作用域（`persona/tenants/<tenant>/`），team 包落 `persona/teams/<team>/`，global 包落根。

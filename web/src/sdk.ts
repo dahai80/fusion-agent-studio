@@ -25,11 +25,16 @@ export const embeddedParam = (): boolean => {
 async function keyedRequest<T>(
     path: string,
     method: 'GET' | 'POST' | 'PUT' | 'DELETE',
-    body?: unknown
+    body?: unknown,
+    extraHeaders?: Record<string, string>
 ): Promise<HttpResult<T>> {
     const res = await fetch(path, {
         method,
-        headers: { 'content-type': 'application/json', 'x-api-key': DEV_API_KEY ?? '' },
+        headers: {
+            'content-type': 'application/json',
+            'x-api-key': DEV_API_KEY ?? '',
+            ...(extraHeaders ?? {}),
+        },
         body: body === undefined ? undefined : JSON.stringify(body),
     });
     const data = (await res.json().catch(() => null)) as T;
@@ -39,9 +44,16 @@ async function keyedRequest<T>(
     return { status: res.status, ok: true, data };
 }
 
+interface KeyedInit {
+    method?: 'GET' | 'POST' | 'PUT' | 'DELETE';
+    body?: unknown;
+    headers?: Record<string, string>;
+}
+
 function keyedHttp() {
     return {
-        request: <T>(path: string) => keyedRequest<T>(path, 'GET'),
+        request: <T>(path: string, init?: KeyedInit) =>
+            keyedRequest<T>(path, init?.method ?? 'GET', init?.body, init?.headers),
         get: <T>(path: string) => keyedRequest<T>(path, 'GET'),
         post: <T>(path: string, body?: unknown) => keyedRequest<T>(path, 'POST', body),
         put: <T>(path: string, body?: unknown) => keyedRequest<T>(path, 'PUT', body),
