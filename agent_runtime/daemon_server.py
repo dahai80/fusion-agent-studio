@@ -3554,9 +3554,57 @@ class DaemonServer:
 
             db_path = os.path.expanduser("~/.fusion-agent-studio/cron.db")
             self._cron_manager = CronManager(
-                db_path=db_path, default_handler=self._cron_default_handler
+                db_path=db_path,
+                default_handler=self._cron_default_handler,
+                failure_callback=self._on_cron_execution_failure,
             )
         return self._cron_manager
+
+    def _on_cron_execution_failure(self, job, exe) -> None:
+        # #501: cron 执行失败告警 — WS 广播 cron.execution_failed + 审计落库.
+        # CronManager._run_single_job 同步上下文内调用; 广播是 async, 丢事件循环排队.
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            logger.error(
+                "cron job %s failed (%s) outside event loop; alert not broadcast",
+                job.id,
+                exe.error[:120],
+            )
+            return
+        asyncio.create_task(
+            self._broadcast_event(
+                "cron.execution_failed",
+                {
+                    "cron_job_id": job.id,
+                    "job_name": job.name,
+                    "graph_id": job.graph_id,
+                    "execution_id": exe.id,
+                    "status": exe.status,
+                    "error": exe.error[:500],
+                    "team": "default",
+                },
+            )
+        )
+        try:
+            self._get_audit_logger().log_action(
+                actor_id=f"cron:{job.id}",
+                action="cron.execution_failed",
+                resource_type="cron_job",
+                resource_id=job.id,
+                details={
+                    "execution_id": exe.id,
+                    "status": exe.status,
+                    "error": exe.error[:500],
+                    "graph_id": job.graph_id,
+                },
+                result="failure",
+            )
+        except Exception as exc:
+            logger.warning("cron failure audit log failed for %s: %s", job.id, exc)
+        logger.warning(
+            "cron job %s execution failed and alerted: %s", job.id, exe.error[:200]
+        )
 
     def _get_inbox_consumer(self):
         # #457: autonomous inbox consumer — opt-in per rostered agent

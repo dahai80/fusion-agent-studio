@@ -1280,6 +1280,95 @@ async def v1_invoke_webhook(hook_id: str, request: Request):
             "deduped": bool(res.get("deduped")) if isinstance(res, dict) else False}
 
 
+# ---------------- #501: automation trigger REST ----------------
+# Cron trigger definitions are plain JSON data editable over REST; the
+# daemon's cron.* RPC handlers own the CronManager (SQLite persistence, so
+# schedules survive daemon restarts). Failing executions are recorded by
+# CronManager, broadcast as cron.execution_failed, and listed here.
+
+
+@app.get("/v1/cron", dependencies=[Depends(_require_auth_if_configured)])
+async def v1_list_cron_jobs():
+    return await _rpc("cron.list", {})
+
+
+@app.post("/v1/cron", dependencies=[Depends(_require_auth_if_configured)])
+async def v1_create_cron_job(request: Request):
+    body = await request.json()
+    if not isinstance(body, dict):
+        raise_api_error(ErrorCode.PARAM_FORMAT_ERROR, param="body",
+                        detail="body must be a JSON object")
+    graph_id = str(body.get("graph_id", "") or "")
+    if not graph_id:
+        raise_api_error(ErrorCode.PARAM_REQUIRED, param="graph_id")
+    res = await _rpc("cron.register", body)
+    _get_audit_logger().log_action(
+        actor_id="api",
+        action="cron.create",
+        resource_type="cron_job",
+        resource_id=str((res.get("job") or {}).get("id", "")),
+        details={"graph_id": graph_id, "name": str(body.get("name", ""))},
+        result="success",
+    )
+    return res
+
+
+@app.get("/v1/cron/executions", dependencies=[Depends(_require_auth_if_configured)])
+async def v1_list_cron_executions(request: Request):
+    job_id = request.query_params.get("job_id", "")
+    try:
+        limit = int(request.query_params.get("limit", "20"))
+    except ValueError:
+        raise_api_error(ErrorCode.PARAM_FORMAT_ERROR, param="limit",
+                        detail="limit must be an integer")
+    return await _rpc("cron.list_executions", {"job_id": job_id, "limit": limit})
+
+
+@app.get("/v1/cron/{job_id}", dependencies=[Depends(_require_auth_if_configured)])
+async def v1_get_cron_job(job_id: str):
+    jobs = (await _rpc("cron.list", {})).get("jobs", [])
+    for job in jobs:
+        if job.get("id") == job_id:
+            return {"job": job}
+    raise_api_error(ErrorCode.AGENT_NOT_FOUND, param="job_id",
+                    detail=f"cron job not found: {job_id}")
+
+
+@app.delete("/v1/cron/{job_id}", dependencies=[Depends(_require_auth_if_configured)])
+async def v1_delete_cron_job(job_id: str):
+    jobs = (await _rpc("cron.list", {})).get("jobs", [])
+    if not any(job.get("id") == job_id for job in jobs):
+        raise_api_error(ErrorCode.AGENT_NOT_FOUND, param="job_id",
+                        detail=f"cron job not found: {job_id}")
+    res = await _rpc("cron.unregister", {"id": job_id})
+    _get_audit_logger().log_action(
+        actor_id="api",
+        action="cron.delete",
+        resource_type="cron_job",
+        resource_id=job_id,
+        details={},
+        result="success",
+    )
+    return res
+
+
+@app.post("/v1/cron/{job_id}/trigger", dependencies=[Depends(_require_auth_if_configured)])
+async def v1_trigger_cron_job(job_id: str):
+    res = await _rpc("cron.trigger", {"id": job_id})
+    if isinstance(res, dict) and res.get("status") == "error":
+        raise_api_error(ErrorCode.PARAM_FORMAT_ERROR, param="job_id",
+                        detail=str(res.get("message", "trigger failed")))
+    _get_audit_logger().log_action(
+        actor_id="api",
+        action="cron.trigger",
+        resource_type="cron_job",
+        resource_id=job_id,
+        details={},
+        result="success",
+    )
+    return res
+
+
 @app.get("/v1/runs/{run_id}")
 async def v1_get_run(run_id: str):
     res = await _rpc("task.get", {"task_id": run_id})

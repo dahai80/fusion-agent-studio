@@ -386,6 +386,12 @@ python my_agent.py
 - ✅ **缓存标记降级说明** — PRD 的节点级缓存标记（§7.4 第 4 项）暂缓：画布已有"仅试跑此节点"+"从此节点跑下游"，覆盖了"不必整图重跑"的价值；LLM 节点输出非确定性，跨运行复用结果有静默旧答案风险；且运行时目前没有可做复用键的节点级结果存储。待性能剖析证明重跑成本显著时再评估。
 - 测试：`tests/test_issue_484_graph_versioning.py`（10）+ 3 个画布组件测试（版本列表/回滚 RPC、测试侧栏控件）。
 
+### 自动化 REST 面 + Cron 失败告警 — #501
+- ✅ **触发器定义可经 REST 编辑** — cron 触发器定义即 JSON 数据，经六条鉴权路由管理：`GET/POST /v1/cron`（列表 / 注册：`id`、`name`、`expression`、`graph_id`、`input_data`、`loop_mode`、`interval_seconds` 等）、`GET /v1/cron/{job_id}`、`DELETE /v1/cron/{job_id}`（缺失返回 404）、`GET /v1/cron/executions?job_id=&limit=`（运行历史）与 `POST /v1/cron/{job_id}/trigger`（手动触发；RPC 层 `status:error` 映射为 HTTP 4xx，绝不静默 200）。所有变更操作写入审计日志（`cron.create` / `cron.delete` / `cron.trigger`）。
+- ✅ **计划任务在 daemon 重启后存活** — 任务持久化在 CronManager SQLite 存储（`cron.db`，WAL），启动时重载；daemon 启动即开启调度循环，注册了 cron 表达式的图按计划自动触发，无需用户交互。触发经 `idempotency_key=cron:{job_id}:{fire_time}` 去重后走 `task.submit(TRIGGER_CRON)`（M1-5）。
+- ✅ **失败告警钩子** — `CronManager` 接受 `failure_callback(job, execution)`，执行超时/异常时调用（在重试记账之后）；回调异常只记日志并吞掉 — 告警接收端故障绝不拖垮调度循环。daemon 接线 `_on_cron_execution_failure`：广播 `cron.execution_failed` WS 事件（job id/name、graph id、execution id、status、error[:500]）并写审计记录（`actor_id=cron:{job_id}`，result=failure）。Webhook HMAC 触发已在 #455 覆盖，此处不重复。
+- 测试：`tests/test_issue_501_automations.py`（10）— REST CRUD 往返 + 404 + 错误映射（TestClient，monkeypatch `_rpc`）、重启持久性（注册 → 关闭 → 同库重载 → 到期任务无人工干预自动触发）、失败回调送达（`exe.status="failed"`）与回调异常隔离。
+
 ### 集成
 - ✅ **fusion-mlx** — Apple Silicon 优化模型服务
 - ✅ **OpenAI 兼容 API** — 兼容任何 OpenAI 兼容后端
