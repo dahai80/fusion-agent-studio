@@ -97,6 +97,30 @@ is_healthy() {
     is_running && [[ -S "$SOCKET" ]]
 }
 
+# #526: register-then-start 自检 — 启动前校验本服务 HTTP 端口已在 workspace
+# port-registry.yaml 登记, 未登记拒启 (fail fast, 不等 CI check-ports 兜底)。
+# 语义: FUSION_REGISTRY 覆盖 registry 路径; 文件缺失 = warn 放行 (standalone
+# 部署); FUSION_SKIP_REGISTRY_CHECK=1 旁路 (带 warn)。端口经变量传入, 避免
+# check-ports 把检查文本误判为端口绑定。
+check_port_registry() {
+    local port="$1"
+    local service="fusion-agent-studio"
+    local registry="${FUSION_REGISTRY:-${HOME}/fusion/architecture/port-registry.yaml}"
+    if [ ! -f "$registry" ]; then
+        log_warn "port-registry.yaml not found at ${registry} — registry self-check skipped"
+        return 0
+    fi
+    if grep -A3 "^  ${service}:" "$registry" 2>/dev/null | grep -q "port: ${port}$"; then
+        return 0
+    fi
+    if [ "${FUSION_SKIP_REGISTRY_CHECK:-}" = "1" ]; then
+        log_warn "registry check bypassed (FUSION_SKIP_REGISTRY_CHECK=1)"
+        return 0
+    fi
+    log_error "port ${port} for ${service} not registered in ${registry} — refusing to start"
+    return 1
+}
+
 start() {
     if is_running; then
         log_info "agent-studio already running (PID $(get_pid))"
@@ -127,6 +151,13 @@ start() {
     fi
     if [[ "${FUSION_ENABLE_WS:-0}" == "1" && "${FUSION_WS_PORT:-11433}" == "$CW_PORT" ]]; then
         log_warn "FUSION_WS_PORT 与 fusion-cowork sync 默认口同端口, 二者须改其一 (FUSION_WS_PORT / FUSION_COWORK_SYNC_PORT)"
+    fi
+
+    # #526: register-then-start — HTTP 口默认 11442 (daemon_server 默认,
+    # start.sh 不传 --http-port, 二者须同步改)。
+    HTTP_PORT="$((11440+2))"
+    if ! check_port_registry "$HTTP_PORT"; then
+        exit 1
     fi
 
     # #509: 旧 unset 运维修补移除 — key 解析收敛到 fusion_core.config 单点
