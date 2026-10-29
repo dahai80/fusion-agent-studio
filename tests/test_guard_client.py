@@ -420,15 +420,51 @@ def test_258_regression_rm_rf_blocks_under_every_config(tmp_rules_cache, monkeyp
 # --- live tests (skipif no fusion_guard / no socket) ---
 
 
+def _guard_probe_authorized():
+    # Raw-socket guard.rule.list probe (newline-framed JSON-RPC, same wire the
+    # pyo3 client speaks). A daemon enforcing the shared secret rejects non-ping
+    # methods with "secret denied" — and the pyo3 NativeGuardClient cannot carry
+    # a secret (upstream fusion-guard client gap), so such a daemon is unusable
+    # for live tests regardless of socket presence.
+    import socket as _socket
+
+    sock_path = os.environ.get("FUSION_GUARD_SOCK", "/tmp/fusion-guard.sock")
+    try:
+        s = _socket.socket(_socket.AF_UNIX, _socket.SOCK_STREAM)
+        s.settimeout(2)
+        s.connect(sock_path)
+        req = json.dumps(
+            {"jsonrpc": "2.0", "id": 1, "method": "guard.rule.list", "params": {}}
+        ) + "\n"
+        s.sendall(req.encode())
+        data = b""
+        while not data.endswith(b"\n"):
+            chunk = s.recv(65536)
+            if not chunk:
+                break
+            data += chunk
+        s.close()
+        resp = json.loads(data.decode() or "{}")
+        return "secret denied" not in str(resp.get("error", ""))
+    except Exception:
+        return False
+
+
 def _guard_live():
     try:
         import fusion_guard  # noqa: F401
     except Exception:
         return False
-    return os.path.exists(os.environ.get("FUSION_GUARD_SOCK", "/tmp/fusion-guard.sock"))
+    if not os.path.exists(os.environ.get("FUSION_GUARD_SOCK", "/tmp/fusion-guard.sock")):
+        return False
+    return _guard_probe_authorized()
 
 
-live_guard = pytest.mark.skipif(not _guard_live(), reason="fusion_guard not installed or guard socket absent")
+live_guard = pytest.mark.skipif(
+    not _guard_live(),
+    reason="fusion_guard not installed, guard socket absent, or daemon rejects "
+    "client (shared-secret enforcement; pyo3 client lacks secret support)",
+)
 
 
 @live_guard
