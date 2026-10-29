@@ -243,6 +243,15 @@ function CanvasInner() {
     const [rawJsonOpen, setRawJsonOpen] = useState(false);
     const [saveIssues, setSaveIssues] = useState<GraphIssue[]>([]);
     const [strictSave, setStrictSave] = useState(false);
+    // #484: immutable graph version history (graph.version_list / restore).
+    const [historyOpen, setHistoryOpen] = useState(false);
+    const [versions, setVersions] = useState<
+        Array<{ version: number; name: string; created_at: number }>
+    >([]);
+    // #484: test sidebar — canned input subgraph runs + last result inspection.
+    const [testOpen, setTestOpen] = useState(true);
+    const [testInput, setTestInput] = useState('test input');
+    const [testOutput, setTestOutput] = useState<{ nodeId: string; content: string } | null>(null);
     // #406: save diff guard — card lists what changed before the write.
     const [pendingSave, setPendingSave] = useState<{
         next: GraphJson;
@@ -759,16 +768,49 @@ function CanvasInner() {
         [importGraph, showToast, t]
     );
 
+    // #484: version history — list on open, restore reloads the canvas.
+    const loadVersions = useCallback(async () => {
+        if (!graphId) return;
+        try {
+            const res = await rpc<{
+                versions: Array<{ version: number; name: string; created_at: number }>;
+            }>('graph.version_list', { graph_id: graphId });
+            setVersions(res.versions || []);
+        } catch (e) {
+            showToast(`${t('版本历史加载失败', 'Version history load failed')}: ${String(e)}`);
+        }
+    }, [graphId, showToast, t]);
+
+    const restoreVersion = useCallback(
+        async (version: number) => {
+            if (!graphId) return;
+            try {
+                await rpc('graph.version_restore', { graph_id: graphId, version });
+                showToast(t('已回滚版本', 'Version restored'));
+                await loadGraph(graphId);
+                await loadVersions();
+            } catch (e) {
+                showToast(`${t('回滚失败', 'Restore failed')}: ${String(e)}`);
+            }
+        },
+        [graphId, loadGraph, loadVersions, showToast, t]
+    );
+
+    useEffect(() => {
+        if (historyOpen) void loadVersions();
+    }, [historyOpen, loadVersions]);
+
     const runWithStream = useCallback(
-        async (opts: { fromNode?: string; onlyNode?: string } = {}) => {
+        async (opts: { fromNode?: string; onlyNode?: string; input?: string } = {}) => {
             if (!graphId || running) return;
             setRunning(true);
             setGovEvents([]);
             setActiveNodes({});
             nodeStatsRef.current = {};
             setNodeStats({});
+            setTestOutput(null);
             void refreshGovernance();
-            const qs = new URLSearchParams({ input: 'canvas run' });
+            const qs = new URLSearchParams({ input: opts.input ?? 'canvas run' });
             if (opts.fromNode) qs.set('from_node', opts.fromNode);
             if (opts.onlyNode) qs.set('only_node', opts.onlyNode);
             const breakpointNode = nodes.find((n) => (n.data as FusionNodeData).breakpoint);
@@ -799,6 +841,10 @@ function CanvasInner() {
                     }
                     const kind = data.type || 'event';
                     const nodeId = data.node_id || '';
+                    // #484 test sidebar: capture the last node result for inspection.
+                    if (kind === 'result' && nodeId) {
+                        setTestOutput({ nodeId, content: data.content || '' });
+                    }
                     if (nodeId) {
                         setActiveNodes((m) => ({ ...m, [nodeId]: kind }));
                         const stats = nodeStatsRef.current[nodeId] ?? {
@@ -1211,6 +1257,47 @@ function CanvasInner() {
                         ↷ {t('重做', 'Redo')}
                     </button>
                 </div>
+                <button
+                    type="button"
+                    className="w-full rounded border border-border px-2 py-1 text-[10px] disabled:opacity-40"
+                    disabled={!graphId}
+                    onClick={() => setHistoryOpen((v) => !v)}
+                >
+                    {historyOpen
+                        ? t('▾ 版本历史', '▾ Version history')
+                        : t('▸ 版本历史', '▸ Version history')}
+                </button>
+                {historyOpen ? (
+                    <div className="space-y-0.5">
+                        {versions.length === 0 ? (
+                            <div className="text-[10px] text-text-secondary">
+                                {t('暂无版本记录', 'No versions recorded')}
+                            </div>
+                        ) : (
+                            versions.map((v) => (
+                                <div
+                                    key={v.version}
+                                    className="flex items-center gap-1 rounded border border-border px-1 py-0.5 text-[10px]"
+                                >
+                                    <span className="tabular-nums text-text-secondary">
+                                        v{v.version}
+                                    </span>
+                                    <span className="flex-1 truncate text-text-secondary">
+                                        {new Date(v.created_at * 1000).toLocaleString()}
+                                    </span>
+                                    <button
+                                        type="button"
+                                        className="rounded border border-border px-1 hover:border-brand"
+                                        disabled={running || saving}
+                                        onClick={() => void restoreVersion(v.version)}
+                                    >
+                                        {t('回滚', 'Restore')}
+                                    </button>
+                                </div>
+                            ))
+                        )}
+                    </div>
+                ) : null}
             </div>
             <div className="flex-1 relative">
                 <ReactFlow
@@ -1452,6 +1539,73 @@ function CanvasInner() {
                         {t('点击节点或边以编辑', 'Click a node or edge to inspect')}
                     </div>
                 )}
+                <button
+                    type="button"
+                    className="w-full rounded border border-border px-2 py-1 text-[10px] disabled:opacity-40"
+                    disabled={!graphId}
+                    onClick={() => setTestOpen((v) => !v)}
+                >
+                    {testOpen
+                        ? t('▾ 测试侧栏', '▾ Test sidebar')
+                        : t('▸ 测试侧栏', '▸ Test sidebar')}
+                </button>
+                {testOpen ? (
+                    <div className="space-y-1 rounded border border-border bg-bg-elevated p-2 text-xs">
+                        <div className="text-text-secondary">
+                            {t('固定输入 (canned input)', 'Canned input')}
+                        </div>
+                        <textarea
+                            className="w-full h-16 rounded border border-border bg-bg px-2 py-1"
+                            value={testInput}
+                            onChange={(e) => setTestInput(e.target.value)}
+                        />
+                        <div className="flex gap-1">
+                            <button
+                                type="button"
+                                className="flex-1 rounded border border-brand px-1 py-0.5 text-[10px] text-brand disabled:opacity-40"
+                                disabled={running || !graphId || !selectedId}
+                                title={
+                                    selectedId
+                                        ? selectedId
+                                        : t('先选中一个节点', 'Select a node first')
+                                }
+                                onClick={() =>
+                                    void runWithStream({ onlyNode: selectedId, input: testInput })
+                                }
+                            >
+                                {t('仅试跑选中节点', 'Run selected node only')}
+                            </button>
+                            <button
+                                type="button"
+                                className="flex-1 rounded border border-brand px-1 py-0.5 text-[10px] text-brand disabled:opacity-40"
+                                disabled={running || !graphId || !selectedId}
+                                onClick={() =>
+                                    void runWithStream({ fromNode: selectedId, input: testInput })
+                                }
+                            >
+                                {t('跑选中节点下游', 'Run downstream')}
+                            </button>
+                        </div>
+                        <button
+                            type="button"
+                            className="w-full rounded border border-brand px-1 py-0.5 text-[10px] text-brand disabled:opacity-40"
+                            disabled={running || !graphId}
+                            onClick={() => void runWithStream({ input: testInput })}
+                        >
+                            {t('整图试跑', 'Run whole graph')}
+                        </button>
+                        {testOutput ? (
+                            <div>
+                                <div className="text-text-secondary">
+                                    {t('最近节点输出', 'Last node output')} · {testOutput.nodeId}
+                                </div>
+                                <pre className="max-h-40 overflow-auto whitespace-pre-wrap rounded border border-border bg-bg p-1 text-[10px]">
+                                    {testOutput.content || '(empty)'}
+                                </pre>
+                            </div>
+                        ) : null}
+                    </div>
+                ) : null}
                 {saveIssues.length > 0 ? (
                     <div className="rounded border border-warning/40 bg-bg-elevated p-1 text-[10px]">
                         <div className="text-text-secondary">

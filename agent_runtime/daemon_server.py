@@ -1264,6 +1264,8 @@ class DaemonServer:
             "graph.get": self._handle_graph_get,
             "graph.list": self._handle_graph_list,
             "graph.update": self._handle_graph_update,
+            "graph.version_list": self._handle_graph_version_list,
+            "graph.version_restore": self._handle_graph_version_restore,
             "mlx.health": self._handle_mlx_health,
             "mlx.infer": self._handle_mlx_infer,
             "mlx.restart": self._handle_mlx_restart,
@@ -3236,6 +3238,44 @@ class DaemonServer:
             "edges": [e.to_dict() for e in graph.edges],
             "stop_on_tool_error": graph.stop_on_tool_error,
             "issues": issues,
+        }
+
+    async def _handle_graph_version_list(self, params: dict) -> dict:
+        # #484: 不可变版本记录列表 (新→旧), 不含 data 大字段.
+        graph_id = params.get("graph_id", "")
+        if not graph_id:
+            raise ValueError("graph_id is required")
+        versions = self.store.list_graph_versions(graph_id)
+        logger.info("graph.version_list %s: %d versions", graph_id, len(versions))
+        return {"graph_id": graph_id, "versions": versions}
+
+    async def _handle_graph_version_restore(self, params: dict) -> dict:
+        # #484: 回滚到指定版本. restore 本身也是一次保存 — 恢复内容记为新版本,
+        # 被替换的当前状态仍留在历史里 (它是上一条版本记录), 无丢失.
+        graph_id = params.get("graph_id", "")
+        version = params.get("version")
+        if not graph_id:
+            raise ValueError("graph_id is required")
+        if version is None:
+            raise ValueError("version is required")
+        try:
+            version = int(version)
+        except (TypeError, ValueError):
+            raise ValueError(f"invalid version: {version!r}") from None
+        graph = self.store.load_graph_version(graph_id, version)
+        if graph is None:
+            raise ValueError(f"Version not found: {graph_id} v{version}")
+        graph.id = graph_id
+        self.store.save_graph(graph)
+        logger.info("graph.version_restore %s <- v%d (recorded as new version)", graph_id, version)
+        return {
+            "graph_id": graph.id,
+            "name": graph.name,
+            "description": graph.description,
+            "nodes": {nid: n.to_dict() for nid, n in graph.nodes.items()},
+            "edges": [e.to_dict() for e in graph.edges],
+            "stop_on_tool_error": graph.stop_on_tool_error,
+            "restored_from": version,
         }
 
     def _get_tool_registry(self):

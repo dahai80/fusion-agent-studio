@@ -120,3 +120,69 @@ describe('WorkflowCanvasPage safety pending actions (#489)', () => {
         expect(screen.getByText('bash')).toBeInTheDocument();
     });
 });
+
+describe('WorkflowCanvasPage graph versioning (#484)', () => {
+    beforeEach(() => {
+        rpcMock.mockReset();
+        graphsMock.mockReset();
+        window.sessionStorage.clear();
+        window.localStorage.clear();
+    });
+
+    it('lists version history on toggle and shows the empty state', async () => {
+        defaultRpcs([{ action_id: 'seed', category: 'bash' }]);
+        const user = await renderCanvas();
+
+        await user.click(screen.getByRole('button', { name: /Version history/ }));
+
+        await waitFor(() =>
+            expect(rpcMock).toHaveBeenCalledWith('graph.version_list', { graph_id: 'g1' })
+        );
+        expect(await screen.findByText('No versions recorded')).toBeInTheDocument();
+    });
+
+    it('restores a version via graph.version_restore and reloads the canvas', async () => {
+        defaultRpcs([{ action_id: 'seed', category: 'bash' }]);
+        const user = await renderCanvas();
+
+        rpcMock.mockImplementation(async (method: string) => {
+            if (method === 'budget.status') return { remaining: 800, max_tokens: 1000 };
+            if (method === 'safety.get_pending_actions') return { actions: [] };
+            if (method === 'tool.list') return { tools: [{ name: 'read_file' }] };
+            if (method === 'graph.get')
+                return {
+                    graph: { id: 'g1', nodes: [], edges: [], name: 'v1 graph', description: '' },
+                };
+            if (method === 'graph.version_list')
+                return {
+                    versions: [{ version: 1, name: 'v1 graph', created_at: 1700000000 }],
+                };
+            if (method === 'graph.version_restore') return { graph_id: 'g1', restored_from: 1 };
+            throw new Error(`unexpected rpc: ${method}`);
+        });
+        await user.click(screen.getByRole('button', { name: /Version history/ }));
+        await waitFor(() =>
+            expect(rpcMock).toHaveBeenCalledWith('graph.version_list', { graph_id: 'g1' })
+        );
+
+        await user.click(screen.getByRole('button', { name: 'Restore' }));
+
+        await waitFor(() =>
+            expect(rpcMock).toHaveBeenCalledWith('graph.version_restore', {
+                graph_id: 'g1',
+                version: 1,
+            })
+        );
+        expect(await screen.findByText('Version restored')).toBeInTheDocument();
+    });
+
+    it('renders the test sidebar with canned-input run controls', async () => {
+        defaultRpcs([{ action_id: 'seed', category: 'bash' }]);
+        await renderCanvas();
+
+        expect(screen.getByText('Canned input')).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: /Run whole graph/ })).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: /Run selected node only/ })).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: /Run downstream/ })).toBeInTheDocument();
+    });
+});

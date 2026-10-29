@@ -378,6 +378,14 @@ python my_agent.py
 - ✅ **WorkflowCanvasPage 安全面覆盖** — 治理面板渲染待审批动作；Approve/Deny 触发 `safety.approve`/`safety.reject`、刷新并 toast 确认；审批失败弹错误 toast 且动作保持待审批（失败的决定绝不丢动作）。面板加载按生产路径驱动（sessionStorage 预选图 → loadGraph → refreshGovernance）。
 - ✅ **CI 执行** — web 作业在 typecheck 与 build 之间执行 `bun run test`，页面回归即使通过类型检查也会挂构建。
 
+### 图版本历史 + 画布测试侧栏 — #484
+- ✅ **每次保存产出不可变版本记录** — `save_graph` 在与图 upsert 同一个 SQLite 事务内，向新表 `graph_versions`（主键 `graph_id, version`，每图 `MAX(version)+1`）写入不可变快照 — 保存与版本记录同落或同不落。每图历史上限 50 条（写入时裁剪最旧）。以迁移 v4 落地（幂等、失败回滚）；新库直接由基础建表语句建表。
+- ✅ **版本 RPC** — `graph.version_list`（新→旧，不含 `data` 大字段）与 `graph.version_restore`（加载记录后作为**新版本**存回 — 被替换的当前状态仍留在历史里，无丢失）。非法/缺失 `graph_id`/`version` 抛出类型化错误。
+- ✅ **画布历史面板** — 左侧栏"版本历史"区按新→旧列出版本（带时间戳），一键回滚；回滚后重载画布并刷新列表。
+- ✅ **画布测试侧栏** — 右侧栏固定输入测试运行复用 SSE 流：仅试跑选中节点（`only_node`）、跑选中节点下游（`from_node`）、整图试跑，均使用侧栏输入文本；最近节点结果会被捕获并展示供检查。
+- ✅ **缓存标记降级说明** — PRD 的节点级缓存标记（§7.4 第 4 项）暂缓：画布已有"仅试跑此节点"+"从此节点跑下游"，覆盖了"不必整图重跑"的价值；LLM 节点输出非确定性，跨运行复用结果有静默旧答案风险；且运行时目前没有可做复用键的节点级结果存储。待性能剖析证明重跑成本显著时再评估。
+- 测试：`tests/test_issue_484_graph_versioning.py`（10）+ 3 个画布组件测试（版本列表/回滚 RPC、测试侧栏控件）。
+
 ### 集成
 - ✅ **fusion-mlx** — Apple Silicon 优化模型服务
 - ✅ **OpenAI 兼容 API** — 兼容任何 OpenAI 兼容后端
