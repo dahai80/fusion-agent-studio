@@ -21,6 +21,10 @@ class MarketplaceDispatcher(SubDispatcher):
             "marketplace.install": self._handle_marketplace_install,
             "marketplace.uninstall": self._handle_marketplace_uninstall,
             "marketplace.audit": self._handle_marketplace_audit,
+            # #503: persona-pack distribution (signed publish/install)
+            "marketplace.persona_pack_publish": self._handle_persona_pack_publish,
+            "marketplace.persona_pack_install": self._handle_persona_pack_install,
+            "marketplace.persona_pack_list": self._handle_persona_pack_list,
         }
 
     @staticmethod
@@ -106,6 +110,48 @@ class MarketplaceDispatcher(SubDispatcher):
         ok = mp.unpublish(entry_id, tenant=self._tenant(params))
         logger.info("marketplace.uninstall: id=%s success=%s", entry_id, ok)
         return {"success": ok}
+
+    async def _handle_persona_pack_publish(self, params: dict) -> dict:
+        from ..persona_pack import build_manifest
+
+        pack_dir = str(params.get("pack_dir", "") or "")
+        if not pack_dir:
+            return {"status": "error", "message": "pack_dir parameter required"}
+        try:
+            build_manifest(
+                pack_dir,
+                layer=str(params.get("layer", "") or ""),
+                name=str(params.get("name", "") or ""),
+                version=str(params.get("version", "1.0.0") or "1.0.0"),
+                visibility=str(params.get("visibility", "public") or "public"),
+            )
+        except ValueError as e:
+            return {"status": "error", "message": str(e)}
+        ppm = self._daemon._get_persona_pack_manager()
+        pack_id = ppm.publish(pack_dir, tenant=self._tenant(params))
+        logger.info("marketplace.persona_pack_publish: id=%s dir=%s", pack_id, pack_dir)
+        return {"pack_id": pack_id}
+
+    async def _handle_persona_pack_install(self, params: dict) -> dict:
+        pack_id = str(params.get("pack_id", "") or "")
+        if not pack_id:
+            return {"status": "error", "message": "pack_id parameter required"}
+        ppm = self._daemon._get_persona_pack_manager()
+        result = ppm.install(
+            pack_id,
+            tenant=self._tenant(params),
+            layer_name=str(params.get("layer_name", "") or ""),
+        )
+        if result.get("status") == "error":
+            logger.warning("marketplace.persona_pack_install refused: %s", result)
+            return result
+        logger.info("marketplace.persona_pack_install: id=%s path=%s",
+                    pack_id, result.get("path"))
+        return result
+
+    async def _handle_persona_pack_list(self, params: dict) -> dict:
+        ppm = self._daemon._get_persona_pack_manager()
+        return {"packs": ppm.list(tenant=self._tenant(params))}
 
     async def _handle_marketplace_audit(self, params: dict) -> dict:
         mp = self._daemon._get_marketplace()
