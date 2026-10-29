@@ -476,7 +476,12 @@ def get_webhook_manager() -> WebhookManager:
 class CronManager:
     """Manages scheduled cron jobs with SQLite persistence and full 5-field cron parsing."""
 
-    def __init__(self, db_path: str = "", default_handler: Callable | None = None):
+    def __init__(
+        self,
+        db_path: str = "",
+        default_handler: Callable | None = None,
+        failure_callback: Callable | None = None,
+    ):
         self._jobs: dict[str, CronJob] = {}
         self._handlers: dict[str, Callable] = {}
         self._running = False
@@ -488,6 +493,8 @@ class CronManager:
         import threading
         self._write_lock = threading.RLock()
         self._default_handler: Callable | None = default_handler
+        # #501: 失败告警回调 — 执行超时/异常时以 (job, execution) 调用, 回调自身保证不抛.
+        self._failure_callback: Callable | None = failure_callback
         if db_path:
             self._init_db(db_path)
             self._load_jobs()
@@ -915,11 +922,13 @@ class CronManager:
                 exe.status = "failed"
                 exe.error = f"job timed out after {timeout:.0f}s"
                 self._handle_retry(job)
+                self._notify_failure(job, exe)
             except Exception as e:
                 logger.error("Cron job %s failed: %s", job.id, e)
                 exe.status = "failed"
                 exe.error = str(e)[:500]
                 self._handle_retry(job)
+                self._notify_failure(job, exe)
         else:
             exe.status = "no_handler"
         exe.finished_at = time.time()
@@ -973,6 +982,16 @@ class CronManager:
         else:
             job.enabled = False
             logger.warning("Cron job %s disabled after exhausting %d retries", job.id, job.max_retries)
+
+    def _notify_failure(self, job: CronJob, exe: CronExecution) -> None:
+        # #501: 失败告警 — 单回调, 同步上下文内调用, 回调异常只记日志不外抛.
+        cb = self._failure_callback
+        if cb is None:
+            return
+        try:
+            cb(job, exe)
+        except Exception as e:
+            logger.error("cron failure callback error for job %s: %s", job.id, e)
 
     def _compute_next_run(self, expression: str) -> float:
         parts = expression.strip().split()
