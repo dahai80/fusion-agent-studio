@@ -7,7 +7,8 @@ with periodic heartbeats so the module stays "online" in the shell menu
 
 Env-gated — requires BOTH:
 - FUSION_SHELL_GATEWAY_URL: gateway base, e.g. http://127.0.0.1:11432
-- FUSION_GATEWAY_ADMIN_KEY: a gateway api_key authorized for /api/v1/*
+- FUSION_ADMIN_KEY: a gateway api_key authorized for /api/v1/*
+  (resolved via fusion_core.config admin_key() — #509 single point)
 
 Optional:
 - FUSION_SHELL_MANIFEST: manifest path override (default web/manifest.json
@@ -39,10 +40,12 @@ from urllib.parse import urlparse
 
 import httpx
 
+# #509: single-point admin key resolution per config-conventions (fusion-core).
+from fusion_core.config import admin_key as _fusion_admin_key
+
 logger = logging.getLogger(__name__)
 
 GATEWAY_URL_ENV = "FUSION_SHELL_GATEWAY_URL"
-ADMIN_KEY_ENV = "FUSION_GATEWAY_ADMIN_KEY"
 MANIFEST_PATH_ENV = "FUSION_SHELL_MANIFEST"
 UPSTREAM_ENV = "FUSION_SHELL_UPSTREAM"
 MODULE_KEY_ENV = "FUSION_AGENT_STUDIO_API_KEY"
@@ -50,6 +53,19 @@ MODULE_KEY_FILE = Path.home() / ".fusion-agent-studio" / "web_module_key"
 DEFAULT_UPSTREAM = "http://127.0.0.1:11442"
 REGISTER_INTERVAL_SECONDS = 15.0
 HTTP_TIMEOUT_SECONDS = 5.0
+
+
+def _shell_admin_key() -> str:
+    # #509: fusion_core.config admin_key() = FUSION_ADMIN_KEY env > prod
+    # fail-fast (RuntimeError) > dev "" + one-time anon warning. Shell
+    # registration is optional infrastructure — a missing admin key only
+    # disables registration (never crashes the daemon), so RuntimeError
+    # is swallowed with a warning.
+    try:
+        return _fusion_admin_key().strip()
+    except RuntimeError as e:
+        logger.warning("shell registration disabled (admin key unavailable): %s", e)
+        return ""
 
 
 def load_module_key() -> str:
@@ -174,7 +190,7 @@ def build_registration_payload(manifest: dict[str, Any]) -> dict[str, Any]:
 
 def shell_registration_enabled() -> bool:
     gateway = os.environ.get(GATEWAY_URL_ENV, "").strip()
-    admin_key = os.environ.get(ADMIN_KEY_ENV, "").strip()
+    admin_key = _shell_admin_key()
     return bool(gateway and admin_key)
 
 
@@ -192,7 +208,7 @@ def _load_manifest() -> dict[str, Any]:
 async def _registry_loop_body(client: Any, manifest: dict[str, Any], interval: float) -> None:
     module_id = str(manifest["id"])
     gateway = os.environ.get(GATEWAY_URL_ENV, "").strip().rstrip("/")
-    admin_key = os.environ.get(ADMIN_KEY_ENV, "").strip()
+    admin_key = _shell_admin_key()
     admin_headers = {"Authorization": f"Bearer {admin_key}", "Content-Type": "application/json"}
     try:
         payload = build_registration_payload(manifest)

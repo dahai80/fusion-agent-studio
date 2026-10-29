@@ -82,7 +82,7 @@ cron 定时任务依赖 daemon 常驻——daemon 被关停后没人拉起，定
 
 安装后生成 `~/Library/LaunchAgents/com.fusion-agent-studio.server.plist`，关键配置：`RunAtLoad=true`（登录即启）、`KeepAlive=true`（崩溃重启）、工作目录指向仓库根、注入 `FUSION_SAFETY_INJECTION=1` / `FUSION_SAFETY_LEVEL=L2`。日志仍写到仓库 `logs/`。
 
-> 注意：plist 里**故意不设** `FUSION_MLX_API_KEY`——daemon 统一读 `~/.fusion-mlx/settings.json` 的 `auth.api_key`，避免过期 key 导致 401。
+> 注意：key 解析统一走 fusion_core.config 单点（`FUSION_CLIENT_KEY` > 弃用别名告警 > `~/.fusion-mlx/settings.json` 的 `auth.api_key`），避免过期 key 导致 401。
 
 ## 6. 关键环境变量
 

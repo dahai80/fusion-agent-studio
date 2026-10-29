@@ -173,7 +173,7 @@ class TestRegistryLoop:
         assert beats[0]["headers"]["Authorization"] == "Bearer fm-issued-hb"
 
     async def test_heartbeat_falls_back_to_admin_key(self, _key_path, monkeypatch):
-        monkeypatch.setenv("FUSION_GATEWAY_ADMIN_KEY", "admin-k")
+        monkeypatch.setenv("FUSION_ADMIN_KEY", "admin-k")
         client = _FakeClient([
             _response(200, {}),
             _response(200, {}),
@@ -183,7 +183,7 @@ class TestRegistryLoop:
         assert beats[0]["headers"]["Authorization"] == "Bearer admin-k"
 
     async def test_heartbeat_401_with_issued_key_reregisters(self, _key_path, monkeypatch):
-        monkeypatch.setenv("FUSION_GATEWAY_ADMIN_KEY", "admin")
+        monkeypatch.setenv("FUSION_ADMIN_KEY", "admin")
         client = _FakeClient([
             _response(200, {"api_key": "fm-stale"}),
             _response(401, {}),
@@ -199,7 +199,7 @@ class TestRegistryLoop:
     async def test_heartbeat_403_drops_api_key_and_reacquires(self, _key_path, monkeypatch):
         # #442: static fk- key rejected by heartbeat auth (403) —
         # re-registration must drop api_key so the gateway issues an fm- key.
-        monkeypatch.setenv("FUSION_GATEWAY_ADMIN_KEY", "admin")
+        monkeypatch.setenv("FUSION_ADMIN_KEY", "admin")
         monkeypatch.setenv("FUSION_AGENT_STUDIO_API_KEY", "fk-mod-stale")
         client = _FakeClient([
             _response(200, {}),
@@ -216,7 +216,7 @@ class TestRegistryLoop:
         assert beats[-1]["headers"]["Authorization"] == "Bearer fm-fresh-403"
 
     async def test_401_also_drops_api_key_on_reregister(self, _key_path, monkeypatch):
-        monkeypatch.setenv("FUSION_GATEWAY_ADMIN_KEY", "admin")
+        monkeypatch.setenv("FUSION_ADMIN_KEY", "admin")
         monkeypatch.setenv("FUSION_AGENT_STUDIO_API_KEY", "fk-mod-stale")
         client = _FakeClient([
             _response(200, {}),

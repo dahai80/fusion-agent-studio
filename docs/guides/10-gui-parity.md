@@ -64,7 +64,7 @@ Web Safety 页「待审动作」按四类卡过滤、用卡片网格展示，dif
 `graph.execute` 与 `task` 异步执行完成后自动记录，返回值带 `run_artifact_id`。记录结构：
 
 - `graph`：`AgentGraph.to_dict()` 快照
-- `environment`：python/platform/gateway_base + 相关环境变量（`FUSION_MLX_API_KEY` 只记 `set`，不落值）
+- `environment`：python/platform/gateway_base + 相关环境变量（key 环境变量只记 `set`，不落值）
 - `conversation`：`{count, messages}`（role/content/tool_calls/tool_call_id）
 
 只读 RPC（web 桥白名单内）：

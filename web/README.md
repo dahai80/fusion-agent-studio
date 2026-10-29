@@ -70,7 +70,7 @@ web_shell:
       api_key: <contents of ~/.fusion-agent-studio/web_module_key>
 ```
 
-With `FUSION_SHELL_GATEWAY_URL` and `FUSION_GATEWAY_ADMIN_KEY` set, the daemon
+With `FUSION_SHELL_GATEWAY_URL` and `FUSION_ADMIN_KEY` set, the daemon
 also self-registers: it POSTs `web/manifest.json` to
 `POST /api/v1/shell/manifests` on start and heartbeats every 15 s
 (`agent_runtime/shell_registry.py`); a 404 heartbeat re-registers after a

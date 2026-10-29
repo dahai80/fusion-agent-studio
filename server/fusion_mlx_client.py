@@ -15,6 +15,9 @@ from typing import Any, AsyncIterator
 
 import httpx
 
+# #509: single-point key resolution per config-conventions (fusion-core).
+from fusion_core.config import client_key
+
 logger = logging.getLogger(__name__)
 
 
@@ -102,12 +105,17 @@ class FusionMLXClient:
             "FUSION_GATEWAY_URL",
             f"http://localhost:{os.environ.get('FUSION_MLX_PORT', '11432')}/v1",
         ),
-        api_key: str = os.environ.get("FUSION_MLX_API_KEY", "local"),
+        api_key: str | None = None,
         timeout: float = 120.0,
     ):
         if not base_url.rstrip("/").endswith("/v1"):
             base_url = base_url.rstrip("/") + "/v1"
         self.base_url = base_url.rstrip("/")
+        # #509: key 解析单点收敛到 fusion_core.config client_key()
+        # (FUSION_CLIENT_KEY > 弃用别名告警 > dev 匿名回退 "local", prod fail-fast)。
+        # 显式传 "" 视为匿名 (不触发解析); None/缺省才走单点解析。
+        if api_key is None:
+            api_key = client_key() or "local"
         self.api_key = api_key
         self.timeout = timeout
         self._client: httpx.AsyncClient | None = None

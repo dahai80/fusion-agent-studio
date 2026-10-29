@@ -561,6 +561,10 @@ Audit `audit/fusion-agent-studio-vs-langflow-audit-1020.md` closed end-to-end; s
 - ✅ **env config** — `FUSION_TEAM_PEER_NOTIFY` (`0/false/off/no` disables, default on), `FUSION_TEAM_PEER_NOTIFY_URLS` (comma-separated, e.g. `http://127.0.0.1:11461/api/team/notify`), `FUSION_TEAM_PEER_NOTIFY_KEY` (optional static key sent as `Authorization: Bearer …` for peers whose web API has auth configured; cowork accepts Bearer or `x-api-key`). Unset URLs = disabled — zero behavior change for existing installs.
 - ✅ **end-to-end** (verified against a live daemon pair): AS daemon log `peer notify url=http://127.0.0.1:11461/api/team/notify status=200` after `team.mailbox_send`, cowork log `POST /api/team/notify 200 OK`.
 
+### Single-Point Key Resolution — #509
+- ✅ **fusion_core.config adoption** — MLX client key, gateway client/admin key, and daemon-side key attach all resolve through `fusion_core.config` single points (`client_key()` / `gateway_admin_key()` / `admin_key()` / `resolve_api_key()`): `FUSION_CLIENT_KEY`, `FUSION_GATEWAY_API_KEY`, and `FUSION_ADMIN_KEY` are the standard env names; legacy aliases (`FUSION_MLX_API_KEY`, `MLX_API_KEY`) still work with a one-time deprecation warning; dev profile falls back to anonymous or `~/.fusion-mlx/settings.json` (`auth.api_key` / `shell.gateway_admin_key`), and `FUSION_PROFILE=prod` fails fast (RuntimeError) on a missing key. `fusion-core>=0.8.0` is now a hard dependency (CI installs it via `git+https` — not on PyPI).
+- Tests: `tests/test_issue_509_config_adoption.py`.
+
 ### Integration
 - ✅ **fusion-mlx** — Apple Silicon optimized model serving
 - ✅ **OpenAI-compatible API** — Works with any OpenAI-compatible backend

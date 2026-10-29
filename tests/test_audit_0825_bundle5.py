@@ -163,7 +163,7 @@ class TestE18MlxReconnect:
 
         ds._gateway = FakeGateway()
         ds._is_gateway_path = lambda: False
-        ds._resolve_mlx_api_key_for_attach = lambda: "local"
+        ds._attach_mlx_api_key = lambda: "local"
         ds._discover_mlx_model_id = lambda key: "test-model"
 
         monkeypatch.setenv("FUSION_GATEWAY_URL", "http://localhost:99999/v1")

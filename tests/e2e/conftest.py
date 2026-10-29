@@ -204,7 +204,7 @@ def daemon_base(stub_mlx, guard_stub_dir, tmp_path_factory):
     env.update(
         {
             "FUSION_GATEWAY_URL": stub_mlx["url"],
-            "FUSION_MLX_API_KEY": "e2e-stub-key",
+            "FUSION_CLIENT_KEY": "e2e-stub-key",
             # deterministic auth: the machine's real key files must not leak in
             "FUSION_AGENT_STUDIO_API_KEY": E2E_API_KEY,
             "FUSION_SAFETY_TIMEOUT_DISPOSITION": "reject",
