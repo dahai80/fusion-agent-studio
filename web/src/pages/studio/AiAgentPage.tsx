@@ -15,6 +15,7 @@ import { Switch } from '../../components/ui/Switch';
 import { Tabs } from '../../components/ui/Tabs';
 import { Textarea } from '../../components/ui/Textarea';
 import { useT } from '../../i18n';
+import { hashQuery } from '../../lib/routeQuery';
 import { sdk } from '../../sdk';
 
 // #330: per-token SSE chat with a selected agent. GET
@@ -131,7 +132,10 @@ export function AiAgentPage() {
         label: a.name || a.id || a.agent_id || '',
     }));
     const [agentId, setAgentId] = useState('');
-    const effectiveAgentId = agentId || agents[0]?.id || agents[0]?.agent_id || '';
+    // #528: deep link `#/aiagent?agent=<id>` (Dashboard [使用] action)
+    // preselects the agent for the working conversation.
+    const linkedAgent = hashQuery().get('agent') ?? '';
+    const effectiveAgentId = agentId || linkedAgent || agents[0]?.id || agents[0]?.agent_id || '';
     const selectedAgent = agents.find((a) => (a.id ?? a.agent_id) === effectiveAgentId);
     const allowedClasses = useMemo(
         () => classifyTools(selectedAgent?.tools ?? []),

@@ -2624,6 +2624,17 @@ register_agents_platform(
     _require_auth_if_configured,
 )
 
+# ── #531: marketplace Sub-agents surface for the Cowork capability
+# marketplace tab (fusion-cowork#228) — read-only list/detail of
+# deployed (published) agents. Registered BEFORE the web dist mount.
+from agent_runtime.api_marketplace import register_marketplace
+
+register_marketplace(
+    app,
+    lambda method, params: _rpc(method, params),
+    _require_auth_if_configured,
+)
+
 _CONSOLE_DIR = Path(__file__).resolve().parent.parent / "web" / "console"
 if _CONSOLE_DIR.is_dir():
     from fastapi.staticfiles import StaticFiles

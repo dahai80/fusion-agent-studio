@@ -6,9 +6,11 @@ import { RunDetailPage } from './pages/RunDetailPage';
 import { RunsPage } from './pages/RunsPage';
 import { WorkflowsPage } from './pages/WorkflowsPage';
 import { AgentDetailPage } from './pages/studio/AgentDetailPage';
+import { AgentHomePage } from './pages/studio/AgentHomePage';
 import { AgentsPage } from './pages/studio/AgentsPage';
 import { AiAgentPage } from './pages/studio/AiAgentPage';
 import { ApikeysPage } from './pages/studio/ApikeysPage';
+import { BuilderPage } from './pages/studio/BuilderPage';
 import { ChatPage } from './pages/studio/ChatPage';
 import { ConnectorsPage } from './pages/studio/ConnectorsPage';
 import { CronPage } from './pages/studio/CronPage';
@@ -29,6 +31,8 @@ import { embeddedParam, isEmbedded } from './sdk';
 // Standalone shows a bottom tab bar; when the shell embeds us (?embedded=1 or
 // iframe) the shell owns the bottom bar — StudioNav always renders.
 type StudioRoute =
+    | 'home'
+    | 'builder'
     | 'agents'
     | 'dashboard'
     | 'team'
@@ -54,6 +58,8 @@ type Route =
     | { name: 'studio'; tab: StudioRoute };
 
 const STUDIO_ROUTES: ReadonlySet<string> = new Set<StudioRoute>([
+    'home',
+    'builder',
     'agents',
     'dashboard',
     'team',
@@ -72,20 +78,33 @@ const STUDIO_ROUTES: ReadonlySet<string> = new Set<StudioRoute>([
     'governance',
 ]);
 
-function parseHash(): Route {
+export function parseHash(): Route {
     const h = window.location.hash.replace(/^#\/?/, '');
-    const parts = h.split('/').filter(Boolean);
+    // #528: first segment may carry a query (`#/aiagent?agent=<id>`) — the
+    // pages read it through lib/routeQuery; routing only needs the path.
+    const parts = h
+        .split('/')
+        .filter(Boolean)
+        .map((p) => p.split('?')[0]);
     if (parts[0] === 'runs' && parts[1]) return { name: 'run', id: decodeURIComponent(parts[1]) };
     if (parts[0] === 'runs') return { name: 'runs' };
     if (parts[0] === 'agents' && parts[1])
         return { name: 'agent', id: decodeURIComponent(parts[1]) };
     if (parts[0] && STUDIO_ROUTES.has(parts[0]))
         return { name: 'studio', tab: parts[0] as StudioRoute };
-    return { name: 'workflows' };
+    // the legacy workflows page keeps its own route (top-nav link,
+    // manifest page list, e2e smoke); anything else unknown falls to the
+    // #528 AI Agent Dashboard — the module entry.
+    if (parts[0] === 'workflows') return { name: 'workflows' };
+    return { name: 'studio', tab: 'home' };
 }
 
 function StudioPage(props: { tab: StudioRoute }) {
     switch (props.tab) {
+        case 'home':
+            return <AgentHomePage />;
+        case 'builder':
+            return <BuilderPage />;
         case 'agents':
             return <AgentsPage />;
         case 'dashboard':
