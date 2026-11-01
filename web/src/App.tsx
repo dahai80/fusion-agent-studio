@@ -78,7 +78,7 @@ const STUDIO_ROUTES: ReadonlySet<string> = new Set<StudioRoute>([
     'governance',
 ]);
 
-function parseHash(): Route {
+export function parseHash(): Route {
     const h = window.location.hash.replace(/^#\/?/, '');
     // #528: first segment may carry a query (`#/aiagent?agent=<id>`) — the
     // pages read it through lib/routeQuery; routing only needs the path.
@@ -92,7 +92,10 @@ function parseHash(): Route {
         return { name: 'agent', id: decodeURIComponent(parts[1]) };
     if (parts[0] && STUDIO_ROUTES.has(parts[0]))
         return { name: 'studio', tab: parts[0] as StudioRoute };
-    // #528: the AI Agent Dashboard is the module entry.
+    // the legacy workflows page keeps its own route (top-nav link,
+    // manifest page list, e2e smoke); anything else unknown falls to the
+    // #528 AI Agent Dashboard — the module entry.
+    if (parts[0] === 'workflows') return { name: 'workflows' };
     return { name: 'studio', tab: 'home' };
 }
 
