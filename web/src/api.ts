@@ -171,6 +171,20 @@ export async function apiPost<T = Record<string, unknown>>(
     return res.data;
 }
 
+// #528/#529: builder draft updates go through PUT on the agents-platform
+// agent resource; same #405 apiBase + explicit content-type rules as POST.
+export async function apiPut<T = Record<string, unknown>>(
+    path: string,
+    body?: unknown
+): Promise<T> {
+    const res = await sdk.http.request<T>(`${B()}${path}`, {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body,
+    });
+    return res.data;
+}
+
 export const api = {
     dashboard: () => getJson<DashboardData>(`${B()}/v1/dashboard`),
     graphs: (page = 1, limit = 50) =>

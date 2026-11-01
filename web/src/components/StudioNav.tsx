@@ -2,13 +2,16 @@ import { useEffect, useRef, useState } from 'react';
 import { useT } from '../i18n';
 
 // Studio module nav — mirrors the macOS AgentStudio FusionTabBar. #406 IA
-// simplification + #416: four task-centric top-level entries (agents, runs,
-// canvas, composer); every secondary console collapses into "More".
+// simplification + #416: task-centric top-level entries; #528 (DC-2): the
+// AI Agent Dashboard is the module home, the builder + composer + agents
+// stay primary, every other console collapses into "More".
 export const STUDIO_TABS: Array<{ key: string; label: string; labelEn: string; href: string }> = [
+    { key: 'home', label: '首页', labelEn: 'Home', href: '#/home' },
+    { key: 'builder', label: '构建', labelEn: 'Build', href: '#/builder' },
+    { key: 'aiagent', label: '对话', labelEn: 'Composer', href: '#/aiagent' },
     { key: 'agents', label: 'Agents', labelEn: 'Agents', href: '#/agents' },
     { key: 'runs', label: '运行', labelEn: 'Runs', href: '#/runs' },
     { key: 'canvas', label: '画布', labelEn: 'Canvas', href: '#/canvas' },
-    { key: 'aiagent', label: 'Composer', labelEn: 'Composer', href: '#/aiagent' },
     { key: 'workflows', label: '工作流', labelEn: 'Workflows', href: '#/workflows' },
     { key: 'governance', label: '治理', labelEn: 'Governance', href: '#/governance' },
     { key: 'dashboard', label: '仪表盘', labelEn: 'Dashboard', href: '#/dashboard' },
@@ -25,7 +28,7 @@ export const STUDIO_TABS: Array<{ key: string; label: string; labelEn: string; h
     { key: 'chat', label: '聊天', labelEn: 'Chat', href: '#/chat' },
 ];
 
-const PRIMARY_KEYS = new Set(['agents', 'runs', 'canvas', 'aiagent']);
+const PRIMARY_KEYS = new Set(['home', 'builder', 'aiagent', 'agents', 'runs', 'canvas']);
 
 export function StudioNav(props: { active: string }) {
     const { active } = props;
