@@ -456,6 +456,15 @@ def register_agents_platform(
 
         return {"templates": AGENT_TEMPLATES}
 
+    @router.get("/v1/agents-platform/starters")
+    async def agents_platform_starters():
+        # #530: conversational starter presets — pre-seed the builder's
+        # first message + suggested capabilities (public read, same as
+        # templates; authoring itself stays auth-gated).
+        from agent_runtime.agent_platform.templates import STARTER_TEMPLATES
+
+        return {"starters": STARTER_TEMPLATES}
+
     @router.post("/v1/agents-platform/compile")
     async def agents_platform_compile(body: Dict[str, Any]):
         from agent_runtime.agent_platform.yaml_compiler import (

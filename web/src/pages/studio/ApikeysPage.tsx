@@ -101,6 +101,23 @@ export function ApikeysPage() {
                         {t('新密钥（仅显示一次）', 'new key (shown once)')}:
                     </div>
                     <code className="break-all font-mono text-text-secondary">{created}</code>
+                    {/* #530: Claude-console-parity usage example — the key
+                        authorizes external calls against deployed agents. */}
+                    <div className="mt-2 text-text-secondary">
+                        {t('外部调用示例', 'external call example')}:
+                    </div>
+                    <pre className="mt-1 overflow-x-auto rounded bg-bg-muted p-2 font-mono text-[10px] text-text-secondary">
+                        {`curl -X POST ${window.location.origin}/v1/agents/<agent_id>/test \\
+  -H "Authorization: Bearer ${created}" \\
+  -H "content-type: application/json" \\
+  -d '{"message": "hello"}'`}
+                    </pre>
+                    <div className="mt-1 text-text-muted">
+                        {t(
+                            '轮换后旧密钥立即失效。',
+                            'rotating a key invalidates the old secret immediately.'
+                        )}
+                    </div>
                 </div>
             ) : null}
             <div className="px-4 pt-3">
