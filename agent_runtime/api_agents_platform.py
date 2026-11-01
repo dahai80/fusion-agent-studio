@@ -478,11 +478,15 @@ def register_agents_platform(
                 dependencies=[Depends(require_auth)])
     async def agents_platform_compose(body: Dict[str, Any]):
         """One-sentence ask -> draft authoring YAML via the LLM gateway.
+        #529: with `current_doc` the ask is an incremental refinement
+        instruction — the model outputs the FULL updated document (the
+        builder's live draft card stays one source of truth, no fork).
         Honest failure: model output that does not compile returns the raw
         text + the compile error for manual fixing."""
         ask = str(body.get("ask") or "").strip()
         if not ask:
             raise_api_error(ErrorCode.PARAM_REQUIRED, detail="ask is required")
+        current_doc = body.get("current_doc")
         daemon = get_daemon()
         if daemon is None:
             raise_api_error(ErrorCode.INTERNAL_ERROR,
@@ -519,10 +523,38 @@ def register_agents_platform(
             "- No commentary outside the YAML.\n\n"
             f"Capability catalog:\n{catalog}"
         )
+        user_content = ask
+        if isinstance(current_doc, dict) and current_doc:
+            # #529: refinement turn — the model receives the current draft
+            # verbatim and the ask as a delta instruction.
+
+            try:
+                current_yaml = _yaml_dump(current_doc)
+            except Exception:
+                current_yaml = str(current_doc)
+            system = (
+                "You refine an existing agent-authoring YAML document "
+                "according to the user's instruction.\n\n"
+                "Rules:\n"
+                "- Output ONLY the FULL updated YAML document (same shape "
+                "as the current one; never emit a diff or commentary).\n"
+                "- Apply the instruction; keep every untouched section "
+                "byte-identical when possible.\n"
+                "- tools may ONLY use ids from the catalog below; never "
+                "invent ids; prefer the minimal set, preferring "
+                "read-only.\n"
+                "- Keep the system-prompt contract: skepticism, honest "
+                "citation, mutations go through human approval.\n\n"
+                f"Capability catalog:\n{catalog}"
+            )
+            user_content = (
+                f"Current document:\n```yaml\n{current_yaml}\n```\n\n"
+                f"Instruction: {ask}"
+            )
         try:
             resp = await daemon._gateway.chat(
                 [{"role": "system", "content": system},
-                 {"role": "user", "content": ask}],
+                 {"role": "user", "content": user_content}],
                 temperature=0.2, max_tokens=1500)
         except Exception as e:
             raise_api_error(ErrorCode.INTERNAL_ERROR,
@@ -545,6 +577,14 @@ def register_agents_platform(
 
         try:
             doc = yaml.safe_load(doc_text) or {}
+            if not isinstance(doc, dict):
+                # a scalar/list parses as YAML but is not an authoring doc
+                # — compile_doc would AttributeError on .get; answer the
+                # same honest not-a-document failure instead of a 500.
+                return {"ok": False,
+                        "error": "model output did not compile: "
+                                 "not a YAML mapping",
+                        "yaml": doc_text}
             compiled = compile_doc(doc)
         except (yaml.YAMLError, YamlCompileError) as e:
             return {"ok": False, "error": f"model output did not compile: "
