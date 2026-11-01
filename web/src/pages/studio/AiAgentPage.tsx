@@ -1,19 +1,17 @@
 import {
     EmptyState,
     ErrorState,
-    FormField,
     PermissionCards,
     SelectInput,
     SkeletonLines,
-    SubmitButton,
     useAutoRetry,
 } from '@fusion/web-ui';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { api, apiBase, rpc } from '../../api';
+import { type FcsAttachment, FcsComposer } from '../../components/FcsComposer';
 import { PageHeader } from '../../components/PageHeader';
 import { Switch } from '../../components/ui/Switch';
 import { Tabs } from '../../components/ui/Tabs';
-import { Textarea } from '../../components/ui/Textarea';
 import { useT } from '../../i18n';
 import { hashQuery } from '../../lib/routeQuery';
 import { sdk } from '../../sdk';
@@ -118,6 +116,10 @@ export function AiAgentPage() {
     const [preflightOpen, setPreflightOpen] = useState(false);
     const messages = sessions[activeSession] ?? [];
     const [input, setInput] = useState('');
+    // #534 (FCS-1): composer attachments ride the message as name chips —
+    // the stream endpoint takes text, so the agent receives the file names
+    // as context (surface conformance; content upload is a later contract).
+    const [attachments, setAttachments] = useState<FcsAttachment[]>([]);
     const [streaming, setStreaming] = useState(false);
     const [showThinking, setShowThinking] = useState(true);
     const [thinkingText, setThinkingText] = useState('');
@@ -266,8 +268,8 @@ export function AiAgentPage() {
     // #416: send opens the permission pre-flight card first; doStream runs
     // after the user confirms (or immediately when they cancel the gate).
     const send = async () => {
-        const text = input.trim();
-        if (!text || streaming) return;
+        const base = input.trim();
+        if (!base || streaming) return;
         if (!effectiveAgentId) {
             sdk.toast.show({
                 level: 'error',
@@ -275,6 +277,8 @@ export function AiAgentPage() {
             });
             return;
         }
+        const names = attachments.map((a) => a.name).join(', ');
+        const text = names ? `${base}\n（${t('附件', 'attachments')}: ${names}）` : base;
         setPendingText(text);
         setPreflightOpen(true);
     };
@@ -283,6 +287,7 @@ export function AiAgentPage() {
         setPreflightOpen(false);
         setPendingText('');
         setInput('');
+        setAttachments([]);
         setSessions((prev) => {
             const next = prev.map((s, i) => (i === activeSession ? [...s] : s));
             next[activeSession].push({ role: 'user', content: text });
@@ -383,17 +388,6 @@ export function AiAgentPage() {
                 ) : agents.length === 0 ? (
                     <EmptyState title={t('暂无 Agent', 'no agents')} />
                 ) : null}
-                {agents.length > 0 ? (
-                    <div className="mt-3 max-w-lg">
-                        <FormField label={t('Agent', 'Agent')} required>
-                            <SelectInput
-                                value={effectiveAgentId}
-                                onChange={setAgentId}
-                                options={agentOptions}
-                            />
-                        </FormField>
-                    </div>
-                ) : null}
             </div>
             <Tabs
                 tabs={[
@@ -431,13 +425,6 @@ export function AiAgentPage() {
                             >
                                 {t('分叉会话', 'Fork session')}
                             </button>
-                            <div className="ml-auto">
-                                <Switch
-                                    checked={showThinking}
-                                    onChange={setShowThinking}
-                                    label={t('显示思考', 'Show thinking')}
-                                />
-                            </div>
                         </div>
                         {showThinking && thinkingText ? (
                             <details
@@ -610,13 +597,50 @@ export function AiAgentPage() {
                                 </div>
                             </div>
                         ) : null}
-                        <Textarea
+                        <FcsComposer
                             value={input}
                             onChange={setInput}
-                            rows={3}
+                            onSend={send}
+                            streaming={streaming}
+                            onStop={stop}
+                            attachments={attachments}
+                            onPickFiles={(files) =>
+                                setAttachments((prev) => [
+                                    ...prev,
+                                    ...files.map((f) => ({
+                                        id:
+                                            f.name +
+                                            '-' +
+                                            String(prev.length + Math.random()).slice(0, 8),
+                                        name: f.name,
+                                    })),
+                                ])
+                            }
+                            onRemoveAttachment={(id) =>
+                                setAttachments((prev) => prev.filter((a) => a.id !== id))
+                            }
+                            contextBar={
+                                agents.length > 0 ? (
+                                    <span className="flex items-center gap-1.5 text-text-secondary">
+                                        🤖
+                                        <SelectInput
+                                            value={effectiveAgentId}
+                                            onChange={setAgentId}
+                                            options={agentOptions}
+                                        />
+                                    </span>
+                                ) : null
+                            }
+                            paramsPopup={
+                                <Switch
+                                    checked={showThinking}
+                                    onChange={setShowThinking}
+                                    label={t('显示思考', 'Show thinking')}
+                                />
+                            }
                             placeholder={t(
-                                '输入消息… @ 引用 / 技能',
-                                'type a message… @ref /skill'
+                                '输入消息，@ 引用，/ 技能',
+                                'Type a message, @ reference, / skill'
                             )}
                         />
                         {preflightOpen ? (
@@ -647,22 +671,6 @@ export function AiAgentPage() {
                                 </div>
                             </div>
                         ) : null}
-                        <div className="flex gap-2">
-                            <SubmitButton
-                                label={t('发送', 'Send')}
-                                onAction={send}
-                                disabled={streaming}
-                            />
-                            {streaming ? (
-                                <button
-                                    type="button"
-                                    onClick={stop}
-                                    className="rounded-md border border-error/60 px-3 py-1.5 text-xs text-error hover:bg-error/10"
-                                >
-                                    {t('停止', 'Stop')}
-                                </button>
-                            ) : null}
-                        </div>
                     </div>
                 ) : null}
                 {tab === 'logs' ? (
