@@ -170,6 +170,10 @@ def add_connector_capabilities(connector_id: str, channels: List[Dict[str, Any]]
         )
         cap["provenance"] = {"connector": connector_id,
                              "installed_by": installed_by}
+        # #539 R2: channels may declare scopes whose grant needs an
+        # approval reference — the builder surfaces the field for these.
+        if ch.get("sensitive_scopes"):
+            cap["sensitive_scopes"] = list(ch["sensitive_scopes"])
         CAPABILITIES.append(cap)
         added.append(cap)
     return added

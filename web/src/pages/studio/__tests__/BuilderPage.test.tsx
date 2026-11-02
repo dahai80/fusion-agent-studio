@@ -234,6 +234,126 @@ describe('BuilderPage (#529)', () => {
         expect(calls[calls.indexOf('connector.create') + 1]).toBe('connector.connect');
     });
 
+    // #539 R1: the OAuth2 modal collects an access token — the field the
+    // backend probe actually requires — and the grant completes end-to-end.
+    it('oauth2 grant submits an access token and connects', async () => {
+        apiGetMock.mockResolvedValue({
+            capabilities: [
+                { id: 'agent.list', title: 'Agent list', description: 'lists' },
+                CONNECTOR_CAP,
+            ],
+            starters: [],
+        });
+        apiPostMock.mockImplementation(async (path: string) => {
+            if (path === '/v1/agents-platform/compose') return composeOk(DOC);
+            if (path === '/v1/agents-platform/agents') return { agent_id: 'ag-6' };
+            throw new Error(`unexpected post ${path}`);
+        });
+        apiPutMock.mockResolvedValue({ updated: true });
+        const rpcParams: Record<string, Record<string, unknown>> = {};
+        rpcMock.mockImplementation(async (method: string, params?: Record<string, unknown>) => {
+            rpcParams[method] = params ?? {};
+            if (method === 'connector.list') return { connectors: [] };
+            if (method === 'connector.create')
+                return { connector_id: 'connector.inv', connector: { id: 'connector.inv' } };
+            if (method === 'connector.connect')
+                return { connector_id: 'connector.inv', status: 'connected' };
+            throw new Error(`unexpected rpc ${method}`);
+        });
+
+        const user = userEvent.setup();
+        render(<BuilderPage />);
+        await user.type(await screen.findByPlaceholderText(/describe the agent/i), 'build one');
+        await user.click(screen.getByRole('button', { name: /Send/i }));
+        await screen.findByText(/draft updated: Reconciler/i);
+
+        await user.click(await screen.findByRole('button', { name: /Inventory list.*authorize/i }));
+        await user.selectOptions(screen.getByLabelText(/^Auth type$/i), 'oauth2');
+        await user.type(screen.getByLabelText(/^Access token$/i), 'gho-token-1');
+        await user.click(screen.getByRole('button', { name: /Authorize & add/i }));
+
+        await waitFor(() =>
+            expect(rpcParams['connector.create']).toEqual(
+                expect.objectContaining({
+                    type: 'oauth2',
+                    auth_config: { access_token: 'gho-token-1' },
+                })
+            )
+        );
+        expect(rpcParams['connector.connect']).toEqual({ connector_id: 'connector.inv' });
+        await waitFor(() =>
+            expect(apiPutMock).toHaveBeenCalledWith(
+                '/v1/agents-platform/agents/ag-6',
+                expect.objectContaining({
+                    definition_doc: expect.objectContaining({
+                        tools: expect.arrayContaining(['connector.inv.list']),
+                    }),
+                })
+            )
+        );
+    });
+
+    // #539 R2: sensitive-scope grants require a recorded approval reference.
+    const SENSITIVE_CAP = {
+        ...CONNECTOR_CAP,
+        id: 'connector.erp.billing',
+        title: 'ERP billing',
+        sensitive_scopes: ['billing.write'],
+        route: { kind: 'connector', connector: 'connector.erp' },
+    };
+
+    it('sensitive-scope grant blocks submit until approval reference entered', async () => {
+        apiGetMock.mockResolvedValue({
+            capabilities: [
+                { id: 'agent.list', title: 'Agent list', description: 'lists' },
+                SENSITIVE_CAP,
+            ],
+            starters: [],
+        });
+        apiPostMock.mockImplementation(async (path: string) => {
+            if (path === '/v1/agents-platform/compose') return composeOk(DOC);
+            if (path === '/v1/agents-platform/agents') return { agent_id: 'ag-7' };
+            throw new Error(`unexpected post ${path}`);
+        });
+        apiPutMock.mockResolvedValue({ updated: true });
+        const rpcParams: Record<string, Record<string, unknown>> = {};
+        rpcMock.mockImplementation(async (method: string, params?: Record<string, unknown>) => {
+            rpcParams[method] = params ?? {};
+            if (method === 'connector.list') return { connectors: [] };
+            if (method === 'connector.create')
+                return { connector_id: 'connector.erp', connector: { id: 'connector.erp' } };
+            if (method === 'connector.connect')
+                return { connector_id: 'connector.erp', status: 'connected' };
+            throw new Error(`unexpected rpc ${method}`);
+        });
+
+        const user = userEvent.setup();
+        render(<BuilderPage />);
+        await user.type(await screen.findByPlaceholderText(/describe the agent/i), 'build one');
+        await user.click(screen.getByRole('button', { name: /Send/i }));
+        await screen.findByText(/draft updated: Reconciler/i);
+
+        await user.click(await screen.findByRole('button', { name: /ERP billing.*authorize/i }));
+        const approvalInput = await screen.findByLabelText(/Approval reference/i);
+        await user.type(screen.getByLabelText(/^Key$/i), 'secret-9');
+
+        const submit = screen.getByRole('button', { name: /Authorize & add/i });
+        expect(submit).toBeDisabled();
+        await user.type(approvalInput, 'APPR-2026-0042');
+        expect(submit).toBeEnabled();
+        await user.click(submit);
+
+        await waitFor(() =>
+            expect(rpcParams['connector.create']).toEqual(
+                expect.objectContaining({ sensitive_scopes: ['billing.write'] })
+            )
+        );
+        expect(rpcParams['connector.connect']).toEqual({
+            connector_id: 'connector.erp',
+            approval_ref: 'APPR-2026-0042',
+        });
+    });
+
     it('granted connector chip attaches directly without modal', async () => {
         apiGetMock.mockResolvedValue({
             capabilities: [

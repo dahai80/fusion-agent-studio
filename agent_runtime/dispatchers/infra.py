@@ -144,6 +144,7 @@ class InfraDispatcher(SubDispatcher):
         return mgr.create(
             name, params.get("type", "api_key"), params.get("auth_config", {}),
             connector_id=params.get("connector_id", ""),
+            sensitive_scopes=params.get("sensitive_scopes") or [],
         )
 
     async def _handle_connector_get(self, params: dict) -> dict:
@@ -170,7 +171,8 @@ class InfraDispatcher(SubDispatcher):
     async def _handle_connector_connect(self, params: dict) -> dict:
         mgr = self._daemon._get_connector_manager()
         connector_id = params.get("connector_id", "")
-        return mgr.connect(connector_id)
+        # #539: sensitive-scope connectors require an approval reference
+        return mgr.connect(connector_id, approval_ref=params.get("approval_ref", ""))
 
     async def _handle_connector_disconnect(self, params: dict) -> dict:
         mgr = self._daemon._get_connector_manager()

@@ -415,6 +415,11 @@ python my_agent.py
 - ✅ **连接器授权门禁 (#537)** — 构建器中由连接器支撑的能力芯片（`source=connector`）在连接器状态非 `connected` 时显示 🔐/授权而非静默加入；点击弹出授权框（OAuth2 / API key / webhook，按类型取字段）。`connector.create` 接受目录里的稳定 `connector_id`，`connector.connect` 失败时经 RPC 桥 `message` 回传鉴权探测原因；只有授权成功后才把能力写入草案，既有草案中未授权能力同样标 🔐。
 - 测试：`tests/test_issue_536_marketplace_dict_tools.py`、`tests/test_issue_537_connector_grant.py`、`web/src/pages/studio/__tests__/BuilderPage.test.tsx`（连接器门禁用例）。
 
+### OAuth2 授权 + 敏感范围审批绑定（v0.13.7）— #539
+- ✅ **OAuth2 授权全程可通 (#539 R1)** — 构建器的 OAuth2 弹窗收集 `client_id`/`client_secret`，而后端鉴权探测（`connectors._test_auth`）要求 `auth_config.access_token`，导致每次 OAuth2 授权都卡死在 `Authentication test failed`。弹窗现直接收集访问令牌 — 即契约真正要求的字段 — 授权流（create → connect → attach）全程走通；API key 与 webhook 路径不变。
+- ✅ **敏感范围审批绑定 (#539 R2)** — 连接器创建时接受 `sensitive_scopes`（update 亦可改）；敏感范围的连接器没有 `approval_ref` 时 `connector.connect` 拒绝完成，成功后把 `approval_ref` + `approved_at` 记录到持久化配置上作审计凭据。连接器能力把 channel 声明的 `sensitive_scopes` 透传到目录，构建器弹窗对这类能力显示审批单号输入框（未填禁用提交），单号随 connect 调用上送。
+- 测试：`tests/test_issue_539_oauth2_sensitive_scopes.py`（7）— OAuth2 全程授权、缺 token 失败原因、敏感连接无单号被拒、单号落盘（去空格+时间戳）、非敏感不受影响、持久化往返、目录透传；`BuilderPage.test.tsx` OAuth2 令牌提交 + 敏感审批门禁。
+
 ### 集成
 - ✅ **fusion-mlx** — Apple Silicon 优化模型服务
 - ✅ **OpenAI 兼容 API** — 兼容任何 OpenAI 兼容后端
