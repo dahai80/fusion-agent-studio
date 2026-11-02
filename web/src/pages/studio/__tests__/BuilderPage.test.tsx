@@ -8,10 +8,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const apiGetMock = vi.hoisted(() => vi.fn());
 const apiPostMock = vi.hoisted(() => vi.fn());
 const apiPutMock = vi.hoisted(() => vi.fn());
+const rpcMock = vi.hoisted(() => vi.fn());
 const toastMock = vi.hoisted(() => vi.fn());
 
 vi.mock('../../../api', () => ({
-    rpc: vi.fn(),
+    rpc: (...args: unknown[]) => rpcMock(...args),
     api: {},
     apiBase: () => '',
     apiGet: (...args: unknown[]) => apiGetMock(...args),
@@ -54,6 +55,11 @@ describe('BuilderPage (#529)', () => {
                 { id: 'graph.create', title: 'Graph create', description: 'makes', mutation: true },
             ],
             starters: [],
+        });
+        rpcMock.mockReset();
+        rpcMock.mockImplementation(async (method: string) => {
+            if (method === 'connector.list') return { connectors: [] };
+            throw new Error(`unexpected rpc ${method}`);
         });
     });
 
@@ -154,5 +160,123 @@ describe('BuilderPage (#529)', () => {
         expect(screen.getByRole('link', { name: /Back to Dashboard/i }).getAttribute('href')).toBe(
             '#/home'
         );
+    });
+
+    // #537: connector capabilities gate on a live grant — ungranted chips
+    // open the auth modal and attach only after connector.connect passes.
+    const CONNECTOR_CAP = {
+        id: 'connector.inv.list',
+        title: 'Inventory list',
+        description: 'reads stock',
+        source: 'connector',
+        route: { kind: 'connector', connector: 'connector.inv' },
+    };
+
+    it('ungranted connector chip opens auth modal and attaches after grant', async () => {
+        apiGetMock.mockResolvedValue({
+            capabilities: [
+                { id: 'agent.list', title: 'Agent list', description: 'lists' },
+                CONNECTOR_CAP,
+            ],
+            starters: [],
+        });
+        apiPostMock.mockImplementation(async (path: string) => {
+            if (path === '/v1/agents-platform/compose') return composeOk(DOC);
+            if (path === '/v1/agents-platform/agents') return { agent_id: 'ag-4' };
+            throw new Error(`unexpected post ${path}`);
+        });
+        apiPutMock.mockResolvedValue({ updated: true });
+        const calls: string[] = [];
+        rpcMock.mockImplementation(async (method: string) => {
+            calls.push(method);
+            if (method === 'connector.list') return { connectors: [] };
+            if (method === 'connector.create')
+                return { connector_id: 'connector.inv', connector: { id: 'connector.inv' } };
+            if (method === 'connector.connect')
+                return { connector_id: 'connector.inv', status: 'connected' };
+            throw new Error(`unexpected rpc ${method}`);
+        });
+
+        const user = userEvent.setup();
+        render(<BuilderPage />);
+        await user.type(await screen.findByPlaceholderText(/describe the agent/i), 'build one');
+        await user.click(screen.getByRole('button', { name: /Send/i }));
+        await screen.findByText(/draft updated: Reconciler/i);
+
+        // ungranted chip labels itself authorize, never add
+        await user.click(await screen.findByRole('button', { name: /Inventory list.*authorize/i }));
+        expect(await screen.findByText(/Authorize connector/i)).toBeInTheDocument();
+        // nothing attached before the grant
+        expect(apiPutMock).not.toHaveBeenCalledWith(
+            expect.anything(),
+            expect.objectContaining({
+                definition_doc: expect.objectContaining({
+                    tools: expect.arrayContaining(['connector.inv.list']),
+                }),
+            })
+        );
+
+        await user.type(screen.getByLabelText(/^Key$/i), 'secret-1');
+        await user.click(screen.getByRole('button', { name: /Authorize & add/i }));
+
+        await waitFor(() =>
+            expect(apiPutMock).toHaveBeenCalledWith(
+                '/v1/agents-platform/agents/ag-4',
+                expect.objectContaining({
+                    definition_doc: expect.objectContaining({
+                        tools: expect.arrayContaining(['connector.inv.list']),
+                    }),
+                })
+            )
+        );
+        expect(calls).toContain('connector.create');
+        expect(calls).toContain('connector.connect');
+        expect(calls[calls.indexOf('connector.create') + 1]).toBe('connector.connect');
+    });
+
+    it('granted connector chip attaches directly without modal', async () => {
+        apiGetMock.mockResolvedValue({
+            capabilities: [
+                { id: 'agent.list', title: 'Agent list', description: 'lists' },
+                CONNECTOR_CAP,
+            ],
+            starters: [],
+        });
+        apiPostMock.mockImplementation(async (path: string) => {
+            if (path === '/v1/agents-platform/compose') return composeOk(DOC);
+            if (path === '/v1/agents-platform/agents') return { agent_id: 'ag-5' };
+            throw new Error(`unexpected post ${path}`);
+        });
+        apiPutMock.mockResolvedValue({ updated: true });
+        rpcMock.mockImplementation(async (method: string) => {
+            if (method === 'connector.list') {
+                return {
+                    connectors: [
+                        { id: 'connector.inv', name: 'Inv', type: 'api_key', status: 'connected' },
+                    ],
+                };
+            }
+            throw new Error(`unexpected rpc ${method}`);
+        });
+
+        const user = userEvent.setup();
+        render(<BuilderPage />);
+        await user.type(await screen.findByPlaceholderText(/describe the agent/i), 'build one');
+        await user.click(screen.getByRole('button', { name: /Send/i }));
+        await screen.findByText(/draft updated: Reconciler/i);
+
+        await user.click(await screen.findByRole('button', { name: /Inventory list.*add/i }));
+        expect(screen.queryByText(/Authorize connector/i)).not.toBeInTheDocument();
+        await waitFor(() =>
+            expect(apiPutMock).toHaveBeenCalledWith(
+                '/v1/agents-platform/agents/ag-5',
+                expect.objectContaining({
+                    definition_doc: expect.objectContaining({
+                        tools: expect.arrayContaining(['connector.inv.list']),
+                    }),
+                })
+            )
+        );
+        expect(rpcMock.mock.calls.map((c) => c[0])).not.toContain('connector.create');
     });
 });

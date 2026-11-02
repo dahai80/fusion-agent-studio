@@ -107,7 +107,7 @@ export function ApikeysPage() {
                         {t('外部调用示例', 'external call example')}:
                     </div>
                     <pre className="mt-1 overflow-x-auto rounded bg-bg-muted p-2 font-mono text-[10px] text-text-secondary">
-                        {`curl -X POST ${window.location.origin}/v1/agents/<agent_id>/test \\
+                        {`curl -X POST ${window.location.origin}/v1/agents-platform/agents/<agent_id>/test \\
   -H "Authorization: Bearer ${created}" \\
   -H "content-type: application/json" \\
   -d '{"message": "hello"}'`}

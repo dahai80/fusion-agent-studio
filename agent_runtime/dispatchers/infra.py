@@ -142,7 +142,8 @@ class InfraDispatcher(SubDispatcher):
         if not name:
             return {"status": "error", "message": "name parameter required"}
         return mgr.create(
-            name, params.get("type", "api_key"), params.get("auth_config", {})
+            name, params.get("type", "api_key"), params.get("auth_config", {}),
+            connector_id=params.get("connector_id", ""),
         )
 
     async def _handle_connector_get(self, params: dict) -> dict:
