@@ -41,6 +41,8 @@ interface CatalogCapability {
     // they can run; source/route identify which connector grants them.
     source?: string;
     route?: { kind?: string; connector?: string };
+    // #539 R2: scopes whose grant needs a recorded approval reference
+    sensitive_scopes?: string[];
 }
 
 interface ConnectorInfo {
@@ -49,6 +51,7 @@ interface ConnectorInfo {
     type: string;
     status: string;
     error_message?: string;
+    sensitive_scopes?: string[];
 }
 
 interface StarterTemplate {
@@ -105,7 +108,8 @@ export function BuilderPage() {
     const [authFor, setAuthFor] = useState<CatalogCapability | null>(null);
     const [authType, setAuthType] = useState('api_key');
     const [authField, setAuthField] = useState('');
-    const [authField2, setAuthField2] = useState('');
+    // #539 R2: approval reference for sensitive-scope connector grants
+    const [approvalRef, setApprovalRef] = useState('');
     const [authBusy, setAuthBusy] = useState(false);
 
     const catalog = useMemo(() => data?.catalog ?? [], [data]);
@@ -279,7 +283,7 @@ export function BuilderPage() {
         setAuthFor(c);
         setAuthType(existing?.type ?? 'api_key');
         setAuthField('');
-        setAuthField2('');
+        setApprovalRef('');
     };
 
     const refreshConnectors = async () => {
@@ -287,12 +291,19 @@ export function BuilderPage() {
         setConnectors(r.connectors ?? []);
     };
 
+    // #539 R1: the backend oauth2 probe requires an access_token, so the
+    // modal collects the token directly — the fields and the contract agree.
     const authConfigFor = (): Record<string, string> => {
-        if (authType === 'oauth2') {
-            return { client_id: authField, client_secret: authField2 };
-        }
+        if (authType === 'oauth2') return { access_token: authField };
         if (authType === 'webhook') return { url: authField };
         return { api_key: authField };
+    };
+
+    // #539 R2: sensitive scopes (declared on the capability or already on
+    // the existing connector) need an approval reference to connect.
+    const needsApproval = (c: CatalogCapability): boolean => {
+        if ((c.sensitive_scopes?.length ?? 0) > 0) return true;
+        return (connectorById[c.route?.connector ?? '']?.sensitive_scopes?.length ?? 0) > 0;
     };
 
     const submitAuth = async () => {
@@ -302,6 +313,13 @@ export function BuilderPage() {
             sdk.toast.show({
                 level: 'error',
                 message: t('该能力未声明连接器', 'capability declares no connector'),
+            });
+            return;
+        }
+        if (needsApproval(authFor) && !approvalRef.trim()) {
+            sdk.toast.show({
+                level: 'error',
+                message: t('敏感范围需审批单号', 'sensitive scopes need an approval reference'),
             });
             return;
         }
@@ -319,10 +337,17 @@ export function BuilderPage() {
                     name: authFor.title,
                     type: authType,
                     auth_config: authConfigFor(),
+                    ...(authFor.sensitive_scopes?.length
+                        ? { sensitive_scopes: authFor.sensitive_scopes }
+                        : {}),
                 });
             }
-            // rpc() throws on {"status":"error"} (connect test failure)
-            await rpc('connector.connect', { connector_id: connectorId });
+            // rpc() throws on {"status":"error"} (connect test failure or
+            // a sensitive-scope grant without its approval reference)
+            await rpc('connector.connect', {
+                connector_id: connectorId,
+                ...(approvalRef.trim() ? { approval_ref: approvalRef.trim() } : {}),
+            });
             await refreshConnectors();
             sdk.toast.show({ level: 'success', message: t('已授权', 'authorized') });
             addCapability(authFor.id);
@@ -604,7 +629,7 @@ export function BuilderPage() {
                             disabled={
                                 authBusy ||
                                 !authField.trim() ||
-                                (authType === 'oauth2' && !authField2.trim())
+                                (authFor !== null && needsApproval(authFor) && !approvalRef.trim())
                             }
                             className="rounded-md bg-brand px-3 py-1.5 text-xs text-white hover:opacity-90 disabled:opacity-50"
                         >
@@ -622,7 +647,6 @@ export function BuilderPage() {
                         onChange={(e) => {
                             setAuthType(e.target.value);
                             setAuthField('');
-                            setAuthField2('');
                         }}
                         className="rounded-md border border-border bg-bg px-2 py-1.5 text-xs text-text-primary"
                     >
@@ -631,41 +655,41 @@ export function BuilderPage() {
                         <option value="webhook">{t('Webhook 地址', 'Webhook URL')}</option>
                     </select>
                 </label>
-                {authType === 'oauth2' ? (
-                    <>
-                        <label className="flex flex-col gap-1 text-xs text-text-secondary">
-                            Client ID
-                            <input
-                                type="text"
-                                value={authField}
-                                onChange={(e) => setAuthField(e.target.value)}
-                                className="rounded-md border border-border bg-bg px-2 py-1.5 font-mono text-xs text-text-primary"
-                            />
-                        </label>
-                        <label className="flex flex-col gap-1 text-xs text-text-secondary">
-                            Client secret
-                            <input
-                                type="password"
-                                value={authField2}
-                                onChange={(e) => setAuthField2(e.target.value)}
-                                className="rounded-md border border-border bg-bg px-2 py-1.5 font-mono text-xs text-text-primary"
-                            />
-                        </label>
-                    </>
-                ) : (
+                <label className="flex flex-col gap-1 text-xs text-text-secondary">
+                    {authType === 'oauth2'
+                        ? t('访问令牌', 'Access token')
+                        : authType === 'webhook'
+                          ? t('地址', 'URL')
+                          : t('密钥', 'Key')}
+                    <input
+                        type={authType === 'webhook' ? 'url' : 'password'}
+                        value={authField}
+                        onChange={(e) => setAuthField(e.target.value)}
+                        placeholder={
+                            authType === 'webhook'
+                                ? 'https://…'
+                                : authType === 'oauth2'
+                                  ? t('粘贴访问令牌', 'paste access token')
+                                  : t('粘贴密钥', 'paste key')
+                        }
+                        className="rounded-md border border-border bg-bg px-2 py-1.5 font-mono text-xs text-text-primary"
+                    />
+                </label>
+                {authFor !== null && needsApproval(authFor) ? (
                     <label className="flex flex-col gap-1 text-xs text-text-secondary">
-                        {authType === 'webhook' ? t('地址', 'URL') : t('密钥', 'Key')}
+                        {t(
+                            `审批单号（敏感范围：${(authFor.sensitive_scopes ?? []).join('、')}）`,
+                            `Approval reference (sensitive scopes: ${(authFor.sensitive_scopes ?? []).join(', ')})`
+                        )}
                         <input
-                            type={authType === 'webhook' ? 'url' : 'password'}
-                            value={authField}
-                            onChange={(e) => setAuthField(e.target.value)}
-                            placeholder={
-                                authType === 'webhook' ? 'https://…' : t('粘贴密钥', 'paste key')
-                            }
+                            type="text"
+                            value={approvalRef}
+                            onChange={(e) => setApprovalRef(e.target.value)}
+                            placeholder={t('如 APPR-2026-0042', 'e.g. APPR-2026-0042')}
                             className="rounded-md border border-border bg-bg px-2 py-1.5 font-mono text-xs text-text-primary"
                         />
                     </label>
-                )}
+                ) : null}
                 <p className="text-[10px] text-text-muted">
                     {t(
                         '授权通过后能力才会加入草案；未授权能力不会部署。',

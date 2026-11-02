@@ -28,6 +28,12 @@ class ConnectorConfig:
     updated_at: float = 0.0
     last_tested_at: float | None = None
     error_message: str = ""
+    # #539 R2: scopes whose grant needs an explicit approval reference —
+    # connector.connect refuses to complete without one, and the reference
+    # is recorded on the config for the audit trail.
+    sensitive_scopes: list[str] = field(default_factory=list)
+    approval_ref: str = ""
+    approved_at: float | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -45,6 +51,9 @@ class ConnectorConfig:
             "updated_at": self.updated_at,
             "last_tested_at": self.last_tested_at,
             "error_message": self.error_message,
+            "sensitive_scopes": list(self.sensitive_scopes),
+            "approval_ref": self.approval_ref,
+            "approved_at": self.approved_at,
         }
 
     def _get_full_config(self) -> dict[str, Any]:
@@ -58,6 +67,9 @@ class ConnectorConfig:
             "updated_at": self.updated_at,
             "last_tested_at": self.last_tested_at,
             "error_message": self.error_message,
+            "sensitive_scopes": list(self.sensitive_scopes),
+            "approval_ref": self.approval_ref,
+            "approved_at": self.approved_at,
         }
 
     @classmethod
@@ -72,6 +84,9 @@ class ConnectorConfig:
             updated_at=data.get("updated_at", 0.0),
             last_tested_at=data.get("last_tested_at"),
             error_message=data.get("error_message", ""),
+            sensitive_scopes=list(data.get("sensitive_scopes") or []),
+            approval_ref=data.get("approval_ref", ""),
+            approved_at=data.get("approved_at"),
         )
 
 
@@ -128,6 +143,7 @@ class ConnectorManager:
         conn_type: str,
         auth_config: dict[str, Any],
         connector_id: str = "",
+        sensitive_scopes: list[str] | None = None,
     ) -> dict[str, Any]:
         import uuid
 
@@ -153,6 +169,7 @@ class ConnectorManager:
             status="disconnected",
             created_at=now,
             updated_at=now,
+            sensitive_scopes=list(sensitive_scopes or []),
         )
         self._connectors[conn_id] = cfg
         self._persist_index()
@@ -171,6 +188,8 @@ class ConnectorManager:
                 setattr(cfg, key, updates[key])
         if "auth_config" in updates:
             cfg.auth_config = updates["auth_config"]
+        if "sensitive_scopes" in updates:
+            cfg.sensitive_scopes = list(updates["sensitive_scopes"] or [])
         cfg.updated_at = time.time()
         self._persist_index()
         logger.info(
@@ -189,24 +208,43 @@ class ConnectorManager:
         logger.info("connector.delete: id=%s", connector_id)
         return {"deleted": True}
 
-    def connect(self, connector_id: str) -> dict[str, Any]:
+    def connect(self, connector_id: str, approval_ref: str = "") -> dict[str, Any]:
         cfg = self._connectors.get(connector_id)
         if cfg is None:
             return {
                 "status": "error",
                 "message": f"Connector not found: {connector_id}",
             }
+        # #539 R2: a sensitive-scope grant completes only with a recorded
+        # approval reference; the gate fires before the auth probe so an
+        # unapproved sensitive connector can never reach "connected".
+        approval_ref = (approval_ref or "").strip()
+        if cfg.sensitive_scopes and not approval_ref:
+            return {
+                "status": "error",
+                "message": (
+                    "sensitive scopes "
+                    f"({', '.join(cfg.sensitive_scopes)}) require an "
+                    "approval reference (approval_ref) before connecting"
+                ),
+            }
         test_result = self._test_auth(cfg)
         if test_result:
             cfg.status = "connected"
             cfg.error_message = ""
+            if cfg.sensitive_scopes:
+                cfg.approval_ref = approval_ref
+                cfg.approved_at = time.time()
         else:
             cfg.status = "error"
             cfg.error_message = "Authentication test failed"
         cfg.last_tested_at = time.time()
         cfg.updated_at = time.time()
         self._persist_index()
-        logger.info("connector.connect: id=%s status=%s", connector_id, cfg.status)
+        logger.info(
+            "connector.connect: id=%s status=%s approval_ref=%s",
+            connector_id, cfg.status, approval_ref or "-",
+        )
         result: dict[str, Any] = {
             "connector_id": connector_id,
             "status": cfg.status,
