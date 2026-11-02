@@ -55,18 +55,38 @@ def register_marketplace(
         agent_id = str(agent.get("id") or agent.get("agent_id") or "")
         tools = agent.get("tools") or []
         rec = registry.get(agent_id) if registry is not None else {}
+        capabilities = []
+        for entry in tools:
+            # #536: connector-style drafts carry dict-shaped tool entries
+            # ({"name": ..., "type": ...}) — normalize to the name; string
+            # entries pass through. Unrecognizable entries are skipped
+            # with a warning instead of 500ing the whole listing.
+            if isinstance(entry, str):
+                tid = entry
+                definition = None
+            elif isinstance(entry, dict):
+                tid = str(entry.get("name") or entry.get("id") or "")
+                definition = entry
+            else:
+                logger.warning(
+                    "marketplace: agent %s has unrecognizable tool entry %r — skipped",
+                    agent_id, entry)
+                continue
+            if not tid:
+                continue
+            cap = {
+                "id": tid,
+                "title": titles.get(tid, {}).get("title", tid),
+                "mutation": bool(titles.get(tid, {}).get("mutation")),
+            }
+            if definition is not None:
+                cap["definition"] = definition
+            capabilities.append(cap)
         return {
             "agent_id": agent_id,
             "name": agent.get("name") or agent_id,
             "description": agent.get("description") or "",
-            "capabilities": [
-                {
-                    "id": tid,
-                    "title": titles.get(tid, {}).get("title", tid),
-                    "mutation": bool(titles.get(tid, {}).get("mutation")),
-                }
-                for tid in tools
-            ],
+            "capabilities": capabilities,
             "eval_score": None,
             "run_count": run_counts.get(agent_id),
             "version": agent.get("version") or rec.get("version"),

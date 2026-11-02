@@ -207,11 +207,16 @@ class ConnectorManager:
         cfg.updated_at = time.time()
         self._persist_index()
         logger.info("connector.connect: id=%s status=%s", connector_id, cfg.status)
-        return {
+        result: dict[str, Any] = {
             "connector_id": connector_id,
             "status": cfg.status,
             "error_message": cfg.error_message,
         }
+        # #537: the RPC bridge throws on {"status":"error"} and surfaces
+        # `message`; carry the auth failure reason so the modal can show it.
+        if cfg.status != "connected":
+            result["message"] = cfg.error_message or "Authentication test failed"
+        return result
 
     def disconnect(self, connector_id: str) -> dict[str, Any]:
         cfg = self._connectors.get(connector_id)

@@ -1,7 +1,8 @@
 import { ErrorState, SkeletonLines, SubmitButton, useAutoRetry } from '@fusion/web-ui';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { apiBase, apiGet, apiPost, apiPut } from '../../api';
+import { apiBase, apiGet, apiPost, apiPut, rpc } from '../../api';
 import { PageHeader } from '../../components/PageHeader';
+import { Modal } from '../../components/ui/Modal';
 import { Textarea } from '../../components/ui/Textarea';
 import { useT } from '../../i18n';
 import { sdk } from '../../sdk';
@@ -36,6 +37,18 @@ interface CatalogCapability {
     title: string;
     description: string;
     mutation?: boolean;
+    // #537: connector capabilities require an authorized connector before
+    // they can run; source/route identify which connector grants them.
+    source?: string;
+    route?: { kind?: string; connector?: string };
+}
+
+interface ConnectorInfo {
+    id: string;
+    name: string;
+    type: string;
+    status: string;
+    error_message?: string;
 }
 
 interface StarterTemplate {
@@ -57,15 +70,24 @@ type Turn = { kind: 'user' | 'assistant' | 'test'; text: string };
 export function BuilderPage() {
     const t = useT();
     const { data, error, loading, attempt, manualRetry } = useAutoRetry(async () => {
-        const [catalog, starters] = await Promise.all([
+        const [catalog, starters, connectors] = await Promise.all([
             apiGet<{ capabilities?: CatalogCapability[] }>(
                 '/v1/agents-platform/capability-catalog'
             ).catch(() => ({}) as { capabilities?: CatalogCapability[] }),
             apiGet<{ starters?: StarterTemplate[] }>('/v1/agents-platform/starters').catch(
                 () => ({}) as { starters?: StarterTemplate[] }
             ),
+            // #537: connector grant state decides whether a connector
+            // capability chip installs directly or opens the auth modal.
+            rpc<{ connectors?: ConnectorInfo[] }>('connector.list').catch(
+                () => ({}) as { connectors?: ConnectorInfo[] }
+            ),
         ]);
-        return { catalog: catalog.capabilities ?? [], starters: starters.starters ?? [] };
+        return {
+            catalog: catalog.capabilities ?? [],
+            starters: starters.starters ?? [],
+            connectors: connectors.connectors ?? [],
+        };
     }, []);
 
     const [turns, setTurns] = useState<Turn[]>([]);
@@ -76,6 +98,15 @@ export function BuilderPage() {
     const [deployed, setDeployed] = useState(false);
     const [testInput, setTestInput] = useState('');
     const turnsRef = useRef<HTMLDivElement | null>(null);
+    // #537: connector-gated capabilities. authFor holds the chip whose
+    // connector has no active grant; the modal collects the credential
+    // and only a successful connector.connect attaches the capability.
+    const [connectors, setConnectors] = useState<ConnectorInfo[]>([]);
+    const [authFor, setAuthFor] = useState<CatalogCapability | null>(null);
+    const [authType, setAuthType] = useState('api_key');
+    const [authField, setAuthField] = useState('');
+    const [authField2, setAuthField2] = useState('');
+    const [authBusy, setAuthBusy] = useState(false);
 
     const catalog = useMemo(() => data?.catalog ?? [], [data]);
     const catalogById = useMemo(() => {
@@ -84,9 +115,28 @@ export function BuilderPage() {
         return m;
     }, [catalog]);
 
+    useEffect(() => {
+        setConnectors(data?.connectors ?? []);
+    }, [data]);
+
+    const connectorById = useMemo(() => {
+        const m: Record<string, ConnectorInfo> = {};
+        for (const c of connectors) m[c.id] = c;
+        return m;
+    }, [connectors]);
+
+    // A connector capability runs only when its backing connector exists
+    // AND sits in status connected (grant verified at connect time).
+    const connectorGranted = (c: CatalogCapability): boolean => {
+        if (c.source !== 'connector') return true;
+        const cid = c.route?.connector ?? '';
+        return !!cid && connectorById[cid]?.status === 'connected';
+    };
+
     // Suggestions: catalog entries not yet in the draft's tool set — the
     // inline capability-assembly chips (Skills/Connectors/Plugins classes
-    // all surface through the same catalog; mutations marked ⚡).
+    // all surface through the same catalog; mutations marked ⚡; connector
+    // chips without an active grant show 🔐 and route through the modal).
     const suggestions = useMemo(() => {
         if (!doc) return [];
         const picked = new Set(doc.tools ?? []);
@@ -217,6 +267,73 @@ export function BuilderPage() {
         setDeployed(false);
     };
 
+    // #537: connector chips gate on a live grant. Granted chips install
+    // immediately; ungranted chips open the auth modal and attach only
+    // after connector.connect reports connected (no silent attach).
+    const requestCapability = (c: CatalogCapability) => {
+        if (connectorGranted(c)) {
+            addCapability(c.id);
+            return;
+        }
+        const existing = connectorById[c.route?.connector ?? ''];
+        setAuthFor(c);
+        setAuthType(existing?.type ?? 'api_key');
+        setAuthField('');
+        setAuthField2('');
+    };
+
+    const refreshConnectors = async () => {
+        const r = await rpc<{ connectors?: ConnectorInfo[] }>('connector.list');
+        setConnectors(r.connectors ?? []);
+    };
+
+    const authConfigFor = (): Record<string, string> => {
+        if (authType === 'oauth2') {
+            return { client_id: authField, client_secret: authField2 };
+        }
+        if (authType === 'webhook') return { url: authField };
+        return { api_key: authField };
+    };
+
+    const submitAuth = async () => {
+        if (!authFor || !authField.trim() || authBusy) return;
+        const connectorId = authFor.route?.connector ?? '';
+        if (!connectorId) {
+            sdk.toast.show({
+                level: 'error',
+                message: t('该能力未声明连接器', 'capability declares no connector'),
+            });
+            return;
+        }
+        setAuthBusy(true);
+        try {
+            const existing = connectorById[connectorId];
+            if (existing) {
+                await rpc('connector.update', {
+                    connector_id: connectorId,
+                    updates: { type: authType, auth_config: authConfigFor() },
+                });
+            } else {
+                await rpc('connector.create', {
+                    connector_id: connectorId,
+                    name: authFor.title,
+                    type: authType,
+                    auth_config: authConfigFor(),
+                });
+            }
+            // rpc() throws on {"status":"error"} (connect test failure)
+            await rpc('connector.connect', { connector_id: connectorId });
+            await refreshConnectors();
+            sdk.toast.show({ level: 'success', message: t('已授权', 'authorized') });
+            addCapability(authFor.id);
+            setAuthFor(null);
+        } catch (e) {
+            sdk.toast.show({ level: 'error', message: (e as Error).message });
+        } finally {
+            setAuthBusy(false);
+        }
+    };
+
     // biome-ignore lint/correctness/useExhaustiveDependencies: intentional: autoscroll on new turns
     useEffect(() => {
         const el = turnsRef.current;
@@ -318,21 +435,26 @@ export function BuilderPage() {
                                 {t('建议装配的能力', 'Suggested capabilities')}
                             </div>
                             <div className="flex flex-wrap gap-2">
-                                {suggestions.map((c) => (
-                                    <button
-                                        key={c.id}
-                                        type="button"
-                                        onClick={() => addCapability(c.id)}
-                                        disabled={busy}
-                                        className="rounded-md border border-border px-2 py-1 text-xs text-text-secondary hover:border-brand hover:text-brand disabled:opacity-50"
-                                        title={c.description}
-                                    >
-                                        {c.mutation ? '⚡' : '◇'} {c.title}
-                                        <span className="ml-1 text-[10px] text-brand">
-                                            {t('加入', 'add')}
-                                        </span>
-                                    </button>
-                                ))}
+                                {suggestions.map((c) => {
+                                    const needsAuth = !connectorGranted(c);
+                                    return (
+                                        <button
+                                            key={c.id}
+                                            type="button"
+                                            onClick={() => requestCapability(c)}
+                                            disabled={busy}
+                                            className="rounded-md border border-border px-2 py-1 text-xs text-text-secondary hover:border-brand hover:text-brand disabled:opacity-50"
+                                            title={c.description}
+                                        >
+                                            {needsAuth ? '🔐' : c.mutation ? '⚡' : '◇'} {c.title}
+                                            <span className="ml-1 text-[10px] text-brand">
+                                                {needsAuth
+                                                    ? t('授权', 'authorize')
+                                                    : t('加入', 'add')}
+                                            </span>
+                                        </button>
+                                    );
+                                })}
                             </div>
                         </div>
                     ) : null}
@@ -401,14 +523,27 @@ export function BuilderPage() {
                                     {(doc.tools ?? []).length === 0 ? (
                                         <span className="text-text-muted">-</span>
                                     ) : (
-                                        (doc.tools ?? []).map((id) => (
-                                            <span
-                                                key={id}
-                                                className="rounded bg-bg-muted px-1.5 py-0.5 font-mono text-[10px] text-text-secondary"
-                                            >
-                                                {catalogById[id]?.title ?? id}
-                                            </span>
-                                        ))
+                                        (doc.tools ?? []).map((id) => {
+                                            const cap = catalogById[id];
+                                            const ungranted = cap ? !connectorGranted(cap) : false;
+                                            return (
+                                                <span
+                                                    key={id}
+                                                    className="rounded bg-bg-muted px-1.5 py-0.5 font-mono text-[10px] text-text-secondary"
+                                                    title={
+                                                        ungranted
+                                                            ? t(
+                                                                  '连接器未授权',
+                                                                  'connector not authorized'
+                                                              )
+                                                            : undefined
+                                                    }
+                                                >
+                                                    {ungranted ? '🔐 ' : ''}
+                                                    {cap?.title ?? id}
+                                                </span>
+                                            );
+                                        })
                                     )}
                                 </div>
                             </div>
@@ -445,6 +580,99 @@ export function BuilderPage() {
                     )}
                 </div>
             </div>
+            {/* #537: connector authorization gate — capability attaches only
+                after the connector's auth probe passes. */}
+            <Modal
+                open={authFor !== null}
+                title={t(
+                    `授权连接器：${authFor?.title ?? ''}`,
+                    `Authorize connector: ${authFor?.title ?? ''}`
+                )}
+                onClose={() => setAuthFor(null)}
+                footer={
+                    <div className="flex justify-end gap-2">
+                        <button
+                            type="button"
+                            onClick={() => setAuthFor(null)}
+                            className="rounded-md border border-border px-3 py-1.5 text-xs text-text-secondary hover:text-text-primary"
+                        >
+                            {t('取消', 'Cancel')}
+                        </button>
+                        <button
+                            type="button"
+                            onClick={submitAuth}
+                            disabled={
+                                authBusy ||
+                                !authField.trim() ||
+                                (authType === 'oauth2' && !authField2.trim())
+                            }
+                            className="rounded-md bg-brand px-3 py-1.5 text-xs text-white hover:opacity-90 disabled:opacity-50"
+                        >
+                            {authBusy
+                                ? t('授权中…', 'Authorizing…')
+                                : t('授权并加入', 'Authorize & add')}
+                        </button>
+                    </div>
+                }
+            >
+                <label className="flex flex-col gap-1 text-xs text-text-secondary">
+                    {t('授权方式', 'Auth type')}
+                    <select
+                        value={authType}
+                        onChange={(e) => {
+                            setAuthType(e.target.value);
+                            setAuthField('');
+                            setAuthField2('');
+                        }}
+                        className="rounded-md border border-border bg-bg px-2 py-1.5 text-xs text-text-primary"
+                    >
+                        <option value="api_key">{t('API 密钥', 'API key')}</option>
+                        <option value="oauth2">OAuth2</option>
+                        <option value="webhook">{t('Webhook 地址', 'Webhook URL')}</option>
+                    </select>
+                </label>
+                {authType === 'oauth2' ? (
+                    <>
+                        <label className="flex flex-col gap-1 text-xs text-text-secondary">
+                            Client ID
+                            <input
+                                type="text"
+                                value={authField}
+                                onChange={(e) => setAuthField(e.target.value)}
+                                className="rounded-md border border-border bg-bg px-2 py-1.5 font-mono text-xs text-text-primary"
+                            />
+                        </label>
+                        <label className="flex flex-col gap-1 text-xs text-text-secondary">
+                            Client secret
+                            <input
+                                type="password"
+                                value={authField2}
+                                onChange={(e) => setAuthField2(e.target.value)}
+                                className="rounded-md border border-border bg-bg px-2 py-1.5 font-mono text-xs text-text-primary"
+                            />
+                        </label>
+                    </>
+                ) : (
+                    <label className="flex flex-col gap-1 text-xs text-text-secondary">
+                        {authType === 'webhook' ? t('地址', 'URL') : t('密钥', 'Key')}
+                        <input
+                            type={authType === 'webhook' ? 'url' : 'password'}
+                            value={authField}
+                            onChange={(e) => setAuthField(e.target.value)}
+                            placeholder={
+                                authType === 'webhook' ? 'https://…' : t('粘贴密钥', 'paste key')
+                            }
+                            className="rounded-md border border-border bg-bg px-2 py-1.5 font-mono text-xs text-text-primary"
+                        />
+                    </label>
+                )}
+                <p className="text-[10px] text-text-muted">
+                    {t(
+                        '授权通过后能力才会加入草案；未授权能力不会部署。',
+                        'the capability attaches only after authorization passes; ungranted capabilities are not deployed.'
+                    )}
+                </p>
+            </Modal>
         </div>
     );
 }

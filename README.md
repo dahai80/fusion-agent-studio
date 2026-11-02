@@ -565,6 +565,12 @@ Audit `audit/fusion-agent-studio-vs-langflow-audit-1020.md` closed end-to-end; s
 - ✅ **fusion_core.config adoption** — MLX client key, gateway client/admin key, and daemon-side key attach all resolve through `fusion_core.config` single points (`client_key()` / `gateway_admin_key()` / `admin_key()` / `resolve_api_key()`): `FUSION_CLIENT_KEY`, `FUSION_GATEWAY_API_KEY`, and `FUSION_ADMIN_KEY` are the standard env names; legacy aliases (`FUSION_MLX_API_KEY`, `MLX_API_KEY`) still work with a one-time deprecation warning; dev profile falls back to anonymous or `~/.fusion-mlx/settings.json` (`auth.api_key` / `shell.gateway_admin_key`), and `FUSION_PROFILE=prod` fails fast (RuntimeError) on a missing key. `fusion-core>=0.8.0` is now a hard dependency (CI installs it via `git+https` — not on PyPI).
 - Tests: `tests/test_issue_509_config_adoption.py`.
 
+### Marketplace Robustness + Connector Grant Gate (v0.13.6) — #536 / #537
+- ✅ **dict-shaped draft tools (#536)** — drafts written through the connector builder path store tool entries as `{"name": ..., "type": ...}` objects. `GET /v1/marketplace/agents` keyed catalog titles by that raw entry and 500ed every published agent in the workspace (`TypeError: unhashable type: 'dict'`). Entries now normalize to `name` (falling back to `id`), the full definition is preserved on the capability, and unrecognizable entries are skipped for that agent with a warning instead of failing the listing.
+- ✅ **wiring example path (#537)** — the Apikeys page curl example now targets the real deployed-agent test route (`/v1/agents-platform/agents/<agent_id>/test`); the old `/v1/agents/<agent_id>/test` 404ed verbatim.
+- ✅ **connector authorization gate (#537)** — builder capability chips backed by a connector (`source=connector`) show 🔐/授权 until that connector reports `connected`, then open an auth modal (OAuth2 / API key / webhook, per-type fields) instead of silently attaching. `connector.create` accepts the catalog's stable `connector_id`, `connector.connect` surfaces the failed auth probe reason through the RPC bridge `message`, and a capability attaches to the draft only after the grant succeeds; ungranted capabilities in an existing draft are marked 🔐.
+- Tests: `tests/test_issue_536_marketplace_dict_tools.py`, `tests/test_issue_537_connector_grant.py`, `web/src/pages/studio/__tests__/BuilderPage.test.tsx` (connector gate cases).
+
 ### Integration
 - ✅ **fusion-mlx** — Apple Silicon optimized model serving
 - ✅ **OpenAI-compatible API** — Works with any OpenAI-compatible backend

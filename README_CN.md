@@ -409,6 +409,12 @@ python my_agent.py
 - ✅ **fusion_core.config 采纳** — MLX client key、gateway client/admin key、daemon 侧 key 注入全部收敛到 `fusion_core.config` 单点（`client_key()` / `gateway_admin_key()` / `admin_key()` / `resolve_api_key()`）：`FUSION_CLIENT_KEY`、`FUSION_GATEWAY_API_KEY` 与 `FUSION_ADMIN_KEY` 为标准环境变量名；旧别名（`FUSION_MLX_API_KEY`、`MLX_API_KEY`）仍生效但带一次性弃用告警；dev 档回退匿名或 `~/.fusion-mlx/settings.json`（`auth.api_key` / `shell.gateway_admin_key`），`FUSION_PROFILE=prod` 缺 key 直接 RuntimeError 快速失败。`fusion-core>=0.8.0` 升级为硬依赖（非 PyPI 包，CI 经 `git+https` 安装）。
 - 测试：`tests/test_issue_509_config_adoption.py`。
 
+### 能力市场健壮性 + 连接器授权门禁（v0.13.6）— #536 / #537
+- ✅ **字典形草案工具 (#536)** — 经连接器构建路径写入的草案，tools 条目为 `{"name": ..., "type": ...}` 对象。`GET /v1/marketplace/agents` 用原始条目做目录标题索引，导致工作区中每个已发布 agent 全部 500（`TypeError: unhashable type: 'dict'`）。现按 `name`（回退 `id`）归一化，完整定义保留在能力条目上，无法识别的条目仅对该 agent 跳过并记警告，不再拖垮整个列表。
+- ✅ **调用示例路径 (#537)** — Apikeys 页 curl 示例改为真实部署 agent 的测试路由（`/v1/agents-platform/agents/<agent_id>/test`）；旧写法 `/v1/agents/<agent_id>/test` 照抄即 404。
+- ✅ **连接器授权门禁 (#537)** — 构建器中由连接器支撑的能力芯片（`source=connector`）在连接器状态非 `connected` 时显示 🔐/授权而非静默加入；点击弹出授权框（OAuth2 / API key / webhook，按类型取字段）。`connector.create` 接受目录里的稳定 `connector_id`，`connector.connect` 失败时经 RPC 桥 `message` 回传鉴权探测原因；只有授权成功后才把能力写入草案，既有草案中未授权能力同样标 🔐。
+- 测试：`tests/test_issue_536_marketplace_dict_tools.py`、`tests/test_issue_537_connector_grant.py`、`web/src/pages/studio/__tests__/BuilderPage.test.tsx`（连接器门禁用例）。
+
 ### 集成
 - ✅ **fusion-mlx** — Apple Silicon 优化模型服务
 - ✅ **OpenAI 兼容 API** — 兼容任何 OpenAI 兼容后端
