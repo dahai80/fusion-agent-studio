@@ -420,6 +420,13 @@ python my_agent.py
 - ✅ **敏感范围审批绑定 (#539 R2)** — 连接器创建时接受 `sensitive_scopes`（update 亦可改）；敏感范围的连接器没有 `approval_ref` 时 `connector.connect` 拒绝完成，成功后把 `approval_ref` + `approved_at` 记录到持久化配置上作审计凭据。连接器能力把 channel 声明的 `sensitive_scopes` 透传到目录，构建器弹窗对这类能力显示审批单号输入框（未填禁用提交），单号随 connect 调用上送。
 - 测试：`tests/test_issue_539_oauth2_sensitive_scopes.py`（7）— OAuth2 全程授权、缺 token 失败原因、敏感连接无单号被拒、单号落盘（去空格+时间戳）、非敏感不受影响、持久化往返、目录透传；`BuilderPage.test.tsx` OAuth2 令牌提交 + 敏感审批门禁。
 
+### 长上下文前缀缓存（v0.13.8）— #541
+- ✅ **稳定提示词头契约** — fusion-mlx 提供块感知前缀缓存：只有当组装出的消息列表跨轮次保持字节级相同的头部时，会话才能命中。LLM 节点执行器中两处曾把每轮易变的 artifact 上下文快照（以及内嵌该快照的 artifact-long-text 渲染）直接追加进 `messages[0]`，每轮都作废整段前缀。现改为放进稳定头部（系统提示 + agent 定义 + 常量后缀）之后、对话历史之前的独立 system 消息。契约在 `agent_runtime/_runtime_nodes.py` 消息组装处有文档说明，并由单测断言头部在快照变化时跨调用字节级一致。
+- ✅ **逐调用缓存可见性** — 当推理引擎返回 `usage.prompt_tokens_details.cached_tokens`（fusion-mlx OpenAI 兼容 chat 已支持）时，`llm.call` 遥测 span 携带 `prefix_cache_hit_tokens` + `prefix_cache_hit_rate`，长会话缓存行为在运行/指标视图逐 run 可见。
+- ✅ **低命中率运维信号** — 长会话（prompt ≥ 4096 token、消息数 > 3）命中率低于 50% 时打 WARNING 并指向提示词顺序契约，头部被搅动无需等仪表盘检查即可发现。
+- ✅ **运维侧聚合** — `mlx.status` / `mlx.pool` RPC 现透出 fusion-mlx 前缀缓存聚合指标（`hits` / `misses` / `hit_rate` / `tokens_saved` / 查找延迟分位）以及 admin stats 的逐模型 `partial_tokens_skipped` 计数。
+- 测试：`tests/test_issue_541_prefix_cache.py`（9）— 跨调用头部字节一致、易变快照不进头部、历史在易变块之后、span 命中属性有/无、长会话低命中告警（短会话不告警）、池状态前缀缓存透传。
+
 ### 集成
 - ✅ **fusion-mlx** — Apple Silicon 优化模型服务
 - ✅ **OpenAI 兼容 API** — 兼容任何 OpenAI 兼容后端

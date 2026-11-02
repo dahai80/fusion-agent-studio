@@ -108,6 +108,16 @@ class _NodeExecutorsMixin:
                 logger.warning("model_router failed, falling back: %s", e)
         messages = []
 
+        # #541 prefix-cache ordering contract: messages[0] is the STABLE
+        # system head (system prompt + agent definition + constant suffixes
+        # like artifact guidelines / schema instructions). It must stay
+        # byte-identical across turns of one session so the fusion-mlx
+        # block-aware prefix cache keeps hitting. Volatile per-turn content
+        # (artifact context snapshots, WF-1 anti-forgetting summaries) goes
+        # into its own system message AFTER the head — never appended or
+        # inserted into messages[0]. Enforced by
+        # tests/test_issue_541_prefix_cache.py.
+
         if node.disable_tools:
             tools_schema = None
             logger.info(
@@ -158,10 +168,9 @@ class _NodeExecutorsMixin:
             )
             artifact_ctx = artifact_result.get("context_text", "")
             if artifact_ctx:
-                if messages and messages[0].get("role") == "system":
-                    messages[0]["content"] += "\n\n" + artifact_ctx
-                else:
-                    messages.insert(0, {"role": "system", "content": artifact_ctx})
+                # #541: volatile per-turn snapshot — own system message after
+                # the stable head, never merged into messages[0].
+                messages.append({"role": "system", "content": artifact_ctx})
 
             artifact_mode = artifact_result.get("mode", "none")
             if artifact_mode not in ("none", "full"):
@@ -183,10 +192,9 @@ class _NodeExecutorsMixin:
                         artifact_count=artifact_count,
                         artifact_list=artifact_ctx,
                     )
-                    if messages and messages[0].get("role") == "system":
-                        messages[0]["content"] += "\n\n" + rendered
-                    else:
-                        messages.insert(0, {"role": "system", "content": rendered})
+                    # #541: contains artifact_list snapshot (volatile) — own
+                    # system message after the head.
+                    messages.append({"role": "system", "content": rendered})
                     logger.info(
                         "AS-8 artifact-aware prompt injected: artifacts=%d mode=%s",
                         artifact_count,
@@ -456,9 +464,43 @@ class _NodeExecutorsMixin:
                         if isinstance(_details, dict)
                         else 0
                     )
+                    # #541: prefix-cache hit rides the span attributes when
+                    # the serving engine reports prompt_tokens_details.
+                    _ptd = usage.get("prompt_tokens_details")
+                    _cached = (
+                        _ptd.get("cached_tokens", 0) or 0
+                        if isinstance(_ptd, dict)
+                        else 0
+                    )
+                    _prompt = usage.get("prompt_tokens", 0) or 0
+                    if _cached:
+                        llm_span.attributes["prefix_cache_hit_tokens"] = _cached
+                        llm_span.attributes["prefix_cache_hit_rate"] = round(
+                            _cached / _prompt, 4
+                        ) if _prompt else 0.0
                 self.telemetry_engine.end_span(llm_span.span_id, status=llm_status)
             except Exception as e:
                 logger.warning("telemetry end_span llm.call failed: %s", e)
+
+        # #541: low prefix-cache hit rate on a long session means the stable
+        # head is being churned (or the engine cache is cold/evicted). Log a
+        # warning so the operator can check the prompt-ordering contract.
+        if isinstance(usage, dict):
+            _ptd = usage.get("prompt_tokens_details")
+            _cached = (
+                _ptd.get("cached_tokens", 0) or 0 if isinstance(_ptd, dict) else 0
+            )
+            _prompt = usage.get("prompt_tokens", 0) or 0
+            if _prompt >= 4096 and len(messages) > 3 and _cached / _prompt < 0.5:
+                logger.warning(
+                    "low prefix-cache hit rate: %d/%d tokens (%.0f%%) node=%s model=%s messages=%d — check prompt ordering contract (#541)",
+                    _cached,
+                    _prompt,
+                    100.0 * _cached / _prompt,
+                    node.label or "?",
+                    model,
+                    len(messages),
+                )
 
         if schema_validator and content:
             extracted = schema_validator.extract_from_text(content)
