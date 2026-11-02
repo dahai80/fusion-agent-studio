@@ -4436,6 +4436,11 @@ class DaemonServer:
                         "actual_size": m.get("actual_size") or 0,
                         "engine_type": m.get("engine_type", ""),
                         "model_type": m.get("model_type", ""),
+                        # #541: per-model prefix-cache counters from admin stats.
+                        "partial_tokens_skipped": m.get("partial_tokens_skipped", 0),
+                        "last_partial_tokens_skipped": m.get(
+                            "last_partial_tokens_skipped", 0
+                        ),
                     }
                 )
         else:
@@ -4448,9 +4453,31 @@ class DaemonServer:
 
         memory = {}
         active_by_model: dict[str, dict[str, int]] = {}
+        prefix_cache: dict[str, Any] | None = None
         if not isinstance(stats_resp, Exception) and stats_resp.status_code == 200:
             stats = stats_resp.json()
             am = stats.get("active_models") or {}
+            # #541: surface the fusion-mlx prefix-cache aggregate (hit rate /
+            # tokens saved / lookup latency) through mlx.status + mlx.pool so
+            # long-session cache behavior is visible at the ops level.
+            _pc = stats.get("prefix_cache")
+            if isinstance(_pc, dict):
+                prefix_cache = {
+                    k: _pc.get(k)
+                    for k in (
+                        "hits",
+                        "misses",
+                        "hit_rate",
+                        "tokens_saved",
+                        "active_requests",
+                        "pinned_blocks",
+                        "latency_p50_ms",
+                        "latency_p99_ms",
+                        "latency_avg_ms",
+                        "latency_samples",
+                    )
+                    if k in _pc
+                }
             memory = {
                 "model_memory_used": am.get("model_memory_used", 0),
                 "model_memory_max": am.get("model_memory_max", 0),
@@ -4513,6 +4540,9 @@ class DaemonServer:
             "loaded": loaded,
             "loaded_count": sum(1 for e in loaded if e["loaded"]),
             "memory": memory,
+            # #541: fusion-mlx prefix-cache aggregate (None when stats fetch
+            # failed or engine reported nothing).
+            "prefix_cache": prefix_cache,
             # lease refcount (in_use) 上游未暴露, 占位待 fusion-mlx#647.
             # TTL 已通过 stats ttl_remaining_seconds 暴露 (剩余秒数).
             "pending_upstream": ["lease_refcount"],
