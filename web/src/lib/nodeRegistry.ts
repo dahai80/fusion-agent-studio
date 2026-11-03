@@ -365,3 +365,70 @@ export class NodeRegistry {
 }
 
 export const nodeRegistry = new NodeRegistry();
+
+// W1-3 (#552): palette — registry entries grouped by category, each mapped
+// to its agent-studio server node type. Unmapped unified types render as
+// planned (disabled) so the palette shows the full 17-type taxonomy without
+// letting a non-executable node into the server graph.
+export const UNIFIED_TO_SERVER_TYPE: Readonly<Record<string, string>> = {
+    start: 'start',
+    end: 'end',
+    llm: 'llm',
+    agent: 'planner',
+    tool: 'tool',
+    condition: 'condition',
+    loop: 'loop',
+    variable_aggregator: 'parallel',
+    knowledge_retrieval: 'rag',
+};
+
+export interface PaletteEntry {
+    type: string;
+    displayName: string;
+    serverType: string;
+    planned: boolean;
+}
+
+export interface PaletteGroup {
+    title: string;
+    entries: PaletteEntry[];
+}
+
+// Server-native node types with no dedicated unified key (both collapse to
+// condition in the codec). They stay first-class palette entries so existing
+// studio graphs remain authorable.
+const SERVER_ONLY_PALETTE: ReadonlyArray<{ category: NodeCategory; entry: PaletteEntry }> = [
+    {
+        category: 'control',
+        entry: {
+            type: 'error_handler',
+            displayName: 'Error Handler',
+            serverType: 'error_handler',
+            planned: false,
+        },
+    },
+    {
+        category: 'control',
+        entry: { type: 'verify', displayName: 'Verify', serverType: 'verify', planned: false },
+    },
+];
+
+export function paletteGroups(): PaletteGroup[] {
+    const out: PaletteGroup[] = [];
+    for (const [cat, defs] of nodeRegistry.byCategory()) {
+        const entries: PaletteEntry[] = defs.map((d) => {
+            const serverType = UNIFIED_TO_SERVER_TYPE[d.key] || '';
+            return {
+                type: d.key,
+                displayName: d.displayName,
+                serverType: serverType || d.key,
+                planned: !serverType,
+            };
+        });
+        for (const extra of SERVER_ONLY_PALETTE) {
+            if (extra.category === cat) entries.push(extra.entry);
+        }
+        out.push({ title: cat, entries });
+    }
+    return out;
+}

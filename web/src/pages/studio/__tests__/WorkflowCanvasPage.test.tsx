@@ -51,6 +51,38 @@ async function renderCanvas() {
     return user;
 }
 
+describe('WorkflowCanvasPage palette from node registry (#552)', () => {
+    beforeEach(() => {
+        rpcMock.mockReset();
+        graphsMock.mockReset();
+        window.sessionStorage.clear();
+        window.localStorage.clear();
+    });
+
+    it('renders server-executable palette entries enabled and planned ones disabled', async () => {
+        defaultRpcs([{ action_id: 'seed', category: 'bash' }]);
+        await renderCanvas();
+
+        // server-executable entries are draggable buttons
+        const start = screen.getByRole('button', { name: '+ Start' });
+        expect(start).toBeEnabled();
+        expect(start).toHaveAttribute('draggable', 'true');
+        // planned entries (no server executor) are disabled with a * marker
+        const code = screen.getByRole('button', { name: '+ Code *' });
+        expect(code).toBeDisabled();
+        const http = screen.getByRole('button', { name: '+ HTTP Request *' });
+        expect(http).toBeDisabled();
+    });
+
+    it('keeps server-native error_handler and verify in the palette', async () => {
+        defaultRpcs([{ action_id: 'seed', category: 'bash' }]);
+        await renderCanvas();
+
+        expect(screen.getByRole('button', { name: '+ Error Handler' })).toBeEnabled();
+        expect(screen.getByRole('button', { name: '+ Verify' })).toBeEnabled();
+    });
+});
+
 describe('WorkflowCanvasPage safety pending actions (#489)', () => {
     beforeEach(() => {
         rpcMock.mockReset();
@@ -184,5 +216,95 @@ describe('WorkflowCanvasPage graph versioning (#484)', () => {
         expect(screen.getByRole('button', { name: /Run whole graph/ })).toBeInTheDocument();
         expect(screen.getByRole('button', { name: /Run selected node only/ })).toBeInTheDocument();
         expect(screen.getByRole('button', { name: /Run downstream/ })).toBeInTheDocument();
+    });
+});
+
+describe('WorkflowCanvasPage managed runs (#553)', () => {
+    beforeEach(() => {
+        rpcMock.mockReset();
+        graphsMock.mockReset();
+        window.sessionStorage.clear();
+        window.localStorage.clear();
+    });
+
+    class FakeEventSource {
+        static instances: FakeEventSource[] = [];
+        url: string;
+        closed = false;
+        onmessage: ((ev: { data: string }) => void) | null = null;
+        onerror: (() => void) | null = null;
+        constructor(url: string) {
+            this.url = url;
+            FakeEventSource.instances.push(this);
+        }
+        close() {
+            this.closed = true;
+        }
+    }
+
+    function stubStream(rpcImpl?: (method: string) => Promise<unknown>) {
+        FakeEventSource.instances = [];
+        vi.stubGlobal('EventSource', FakeEventSource as unknown as typeof EventSource);
+        const fetchMock = vi.fn(async () => ({ ok: true, json: async () => ({}) }));
+        vi.stubGlobal('fetch', fetchMock);
+        rpcMock.mockImplementation(async (method: string) => {
+            if (method === 'graph.get')
+                return {
+                    graph: {
+                        nodes: {
+                            start: { type: 'start', label: 'start' },
+                            llm1: { type: 'llm', label: 'LLM' },
+                        },
+                        edges: [{ source_id: 'start', target_id: 'llm1' }],
+                    },
+                };
+            if (rpcImpl) return rpcImpl(method);
+            return defaultRpcsImpl(method);
+        });
+        graphsMock.mockResolvedValue({ data: [] });
+        return fetchMock;
+    }
+
+    function defaultRpcsImpl(method: string) {
+        if (method === 'budget.status') return { remaining: 800, max_tokens: 1000 };
+        if (method === 'safety.get_pending_actions')
+            return { actions: [{ action_id: 'seed', category: 'bash' }] };
+        if (method === 'tool.list') return { tools: [{ name: 'read_file' }] };
+        throw new Error(`unexpected rpc: ${method}`);
+    }
+
+    it('Step runs exactly the first non-start node via only_node', async () => {
+        stubStream();
+        const user = await renderCanvas();
+
+        await user.click(screen.getByRole('button', { name: 'Step' }));
+        await waitFor(() => expect(FakeEventSource.instances).toHaveLength(1));
+        const url = FakeEventSource.instances[0].url;
+        expect(url).toContain('only_node=llm1');
+        expect(url).not.toContain('only_node=start');
+        // run started — Cancel appears, Run is disabled
+        expect(await screen.findByRole('button', { name: /Cancel run/ })).toBeInTheDocument();
+    });
+
+    it('Cancel closes the stream and POSTs the cancel endpoint', async () => {
+        const fetchMock = stubStream();
+        const user = await renderCanvas();
+
+        await user.click(screen.getByRole('button', { name: 'Step' }));
+        await waitFor(() => expect(FakeEventSource.instances).toHaveLength(1));
+        // server sends run_started before cancel is meaningful
+        FakeEventSource.instances[0].onmessage?.({
+            data: JSON.stringify({ type: 'run_started', run_id: 'run-abc123' }),
+        });
+        const cancelBtn = await screen.findByRole('button', { name: /Cancel run/ });
+        await user.click(cancelBtn);
+        await waitFor(() =>
+            expect(fetchMock).toHaveBeenCalledWith(
+                expect.stringContaining('/execute/stream/run-abc123/cancel'),
+                expect.objectContaining({ method: 'POST' })
+            )
+        );
+        expect(FakeEventSource.instances[0].closed).toBe(true);
+        expect(screen.queryByRole('button', { name: /Cancel run/ })).not.toBeInTheDocument();
     });
 });

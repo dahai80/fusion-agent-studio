@@ -608,6 +608,29 @@ Audit `audit/fusion-agent-studio-vs-langflow-audit-1020.md` closed end-to-end; s
 - Live acceptance: 4 packs in parallel on a real design doc via fusion-mlx (Qwen3-0.6B) — 9.4 s wall clock (concurrent, not 4× serial), all findings schema-conforming, attribution correct, author note absent from every pack input (blind verified).
 - Tests: `tests/test_issue_549_reviewer_packs.py` (19) — findings validation (free-text rejected), parse (fenced/scalar/prose), fan-out concurrency timing + attribution, blind/non-blind input assertions, per-pack failure isolation, severity ordering, 4-pack registry contract, bundle seeding, dispatcher wiring incl. run/seed/unknown-pack paths; `ReviewPage.test.tsx` (3).
 
+### Flow Store (v0.14.x) — #555
+- ✅ **First-class flow documents** — `FlowStore` (SQLite, `~/.fusion-agent-studio/flows.db`) persists web canvas WorkflowGraph documents: create / save / list / load / delete, no schema-migration framework in v1.
+- ✅ **Version snapshots** — every save that changes the graph JSON records a snapshot; `list_versions` + `restore` write the snapshot back as a new current version (idempotent when graph unchanged).
+- ✅ **Tenant-scoped** — flows carry `tenant_id` from the fusion-identity TenantContext (`''` in local mode); every read/write is tenant-filtered, cross-tenant load/delete is not-found.
+- ✅ **Visible corruption** — a corrupt flow document raises an actionable error naming restore-from-snapshot or delete; invalid graphs (empty nodes, node missing id/type) rejected at save.
+- ✅ **RPC + REST** — `flow.create` / `flow.save` / `flow.list` / `flow.load` / `flow.delete` / `flow.versions` / `flow.restore` on the daemon; REST `/v1/flows` CRUD + `/versions` + `/restore` (OpenAPI pinned). First-class API objects so cowork web GUI (#261) and studio can reference them.
+- Tests: `tests/test_issue_555_flow_store.py` (9) — round-trip, snapshots+restore, tenant isolation, corrupt-flow error, invalid-graph rejection, unknown version, daemon wiring, OpenAPI, REST surface.
+
+### Web Canvas Authoring Surface (v0.14.x) — #552
+- ✅ **Palette derived from the #551 node registry** — groups follow the 17-type unified taxonomy by category; server-executable entries are draggable with their server node type (agent→planner, variable_aggregator→parallel, knowledge_retrieval→rag), types without a server executor render disabled with a planned marker (code, template, http_request, human_input, sub_flow, mcp_tool, question_classifier, iteration); server-native `error_handler` and `verify` stay first-class entries.
+- ✅ **Snap-to-grid (16px, matching the dot background)** + `Delete`/`Backspace` node deletion + explicit Shift multi-select key.
+- ✅ **Duplicate (⌘/Ctrl+D) and copy/paste (⌘/Ctrl+C/V)** of the current selection — internal clipboard, cloned nodes re-labeled, internal edges cloned and remapped, undo-history recorded.
+- ✅ **Cross-surface structural parity** — golden fixture round-trips through the #551 codec so the same graph JSON renders identically in structure on studio and web (positions may differ); see `web/src/lib/__tests__/fixtures/studio-flow-fixture.json`.
+- Deliberately deferred (not in the issue's acceptance criteria, tracked for W2): sticky note node, on-demand auto-layout.
+- Tests: `web/src/lib/__tests__/palette.test.ts` (4 — registry coverage, all 11 server types reachable, planned set exact) + canvas palette component tests (2). Full web: 63 vitest, typecheck + build green.
+### Managed SSE Runs (v0.14.x) — #553
+- ✅ **Execution decoupled from the HTTP connection** — graph streaming runs in a background `asyncio.Task` (`RunRegistry` / `ManagedRun`); a dropped browser no longer kills the run. Every frame carries a monotonic `seq` into a 5000-frame replay buffer.
+- ✅ **Cancel while streaming** — `POST /v1/graphs/{graph_id}/execute/stream/{run_id}/cancel` aborts the background task; the stream receives a `cancelled` frame. Canvas shows a Cancel button while running.
+- ✅ **Reconnect without duplicates** — the stream endpoint accepts `resume_run_id` + `last_seq`; the server replays exactly the frames past `last_seq` marked `replay: true` (client skips re-rendering them). Unknown run = 404; resuming past `done` terminates immediately.
+- ✅ **Canvas run controls** — `run_started` frame captured client-side; EventSource errors auto-reconnect with resume (3 retries, backoff) instead of dying silently, then fail visibly in the event feed. **Step** button executes exactly one hop (`only_node` = first non-start node).
+- ✅ **Run lifecycle hygiene** — finished runs reaped after 300 s TTL, hard cap 50 runs, keepalive SSE comments on 15 s idle.
+- Tests: `tests/test_issue_553_managed_runs.py` (11 — run_started/seq ordering, resume replay + no-leak + past-done termination, unknown-run 404, cancel endpoint, only_node managed path, buffer cap, TTL/hard-cap reap, cancel task semantics) + canvas tests (2 — Step fires `only_node` of first non-start node; Cancel closes the stream and POSTs the cancel endpoint).
+
 ### Run-Loop Parity (v0.14.x) — #561
 - ✅ **stop_reason on every LLM hop** — THINK events now carry `metadata.stop_reason` from the documented semantic set: `tool_use` (model requested tool calls; auto-continue feeds the result back), `max_tokens` (finish_reason `length`, truncated output), `end_turn` (turn finished without tool calls). Pending approvals surface `pause_turn` on the `safety_approval` event. Terminal reasons remain on the END event (`end_turn` / `max_iterations` / `budget_exceeded` / `cancelled`).
 - ✅ **Tool_use auto-continue verified at graph level** — an `llm` node with `loop_mode="agent"` emitting tool_use triggers the tool and continues the run without any hand-wired return edge; each hop is a THINK event with its own stop_reason. Live evidence: `tests/proof/prove_run_loop_parity_561.py` (2 hops, `['tool_use', 'end_turn']`, json_parse tool called and result fed back, real local model).

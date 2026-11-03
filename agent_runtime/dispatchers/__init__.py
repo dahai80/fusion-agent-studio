@@ -6,6 +6,7 @@ from .base import SubDispatcher
 from .bundle import BundleDispatcher
 from .chat import ChatDispatcher
 from .deploy import DeployDispatcher
+from .flow import FlowDispatcher
 from .infra import InfraDispatcher
 from .knowledge import KnowledgeDispatcher
 from .marketplace import MarketplaceDispatcher
@@ -39,6 +40,7 @@ __all__ = [
     "PluginDispatcher",
     "ArtifactDispatcher",
     "TrainerDispatcher",
+    "FlowDispatcher",
     "ReviewerDispatcher",
     "SubAgentDispatcher",
     "SkillsDispatcher",

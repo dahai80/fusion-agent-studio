@@ -47,6 +47,7 @@ import {
     toRfNodes,
     validateGraphClient,
 } from '../../lib/graphSchema';
+import { paletteGroups } from '../../lib/nodeRegistry';
 
 const PORT_COLOR: Record<string, string> = {
     flow: '#6b7280',
@@ -58,13 +59,11 @@ const CANVAS_GRAPH_KEY = 'fusion.canvas.graphId';
 const PIN_KEY_PREFIX = 'fusion.canvas.pins.';
 
 // #394: sidebar palette split — execution flow vs intelligence nodes.
-const NODE_GROUPS: Array<{ title: string; types: string[] }> = [
-    {
-        title: 'Execution flow',
-        types: ['start', 'end', 'llm', 'tool', 'condition', 'loop', 'parallel', 'error_handler'],
-    },
-    { title: 'Intelligence', types: ['rag', 'planner', 'verify'] },
-];
+// #552: groups derived from the #551 node registry (17-type unified taxonomy
+// grouped by category); server-compatible types are draggable, the rest show
+// as planned (disabled) so the palette mirrors the registry without letting
+// a non-executable node type into the server graph.
+const NODE_GROUPS = paletteGroups();
 
 // #396: examples/*.json templates bundled at build time (no runtime disk read).
 const TEMPLATES: Array<{ name: string; graph: GraphJson }> = (() => {
@@ -190,6 +189,9 @@ interface SseFrame {
     content?: string;
     name?: string;
     message?: string;
+    run_id?: string;
+    seq?: number;
+    replay?: boolean;
 }
 
 interface GovEvent {
@@ -224,6 +226,11 @@ function CanvasInner() {
         Record<string, { tokens: number; toolCalls: number; status?: string }>
     >({});
     const esRef = useRef<EventSource | null>(null);
+    // #553 managed run: run_id + last-seen seq enable cancel and reconnect
+    // without duplicate frames (server replays only frames past last_seq).
+    const runIdRef = useRef('');
+    const lastSeqRef = useRef(0);
+    const retryRef = useRef(0);
     const [pins, setPins] = useState<Record<string, { output: string; ts: number }>>({});
     const [budget, setBudget] = useState<Record<string, number> | null>(null);
     const [pending, setPending] = useState<Array<Record<string, unknown>>>([]);
@@ -311,6 +318,87 @@ function CanvasInner() {
         window.addEventListener('keydown', onKey);
         return () => window.removeEventListener('keydown', onKey);
     }, [undo, redo]);
+
+    // #552: duplicate (⌘/Ctrl+D) + copy/paste (⌘/Ctrl+C/V) for the current
+    // selection. Internal clipboard only — no cross-tab clipboard writes.
+    const clipboardRef = useRef<Array<FusionNodeData & { id: string; x: number; y: number }>>([]);
+    const duplicateSelection = useCallback(
+        (offset: number) => {
+            const members = nodes.filter((n) => selectedIds.includes(n.id));
+            if (members.length === 0) return;
+            pushHistory();
+            const idMap = new Map<string, string>();
+            const clones: Node[] = members.map((m) => {
+                const nid = `${(m.data as FusionNodeData).nodeType}_${Math.random()
+                    .toString(36)
+                    .slice(2, 6)}`;
+                idMap.set(m.id, nid);
+                return {
+                    ...m,
+                    id: nid,
+                    selected: false,
+                    position: { x: m.position.x + offset, y: m.position.y + offset },
+                    data: { ...(m.data as FusionNodeData), label: nid },
+                };
+            });
+            setNodes((ns) => [...ns, ...clones]);
+            const memberIds = new Set(selectedIds);
+            const clonedEdges: Edge[] = edges
+                .filter((e) => memberIds.has(e.source) && memberIds.has(e.target))
+                .map((e) => ({
+                    ...e,
+                    id: `e_${Math.random().toString(36).slice(2, 8)}`,
+                    source: idMap.get(e.source) || e.source,
+                    target: idMap.get(e.target) || e.target,
+                    selected: false,
+                }));
+            if (clonedEdges.length > 0) setEdges((es) => [...es, ...clonedEdges]);
+            return { idMap, clones };
+        },
+        [nodes, edges, selectedIds, setNodes, setEdges, pushHistory]
+    );
+
+    useEffect(() => {
+        const onKey = (ev: KeyboardEvent) => {
+            if (!(ev.metaKey || ev.ctrlKey)) return;
+            const key = ev.key.toLowerCase();
+            if (key === 'd') {
+                ev.preventDefault();
+                duplicateSelection(24);
+            } else if (key === 'c') {
+                const members = nodes.filter((n) => selectedIds.includes(n.id));
+                clipboardRef.current = members.map((m) => ({
+                    ...((m.data as FusionNodeData) || { label: '', nodeType: 'llm', config: {} }),
+                    id: m.id,
+                    x: m.position.x,
+                    y: m.position.y,
+                }));
+            } else if (key === 'v') {
+                const buf = clipboardRef.current;
+                if (buf.length === 0) return;
+                ev.preventDefault();
+                pushHistory();
+                const idMap = new Map<string, string>();
+                const clones: Node[] = buf.map((m) => {
+                    const nid = `${m.nodeType}_${Math.random().toString(36).slice(2, 6)}`;
+                    idMap.set(m.id, nid);
+                    return {
+                        id: nid,
+                        type: 'fusionNode',
+                        position: { x: m.x + 32, y: m.y + 32 },
+                        data: { ...m, id: undefined, label: nid } as unknown as FusionNodeData,
+                    };
+                });
+                setNodes((ns) => [...ns, ...clones]);
+                clipboardRef.current = buf.map((m) => ({
+                    ...m,
+                    id: idMap.get(m.id) || m.id,
+                }));
+            }
+        };
+        window.addEventListener('keydown', onKey);
+        return () => window.removeEventListener('keydown', onKey);
+    }, [duplicateSelection, nodes, selectedIds, setNodes, pushHistory]);
 
     const refreshGovernance = useCallback(async () => {
         try {
@@ -809,6 +897,9 @@ function CanvasInner() {
             nodeStatsRef.current = {};
             setNodeStats({});
             setTestOutput(null);
+            runIdRef.current = '';
+            lastSeqRef.current = 0;
+            retryRef.current = 0;
             void refreshGovernance();
             const qs = new URLSearchParams({ input: opts.input ?? 'canvas run' });
             if (opts.fromNode) qs.set('from_node', opts.fromNode);
@@ -817,15 +908,33 @@ function CanvasInner() {
             if (breakpointNode && !opts.onlyNode) qs.set('stop_after', breakpointNode.id);
             const cfgKey = import.meta.env.VITE_API_KEY as string | undefined;
             if (cfgKey) qs.set('api_key', cfgKey);
-            const es = new EventSource(
-                `${apiBase()}/v1/graphs/${encodeURIComponent(graphId)}/execute/stream?${qs.toString()}`
-            );
-            esRef.current = es;
-            es.onmessage = (ev) => {
+
+            const handleFrame = (raw: string) => {
                 try {
-                    const data = JSON.parse(ev.data) as SseFrame;
+                    const data = JSON.parse(raw) as SseFrame;
+                    if (typeof data.seq === 'number') lastSeqRef.current = data.seq;
+                    if (data.replay && data.type !== 'done') {
+                        // replayed after reconnect — already rendered pre-drop
+                        return;
+                    }
+                    if (data.type === 'run_started' && data.run_id) {
+                        runIdRef.current = data.run_id;
+                        return;
+                    }
+                    if (data.type === 'cancelled') {
+                        setGovEvents((prev) => [
+                            ...prev,
+                            {
+                                ts: Date.now(),
+                                kind: 'cancelled',
+                                nodeId: '',
+                                detail: 'run canceled',
+                            },
+                        ]);
+                        return;
+                    }
                     if (data.type === 'done') {
-                        es.close();
+                        esRef.current?.close();
                         setRunning(false);
                         setNodeStats({ ...nodeStatsRef.current });
                         setGovEvents((prev) => [
@@ -891,13 +1000,65 @@ function CanvasInner() {
                     // ignore malformed frames
                 }
             };
-            es.onerror = () => {
-                es.close();
-                setRunning(false);
+
+            const connect = (resume: boolean) => {
+                const params = new URLSearchParams(qs);
+                if (resume && runIdRef.current) {
+                    params.set('resume_run_id', runIdRef.current);
+                    params.set('last_seq', String(lastSeqRef.current));
+                }
+                const es = new EventSource(
+                    `${apiBase()}/v1/graphs/${encodeURIComponent(graphId)}/execute/stream?${params.toString()}`
+                );
+                esRef.current = es;
+                es.onmessage = (ev) => handleFrame(ev.data);
+                es.onerror = () => {
+                    es.close();
+                    // #553: reconnect with resume instead of dying silently —
+                    // server replays only frames past last_seq (no duplicates).
+                    if (runIdRef.current && retryRef.current < 3) {
+                        retryRef.current += 1;
+                        window.setTimeout(() => connect(true), 1000 * retryRef.current);
+                        return;
+                    }
+                    setRunning(false);
+                    setGovEvents((prev) => [
+                        ...prev,
+                        {
+                            ts: Date.now(),
+                            kind: 'error',
+                            nodeId: '',
+                            detail: 'stream disconnected',
+                        },
+                    ]);
+                };
             };
+            connect(false);
         },
         [graphId, running, nodes, refreshGovernance]
     );
+
+    const cancelRun = useCallback(async () => {
+        const es = esRef.current;
+        if (es) es.close();
+        esRef.current = null;
+        setRunning(false);
+        setNodeStats({ ...nodeStatsRef.current });
+        if (!graphId || !runIdRef.current) return;
+        try {
+            const cfgKey = import.meta.env.VITE_API_KEY as string | undefined;
+            const res = await fetch(
+                `${apiBase()}/v1/graphs/${encodeURIComponent(graphId)}/execute/stream/${runIdRef.current}/cancel`,
+                {
+                    method: 'POST',
+                    headers: cfgKey ? { Authorization: `Bearer ${cfgKey}` } : undefined,
+                }
+            );
+            if (!res.ok) throw new Error(`cancel failed: ${res.status}`);
+        } catch (e) {
+            setToast(e instanceof Error ? e.message : 'cancel failed');
+        }
+    }, [graphId]);
 
     useEffect(() => {
         if (!running) return;
@@ -1137,23 +1298,39 @@ function CanvasInner() {
                             {t(grp.title, grp.title)}
                         </div>
                         <div className="grid grid-cols-2 gap-1">
-                            {grp.types.map((nt) => (
+                            {grp.entries.map((entry) => (
                                 <button
                                     type="button"
-                                    key={nt}
-                                    draggable
+                                    key={entry.type}
+                                    draggable={!entry.planned}
+                                    disabled={entry.planned}
                                     onDragStart={(e) => {
-                                        e.dataTransfer.setData('fusion/node-type', nt);
+                                        e.dataTransfer.setData(
+                                            'fusion/node-type',
+                                            entry.serverType
+                                        );
                                         e.dataTransfer.effectAllowed = 'copy';
                                     }}
-                                    className="rounded border border-border px-1 py-0.5 text-[10px] hover:border-brand cursor-grab"
-                                    onClick={() => addNode(nt)}
-                                    title={t(
-                                        '点击添加，或拖到画布任意位置',
-                                        'Click to add, or drag onto the canvas'
-                                    )}
+                                    className={`rounded border px-1 py-0.5 text-[10px] ${
+                                        entry.planned
+                                            ? 'border-border text-text-secondary opacity-50 cursor-not-allowed'
+                                            : 'border-border hover:border-brand cursor-grab'
+                                    }`}
+                                    onClick={() => addNode(entry.serverType)}
+                                    title={
+                                        entry.planned
+                                            ? t(
+                                                  '规划中（尚无服务端执行类型）',
+                                                  'Planned (no server executor yet)'
+                                              )
+                                            : t(
+                                                  '点击添加，或拖到画布任意位置',
+                                                  'Click to add, or drag onto the canvas'
+                                              )
+                                    }
                                 >
-                                    + {nt}
+                                    + {entry.displayName}
+                                    {entry.planned ? ' *' : ''}
                                 </button>
                             ))}
                         </div>
@@ -1190,6 +1367,32 @@ function CanvasInner() {
                     onClick={() => void runWithStream()}
                 >
                     {running ? t('运行中…', 'Running…') : t('运行并监视', 'Run & watch')}
+                </button>
+                {running ? (
+                    <button
+                        type="button"
+                        className="w-full rounded border border-red-400/60 px-2 py-1 text-xs text-red-500"
+                        onClick={() => void cancelRun()}
+                    >
+                        {t('取消运行', 'Cancel run')}
+                    </button>
+                ) : null}
+                <button
+                    type="button"
+                    className="w-full rounded border border-border px-2 py-1 text-xs text-text-secondary disabled:opacity-50"
+                    disabled={!graphId || running}
+                    onClick={() => {
+                        // #553 Step: execute exactly one hop — stop after the
+                        // first non-start node the run reaches.
+                        const first = nodes.find((n) => n.type !== 'start' && n.id !== 'start');
+                        if (!first) {
+                            setToast(t('没有可步进的节点', 'No node to step into'));
+                            return;
+                        }
+                        void runWithStream({ onlyNode: first.id });
+                    }}
+                >
+                    {t('单步执行', 'Step')}
                 </button>
                 {runTotals.nodes > 0 ? (
                     <div className="rounded border border-border bg-bg-elevated px-2 py-1 text-[10px] text-text-secondary">
@@ -1322,6 +1525,10 @@ function CanvasInner() {
                         e.dataTransfer.dropEffect = 'copy';
                     }}
                     onDrop={onDrop}
+                    snapToGrid
+                    snapGrid={[16, 16]}
+                    deleteKeyCode={['Backspace', 'Delete']}
+                    multiSelectionKeyCode="Shift"
                     fitView
                 >
                     <Background variant={BackgroundVariant.Dots} gap={16} size={1} />
