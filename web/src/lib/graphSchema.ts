@@ -2,6 +2,9 @@
 // is the only source of truth; this module converts to/from React Flow view state.
 // Server node dict carries x/y canvas positions directly (no view fork).
 
+import { NODE_DEFINITIONS } from './nodeRegistry';
+import { SECRET_FIELD_KEYS } from './secretStore';
+
 export interface ServerNode {
     type?: string;
     label?: string;
@@ -204,7 +207,15 @@ export function fromRf(graph: GraphJson, nodes: RfNode[], edges: RfEdge[]): Grap
 // NodeConfig fields in agent_runtime/graph.py. `appliesTo` filters which
 // node types show the field; `advanced` collapses into the advanced section.
 
-export type FieldWidget = 'text' | 'textarea' | 'number' | 'select' | 'boolean' | 'tags' | 'kv';
+export type FieldWidget =
+    | 'text'
+    | 'textarea'
+    | 'number'
+    | 'select'
+    | 'boolean'
+    | 'tags'
+    | 'kv'
+    | 'secret';
 
 export interface FieldSpec {
     key: string;
@@ -387,9 +398,103 @@ export const NODE_FIELDS: FieldSpec[] = [
 ];
 
 export function fieldsForNode(nodeType: string, advanced: boolean): FieldSpec[] {
-    return NODE_FIELDS.filter(
+    const server = NODE_FIELDS.filter(
         (f) => f.appliesTo.includes(nodeType) && Boolean(f.advanced) === advanced
     );
+    // #554: fill coverage from the #551 registry configSchema so all unified
+    // node types are configurable inline without bespoke forms. Keys already
+    // provided by the server-mirrored NODE_FIELDS win.
+    const known = new Set(server.map((f) => f.key));
+    const def = NODE_DEFINITIONS.find((d) => d.key === nodeType);
+    const fromRegistry: FieldSpec[] = (def?.configSchema ?? [])
+        .filter((c) => !known.has(c.key) && c.key !== 'label')
+        .filter((c) => Boolean(c.advanced) === advanced)
+        .map((c) => ({
+            key: c.key,
+            label: c.label,
+            widget: registryWidgetToField(c.widget),
+            default: c.defaultValue,
+            options: c.options,
+            appliesTo: [nodeType],
+            advanced: c.advanced,
+            help: c.placeholder,
+        }));
+    return [...server, ...fromRegistry];
+}
+
+function registryWidgetToField(w: string): FieldWidget {
+    switch (w) {
+        case 'multiline':
+            return 'textarea';
+        case 'secret':
+            return 'secret';
+        case 'model':
+            return 'text';
+        default:
+            return (w as FieldWidget) in { text: 1, number: 1, boolean: 1, select: 1, tags: 1 }
+                ? (w as FieldWidget)
+                : 'text';
+    }
+}
+
+// #554: session-injection discipline — secret-typed config keys never
+// survive into persisted JSON. Returns a new graph; the input is untouched.
+export function stripSessionSecrets(graph: GraphJson): GraphJson {
+    const nodes = graph.nodes ?? {};
+    const cleaned: Record<string, ServerNode> = {};
+    let changed = false;
+    for (const [id, cfg] of Object.entries(nodes)) {
+        const hit = Object.keys(cfg).filter(
+            (k) => SECRET_FIELD_KEYS.has(k) && cfg[k] !== undefined
+        );
+        if (hit.length === 0) {
+            cleaned[id] = cfg;
+            continue;
+        }
+        changed = true;
+        const next = { ...cfg };
+        for (const k of hit) delete next[k];
+        cleaned[id] = next;
+    }
+    return changed ? { ...graph, nodes: cleaned } : graph;
+}
+
+// #554: the most relevant config value for the node card summary line
+// (live-updates with the inspector). Deterministic priority, no per-type
+// bespoke code: first present key in priority order wins; long values are
+// truncated for the card.
+const SUMMARY_PRIORITY = [
+    'model',
+    'tool_name',
+    'agent_id',
+    'flow_id',
+    'mcp_server',
+    'url',
+    'kb_id',
+    'language',
+    'condition_expr',
+    'classes',
+    'prompt',
+    'template',
+    'code',
+    'tool_args',
+    'method',
+    'timeout_seconds',
+    'max_iterations',
+    'max_steps',
+    'top_k',
+    'flow_state',
+];
+
+export function nodeCardSummary(config: ServerNode): string {
+    for (const key of SUMMARY_PRIORITY) {
+        const v = config[key];
+        if (v === undefined || v === null || v === '') continue;
+        const s = typeof v === 'string' ? v : JSON.stringify(v);
+        if (!s) continue;
+        return s.length > 48 ? `${s.slice(0, 45)}…` : s;
+    }
+    return '';
 }
 
 export function applyFieldDefault(config: ServerNode, field: FieldSpec): ServerNode {

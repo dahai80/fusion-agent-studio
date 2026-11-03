@@ -623,6 +623,13 @@ Audit `audit/fusion-agent-studio-vs-langflow-audit-1020.md` closed end-to-end; s
 - ✅ **Cross-surface structural parity** — golden fixture round-trips through the #551 codec so the same graph JSON renders identically in structure on studio and web (positions may differ); see `web/src/lib/__tests__/fixtures/studio-flow-fixture.json`.
 - Deliberately deferred (not in the issue's acceptance criteria, tracked for W2): sticky note node, on-demand auto-layout.
 - Tests: `web/src/lib/__tests__/palette.test.ts` (4 — registry coverage, all 11 server types reachable, planned set exact) + canvas palette component tests (2). Full web: 63 vitest, typecheck + build green.
+### Canvas Inspector + Session-Only Secrets (v0.14.x) — #554
+- ✅ **All unified node types configurable inline** — `fieldsForNode` now merges the server-mirrored `NODE_FIELDS` with the #551 registry `configSchema`, so every non-trivial node type (agent, mcp_tool, knowledge_retrieval, code, template, http_request, human_input, sub_flow, question_classifier, …) gets inspector fields with zero bespoke forms.
+- ✅ **Secret fields, session-only** — masked `type=password` inputs backed by an in-memory session store (`secretStore.ts`); values are never written to node config, localStorage, or persisted JSON. Defense in depth: `stripSessionSecrets` removes any secret-typed key (`api_key`/`auth_token`/`password`/…) from the graph at save time — a test asserts the leaked value never reaches the `graph.update` payload.
+- ✅ **Node card summary live-updates** — deterministic priority (model > tool_name > agent_id > flow_id > url > …), truncated to 48 chars, rendered from node state so inspector edits reflect on the card immediately.
+- ✅ Registry additions: `http_request.api_key` and `mcp_tool.auth_token` as advanced secret fields.
+- Tests: `secretStore.test.ts` (8 — store semantics, 17-type field coverage, secret-widget mapping, strip correctness + idempotence, summary priority/truncation) + canvas tests (2 — card summary rendering, save-payload secret stripping through the #396 diff confirm).
+
 ### Managed SSE Runs (v0.14.x) — #553
 - ✅ **Execution decoupled from the HTTP connection** — graph streaming runs in a background `asyncio.Task` (`RunRegistry` / `ManagedRun`); a dropped browser no longer kills the run. Every frame carries a monotonic `seq` into a 5000-frame replay buffer.
 - ✅ **Cancel while streaming** — `POST /v1/graphs/{graph_id}/execute/stream/{run_id}/cancel` aborts the background task; the stream receives a `cancelled` frame. Canvas shows a Cancel button while running.

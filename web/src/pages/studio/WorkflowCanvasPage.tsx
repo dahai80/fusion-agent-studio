@@ -42,12 +42,15 @@ import {
     fromRf,
     inPortType,
     maxOutEdges,
+    nodeCardSummary,
     outPortType,
+    stripSessionSecrets,
     toRfEdges,
     toRfNodes,
     validateGraphClient,
 } from '../../lib/graphSchema';
 import { paletteGroups } from '../../lib/nodeRegistry';
+import { getSecret, hasSecret, isSecretField, setSecret } from '../../lib/secretStore';
 
 const PORT_COLOR: Record<string, string> = {
     flow: '#6b7280',
@@ -124,8 +127,11 @@ function FusionNode(props: { data: FusionNodeData; selected?: boolean }) {
             </div>
             <div className="text-[10px] text-text-secondary mt-0.5 flex items-center gap-1">
                 <span className="rounded bg-brand/10 text-brand px-1">{data.nodeType}</span>
-                {data.config.tool_name ? <span>· {String(data.config.tool_name)}</span> : null}
-                {data.config.model ? <span>· {String(data.config.model)}</span> : null}
+                {nodeCardSummary(data.config) ? (
+                    <span className="truncate max-w-[160px]" title={nodeCardSummary(data.config)}>
+                        · {nodeCardSummary(data.config)}
+                    </span>
+                ) : null}
             </div>
             {data.tokens || data.toolCalls || data.runStatus ? (
                 <div className="mt-1 flex items-center gap-1 text-[9px]">
@@ -768,7 +774,11 @@ function CanvasInner() {
 
     const save = useCallback(async () => {
         if (!graphId) return;
-        const next = fromRf(graph, nodes as unknown as RfNode[], edges as unknown as RfEdge[]);
+        const raw = fromRf(graph, nodes as unknown as RfNode[], edges as unknown as RfEdge[]);
+        // #554: session-injection discipline — secret-typed keys are stripped
+        // from the persisted graph (defense in depth on top of the secret
+        // widget never writing them into config).
+        const next = stripSessionSecrets(raw);
         const local = validateGraphClient(next);
         const hard = local.filter((i) => i.level === 'error');
         if (hard.length > 0) {
@@ -1254,6 +1264,31 @@ function CanvasInner() {
                             <option key={name} value={name} />
                         ))}
                     </datalist>
+                </div>
+            );
+        }
+        // #554: secret widget — masked input, session-only storage (never
+        // written into node config, so it can never reach persisted JSON).
+        if (field.widget === 'secret' || isSecretField(field.key)) {
+            const held = hasSecret(selectedNode.id, field.key);
+            return (
+                <div key={field.key}>
+                    {label}
+                    <input
+                        type="password"
+                        className="w-full rounded border border-border bg-bg px-2 py-1"
+                        placeholder={
+                            held
+                                ? t('已持有（仅本次会话）', 'held (session only)')
+                                : t('仅本次会话保存', 'session only')
+                        }
+                        value={getSecret(selectedNode.id, field.key)}
+                        onChange={(e) => {
+                            setSecret(selectedNode.id, field.key, e.target.value);
+                            // re-render to refresh the held-state placeholder
+                            setNodes((ns) => [...ns]);
+                        }}
+                    />
                 </div>
             );
         }
