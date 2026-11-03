@@ -24,6 +24,8 @@ NodeType = Literal[
     "planner",
     "verify",
     "acp",
+    "iteration",
+    "variable_aggregator",
 ]
 
 
@@ -304,6 +306,7 @@ class AgentGraph:
     _VALID_NODE_TYPES = frozenset({
         "start", "llm", "tool", "condition", "loop", "error_handler",
         "rag", "planner", "verify", "parallel", "acp", "end",
+        "iteration", "variable_aggregator",
     })
 
     def validate(self, tool_registry: Any = None) -> list[str]:

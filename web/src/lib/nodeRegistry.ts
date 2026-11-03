@@ -380,8 +380,9 @@ export const UNIFIED_TO_SERVER_TYPE: Readonly<Record<string, string>> = {
     tool: 'tool',
     condition: 'condition',
     loop: 'loop',
-    variable_aggregator: 'parallel',
+    variable_aggregator: 'variable_aggregator',
     knowledge_retrieval: 'rag',
+    iteration: 'iteration',
 };
 
 export interface PaletteEntry {
@@ -412,6 +413,17 @@ const SERVER_ONLY_PALETTE: ReadonlyArray<{ category: NodeCategory; entry: Palett
     {
         category: 'control',
         entry: { type: 'verify', displayName: 'Verify', serverType: 'verify', planned: false },
+    },
+    // #556: variable_aggregator now has its own unified key — keep the
+    // server-native parallel type first-class (C5 fan-out/gather graphs).
+    {
+        category: 'control',
+        entry: {
+            type: 'parallel',
+            displayName: 'Parallel',
+            serverType: 'parallel',
+            planned: false,
+        },
     },
 ];
 

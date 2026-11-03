@@ -198,6 +198,7 @@ interface SseFrame {
     run_id?: string;
     seq?: number;
     replay?: boolean;
+    metadata?: Record<string, unknown>;
 }
 
 interface GovEvent {
@@ -239,6 +240,8 @@ function CanvasInner() {
     const retryRef = useRef(0);
     const [pins, setPins] = useState<Record<string, { output: string; ts: number }>>({});
     const [budget, setBudget] = useState<Record<string, number> | null>(null);
+    // #556: variable inspector — FlowState snapshots from run SSE events
+    const [flowVars, setFlowVars] = useState<Record<string, unknown>>({});
     const [pending, setPending] = useState<Array<Record<string, unknown>>>([]);
     const [connectMenu, setConnectMenu] = useState<{
         x: number;
@@ -906,6 +909,7 @@ function CanvasInner() {
             setActiveNodes({});
             nodeStatsRef.current = {};
             setNodeStats({});
+            setFlowVars({});
             setTestOutput(null);
             runIdRef.current = '';
             lastSeqRef.current = 0;
@@ -930,6 +934,12 @@ function CanvasInner() {
                     if (data.type === 'run_started' && data.run_id) {
                         runIdRef.current = data.run_id;
                         return;
+                    }
+                    // #556: FlowState snapshots from loop/iteration/aggregator
+                    // events feed the variable inspector
+                    const fs = data.metadata?.flow_state;
+                    if (fs && typeof fs === 'object') {
+                        setFlowVars((prev) => ({ ...prev, ...(fs as Record<string, unknown>) }));
                     }
                     if (data.type === 'cancelled') {
                         setGovEvents((prev) => [
@@ -1875,6 +1885,26 @@ function CanvasInner() {
                         {String(budget.max_tokens ?? '∞')}
                     </div>
                 ) : null}
+                <div className="text-sm font-medium pt-2">{t('变量', 'Variables')}</div>
+                {Object.keys(flowVars).length > 0 ? (
+                    <div className="space-y-0.5">
+                        {Object.entries(flowVars).map(([k, v]) => (
+                            <div
+                                key={k}
+                                className="rounded border border-border bg-bg-elevated px-1.5 py-0.5 text-[10px] flex gap-1"
+                            >
+                                <span className="text-brand font-medium">{k}</span>
+                                <span className="text-text-secondary truncate">
+                                    {typeof v === 'string' ? v : JSON.stringify(v)}
+                                </span>
+                            </div>
+                        ))}
+                    </div>
+                ) : (
+                    <div className="text-[10px] text-text-secondary">
+                        {t('运行期间显示 FlowState 快照', 'FlowState snapshots appear on run')}
+                    </div>
+                )}
                 {pending.length > 0 ? (
                     <div className="space-y-1">
                         <div className="text-[10px] text-text-secondary">

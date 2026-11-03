@@ -8,11 +8,12 @@ describe('paletteGroups (#552)', () => {
     it('groups all 17 registry types by category plus server-only entries', () => {
         const groups = paletteGroups();
         const entries = groups.flatMap((g) => g.entries);
-        expect(entries.length).toBe(NODE_DEFINITIONS.length + 2);
+        expect(entries.length).toBe(NODE_DEFINITIONS.length + 3);
         const keys = new Set(entries.map((e) => e.type));
         for (const d of NODE_DEFINITIONS) expect(keys.has(d.key)).toBe(true);
         expect(keys.has('error_handler')).toBe(true);
         expect(keys.has('verify')).toBe(true);
+        expect(keys.has('parallel')).toBe(true);
     });
 
     it('every server node type is reachable as a draggable entry', () => {
@@ -30,6 +31,8 @@ describe('paletteGroups (#552)', () => {
             'condition',
             'loop',
             'parallel',
+            'iteration',
+            'variable_aggregator',
             'error_handler',
             'rag',
             'planner',
@@ -49,7 +52,6 @@ describe('paletteGroups (#552)', () => {
             'code',
             'http_request',
             'human_input',
-            'iteration',
             'mcp_tool',
             'question_classifier',
             'sub_flow',
