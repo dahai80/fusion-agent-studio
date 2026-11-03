@@ -96,6 +96,7 @@ class _CheckpointMixin:
         graph: AgentGraph,
         session_id: str,
         stream: bool = False,
+        human_inputs: dict | None = None,
     ) -> AsyncIterator[AgentEvent]:
         """Resume graph execution from the latest checkpoint."""
         if not self.store:
@@ -142,6 +143,12 @@ class _CheckpointMixin:
 
         saved_vars = state.get("variables", {})
         for k, v in saved_vars.items():
+            ctx.variables.set(k, v)
+
+        # #557: decisions captured while the backend was down — inject as
+        # variables so the re-executed human_input node takes the resumed
+        # branch ({input_var: value} keys) instead of pausing again.
+        for k, v in (human_inputs or {}).items():
             ctx.variables.set(k, v)
 
         logger.info(

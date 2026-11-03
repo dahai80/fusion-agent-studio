@@ -145,6 +145,10 @@ class AgentRuntime(_SafetyApprovalMixin, _CheckpointMixin, _DynamicToolsMixin, _
         # nodes awaiting approval (mirrors _safety_futures pattern).
         self.plan_mode: bool = False
         self._plan_futures: dict[str, asyncio.Future[bool]] = {}
+        # #557 human_input HiTL: input_id -> Future[dict] for same-process
+        # non-blocking approve/reject/edit-input; across restart the
+        # checkpoint + resume(human_inputs=...) path takes over.
+        self._human_input_futures: dict[str, asyncio.Future[dict]] = {}
         # N6/#343 ToolSearch: lazy tool schema loading. ON by default (#488):
         # schemas beyond TOOLSEARCH_INLINE_LIMIT are deferred out of the
         # prompt; the LLM finds them via the tool_search tool at need.
@@ -1110,6 +1114,37 @@ class AgentRuntime(_SafetyApprovalMixin, _CheckpointMixin, _DynamicToolsMixin, _
                 elif node.type == "variable_aggregator":
                     # #556: merge variables into one output — gather step
                     async for event in self._execute_variable_aggregator_node(ctx, node, graph):
+                        yield event
+                        if event.type == AgentEventType.ERROR:
+                            return
+                    next_id = graph.get_next_node(current_node_id)
+                    current_node_id = next_id or ""
+
+                elif node.type == "human_input":
+                    # #557: HiTL pause — SAFETY_APPROVAL request, then either
+                    # resolved in-process, or paused (CHECKPOINT paused:true)
+                    # ending the stream; resume via checkpoint + human_inputs.
+                    async for event in self._execute_human_input_node(ctx, node, graph):
+                        yield event
+                        if event.type == AgentEventType.ERROR:
+                            return
+                        if (
+                            event.type == AgentEventType.CHECKPOINT
+                            and (event.metadata or {}).get("paused")
+                        ):
+                            ctx.stop_reason = "paused_human_input"
+                            logger.info(
+                                "human_input paused node=%s session=%s",
+                                node.label,
+                                ctx.session_id,
+                            )
+                            return
+                    next_id = graph.get_next_node(current_node_id)
+                    current_node_id = next_id or ""
+
+                elif node.type == "sub_flow":
+                    # #557: flow-as-tool — saved graph invoked as a node
+                    async for event in self._execute_sub_flow_node(ctx, node, graph):
                         yield event
                         if event.type == AgentEventType.ERROR:
                             return

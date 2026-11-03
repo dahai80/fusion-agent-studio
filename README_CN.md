@@ -496,6 +496,14 @@ python my_agent.py
 - ✅ **tool_use 自动续跑图级验证** — `loop_mode="agent"` 的 llm 节点发出 tool_use 即触发工具并自动续跑，无需手工回边；每个 hop 是带独立 stop_reason 的 THINK 事件。线上证据：`tests/proof/prove_run_loop_parity_561.py`（2 hop，`['tool_use', 'end_turn']`，json_parse 工具调用且结果回灌，真实本地模型）。
 - 测试：`tests/test_issue_561_run_loop_parity.py`（6）— hop stop_reason 序列、多跳自动续跑（无回边）、非 agent 节点 tool_use 呈现、max_tokens hop、待审批 pause_turn、语义文档化。
 
+### 人机协同输入 + 流程即工具（v0.14.x）— #557
+- ✅ **`human_input` 节点（服务端）** — 运行暂停等待人工决策：先落 checkpoint，再发 `safety_approval` 事件（`kind: human_input`，含 `input_id` / `input_var` / `prompt` / `fields`），挂起等待 in-process future。批准（带值）写入 `input_var` 继续运行；拒绝以 ERROR 事件（带原因）可见地终止分支；超时发出 `paused` CHECKPOINT 并结束流（`stop_reason: paused_human_input`）。
+- ✅ **跨后端重启恢复** — `resume_from_checkpoint` 新增 `human_inputs={input_var: value}` 参数；新 runtime + 同一 store 重放暂停节点，注入决策后一路跑到 `end_turn`（重启 E2E 已覆盖）。
+- ✅ **`human_input.respond` / `human_input.list_pending` RPC** — 经 daemon 应答待决输入；future 先注册后发事件，消费端无竞态。
+- ✅ **`sub_flow` 节点（服务端）** — 流程即工具：按 `flow_id` 从 store 加载已保存图，复用经审计的子图执行路径（深度门、输入/输出映射）。输出映射改读子图执行后的变量值（执行前快照兜底）。
+- ✅ **画布决策卡片** — 携带 `kind: human_input` 的 `safety_approval` 帧渲染"等待人工输入"卡片（值输入 + 批准/拒绝），经 `human_input.respond` 应答；两类节点的 palette 项转为可执行。
+- 测试：`tests/test_issue_557_human_input.py`（10 — 批准续跑、拒绝原因+分支终止、超时暂停、预置变量消费路径、重启 E2E 恢复至 end_turn、sub_flow 值进/出、缺失/未知 flow 报错、RPC respond + list_pending、validate）+ 画布测试（1 — 决策卡片渲染与应答）。
+
 ### 集成
 - ✅ **fusion-mlx** — Apple Silicon 优化模型服务
 - ✅ **OpenAI 兼容 API** — 兼容任何 OpenAI 兼容后端

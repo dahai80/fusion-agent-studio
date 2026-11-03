@@ -243,6 +243,11 @@ function CanvasInner() {
     // #556: variable inspector — FlowState snapshots from run SSE events
     const [flowVars, setFlowVars] = useState<Record<string, unknown>>({});
     const [pending, setPending] = useState<Array<Record<string, unknown>>>([]);
+    // #557: human_input HiTL requests surfacing on the run stream
+    const [humanInputs, setHumanInputs] = useState<
+        Array<{ input_id: string; input_var: string; prompt: string; fields: unknown[] }>
+    >([]);
+    const [humanInputValue, setHumanInputValue] = useState('');
     const [connectMenu, setConnectMenu] = useState<{
         x: number;
         y: number;
@@ -910,6 +915,8 @@ function CanvasInner() {
             nodeStatsRef.current = {};
             setNodeStats({});
             setFlowVars({});
+            setHumanInputs([]);
+            setHumanInputValue('');
             setTestOutput(null);
             runIdRef.current = '';
             lastSeqRef.current = 0;
@@ -970,6 +977,19 @@ function CanvasInner() {
                     }
                     const kind = data.type || 'event';
                     const nodeId = data.node_id || '';
+                    // #557: human_input HiTL request — surface the decision card
+                    if (kind === 'safety_approval' && data.metadata?.kind === 'human_input') {
+                        const m = data.metadata as Record<string, unknown>;
+                        setHumanInputs((prev) => [
+                            ...prev.filter((h) => h.input_id !== String(m.input_id ?? '')),
+                            {
+                                input_id: String(m.input_id ?? ''),
+                                input_var: String(m.input_var ?? ''),
+                                prompt: String(m.prompt ?? data.content ?? ''),
+                                fields: Array.isArray(m.fields) ? m.fields : [],
+                            },
+                        ]);
+                    }
                     // #484 test sidebar: capture the last node result for inspection.
                     if (kind === 'result' && nodeId) {
                         setTestOutput({ nodeId, content: data.content || '' });
@@ -1133,6 +1153,26 @@ function CanvasInner() {
             }
         },
         [refreshGovernance, showToast, t]
+    );
+
+    // #557: answer a pending human_input node (approve with value / reject)
+    const respondHumanInput = useCallback(
+        async (inputId: string, approve: boolean) => {
+            try {
+                await rpc('human_input.respond', {
+                    input_id: inputId,
+                    approved: approve,
+                    value: approve ? humanInputValue : '',
+                    reason: approve ? '' : humanInputValue,
+                });
+                setHumanInputs((prev) => prev.filter((h) => h.input_id !== inputId));
+                setHumanInputValue('');
+                showToast(approve ? t('已批准', 'Approved') : t('已拒绝', 'Rejected'));
+            } catch (e) {
+                showToast(`${t('审批失败', 'Approval failed')}: ${String(e)}`);
+            }
+        },
+        [humanInputValue, showToast, t]
     );
 
     useEffect(() => () => esRef.current?.close(), []);
@@ -1941,6 +1981,47 @@ function CanvasInner() {
                                 </div>
                             );
                         })}
+                    </div>
+                ) : null}
+                {humanInputs.length > 0 ? (
+                    <div className="space-y-1">
+                        <div className="text-[10px] text-text-secondary">
+                            {t('等待人工输入', 'Awaiting human input')} ({humanInputs.length})
+                        </div>
+                        {humanInputs.map((h) => (
+                            <div
+                                key={h.input_id}
+                                className="rounded border border-brand/40 bg-bg-elevated px-1.5 py-1 text-[10px]"
+                            >
+                                <div className="text-text-primary">{h.prompt || h.input_var}</div>
+                                <input
+                                    type="text"
+                                    className="mt-1 w-full rounded border border-border bg-bg px-1 py-0.5"
+                                    placeholder={t(
+                                        '输入内容（拒绝时作为原因）',
+                                        'Value (reason when rejecting)'
+                                    )}
+                                    value={humanInputValue}
+                                    onChange={(e) => setHumanInputValue(e.target.value)}
+                                />
+                                <div className="mt-1 flex gap-1">
+                                    <button
+                                        type="button"
+                                        className="rounded bg-brand px-1.5 py-0.5 text-white"
+                                        onClick={() => void respondHumanInput(h.input_id, true)}
+                                    >
+                                        {t('批准', 'Approve')}
+                                    </button>
+                                    <button
+                                        type="button"
+                                        className="rounded border border-error px-1.5 py-0.5 text-error"
+                                        onClick={() => void respondHumanInput(h.input_id, false)}
+                                    >
+                                        {t('拒绝', 'Reject')}
+                                    </button>
+                                </div>
+                            </div>
+                        ))}
                     </div>
                 ) : null}
                 {Object.keys(activeNodes).length > 0 && (

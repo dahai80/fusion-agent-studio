@@ -652,6 +652,14 @@ Audit `audit/fusion-agent-studio-vs-langflow-audit-1020.md` closed end-to-end; s
 - ✅ **Tool_use auto-continue verified at graph level** — an `llm` node with `loop_mode="agent"` emitting tool_use triggers the tool and continues the run without any hand-wired return edge; each hop is a THINK event with its own stop_reason. Live evidence: `tests/proof/prove_run_loop_parity_561.py` (2 hops, `['tool_use', 'end_turn']`, json_parse tool called and result fed back, real local model).
 - Tests: `tests/test_issue_561_run_loop_parity.py` (6) — hop stop_reason sequence, multi-hop auto-continue (no return edge), non-agent node tool_use surfacing, max_tokens hop, pause_turn on pending approval, semantics documented.
 
+### Human-in-the-Loop + Flow-as-Tool (v0.14.x) — #557
+- ✅ **`human_input` node type (server)** — pauses the run for a human decision: persists a checkpoint, emits a `safety_approval` event (`kind: human_input`, with `input_id` / `input_var` / `prompt` / `fields`), and waits on an in-process future. Approve (with value) sets `input_var` and continues; reject terminates the branch visibly with an ERROR event carrying the reason; timeout emits a `paused` CHECKPOINT and ends the stream (`stop_reason: paused_human_input`).
+- ✅ **Resume across backend restart** — `resume_from_checkpoint` accepts `human_inputs={input_var: value}`; a NEW runtime on the SAME store re-executes the paused node, sees the seeded decision, and runs to `end_turn` (restart E2E covered).
+- ✅ **`human_input.respond` / `human_input.list_pending` RPC** — answer pending inputs over the daemon; consumer-safe (future registered before the request event is emitted).
+- ✅ **`sub_flow` node type (server)** — flow-as-tool: loads a saved graph by `flow_id` from the store and reuses the audited sub-graph path (depth gates, input/output mapping). Output mapping now reads post-execution sub values with pre-exec fallback.
+- ✅ **Canvas decision card** — `safety_approval` frames with `kind: human_input` render an "Awaiting human input" card with value input + Approve/Reject, answered via `human_input.respond`; palette entries for both node types are now server-executable.
+- Tests: `tests/test_issue_557_human_input.py` (10 — approve resolves + continues, reject reason + branch termination, timeout pause, pre-seeded consume path, restart E2E resume-to-end_turn, sub_flow values in/out, missing/unknown flow errors, RPC respond + list_pending, validate) + canvas test (1 — decision card renders and responds).
+
 ### Integration
 - ✅ **fusion-mlx** — Apple Silicon optimized model serving
 - ✅ **OpenAI-compatible API** — Works with any OpenAI-compatible backend
