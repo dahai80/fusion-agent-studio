@@ -452,6 +452,11 @@ python my_agent.py
 - 线上验收：真实设计文档 × 4 包并行经 fusion-mlx（Qwen3-0.6B）— 9.4 s 墙钟（并发而非 4× 串行），全部发现符合 schema、署名正确、作者说明未出现在任何评审包输入（盲审验证）。
 - 测试：`tests/test_issue_549_reviewer_packs.py`（19）— 发现校验（纯文本拒绝）、解析（围栏/标量/散文）、扇出并发计时 + 署名、盲审/非盲审输入断言、单包失败隔离、严重度排序、4 包注册契约、bundle 生成、dispatcher 接线（run/seed/未知包路径）；`ReviewPage.test.tsx`（3）。
 
+### 运行循环对齐（v0.14.x）— #561
+- ✅ **每个 LLM hop 携带 stop_reason** — THINK 事件新增 `metadata.stop_reason`，语义集：`tool_use`（模型请求工具调用；自动回灌工具结果）、`max_tokens`（finish_reason `length`，输出截断）、`end_turn`（无工具调用正常收尾）。待审批在 `safety_approval` 事件上报 `pause_turn`。终态原因仍在 END 事件（`end_turn` / `max_iterations` / `budget_exceeded` / `cancelled`）。
+- ✅ **tool_use 自动续跑图级验证** — `loop_mode="agent"` 的 llm 节点发出 tool_use 即触发工具并自动续跑，无需手工回边；每个 hop 是带独立 stop_reason 的 THINK 事件。线上证据：`tests/proof/prove_run_loop_parity_561.py`（2 hop，`['tool_use', 'end_turn']`，json_parse 工具调用且结果回灌，真实本地模型）。
+- 测试：`tests/test_issue_561_run_loop_parity.py`（6）— hop stop_reason 序列、多跳自动续跑（无回边）、非 agent 节点 tool_use 呈现、max_tokens hop、待审批 pause_turn、语义文档化。
+
 ### 集成
 - ✅ **fusion-mlx** — Apple Silicon 优化模型服务
 - ✅ **OpenAI 兼容 API** — 兼容任何 OpenAI 兼容后端

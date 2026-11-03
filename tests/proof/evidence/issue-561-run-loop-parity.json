@@ -1,0 +1,105 @@
+{
+  "issue": "561",
+  "model": "mlx-community--Qwen3.5-4B-MLX-4bit",
+  "base_url": "http://127.0.0.1:11434",
+  "elapsed_seconds": 26.8,
+  "llm_hops": 2,
+  "stop_reason_sequence": [
+    "tool_use",
+    "end_turn"
+  ],
+  "tool_calls": [
+    "json_parse"
+  ],
+  "checks": {
+    "tool_called": true,
+    "tool_result_fed_back": true,
+    "auto_continued": true,
+    "hop_stop_reasons_present": true,
+    "ends_end_turn": true,
+    "total_parsed": true
+  },
+  "passed": true,
+  "events": [
+    {
+      "type": "start",
+      "name": "",
+      "content": "Starting: issue-561-auto-continue",
+      "metadata": {}
+    },
+    {
+      "type": "think",
+      "name": "",
+      "content": "",
+      "metadata": {
+        "model": "mlx-community--Qwen3.5-4B-MLX-4bit",
+        "usage": {
+          "prompt_tokens": 433,
+          "completion_tokens": 76,
+          "total_tokens": 509,
+          "input_tokens": 433,
+          "output_tokens": 76,
+          "prompt_tokens_details": {
+            "cached_tokens": 0,
+            "audio_tokens": null
+          },
+          "model_load_duration": 0.9258427080000047,
+          "time_to_first_token": 3.329476667000108,
+          "total_time": null,
+          "prompt_eval_duration": null,
+          "generation_duration": null,
+          "prompt_tokens_per_second": null,
+          "generation_tokens_per_second": 3.075455014075163
+        },
+        "stop_reason": "tool_use"
+      }
+    },
+    {
+      "type": "tool_call",
+      "name": "json_parse",
+      "content": "",
+      "metadata": {}
+    },
+    {
+      "type": "tool_result",
+      "name": "json_parse",
+      "content": "  order_id: str\n  total: float\n  items: int",
+      "metadata": {}
+    },
+    {
+      "type": "think",
+      "name": "",
+      "content": "The total in the JSON is 4250.5.",
+      "metadata": {
+        "model": "mlx-community--Qwen3.5-4B-MLX-4bit",
+        "usage": {
+          "prompt_tokens": 541,
+          "completion_tokens": 14,
+          "total_tokens": 555,
+          "input_tokens": 541,
+          "output_tokens": 14,
+          "prompt_tokens_details": {
+            "cached_tokens": 0,
+            "audio_tokens": null
+          },
+          "model_load_duration": 0.9258427080000047,
+          "time_to_first_token": 0.0725337500000478,
+          "total_time": null,
+          "prompt_eval_duration": null,
+          "generation_duration": null,
+          "prompt_tokens_per_second": null,
+          "generation_tokens_per_second": 14.001114264679105
+        },
+        "stop_reason": "end_turn"
+      }
+    },
+    {
+      "type": "end",
+      "name": "",
+      "content": "Graph execution complete",
+      "metadata": {
+        "stop_reason": "end_turn"
+      }
+    }
+  ]
+}

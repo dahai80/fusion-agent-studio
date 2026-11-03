@@ -318,6 +318,7 @@ class _NodeExecutorsMixin:
                 usage: dict = {}
                 resp_model = model
                 current_tool_calls: dict[int, dict] = {}
+                finish_reason: str | None = None
 
                 async for chunk in self.llm_gateway.chat_stream(
                     messages=messages,
@@ -543,6 +544,30 @@ class _NodeExecutorsMixin:
                 if isinstance(last_msg, dict):
                     last_msg["usage"] = usage
 
+        # #561: stop_reason semantics per LLM hop. Documented set:
+        #   tool_use   — model requested tool calls (auto-continue feeds back)
+        #   max_tokens — finish_reason=="length", truncated output
+        #   end_turn   — model finished its turn without tool calls
+        # pause_turn is stamped on SAFETY_APPROVAL pending events
+        # (_runtime_safety.py); terminal reasons live on the END event.
+        if stream:
+            _finish = finish_reason or ""
+        else:
+            _finish = str(getattr(gw_resp, "finish_reason", "") or "")
+        if tool_calls:
+            think_stop = "tool_use"
+        elif _finish == "length":
+            think_stop = "max_tokens"
+        else:
+            think_stop = "end_turn"
+        logger.info(
+            "llm hop stop_reason=%s tool_calls=%d finish=%s node=%s",
+            think_stop,
+            len(tool_calls),
+            _finish or "none",
+            node.label,
+        )
+
         yield AgentEvent(
             type=AgentEventType.THINK,
             content=content,
@@ -551,6 +576,7 @@ class _NodeExecutorsMixin:
                 "model": resp_model,
                 "temperature": node.temperature,
                 "usage": usage,
+                "stop_reason": think_stop,
             },
         )
 
