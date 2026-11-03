@@ -608,6 +608,11 @@ Audit `audit/fusion-agent-studio-vs-langflow-audit-1020.md` closed end-to-end; s
 - Live acceptance: 4 packs in parallel on a real design doc via fusion-mlx (Qwen3-0.6B) — 9.4 s wall clock (concurrent, not 4× serial), all findings schema-conforming, attribution correct, author note absent from every pack input (blind verified).
 - Tests: `tests/test_issue_549_reviewer_packs.py` (19) — findings validation (free-text rejected), parse (fenced/scalar/prose), fan-out concurrency timing + attribution, blind/non-blind input assertions, per-pack failure isolation, severity ordering, 4-pack registry contract, bundle seeding, dispatcher wiring incl. run/seed/unknown-pack paths; `ReviewPage.test.tsx` (3).
 
+### Run-Loop Parity (v0.14.x) — #561
+- ✅ **stop_reason on every LLM hop** — THINK events now carry `metadata.stop_reason` from the documented semantic set: `tool_use` (model requested tool calls; auto-continue feeds the result back), `max_tokens` (finish_reason `length`, truncated output), `end_turn` (turn finished without tool calls). Pending approvals surface `pause_turn` on the `safety_approval` event. Terminal reasons remain on the END event (`end_turn` / `max_iterations` / `budget_exceeded` / `cancelled`).
+- ✅ **Tool_use auto-continue verified at graph level** — an `llm` node with `loop_mode="agent"` emitting tool_use triggers the tool and continues the run without any hand-wired return edge; each hop is a THINK event with its own stop_reason. Live evidence: `tests/proof/prove_run_loop_parity_561.py` (2 hops, `['tool_use', 'end_turn']`, json_parse tool called and result fed back, real local model).
+- Tests: `tests/test_issue_561_run_loop_parity.py` (6) — hop stop_reason sequence, multi-hop auto-continue (no return edge), non-agent node tool_use surfacing, max_tokens hop, pause_turn on pending approval, semantics documented.
+
 ### Integration
 - ✅ **fusion-mlx** — Apple Silicon optimized model serving
 - ✅ **OpenAI-compatible API** — Works with any OpenAI-compatible backend
