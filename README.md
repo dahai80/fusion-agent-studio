@@ -608,6 +608,14 @@ Audit `audit/fusion-agent-studio-vs-langflow-audit-1020.md` closed end-to-end; s
 - Live acceptance: 4 packs in parallel on a real design doc via fusion-mlx (Qwen3-0.6B) — 9.4 s wall clock (concurrent, not 4× serial), all findings schema-conforming, attribution correct, author note absent from every pack input (blind verified).
 - Tests: `tests/test_issue_549_reviewer_packs.py` (19) — findings validation (free-text rejected), parse (fenced/scalar/prose), fan-out concurrency timing + attribution, blind/non-blind input assertions, per-pack failure isolation, severity ordering, 4-pack registry contract, bundle seeding, dispatcher wiring incl. run/seed/unknown-pack paths; `ReviewPage.test.tsx` (3).
 
+### Flow Store (v0.14.x) — #555
+- ✅ **First-class flow documents** — `FlowStore` (SQLite, `~/.fusion-agent-studio/flows.db`) persists web canvas WorkflowGraph documents: create / save / list / load / delete, no schema-migration framework in v1.
+- ✅ **Version snapshots** — every save that changes the graph JSON records a snapshot; `list_versions` + `restore` write the snapshot back as a new current version (idempotent when graph unchanged).
+- ✅ **Tenant-scoped** — flows carry `tenant_id` from the fusion-identity TenantContext (`''` in local mode); every read/write is tenant-filtered, cross-tenant load/delete is not-found.
+- ✅ **Visible corruption** — a corrupt flow document raises an actionable error naming restore-from-snapshot or delete; invalid graphs (empty nodes, node missing id/type) rejected at save.
+- ✅ **RPC + REST** — `flow.create` / `flow.save` / `flow.list` / `flow.load` / `flow.delete` / `flow.versions` / `flow.restore` on the daemon; REST `/v1/flows` CRUD + `/versions` + `/restore` (OpenAPI pinned). First-class API objects so cowork web GUI (#261) and studio can reference them.
+- Tests: `tests/test_issue_555_flow_store.py` (9) — round-trip, snapshots+restore, tenant isolation, corrupt-flow error, invalid-graph rejection, unknown version, daemon wiring, OpenAPI, REST surface.
+
 ### Integration
 - ✅ **fusion-mlx** — Apple Silicon optimized model serving
 - ✅ **OpenAI-compatible API** — Works with any OpenAI-compatible backend

@@ -99,6 +99,26 @@ class GraphCreateRequest(BaseModel):
     graph_data: dict
 
 
+class FlowSaveRequest(BaseModel):
+    name: str = ""
+    description: str = ""
+    graph: dict
+
+
+class FlowRestoreRequest(BaseModel):
+    version: int
+
+
+def _get_flow_store():
+    from agent_runtime.flow_store import FlowStore, resolve_tenant_id
+
+    store = getattr(app.state, "flow_store", None)
+    if store is None:
+        store = FlowStore()
+        app.state.flow_store = store
+    return store, resolve_tenant_id()
+
+
 class GraphExecuteRequest(BaseModel):
     graph_id: str
     input_text: str = ""
@@ -651,6 +671,124 @@ async def v1_delete_graph(graph_id: str):
         raise_api_error(ErrorCode.AGENT_NOT_FOUND, param="graph_id")
     logger.info("Deleted graph %s", graph_id)
     return {"deleted": True}
+
+
+# #555: flow store — first-class WorkflowGraph documents (web canvas W1-6).
+@app.post("/v1/flows", dependencies=[Depends(_require_auth_if_configured)])
+async def v1_create_flow(req: FlowSaveRequest):
+    from fastapi import HTTPException
+
+    from agent_runtime.errors import ErrorResponse
+    from agent_runtime.flow_store import FlowStoreError
+
+    store, tenant = _get_flow_store()
+    try:
+        out = store.save_flow(
+            req.graph, tenant_id=tenant, name=req.name, description=req.description
+        )
+    except FlowStoreError as exc:
+        err = ErrorResponse.from_error_code(ErrorCode.PARAM_FORMAT_ERROR, param="graph")
+        err.message = str(exc)
+        raise HTTPException(status_code=422, detail={"error": err.to_dict()}) from exc
+    logger.info("flow created %s tenant=%s", out["flow_id"], tenant)
+    return {**out, "tenant_id": tenant}
+
+
+@app.get("/v1/flows", dependencies=[Depends(_require_auth_if_configured)])
+async def v1_list_flows(
+    page: int = 1,
+    limit: int = 20,
+):
+    store, tenant = _get_flow_store()
+    flows = store.list_flows(tenant_id=tenant)
+    return _paginate(flows, page, limit)
+
+
+@app.get("/v1/flows/{flow_id}", dependencies=[Depends(_require_auth_if_configured)])
+async def v1_get_flow(flow_id: str):
+    from fastapi import HTTPException
+
+    from agent_runtime.errors import ErrorResponse
+    from agent_runtime.flow_store import FlowStoreError
+
+    store, tenant = _get_flow_store()
+    try:
+        doc = store.load_flow(flow_id, tenant_id=tenant)
+    except FlowStoreError as exc:
+        err = ErrorResponse.from_error_code(ErrorCode.AGENT_NOT_FOUND, param="flow_id")
+        err.message = str(exc)
+        raise HTTPException(status_code=404, detail={"error": err.to_dict()}) from exc
+    return {**doc, "tenant_id": tenant}
+
+
+@app.put("/v1/flows/{flow_id}", dependencies=[Depends(_require_auth_if_configured)])
+async def v1_save_flow(flow_id: str, req: FlowSaveRequest):
+    from fastapi import HTTPException
+
+    from agent_runtime.errors import ErrorResponse
+    from agent_runtime.flow_store import FlowStoreError
+
+    store, tenant = _get_flow_store()
+    try:
+        out = store.save_flow(
+            req.graph,
+            tenant_id=tenant,
+            name=req.name,
+            description=req.description,
+            flow_id=flow_id,
+        )
+    except FlowStoreError as exc:
+        code = ErrorCode.AGENT_NOT_FOUND if "not found" in str(exc) else ErrorCode.PARAM_FORMAT_ERROR
+        err = ErrorResponse.from_error_code(code, param="graph")
+        err.message = str(exc)
+        status = 404 if "not found" in str(exc) else 422
+        raise HTTPException(status_code=status, detail={"error": err.to_dict()}) from exc
+    return {**out, "tenant_id": tenant}
+
+
+@app.delete("/v1/flows/{flow_id}", dependencies=[Depends(_require_auth_if_configured)])
+async def v1_delete_flow(flow_id: str):
+    store, tenant = _get_flow_store()
+    deleted = store.delete_flow(flow_id, tenant_id=tenant)
+    if not deleted:
+        raise_api_error(ErrorCode.AGENT_NOT_FOUND, param="flow_id")
+    logger.info("flow deleted %s tenant=%s", flow_id, tenant)
+    return {"deleted": True}
+
+
+@app.get("/v1/flows/{flow_id}/versions", dependencies=[Depends(_require_auth_if_configured)])
+async def v1_list_flow_versions(flow_id: str):
+    from fastapi import HTTPException
+
+    from agent_runtime.errors import ErrorResponse
+    from agent_runtime.flow_store import FlowStoreError
+
+    store, tenant = _get_flow_store()
+    try:
+        versions = store.list_versions(flow_id, tenant_id=tenant)
+    except FlowStoreError as exc:
+        err = ErrorResponse.from_error_code(ErrorCode.AGENT_NOT_FOUND, param="flow_id")
+        err.message = str(exc)
+        raise HTTPException(status_code=404, detail={"error": err.to_dict()}) from exc
+    return {"flow_id": flow_id, "versions": versions, "count": len(versions)}
+
+
+@app.post("/v1/flows/{flow_id}/restore", dependencies=[Depends(_require_auth_if_configured)])
+async def v1_restore_flow(flow_id: str, req: FlowRestoreRequest):
+    from fastapi import HTTPException
+
+    from agent_runtime.errors import ErrorResponse
+    from agent_runtime.flow_store import FlowStoreError
+
+    store, tenant = _get_flow_store()
+    try:
+        out = store.restore_version(flow_id, req.version, tenant_id=tenant)
+    except FlowStoreError as exc:
+        code = ErrorCode.AGENT_NOT_FOUND if "not exist" in str(exc) or "not found" in str(exc) else ErrorCode.PARAM_FORMAT_ERROR
+        err = ErrorResponse.from_error_code(code, param="version")
+        err.message = str(exc)
+        raise HTTPException(status_code=404, detail={"error": err.to_dict()}) from exc
+    return {**out, "tenant_id": tenant}
 
 
 @app.post("/v1/graphs/{graph_id}/execute", response_model=ExecutionResponse, dependencies=[Depends(_require_auth_if_configured)])

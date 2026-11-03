@@ -452,6 +452,14 @@ python my_agent.py
 - 线上验收：真实设计文档 × 4 包并行经 fusion-mlx（Qwen3-0.6B）— 9.4 s 墙钟（并发而非 4× 串行），全部发现符合 schema、署名正确、作者说明未出现在任何评审包输入（盲审验证）。
 - 测试：`tests/test_issue_549_reviewer_packs.py`（19）— 发现校验（纯文本拒绝）、解析（围栏/标量/散文）、扇出并发计时 + 署名、盲审/非盲审输入断言、单包失败隔离、严重度排序、4 包注册契约、bundle 生成、dispatcher 接线（run/seed/未知包路径）；`ReviewPage.test.tsx`（3）。
 
+### Flow 存储（v0.14.x）— #555
+- ✅ **一等 flow 文档** — `FlowStore`（SQLite，`~/.fusion-agent-studio/flows.db`）持久化 web 画布 WorkflowGraph 文档：create / save / list / load / delete，v1 不引入 schema 迁移框架。
+- ✅ **版本快照** — 每次改变图 JSON 的保存都记录快照；`list_versions` + `restore` 将快照回写为新的当前版本（图未变时幂等）。
+- ✅ **租户隔离** — flow 携带来自 fusion-identity TenantContext 的 `tenant_id`（本地模式为 `''`）；所有读写按租户过滤，跨租户 load/delete 一律 not-found。
+- ✅ **损坏可见** — 损坏的 flow 文档抛出可操作错误（指明从快照恢复或删除）；非法图（空 nodes、节点缺 id/type）在保存期拒绝。
+- ✅ **RPC + REST** — daemon 上 `flow.create` / `flow.save` / `flow.list` / `flow.load` / `flow.delete` / `flow.versions` / `flow.restore`；REST `/v1/flows` CRUD + `/versions` + `/restore`（OpenAPI 固定）。一等 API 对象，供 cowork web GUI（#261）与 studio 跨端引用。
+- 测试：`tests/test_issue_555_flow_store.py`（9）— 往返、快照+恢复、租户隔离、损坏报错、非法图拒绝、未知版本、daemon 接线、OpenAPI、REST 面。
+
 ### 集成
 - ✅ **fusion-mlx** — Apple Silicon 优化模型服务
 - ✅ **OpenAI 兼容 API** — 兼容任何 OpenAI 兼容后端
