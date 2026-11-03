@@ -19,6 +19,7 @@ import { GovernancePage } from './pages/studio/GovernancePage';
 import { HooksPage } from './pages/studio/HooksPage';
 import { MarketplacePage } from './pages/studio/MarketplacePage';
 import { MemoryPage } from './pages/studio/MemoryPage';
+import { ReviewPage } from './pages/studio/ReviewPage';
 import { SafetyPage } from './pages/studio/SafetyPage';
 import { SkillsPage } from './pages/studio/SkillsPage';
 import { TeamPage } from './pages/studio/TeamPage';
@@ -45,6 +46,7 @@ type StudioRoute =
     | 'tools'
     | 'skills'
     | 'marketplace'
+    | 'review'
     | 'chat'
     | 'aiagent'
     | 'canvas'
@@ -72,6 +74,7 @@ const STUDIO_ROUTES: ReadonlySet<string> = new Set<StudioRoute>([
     'tools',
     'skills',
     'marketplace',
+    'review',
     'chat',
     'aiagent',
     'canvas',
@@ -129,6 +132,8 @@ function StudioPage(props: { tab: StudioRoute }) {
             return <SkillsPage />;
         case 'marketplace':
             return <MarketplacePage />;
+        case 'review':
+            return <ReviewPage />;
         case 'chat':
             return <ChatPage />;
         case 'canvas':

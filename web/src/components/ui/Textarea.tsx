@@ -6,11 +6,13 @@ export function Textarea(props: {
     rows?: number;
     mono?: boolean;
     id?: string;
+    dataTestId?: string;
 }) {
-    const { value, onChange, placeholder, rows = 4, mono = false, id } = props;
+    const { value, onChange, placeholder, rows = 4, mono = false, id, dataTestId } = props;
     return (
         <textarea
             id={id}
+            data-testid={dataTestId}
             value={value}
             rows={rows}
             placeholder={placeholder}

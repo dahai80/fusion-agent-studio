@@ -13,6 +13,7 @@ from .mcp import McpDispatcher
 from .memory import MemoryDispatcher
 from .planner import PlannerDispatcher
 from .plugin import PluginDispatcher
+from .reviewer import ReviewerDispatcher
 from .safety import SafetyDispatcher
 from .session import SessionDispatcher
 from .skills import SkillsDispatcher
@@ -38,6 +39,7 @@ __all__ = [
     "PluginDispatcher",
     "ArtifactDispatcher",
     "TrainerDispatcher",
+    "ReviewerDispatcher",
     "SubAgentDispatcher",
     "SkillsDispatcher",
     "SessionDispatcher",

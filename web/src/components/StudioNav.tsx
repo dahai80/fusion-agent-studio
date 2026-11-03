@@ -25,6 +25,7 @@ export const STUDIO_TABS: Array<{ key: string; label: string; labelEn: string; h
     { key: 'tools', label: '工具', labelEn: 'Tools', href: '#/tools' },
     { key: 'skills', label: '技能', labelEn: 'Skills', href: '#/skills' },
     { key: 'marketplace', label: '市场', labelEn: 'Marketplace', href: '#/marketplace' },
+    { key: 'review', label: '评审包', labelEn: 'Review', href: '#/review' },
     { key: 'chat', label: '聊天', labelEn: 'Chat', href: '#/chat' },
 ];
 
