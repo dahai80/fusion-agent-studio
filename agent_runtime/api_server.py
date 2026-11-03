@@ -557,6 +557,29 @@ async def v1_create_graph(req: GraphCreateRequest):
         graph.name = req.name
     if req.description:
         graph.description = req.description
+    # #543: structural validation at creation — a graph with no start node /
+    # dangling edges used to save fine and 500 at run time. Reject hard
+    # structural errors with 422 (content-schema checks stay on the daemon
+    # graph.create RPC, which needs the tool registry; the REST builder
+    # surface validates structure only, same as the runtime pre-exec check).
+    try:
+        issues = graph.validate()
+    except Exception as exc:
+        logger.warning("graph create validate crashed: %s", exc)
+        issues = []
+    hard = [i for i in issues if not i.startswith("warning:")]
+    if hard:
+        from fastapi import HTTPException
+
+        from agent_runtime.errors import ErrorResponse
+
+        err = ErrorResponse.from_error_code(
+            ErrorCode.PARAM_FORMAT_ERROR,
+            param="graph_data",
+        )
+        err.message = "Graph invalid: " + "; ".join(hard)
+        logger.warning("graph create rejected: %s", hard)
+        raise HTTPException(status_code=422, detail={"error": err.to_dict()})
     _get_store().save_graph(graph)
     logger.info("Created graph %s: %s", graph.id, graph.name)
     return GraphResponse(
@@ -1542,31 +1565,52 @@ async def v1_list_sessions(limit: int = 50, offset: int = 0, tag: str = ""):
     return await _rpc("sessions.list", {"limit": limit, "offset": offset, "tag": tag})
 
 
+async def _session_rpc_or_error(method: str, params: dict):
+    # #543: type-aware session error contract. "session not found" on a chat
+    # session endpoint is SESSION_NOT_FOUND — unless the id resolves to a run
+    # (task) session, which is a SESSION_TYPE_MISMATCH with expected/actual
+    # so callers route to the run surface instead of hunting a missing agent.
+    res = await _rpc(method, params)
+    if isinstance(res, dict) and res.get("status") == "error":
+        message = str(res.get("message", ""))
+        sid = str(params.get("session_id", ""))
+        if "session not found" in message.lower():
+            task_res = await _rpc("task.get", {"task_id": sid})
+            if isinstance(task_res, dict) and task_res.get("task"):
+                raise_api_error(
+                    ErrorCode.SESSION_TYPE_MISMATCH,
+                    param="session_id",
+                    detail=(
+                        f"'{sid}' is a run session id (task), not a chat session id"
+                        f" (expected=chat_session, actual=run) — use /v1/runs/{sid}"
+                    ),
+                )
+            raise_api_error(
+                ErrorCode.SESSION_NOT_FOUND, param="session_id", detail=message
+            )
+        raise_api_error(ErrorCode.AGENT_NOT_FOUND, param="session_id", detail=message)
+    return res
+
+
 @app.get("/v1/sessions/{session_id}")
 async def v1_get_session(session_id: str):
-    res = await _rpc("sessions.get", {"session_id": session_id})
-    if isinstance(res, dict) and res.get("status") == "error":
-        raise_api_error(ErrorCode.AGENT_NOT_FOUND, param="session_id", detail=res.get("message", ""))
-    return res
+    return await _session_rpc_or_error("sessions.get", {"session_id": session_id})
 
 
 @app.get("/v1/sessions/{session_id}/messages")
 async def v1_get_session_messages(session_id: str, limit: int = 200):
-    res = await _rpc("sessions.messages", {"session_id": session_id, "limit": limit})
-    if isinstance(res, dict) and res.get("status") == "error":
-        raise_api_error(ErrorCode.AGENT_NOT_FOUND, param="session_id", detail=res.get("message", ""))
-    return res
+    return await _session_rpc_or_error(
+        "sessions.messages", {"session_id": session_id, "limit": limit}
+    )
 
 
 @app.post("/v1/sessions/{session_id}/resume", dependencies=[Depends(_require_auth_if_configured)])
 async def v1_resume_session(session_id: str, request: Request):
     body = await request.json() if await request.body() else {}
-    res = await _rpc(
+    res = await _session_rpc_or_error(
         "sessions.resume",
         {"session_id": session_id, "input": str(body.get("input", "") or "")},
     )
-    if isinstance(res, dict) and res.get("status") == "error":
-        raise_api_error(ErrorCode.AGENT_NOT_FOUND, param="session_id", detail=res.get("message", ""))
     logger.info("/v1/sessions/%s resumed -> %s", session_id, res.get("background_session_id"))
     return res
 
@@ -1574,12 +1618,10 @@ async def v1_resume_session(session_id: str, request: Request):
 @app.post("/v1/sessions/{session_id}/fork", dependencies=[Depends(_require_auth_if_configured)])
 async def v1_fork_session(session_id: str, request: Request):
     body = await request.json() if await request.body() else {}
-    res = await _rpc(
+    res = await _session_rpc_or_error(
         "sessions.fork",
         {"session_id": session_id, "title": str(body.get("title", "") or "")},
     )
-    if isinstance(res, dict) and res.get("status") == "error":
-        raise_api_error(ErrorCode.AGENT_NOT_FOUND, param="session_id", detail=res.get("message", ""))
     logger.info("/v1/sessions/%s forked", session_id)
     return res
 
@@ -1587,7 +1629,7 @@ async def v1_fork_session(session_id: str, request: Request):
 @app.patch("/v1/sessions/{session_id}", dependencies=[Depends(_require_auth_if_configured)])
 async def v1_rename_session(session_id: str, request: Request):
     body = await request.json()
-    res = await _rpc(
+    return await _session_rpc_or_error(
         "sessions.rename",
         {
             "session_id": session_id,
@@ -1596,9 +1638,6 @@ async def v1_rename_session(session_id: str, request: Request):
             "summary": body.get("summary"),
         },
     )
-    if isinstance(res, dict) and res.get("status") == "error":
-        raise_api_error(ErrorCode.AGENT_NOT_FOUND, param="session_id", detail=res.get("message", ""))
-    return res
 
 
 @app.post("/v1/sessions/{session_id}/inject", dependencies=[Depends(_require_auth_if_configured)])

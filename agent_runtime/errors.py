@@ -44,6 +44,7 @@ class ErrorCode(str, Enum):
     PROJECT_NOT_FOUND = "PROJECT_NOT_FOUND"
     CONNECTOR_NOT_FOUND = "CONNECTOR_NOT_FOUND"
     SESSION_NOT_FOUND = "SESSION_NOT_FOUND"
+    SESSION_TYPE_MISMATCH = "SESSION_TYPE_MISMATCH"
     KNOWLEDGE_BASE_NOT_FOUND = "KNOWLEDGE_BASE_NOT_FOUND"
     RESOURCE_PRIVATE = "RESOURCE_PRIVATE"
     AGENT_NOT_PUBLISHED = "AGENT_NOT_PUBLISHED"
@@ -137,6 +138,14 @@ _ERROR_REGISTRY: dict[str, dict[str, str]] = {
         "type": ErrorType.RESOURCE_NOT_FOUND,
         "message": "Session does not exist",
         "user_message": "会话上下文已失效，请发起新对话",
+    },
+    # #543: a run session id passed to a chat-session endpoint is a type
+    # mismatch, not a missing agent — surface expected/actual so callers
+    # can route to the run surface instead.
+    ErrorCode.SESSION_TYPE_MISMATCH: {
+        "type": ErrorType.INVALID_REQUEST_ERROR,
+        "message": "Resource id belongs to a different session type",
+        "user_message": "该 ID 属于运行会话，不是聊天会话，请改用对应的运行接口",
     },
     ErrorCode.KNOWLEDGE_BASE_NOT_FOUND: {
         "type": ErrorType.RESOURCE_NOT_FOUND,

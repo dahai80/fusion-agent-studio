@@ -427,6 +427,13 @@ python my_agent.py
 - ✅ **运维侧聚合** — `mlx.status` / `mlx.pool` RPC 现透出 fusion-mlx 前缀缓存聚合指标（`hits` / `misses` / `hit_rate` / `tokens_saved` / 查找延迟分位）以及 admin stats 的逐模型 `partial_tokens_skipped` 计数。
 - 测试：`tests/test_issue_541_prefix_cache.py`（9）— 跨调用头部字节一致、易变快照不进头部、历史在易变块之后、span 命中属性有/无、长会话低命中告警（短会话不告警）、池状态前缀缓存透传。
 
+### 验收加固（v0.13.9）— #543
+- ✅ **KB/RAG ask 契约钉死 (#543-1)** — 验收报告称 `POST /kb/bases/{id}/ask` 404；对 fusion-rag v0.8.17 实测确认嵌套的 `/kb` 前缀已挂载（`routes.py` 前缀 + `routes_search.py` 无前缀子路由），ask 返回有据可依的回答。新增契约测试钉死客户端路径（`/health`、`/kb/status`、`/kb/bases`、`/kb/bases/{id}/search`、`/kb/bases/{id}/ask`），前缀一旦漂移直接在测试套件 404，而不是运行时静默降级成 `rag_available=false`。实测 e2e：建库 → ingest → chunk_count=1 → 有据 ask 返回 source → 清理。
+- ✅ **图创建即校验，422 而非 500 (#543-2)** — `POST /v1/graphs`（含 `/graphs` 别名）保存前做结构校验；缺 start 节点 / 悬空边以 422 + `Graph has no start node` 风格消息拒绝，不再落库后运行时炸 500。内容 schema 校验（工具注册表、条件表达式）仍归 daemon `graph.create` RPC — 沿用原软/严拆分。
+- ✅ **类型感知的会话错误契约 (#543-3)** — 对运行会话 id 调 `GET /v1/sessions/{id}/messages`（及 get/resume/fork/rename）返回 `SESSION_TYPE_MISMATCH`（expected=chat_session, actual=run，并指向 `/v1/runs/{id}`）；未知 id 返回 `SESSION_NOT_FOUND` — 不再被误导为 `AGENT_NOT_FOUND`。
+- ✅ **API 密钥引导 (#543-4)** — 密钥页新增首跑提示面板：完整密钥仅在创建/轮换时显示一次，列表只存前缀/ID，丢失不可找回只能轮换，密钥以 `Authorization: Bearer` 调用已发布 Agent。
+- 测试：`tests/test_issue_543_acceptance.py`（8）— rag 客户端契约路径、knowledge-base ask 委派、图 422（缺 start/悬空边/合法保存）、会话类型不匹配 + 未找到；`ApikeysPage.test.tsx` 引导面板。
+
 ### 集成
 - ✅ **fusion-mlx** — Apple Silicon 优化模型服务
 - ✅ **OpenAI 兼容 API** — 兼容任何 OpenAI 兼容后端
