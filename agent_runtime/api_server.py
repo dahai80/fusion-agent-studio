@@ -2445,6 +2445,8 @@ async def v1_execute_graph_stream(
     from_node: str = "",
     stop_after: str = "",
     only_node: str = "",
+    resume_run_id: str = "",
+    last_seq: int = 0,
 ):
     """Server-Sent Events stream — pushes per-token TOKEN events as they arrive.
 
@@ -2484,59 +2486,146 @@ async def v1_execute_graph_stream(
     budget = daemon.token_budget_ref if daemon is not None else None
     sem = daemon.graph_semaphore if daemon is not None else None
 
-    async def event_generator():
-        logger.info("SSE stream start for graph %s", graph_id)
-        _unreg = None
-        if daemon is not None:
-            _, _unreg = daemon.register_execution("sse", graph_id)
-        try:
-            async def _sse_stream():
-                agen = rt.execute_graph_stream(
-                    graph, input, token_budget=budget, show_thinking=thinking
-                )
-                stop_types = {"result", "tool_result", "end", "error", "verify"}
-                try:
-                    async for event in agen:
-                        ev_dict = (
-                            event.to_dict() if hasattr(event, "to_dict") else {"type": str(event)}
-                        )
-                        yield f"data: {json.dumps(ev_dict, ensure_ascii=False)}\n\n"
-                        if (
-                            stop_after
-                            and ev_dict.get("node_id") == stop_after
-                            and ev_dict.get("type") in stop_types
-                        ):
-                            logger.info(
-                                "SSE breakpoint hit graph=%s node=%s", graph_id, stop_after
-                            )
-                            break
-                finally:
-                    aclose = getattr(agen, "aclose", None)
-                    if aclose is not None:
-                        await aclose()
+    # #553: managed run — execution decoupled from the HTTP connection so a
+    # dropped client can resume (replay only frames past last_seq) and the
+    # run can be canceled server-side while streaming.
+    if resume_run_id:
+        run = getattr(app.state, "run_registry", None) and app.state.run_registry.get(
+            resume_run_id
+        )
+        if run is None:
+            raise_api_error(ErrorCode.AGENT_NOT_FOUND, param="resume_run_id")
+        logger.info("SSE resume run=%s after_seq=%d graph=%s", run.run_id, last_seq, graph_id)
+    else:
+        registry = getattr(app.state, "run_registry", None)
+        if registry is None:
+            from agent_runtime.run_registry import RunRegistry
 
-            if sem is not None:
-                async with sem:
-                    logger.info("SSE execute %s acquired concurrency slot", graph_id)
-                    async for chunk in _sse_stream():
-                        yield chunk
-            else:
-                async for chunk in _sse_stream():
-                    yield chunk
-        except Exception as e:
-            logger.exception("SSE stream error for graph %s", graph_id)
-            yield f"data: {json.dumps({'type': 'error', 'message': str(e)}, ensure_ascii=False)}\n\n"
-        finally:
-            if _unreg is not None:
-                _unreg()
-        yield f"data: {json.dumps({'type': 'done'}, ensure_ascii=False)}\n\n"
-        logger.info("SSE stream end for graph %s", graph_id)
+            registry = RunRegistry()
+            app.state.run_registry = registry
+        run = registry.create(graph_id)
+        run.task = asyncio.create_task(
+            _execute_managed_run(
+                run, rt, graph, input, budget=budget, sem=sem,
+                thinking=thinking, stop_after=stop_after, daemon=daemon,
+            )
+        )
+
+    async def event_generator():
+        logger.info("SSE stream start run=%s graph=%s", run.run_id, graph_id)
+        # resume replays only frames past last_seq; fresh runs start at seq 0
+        skip_below = last_seq if resume_run_id else -1
+        if not resume_run_id:
+            yield f"data: {json.dumps({'type': 'run_started', 'run_id': run.run_id}, ensure_ascii=False)}\n\n"
+        next_seq = last_seq + 1 if resume_run_id else 0
+        while True:
+            if next_seq < len(run.buffer):
+                frame = run.buffer[next_seq]
+                next_seq += 1
+                if frame.get("seq", 0) <= skip_below:
+                    continue
+                out = dict(frame)
+                if resume_run_id:
+                    out["replay"] = True
+                yield f"data: {json.dumps(out, ensure_ascii=False)}\n\n"
+                if frame.get("type") == "done":
+                    break
+                continue
+            if run.done and next_seq >= len(run.buffer):
+                break
+            try:
+                frame = await asyncio.wait_for(run.queue.get(), timeout=15)
+            except asyncio.TimeoutError:
+                if run.done and next_seq >= len(run.buffer):
+                    break
+                yield ": keepalive\n\n"
+                continue
+            if frame.get("seq", 0) <= skip_below:
+                continue
+            out = dict(frame)
+            if resume_run_id:
+                out["replay"] = True
+            yield f"data: {json.dumps(out, ensure_ascii=False)}\n\n"
+            if frame.get("type") == "done":
+                break
+        logger.info("SSE stream end run=%s graph=%s", run.run_id, graph_id)
 
     return StreamingResponse(
         event_generator(),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
+
+
+async def _execute_managed_run(
+    run, rt, graph, input, budget=None, sem=None, thinking=True, stop_after="", daemon=None
+):
+    """#553: background pump — publishes every event to the run buffer/queue."""
+    _unreg = None
+    if daemon is not None:
+        _, _unreg = daemon.register_execution("sse", graph.id)
+    try:
+
+        async def _pump():
+            agen = rt.execute_graph_stream(
+                graph, input, token_budget=budget, show_thinking=thinking
+            )
+            stop_types = {"result", "tool_result", "end", "error", "verify"}
+            try:
+                async for event in agen:
+                    if run.cancelled:
+                        logger.info("managed run %s stop on cancel", run.run_id)
+                        break
+                    ev_dict = (
+                        event.to_dict() if hasattr(event, "to_dict") else {"type": str(event)}
+                    )
+                    run.publish(ev_dict)
+                    if (
+                        stop_after
+                        and ev_dict.get("node_id") == stop_after
+                        and ev_dict.get("type") in stop_types
+                    ):
+                        logger.info("SSE breakpoint hit run=%s node=%s", run.run_id, stop_after)
+                        break
+            finally:
+                aclose = getattr(agen, "aclose", None)
+                if aclose is not None:
+                    await aclose()
+
+        if sem is not None:
+            async with sem:
+                await _pump()
+        else:
+            await _pump()
+    except asyncio.CancelledError:
+        run.cancelled = True
+        run.publish({"type": "cancelled", "message": "run canceled"})
+        logger.info("managed run %s canceled", run.run_id)
+    except Exception as e:
+        logger.exception("managed run %s failed", run.run_id)
+        run.publish({"type": "error", "message": str(e)})
+    finally:
+        if _unreg is not None:
+            _unreg()
+        run.done = True
+        if not run.buffer or run.buffer[-1].get("type") != "done":
+            run.publish({"type": "done"})
+
+
+@app.post(
+    "/v1/graphs/{graph_id}/execute/stream/{run_id}/cancel",
+    dependencies=[Depends(_require_auth_qs_or_raise)],
+)
+async def v1_cancel_graph_stream(graph_id: str, run_id: str):
+    """#553: cancel a managed SSE run — background task is aborted and the
+    stream receives a ``cancelled`` frame; safe to call for finished runs."""
+    registry = getattr(app.state, "run_registry", None)
+    run = registry.get(run_id) if registry is not None else None
+    if run is None or run.graph_id != graph_id:
+        raise_api_error(ErrorCode.AGENT_NOT_FOUND, param="run_id")
+    registry.cancel(run_id)
+    logger.info("SSE run cancel requested run=%s graph=%s", run_id, graph_id)
+    return {"ok": True, "run_id": run_id, "cancelled": True}
 
 
 @app.get(

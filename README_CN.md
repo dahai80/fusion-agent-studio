@@ -467,6 +467,14 @@ python my_agent.py
 - ✅ **跨端结构一致性** — 金样 fixture 经 #551 编解码往返，同一图 JSON 在 studio 与 web 上结构渲染一致（位置可不同）；见 `web/src/lib/__tests__/fixtures/studio-flow-fixture.json`。
 - 有意延后（不在本 issue 验收标准内，归入 W2）：便签节点、按需自动布局。
 - 测试：`web/src/lib/__tests__/palette.test.ts`（4 — 注册表覆盖、11 个服务端类型全部可达、planned 集合精确）+ 画布面板组件测试（2）。web 全量 63 vitest，typecheck + build 绿。
+### 托管 SSE 运行（v0.14.x）— #553
+- ✅ **执行与 HTTP 连接解耦** — 图流式执行改为后台 `asyncio.Task`（`RunRegistry` / `ManagedRun`），浏览器断开不再杀死运行。每帧携带单调 `seq` 写入 5000 帧回放缓冲。
+- ✅ **流中取消** — `POST /v1/graphs/{graph_id}/execute/stream/{run_id}/cancel` 中止后台任务，流内收到 `cancelled` 帧。画布运行中显示取消按钮。
+- ✅ **重连不重复** — 流端点接受 `resume_run_id` + `last_seq`，服务端只回放 `last_seq` 之后的帧并标记 `replay: true`（客户端跳过重复渲染）。未知 run 返回 404；越过 `done` 的 resume 立即结束。
+- ✅ **画布运行控制** — 客户端捕获 `run_started` 帧；EventSource 出错自动带 resume 重连（3 次退避重试）而非静默失败，超限后事件流中可见报错。**单步执行**按钮精确执行一跳（`only_node` = 第一个非 start 节点）。
+- ✅ **运行生命周期治理** — 完成的 run 300 秒 TTL 回收、硬上限 50 个、空闲 15 秒发送 SSE keepalive 注释帧。
+- 测试：`tests/test_issue_553_managed_runs.py`（11）+ 画布组件测试（2 — Step 触发 `only_node`、Cancel 关流并 POST 取消端点）。
+
 ### 运行循环对齐（v0.14.x）— #561
 - ✅ **每个 LLM hop 携带 stop_reason** — THINK 事件新增 `metadata.stop_reason`，语义集：`tool_use`（模型请求工具调用；自动回灌工具结果）、`max_tokens`（finish_reason `length`，输出截断）、`end_turn`（无工具调用正常收尾）。待审批在 `safety_approval` 事件上报 `pause_turn`。终态原因仍在 END 事件（`end_turn` / `max_iterations` / `budget_exceeded` / `cancelled`）。
 - ✅ **tool_use 自动续跑图级验证** — `loop_mode="agent"` 的 llm 节点发出 tool_use 即触发工具并自动续跑，无需手工回边；每个 hop 是带独立 stop_reason 的 THINK 事件。线上证据：`tests/proof/prove_run_loop_parity_561.py`（2 hop，`['tool_use', 'end_turn']`，json_parse 工具调用且结果回灌，真实本地模型）。
