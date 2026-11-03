@@ -48,3 +48,24 @@ describe('ApikeysPage example path (#537-1)', () => {
         expect(example.textContent).toContain('Bearer fk-example');
     });
 });
+
+describe('ApikeysPage bootstrap guidance (#543)', () => {
+    beforeEach(() => {
+        rpcMock.mockReset();
+        toastMock.mockReset();
+        rpcMock.mockImplementation(async (method: string) => {
+            if (method === 'apikey.list') return { keys: [] };
+            throw new Error(`unexpected rpc ${method}`);
+        });
+    });
+
+    it('shows bootstrap guidance with rotation flow on first run', async () => {
+        render(<ApikeysPage />);
+        const hint = await screen.findByTestId('key-bootstrap-hint');
+        expect(hint.textContent).toContain('How to get a working key');
+        expect(hint.textContent).toContain('shown once');
+        expect(hint.textContent).toContain('cannot be recovered');
+        expect(hint.textContent).toContain('Rotating');
+        expect(hint.textContent).toContain('Authorization: Bearer');
+    });
+});

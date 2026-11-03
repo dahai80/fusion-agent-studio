@@ -95,6 +95,43 @@ export function ApikeysPage() {
                     </button>
                 }
             />
+            {/* #543: bootstrap guidance — the list is masked to the key id
+                prefix, which is right, but a first-run user needs the path
+                from "I see a prefix" to "I have a working key". */}
+            <div
+                data-testid="key-bootstrap-hint"
+                className="mx-4 mt-2 rounded-md border border-border bg-bg-card px-3 py-2 text-xs text-text-secondary"
+            >
+                <div className="text-text-primary">
+                    {t('如何拿到可用密钥', 'How to get a working key')}
+                </div>
+                <ol className="mt-1 list-decimal space-y-0.5 pl-4">
+                    <li>
+                        {t(
+                            '点右上角「新建密钥」签发 —— 完整密钥只在创建/轮换时显示一次，请立即保存。',
+                            'Create a key above — the full secret is shown once at create/rotate time; save it immediately.'
+                        )}
+                    </li>
+                    <li>
+                        {t(
+                            '列表里只显示前缀与 ID，用于辨认密钥；丢失的密钥无法找回，只能轮换或重建。',
+                            'The list only shows the prefix and id for identification; a lost secret cannot be recovered — rotate or recreate instead.'
+                        )}
+                    </li>
+                    <li>
+                        {t(
+                            '轮换会立即签发新密钥并吊销旧密钥；吊销前的调用不受影响。',
+                            'Rotating issues a new secret and revokes the old one immediately; calls made before the rotation are unaffected.'
+                        )}
+                    </li>
+                    <li>
+                        {t(
+                            '密钥通过 Authorization: Bearer 调用已发布的 Agent（见下方创建后的调用示例）。',
+                            'Call published agents with Authorization: Bearer (see the usage example shown after creation).'
+                        )}
+                    </li>
+                </ol>
+            </div>
             {created ? (
                 <div className="mx-4 mt-2 rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-xs">
                     <div className="text-text-primary">
