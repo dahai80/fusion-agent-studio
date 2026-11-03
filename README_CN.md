@@ -434,6 +434,14 @@ python my_agent.py
 - ✅ **API 密钥引导 (#543-4)** — 密钥页新增首跑提示面板：完整密钥仅在创建/轮换时显示一次，列表只存前缀/ID，丢失不可找回只能轮换，密钥以 `Authorization: Bearer` 调用已发布 Agent。
 - 测试：`tests/test_issue_543_acceptance.py`（8）— rag 客户端契约路径、knowledge-base ask 委派、图 422（缺 start/悬空边/合法保存）、会话类型不匹配 + 未找到；`ApikeysPage.test.tsx` 引导面板。
 
+### 验收残留第二轮 + Web 工作流画布基座（v0.14.0）— #546、#550、#551
+- ✅ **图创建 500 → 422 (#546-2)** — `POST /v1/graphs` 的 `AgentGraph.from_dict` 此前在 try 之外，畸形载荷（如 `nodes: [42]`）直接抛异常变 500。现与结构校验同样以 422 `PARAM_FORMAT_ERROR` 信封拒绝（"Graph data unparseable: …"）。
+- ✅ **执行环 start 节点校验 (#546-3)** — `POST /v1/graphs/{id}/execute` 在 runtime 遍历前先做结构校验；先于创建校验落库（或经 daemon RPC 构建）的缺 start/悬空边图返回 422，不再以 `status="error"` 吞掉运行时错误。
+- ✅ **KB ask 404 争议：代码层不可复现 (#546-1)** — 路由 `POST /v1/knowledge-bases/{kb_id}/ask` 自 v0.6.x 起注册，`KnowledgeBaseManager.ask` 降级返回 `rag_available=false` 信封，永不 404。测试固定 OpenAPI 契约（ask/search/scan/graphs/execute 路径），回应 issue 的"确认哪些端点真实存在"— 验收到的 404 应指向 shell/gateway 代理路径或旧构建，非本服务。
+- ✅ **TS WorkflowGraph 模型 + GraphCodec (#550)** — `web/src/lib/workflowGraph.ts` 镜像 studio 统一模型（studio#421，方案 §6.2）：`WorkflowGraph` / `WorkflowNode` / `WorkflowEdge` / `Port`，端口类型词汇 `.message/.data/.tool/.json/.array/.any`，`schemaVersion` 字段 + 解析告警向前兼容；`GraphCodec`（`toAgentStudioGraph` / `fromAgentStudioGraph`）在进程内与 server `AgentGraphModel` 形状往返。端口兼容矩阵（同型直连、`.any` 逃生口带告警、`.data`→`.json` 迁移映射、其余拒绝并给原因）。金样测试：studio 授权流 fixture 加载、校验并转换为现有 server-schema 校验器接受的图。
+- ✅ **NodeDefinition + NodeRegistry — 17 型统一分类 (#551)** — `web/src/lib/nodeRegistry.ts` 注册完整统一集（start、end、llm、agent、tool、mcp_tool、condition、question_classifier、loop、iteration、variable_aggregator、knowledge_retrieval、code、template、http_request、human_input、sub_flow），key 与 studio#427 一致，按分类分组的调色板元数据 + 类型化 `configSchema` 表单（text/multiline/number/boolean/select/secret/tags/model）驱动检查器，无需每节点定制表单。本面仅元数据 — `run()` 留在后端（执行见 W1-4）。共享 `node-taxonomy-17.json` fixture 固定跨面契约。
+- 测试：`tests/test_issue_546_acceptance.py`（8）— OpenAPI 路由契约、ask 降级不 404、创建 422 畸形、执行前校验 422、合法执行路径；`web/src/lib/__tests__/workflowGraph.test.ts`（12）+ `nodeRegistry.test.ts`（7）— 解析/校验、端口矩阵、编解码往返 + 丢弃上报、金样跨面、17-key 分类 parity。
+
 ### 集成
 - ✅ **fusion-mlx** — Apple Silicon 优化模型服务
 - ✅ **OpenAI 兼容 API** — 兼容任何 OpenAI 兼容后端

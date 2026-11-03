@@ -552,7 +552,23 @@ async def v1_create_graph(req: GraphCreateRequest):
     if "nodes" not in req.graph_data:
         raise_api_error(ErrorCode.PARAM_FORMAT_ERROR, param="graph_data", detail="graph_data must contain 'nodes'")
 
-    graph = AgentGraph.from_dict(req.graph_data)
+    # #546: from_dict itself can raise on malformed payloads (nodes as scalar,
+    # edge missing keys, unknown node types) — that surfaced as a 500. Reject
+    # with the same 422 envelope as structural validation below.
+    try:
+        graph = AgentGraph.from_dict(req.graph_data)
+    except Exception as exc:
+        logger.warning("graph create from_dict failed: %s", exc)
+        from fastapi import HTTPException
+
+        from agent_runtime.errors import ErrorResponse
+
+        err = ErrorResponse.from_error_code(
+            ErrorCode.PARAM_FORMAT_ERROR,
+            param="graph_data",
+        )
+        err.message = f"Graph data unparseable: {exc}"
+        raise HTTPException(status_code=422, detail={"error": err.to_dict()}) from exc
     if req.name:
         graph.name = req.name
     if req.description:
@@ -642,6 +658,28 @@ async def v1_execute_graph(graph_id: str, req: GraphExecuteRequest):
     graph = _get_store().load_graph(graph_id)
     if graph is None:
         raise_api_error(ErrorCode.AGENT_NOT_FOUND, param="graph_id")
+    # #546: pre-exec structural validation — graphs saved before create-time
+    # validation (#543) or built via daemon RPC can lack a start node / have
+    # dangling edges; executing them used to surface as a runtime error
+    # swallowed into status="error". Reject up front with 422.
+    try:
+        issues = graph.validate()
+    except Exception as exc:
+        logger.warning("graph execute validate crashed: %s", exc)
+        issues = []
+    hard = [i for i in issues if not i.startswith("warning:")]
+    if hard:
+        from fastapi import HTTPException
+
+        from agent_runtime.errors import ErrorResponse
+
+        err = ErrorResponse.from_error_code(
+            ErrorCode.PARAM_FORMAT_ERROR,
+            param="graph_id",
+        )
+        err.message = "Graph invalid: " + "; ".join(hard)
+        logger.warning("graph execute rejected (pre-exec): %s", hard)
+        raise HTTPException(status_code=422, detail={"error": err.to_dict()})
     rt = _get_runtime()
     session_id = req.session_id or str(uuid.uuid4())[:8]
     events = []

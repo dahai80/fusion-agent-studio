@@ -1,0 +1,67 @@
+{
+    "schemaVersion": 1,
+    "id": "0f1e2d3c-4b5a-6978-8a9b-cdef01234567",
+    "name": "RAG Q&A (studio-authored golden fixture)",
+    "viewport": { "offsetX": 40, "offsetY": 20, "scale": 1.25 },
+    "flowStateSchema": [
+        { "key": "question", "valueType": "string" },
+        { "key": "answer", "valueType": "string" }
+    ],
+    "nodes": [
+        {
+            "id": "n-start",
+            "type": "start",
+            "position": { "x": 80, "y": 160 },
+            "size": { "width": 200, "height": 80 },
+            "config": { "label": "In", "flow_state": ["question"] },
+            "label": "In"
+        },
+        {
+            "id": "n-llm",
+            "type": "llm",
+            "position": { "x": 360, "y": 160 },
+            "config": {
+                "model": "mlx-community--Qwen3-0.6B-4bit",
+                "system_prompt": "Answer from context."
+            },
+            "label": "Answerer"
+        },
+        {
+            "id": "n-kr",
+            "type": "knowledge_retrieval",
+            "position": { "x": 360, "y": 320 },
+            "config": { "kb_id": "kb-docs", "top_k": 4 },
+            "label": "Fetch docs"
+        },
+        {
+            "id": "n-end",
+            "type": "end",
+            "position": { "x": 640, "y": 200 },
+            "config": { "label": "Out" },
+            "label": "Out"
+        }
+    ],
+    "edges": [
+        {
+            "id": "e1",
+            "sourceNode": "n-start",
+            "sourcePort": "out",
+            "targetNode": "n-llm",
+            "targetPort": "in"
+        },
+        {
+            "id": "e2",
+            "sourceNode": "n-kr",
+            "sourcePort": "out",
+            "targetNode": "n-llm",
+            "targetPort": "in"
+        },
+        {
+            "id": "e3",
+            "sourceNode": "n-llm",
+            "sourcePort": "out",
+            "targetNode": "n-end",
+            "targetPort": "in"
+        }
+    ]
+}

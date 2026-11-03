@@ -1,0 +1,23 @@
+{
+    "contract": "unified 17-type node taxonomy — shared cross-surface fixture (web W1-2 #551 / studio#427)",
+    "schemaVersion": 1,
+    "nodeTypes": [
+        { "key": "start", "category": "flow" },
+        { "key": "end", "category": "flow" },
+        { "key": "llm", "category": "model" },
+        { "key": "agent", "category": "model" },
+        { "key": "tool", "category": "action" },
+        { "key": "mcp_tool", "category": "action" },
+        { "key": "condition", "category": "control" },
+        { "key": "question_classifier", "category": "control" },
+        { "key": "loop", "category": "control" },
+        { "key": "iteration", "category": "control" },
+        { "key": "variable_aggregator", "category": "control" },
+        { "key": "knowledge_retrieval", "category": "data" },
+        { "key": "code", "category": "logic" },
+        { "key": "template", "category": "logic" },
+        { "key": "http_request", "category": "io" },
+        { "key": "human_input", "category": "control" },
+        { "key": "sub_flow", "category": "control" }
+    ]
+}
