@@ -616,6 +616,14 @@ Audit `audit/fusion-agent-studio-vs-langflow-audit-1020.md` closed end-to-end; s
 - ✅ **RPC + REST** — `flow.create` / `flow.save` / `flow.list` / `flow.load` / `flow.delete` / `flow.versions` / `flow.restore` on the daemon; REST `/v1/flows` CRUD + `/versions` + `/restore` (OpenAPI pinned). First-class API objects so cowork web GUI (#261) and studio can reference them.
 - Tests: `tests/test_issue_555_flow_store.py` (9) — round-trip, snapshots+restore, tenant isolation, corrupt-flow error, invalid-graph rejection, unknown version, daemon wiring, OpenAPI, REST surface.
 
+### Web Canvas Authoring Surface (v0.14.x) — #552
+- ✅ **Palette derived from the #551 node registry** — groups follow the 17-type unified taxonomy by category; server-executable entries are draggable with their server node type (agent→planner, variable_aggregator→parallel, knowledge_retrieval→rag), types without a server executor render disabled with a planned marker (code, template, http_request, human_input, sub_flow, mcp_tool, question_classifier, iteration); server-native `error_handler` and `verify` stay first-class entries.
+- ✅ **Snap-to-grid (16px, matching the dot background)** + `Delete`/`Backspace` node deletion + explicit Shift multi-select key.
+- ✅ **Duplicate (⌘/Ctrl+D) and copy/paste (⌘/Ctrl+C/V)** of the current selection — internal clipboard, cloned nodes re-labeled, internal edges cloned and remapped, undo-history recorded.
+- ✅ **Cross-surface structural parity** — golden fixture round-trips through the #551 codec so the same graph JSON renders identically in structure on studio and web (positions may differ); see `web/src/lib/__tests__/fixtures/studio-flow-fixture.json`.
+- Deliberately deferred (not in the issue's acceptance criteria, tracked for W2): sticky note node, on-demand auto-layout.
+- Tests: `web/src/lib/__tests__/palette.test.ts` (4 — registry coverage, all 11 server types reachable, planned set exact) + canvas palette component tests (2). Full web: 63 vitest, typecheck + build green.
+
 ### Integration
 - ✅ **fusion-mlx** — Apple Silicon optimized model serving
 - ✅ **OpenAI-compatible API** — Works with any OpenAI-compatible backend

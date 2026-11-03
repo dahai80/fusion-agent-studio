@@ -460,6 +460,14 @@ python my_agent.py
 - ✅ **RPC + REST** — daemon 上 `flow.create` / `flow.save` / `flow.list` / `flow.load` / `flow.delete` / `flow.versions` / `flow.restore`；REST `/v1/flows` CRUD + `/versions` + `/restore`（OpenAPI 固定）。一等 API 对象，供 cowork web GUI（#261）与 studio 跨端引用。
 - 测试：`tests/test_issue_555_flow_store.py`（9）— 往返、快照+恢复、租户隔离、损坏报错、非法图拒绝、未知版本、daemon 接线、OpenAPI、REST 面。
 
+### Web 画布编辑面（v0.14.x）— #552
+- ✅ **面板来自 #551 节点注册表** — 按 17 型统一分类法分组；可执行条目携带服务端节点类型（agent→planner、variable_aggregator→parallel、knowledge_retrieval→rag），无服务端执行器的类型显示为禁用的“规划中”标记（code、template、http_request、human_input、sub_flow、mcp_tool、question_classifier、iteration）；服务端原生 `error_handler` 与 `verify` 保留为一等条目。
+- ✅ **网格吸附（16px，与点阵背景一致）** + `Delete`/`Backspace` 删除节点 + 显式 Shift 多选键。
+- ✅ **复制副本（⌘/Ctrl+D）与复制/粘贴（⌘/Ctrl+C/V）** — 应用内剪贴板，克隆节点重命名、内部边克隆并重映射，写入撤销历史。
+- ✅ **跨端结构一致性** — 金样 fixture 经 #551 编解码往返，同一图 JSON 在 studio 与 web 上结构渲染一致（位置可不同）；见 `web/src/lib/__tests__/fixtures/studio-flow-fixture.json`。
+- 有意延后（不在本 issue 验收标准内，归入 W2）：便签节点、按需自动布局。
+- 测试：`web/src/lib/__tests__/palette.test.ts`（4 — 注册表覆盖、11 个服务端类型全部可达、planned 集合精确）+ 画布面板组件测试（2）。web 全量 63 vitest，typecheck + build 绿。
+
 ### 集成
 - ✅ **fusion-mlx** — Apple Silicon 优化模型服务
 - ✅ **OpenAI 兼容 API** — 兼容任何 OpenAI 兼容后端

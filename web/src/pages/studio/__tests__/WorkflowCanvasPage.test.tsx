@@ -51,6 +51,38 @@ async function renderCanvas() {
     return user;
 }
 
+describe('WorkflowCanvasPage palette from node registry (#552)', () => {
+    beforeEach(() => {
+        rpcMock.mockReset();
+        graphsMock.mockReset();
+        window.sessionStorage.clear();
+        window.localStorage.clear();
+    });
+
+    it('renders server-executable palette entries enabled and planned ones disabled', async () => {
+        defaultRpcs([{ action_id: 'seed', category: 'bash' }]);
+        await renderCanvas();
+
+        // server-executable entries are draggable buttons
+        const start = screen.getByRole('button', { name: '+ Start' });
+        expect(start).toBeEnabled();
+        expect(start).toHaveAttribute('draggable', 'true');
+        // planned entries (no server executor) are disabled with a * marker
+        const code = screen.getByRole('button', { name: '+ Code *' });
+        expect(code).toBeDisabled();
+        const http = screen.getByRole('button', { name: '+ HTTP Request *' });
+        expect(http).toBeDisabled();
+    });
+
+    it('keeps server-native error_handler and verify in the palette', async () => {
+        defaultRpcs([{ action_id: 'seed', category: 'bash' }]);
+        await renderCanvas();
+
+        expect(screen.getByRole('button', { name: '+ Error Handler' })).toBeEnabled();
+        expect(screen.getByRole('button', { name: '+ Verify' })).toBeEnabled();
+    });
+});
+
 describe('WorkflowCanvasPage safety pending actions (#489)', () => {
     beforeEach(() => {
         rpcMock.mockReset();

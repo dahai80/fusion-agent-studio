@@ -47,6 +47,7 @@ import {
     toRfNodes,
     validateGraphClient,
 } from '../../lib/graphSchema';
+import { paletteGroups } from '../../lib/nodeRegistry';
 
 const PORT_COLOR: Record<string, string> = {
     flow: '#6b7280',
@@ -58,13 +59,11 @@ const CANVAS_GRAPH_KEY = 'fusion.canvas.graphId';
 const PIN_KEY_PREFIX = 'fusion.canvas.pins.';
 
 // #394: sidebar palette split — execution flow vs intelligence nodes.
-const NODE_GROUPS: Array<{ title: string; types: string[] }> = [
-    {
-        title: 'Execution flow',
-        types: ['start', 'end', 'llm', 'tool', 'condition', 'loop', 'parallel', 'error_handler'],
-    },
-    { title: 'Intelligence', types: ['rag', 'planner', 'verify'] },
-];
+// #552: groups derived from the #551 node registry (17-type unified taxonomy
+// grouped by category); server-compatible types are draggable, the rest show
+// as planned (disabled) so the palette mirrors the registry without letting
+// a non-executable node type into the server graph.
+const NODE_GROUPS = paletteGroups();
 
 // #396: examples/*.json templates bundled at build time (no runtime disk read).
 const TEMPLATES: Array<{ name: string; graph: GraphJson }> = (() => {
@@ -311,6 +310,87 @@ function CanvasInner() {
         window.addEventListener('keydown', onKey);
         return () => window.removeEventListener('keydown', onKey);
     }, [undo, redo]);
+
+    // #552: duplicate (⌘/Ctrl+D) + copy/paste (⌘/Ctrl+C/V) for the current
+    // selection. Internal clipboard only — no cross-tab clipboard writes.
+    const clipboardRef = useRef<Array<FusionNodeData & { id: string; x: number; y: number }>>([]);
+    const duplicateSelection = useCallback(
+        (offset: number) => {
+            const members = nodes.filter((n) => selectedIds.includes(n.id));
+            if (members.length === 0) return;
+            pushHistory();
+            const idMap = new Map<string, string>();
+            const clones: Node[] = members.map((m) => {
+                const nid = `${(m.data as FusionNodeData).nodeType}_${Math.random()
+                    .toString(36)
+                    .slice(2, 6)}`;
+                idMap.set(m.id, nid);
+                return {
+                    ...m,
+                    id: nid,
+                    selected: false,
+                    position: { x: m.position.x + offset, y: m.position.y + offset },
+                    data: { ...(m.data as FusionNodeData), label: nid },
+                };
+            });
+            setNodes((ns) => [...ns, ...clones]);
+            const memberIds = new Set(selectedIds);
+            const clonedEdges: Edge[] = edges
+                .filter((e) => memberIds.has(e.source) && memberIds.has(e.target))
+                .map((e) => ({
+                    ...e,
+                    id: `e_${Math.random().toString(36).slice(2, 8)}`,
+                    source: idMap.get(e.source) || e.source,
+                    target: idMap.get(e.target) || e.target,
+                    selected: false,
+                }));
+            if (clonedEdges.length > 0) setEdges((es) => [...es, ...clonedEdges]);
+            return { idMap, clones };
+        },
+        [nodes, edges, selectedIds, setNodes, setEdges, pushHistory]
+    );
+
+    useEffect(() => {
+        const onKey = (ev: KeyboardEvent) => {
+            if (!(ev.metaKey || ev.ctrlKey)) return;
+            const key = ev.key.toLowerCase();
+            if (key === 'd') {
+                ev.preventDefault();
+                duplicateSelection(24);
+            } else if (key === 'c') {
+                const members = nodes.filter((n) => selectedIds.includes(n.id));
+                clipboardRef.current = members.map((m) => ({
+                    ...((m.data as FusionNodeData) || { label: '', nodeType: 'llm', config: {} }),
+                    id: m.id,
+                    x: m.position.x,
+                    y: m.position.y,
+                }));
+            } else if (key === 'v') {
+                const buf = clipboardRef.current;
+                if (buf.length === 0) return;
+                ev.preventDefault();
+                pushHistory();
+                const idMap = new Map<string, string>();
+                const clones: Node[] = buf.map((m) => {
+                    const nid = `${m.nodeType}_${Math.random().toString(36).slice(2, 6)}`;
+                    idMap.set(m.id, nid);
+                    return {
+                        id: nid,
+                        type: 'fusionNode',
+                        position: { x: m.x + 32, y: m.y + 32 },
+                        data: { ...m, id: undefined, label: nid } as unknown as FusionNodeData,
+                    };
+                });
+                setNodes((ns) => [...ns, ...clones]);
+                clipboardRef.current = buf.map((m) => ({
+                    ...m,
+                    id: idMap.get(m.id) || m.id,
+                }));
+            }
+        };
+        window.addEventListener('keydown', onKey);
+        return () => window.removeEventListener('keydown', onKey);
+    }, [duplicateSelection, nodes, selectedIds, setNodes, pushHistory]);
 
     const refreshGovernance = useCallback(async () => {
         try {
@@ -1137,23 +1217,39 @@ function CanvasInner() {
                             {t(grp.title, grp.title)}
                         </div>
                         <div className="grid grid-cols-2 gap-1">
-                            {grp.types.map((nt) => (
+                            {grp.entries.map((entry) => (
                                 <button
                                     type="button"
-                                    key={nt}
-                                    draggable
+                                    key={entry.type}
+                                    draggable={!entry.planned}
+                                    disabled={entry.planned}
                                     onDragStart={(e) => {
-                                        e.dataTransfer.setData('fusion/node-type', nt);
+                                        e.dataTransfer.setData(
+                                            'fusion/node-type',
+                                            entry.serverType
+                                        );
                                         e.dataTransfer.effectAllowed = 'copy';
                                     }}
-                                    className="rounded border border-border px-1 py-0.5 text-[10px] hover:border-brand cursor-grab"
-                                    onClick={() => addNode(nt)}
-                                    title={t(
-                                        '点击添加，或拖到画布任意位置',
-                                        'Click to add, or drag onto the canvas'
-                                    )}
+                                    className={`rounded border px-1 py-0.5 text-[10px] ${
+                                        entry.planned
+                                            ? 'border-border text-text-secondary opacity-50 cursor-not-allowed'
+                                            : 'border-border hover:border-brand cursor-grab'
+                                    }`}
+                                    onClick={() => addNode(entry.serverType)}
+                                    title={
+                                        entry.planned
+                                            ? t(
+                                                  '规划中（尚无服务端执行类型）',
+                                                  'Planned (no server executor yet)'
+                                              )
+                                            : t(
+                                                  '点击添加，或拖到画布任意位置',
+                                                  'Click to add, or drag onto the canvas'
+                                              )
+                                    }
                                 >
-                                    + {nt}
+                                    + {entry.displayName}
+                                    {entry.planned ? ' *' : ''}
                                 </button>
                             ))}
                         </div>
@@ -1322,6 +1418,10 @@ function CanvasInner() {
                         e.dataTransfer.dropEffect = 'copy';
                     }}
                     onDrop={onDrop}
+                    snapToGrid
+                    snapGrid={[16, 16]}
+                    deleteKeyCode={['Backspace', 'Delete']}
+                    multiSelectionKeyCode="Shift"
                     fitView
                 >
                     <Background variant={BackgroundVariant.Dots} gap={16} size={1} />
