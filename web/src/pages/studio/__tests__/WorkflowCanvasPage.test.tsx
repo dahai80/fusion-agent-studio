@@ -381,3 +381,67 @@ describe('WorkflowCanvasPage inspector secrets + card summary (#554)', () => {
         expect(payload).toContain('https://x');
     });
 });
+
+describe('WorkflowCanvasPage variable inspector (#556)', () => {
+    beforeEach(() => {
+        rpcMock.mockReset();
+        graphsMock.mockReset();
+        window.sessionStorage.clear();
+        window.localStorage.clear();
+    });
+
+    it('shows FlowState snapshots from run events in the sidebar', async () => {
+        class FakeES {
+            static instances: FakeES[] = [];
+            url: string;
+            closed = false;
+            onmessage: ((ev: { data: string }) => void) | null = null;
+            onerror: (() => void) | null = null;
+            constructor(url: string) {
+                this.url = url;
+                FakeES.instances.push(this);
+            }
+            close() {
+                this.closed = true;
+            }
+        }
+        vi.stubGlobal('EventSource', FakeES as unknown as typeof EventSource);
+        rpcMock.mockImplementation(async (method: string) => {
+            if (method === 'graph.get')
+                return {
+                    graph: {
+                        nodes: {
+                            start: { type: 'start', label: 'start' },
+                            llm1: { type: 'llm', label: 'LLM', model: 'qwen3' },
+                        },
+                        edges: [{ source_id: 'start', target_id: 'llm1' }],
+                        start_node_id: 'start',
+                    },
+                };
+            if (method === 'budget.status') return { remaining: 800, max_tokens: 1000 };
+            if (method === 'safety.get_pending_actions')
+                return { actions: [{ action_id: 'seed', category: 'bash' }] };
+            if (method === 'tool.list') return { tools: [{ name: 'read_file' }] };
+            throw new Error(`unexpected rpc: ${method}`);
+        });
+        graphsMock.mockResolvedValue({ data: [] });
+        const user = await renderCanvas();
+
+        await user.click(screen.getByRole('button', { name: 'Step' }));
+        await waitFor(() => expect(FakeES.instances).toHaveLength(1));
+        FakeES.instances[0].onmessage?.({
+            data: JSON.stringify({
+                type: 'result',
+                node_id: 'llm1',
+                content: 'ok',
+                seq: 1,
+                metadata: { flow_state: { region: 'cn', items: ['x', 'y'] } },
+            }),
+        });
+
+        expect(await screen.findByText('region')).toBeInTheDocument();
+        expect(screen.getByText('cn')).toBeInTheDocument();
+        expect(screen.getByText('items')).toBeInTheDocument();
+        expect(screen.getByText('["x","y"]')).toBeInTheDocument();
+    });
+});

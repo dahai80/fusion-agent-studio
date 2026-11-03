@@ -630,6 +630,15 @@ Audit `audit/fusion-agent-studio-vs-langflow-audit-1020.md` closed end-to-end; s
 - ✅ Registry additions: `http_request.api_key` and `mcp_tool.auth_token` as advanced secret fields.
 - Tests: `secretStore.test.ts` (8 — store semantics, 17-type field coverage, secret-widget mapping, strip correctness + idempotence, summary priority/truncation) + canvas tests (2 — card summary rendering, save-payload secret stripping through the #396 diff confirm).
 
+### Iteration + Variable Aggregator + FlowState (v0.14.x) — #556
+- ✅ **`iteration` node type (server)** — runs the embedded sub-graph (`graph_json`, via the audited `__sub_graph__` path with depth gates) once per item from `tool_params.items_var`; per-item `item`/`item_index` variables thread into `input_mapping`; per-item output = the sub-graph's last RESULT (or LLM THINK) event, prefix-stripped. Results accumulate in `output_var` as a JSON list.
+- ✅ **`variable_aggregator` node type (server)** — merges declared `input_vars` into one output (single var → value, multiple → dict); the gather counterpart of iteration and C5 parallel branches.
+- ✅ **Visible cap breach** — `max_items` (default 100): over-cap input fails with an ERROR event (`cap_breach: true`) instead of silent truncation; sub-graph error stops iteration with partial results kept.
+- ✅ **FlowState** — declared at the start node (`tool_params.flow_state`); seeded from a JSON-object input at run start; loop / iteration / aggregator events carry a `flow_state` snapshot in metadata.
+- ✅ **Bounded execution** — items bounded by `max_items`, each sub-run bounded by graph `max_iterations`; recorded no-hang test at the cap (asyncio.wait_for).
+- ✅ **Web variable inspector** — sidebar Variables panel live-updates from run SSE `metadata.flow_state`; `iteration` + `variable_aggregator` palette entries now server-executable (planned markers removed), `parallel` stays first-class.
+- Tests: `tests/test_issue_556_flow_iteration.py` (8 — per-item subgraph + aggregation, flow_state seeding + snapshots, visible cap breach, missing/non-list items, aggregator contract, multi-var merge, no-hang at cap, validate) + canvas test (1 — inspector renders snapshot) + palette tests updated (iteration/aggregator reachable, parallel preserved).
+
 ### Managed SSE Runs (v0.14.x) — #553
 - ✅ **Execution decoupled from the HTTP connection** — graph streaming runs in a background `asyncio.Task` (`RunRegistry` / `ManagedRun`); a dropped browser no longer kills the run. Every frame carries a monotonic `seq` into a 5000-frame replay buffer.
 - ✅ **Cancel while streaming** — `POST /v1/graphs/{graph_id}/execute/stream/{run_id}/cancel` aborts the background task; the stream receives a `cancelled` frame. Canvas shows a Cancel button while running.

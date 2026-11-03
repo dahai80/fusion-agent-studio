@@ -474,6 +474,15 @@ python my_agent.py
 - ✅ 注册表新增：`http_request.api_key` 与 `mcp_tool.auth_token` 高级密钥字段。
 - 测试：`secretStore.test.ts`（8）+ 画布测试（2 — 卡片摘要渲染、经 #396 diff 确认框的保存载荷密钥剥除）。
 
+### 迭代 + 变量聚合器 + FlowState（v0.14.x）— #556
+- ✅ **`iteration` 节点类型（服务端）** — 对 `tool_params.items_var` 列表逐项执行内嵌子图（`graph_json`，走经审计的 `__sub_graph__` 路径含深度门禁）；每项先写 `item`/`item_index` 变量供 `input_mapping` 线程化传入；单项输出取子图最后一个 RESULT（或 LLM THINK）事件并去前缀；结果按 JSON 列表累积到 `output_var`。
+- ✅ **`variable_aggregator` 节点类型（服务端）** — 将声明的 `input_vars` 合并为一个输出（单变量→值，多变量→dict），作为 iteration 与 C5 parallel 分支的 gather 对应物。
+- ✅ **超限可见失败** — `max_items`（默认 100）：超限输入以 ERROR 事件失败（`cap_breach: true`），绝不静默截断；子图报错即停并保留部分结果。
+- ✅ **FlowState** — 在 start 节点声明（`tool_params.flow_state`）；运行开始时从 JSON 对象输入播种；loop / iteration / aggregator 事件在 metadata 携带 `flow_state` 快照。
+- ✅ **有界执行** — 项数受 `max_items` 约束，每次子图执行受图 `max_iterations` 约束；cap 上限下的无挂起测试（asyncio.wait_for）。
+- ✅ **Web 变量检查器** — 侧栏变量面板随运行 SSE `metadata.flow_state` 实时更新；`iteration` + `variable_aggregator` 画布入口转为可执行（移除 planned 标记），`parallel` 保持一等入口。
+- 测试：`tests/test_issue_556_flow_iteration.py`（8）+ 画布测试（1）+ palette 测试更新。
+
 ### 托管 SSE 运行（v0.14.x）— #553
 - ✅ **执行与 HTTP 连接解耦** — 图流式执行改为后台 `asyncio.Task`（`RunRegistry` / `ManagedRun`），浏览器断开不再杀死运行。每帧携带单调 `seq` 写入 5000 帧回放缓冲。
 - ✅ **流中取消** — `POST /v1/graphs/{graph_id}/execute/stream/{run_id}/cancel` 中止后台任务，流内收到 `cancelled` 帧。画布运行中显示取消按钮。

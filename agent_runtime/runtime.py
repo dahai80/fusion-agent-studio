@@ -9,6 +9,7 @@ debugger hooks, structured output, and sub-graph execution.
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import time
 import uuid
@@ -855,6 +856,27 @@ class AgentRuntime(_SafetyApprovalMixin, _CheckpointMixin, _DynamicToolsMixin, _
             )
             try:
                 if node.type == "start":
+                    # #556: FlowState declared at the start node
+                    # (tool_params.flow_state) — seed declared keys from a
+                    # JSON-object input so downstream nodes can read them.
+                    _flow_keys = (node.tool_params or {}).get("flow_state") or []
+                    if _flow_keys and initial_input:
+                        try:
+                            _seed = (
+                                json.loads(initial_input)
+                                if isinstance(initial_input, str)
+                                else initial_input
+                            )
+                            if isinstance(_seed, dict):
+                                for _k in _flow_keys:
+                                    if _k in _seed:
+                                        ctx.variables.set(_k, _seed[_k])
+                                logger.info(
+                                    "flow_state seeded keys=%s graph=%s",
+                                    _flow_keys, graph.id,
+                                )
+                        except (ValueError, TypeError):
+                            pass
                     next_id = graph.get_next_node(current_node_id)
                     current_node_id = next_id or ""
                     continue
@@ -1075,6 +1097,24 @@ class AgentRuntime(_SafetyApprovalMixin, _CheckpointMixin, _DynamicToolsMixin, _
                     else:
                         next_id = graph.get_next_node(current_node_id)
                         current_node_id = next_id or ""
+
+                elif node.type == "iteration":
+                    # #556: per-item sub-graph execution with a visible cap
+                    async for event in self._execute_iteration_node(ctx, node, graph):
+                        yield event
+                        if event.type == AgentEventType.ERROR:
+                            return
+                    next_id = graph.get_next_node(current_node_id)
+                    current_node_id = next_id or ""
+
+                elif node.type == "variable_aggregator":
+                    # #556: merge variables into one output — gather step
+                    async for event in self._execute_variable_aggregator_node(ctx, node, graph):
+                        yield event
+                        if event.type == AgentEventType.ERROR:
+                            return
+                    next_id = graph.get_next_node(current_node_id)
+                    current_node_id = next_id or ""
 
                 elif node.type == "error_handler":
                     async for event in self._execute_error_handler_node(ctx, node, graph):

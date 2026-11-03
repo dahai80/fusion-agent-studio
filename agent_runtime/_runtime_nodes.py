@@ -1866,8 +1866,160 @@ class _NodeExecutorsMixin:
             type=AgentEventType.THINK,
             content=action,
             node_id=node.label,
-            metadata={"max_iterations": max_iter, "current": current, "action": action},
+            metadata={
+                "max_iterations": max_iter,
+                "current": current,
+                "action": action,
+                # #556: FlowState snapshot for the variable inspector
+                "flow_state": self._flow_state_snapshot(ctx, graph),
+            },
         )
+
+    async def _execute_iteration_node(
+        self, ctx: AgentContext, node: NodeConfig, graph: AgentGraph
+    ) -> AsyncIterator[AgentEvent]:
+        """#556: run the embedded sub-graph once per item, sequentially.
+
+        tool_params: items_var (ctx variable holding the list), output_var,
+        max_items (visible-failure cap), plus __sub_graph__ params
+        (graph_json / input_mapping / output_mapping). `item` and
+        `item_index` are set in ctx.variables before each pass so
+        input_mapping can thread the item into the sub-graph.
+        """
+        self._seed_ctx_variables(ctx)
+        params = node.tool_params or {}
+        items_var = params.get("items_var", "items")
+        max_items = int(params.get("max_items", 100))
+        output_var = params.get("output_var") or node.label or "iteration_results"
+        items = ctx.variables.get(items_var)
+        if items is None or items == "":
+            yield AgentEvent(
+                type=AgentEventType.ERROR,
+                content=f"iteration: items variable '{items_var}' not found",
+                node_id=node.label,
+                metadata={"items_var": items_var},
+            )
+            return
+        if not isinstance(items, list):
+            yield AgentEvent(
+                type=AgentEventType.ERROR,
+                content=f"iteration: variable '{items_var}' is {type(items).__name__}, expected list",
+                node_id=node.label,
+                metadata={"items_var": items_var},
+            )
+            return
+        if len(items) > max_items:
+            # #556: cap breach fails visibly — no silent truncation, no hang
+            logger.warning(
+                "iteration cap breach node=%s items=%d max_items=%d",
+                node.label, len(items), max_items,
+            )
+            yield AgentEvent(
+                type=AgentEventType.ERROR,
+                content=(
+                    f"iteration: {len(items)} items exceeds cap {max_items} "
+                    f"(node '{node.label}')"
+                ),
+                node_id=node.label,
+                metadata={"items": len(items), "max_items": max_items, "cap_breach": True},
+            )
+            return
+
+        results: list = []
+        for idx, item in enumerate(items):
+            ctx.variables.set("item", item)
+            ctx.variables.set("item_index", idx)
+            final = ""
+            last_think = ""
+            errored = False
+            async for ev in self._execute_sub_graph(ctx, params, node):
+                if ev.type == AgentEventType.RESULT:
+                    # sub events carry a "[sub:<name>] " prefix — strip it
+                    content = ev.content or ""
+                    if content.startswith("[sub:"):
+                        content = content.split("] ", 1)[-1]
+                    final = content
+                elif ev.type == AgentEventType.THINK and ev.content:
+                    last_think = ev.content
+                yield ev
+                if ev.type == AgentEventType.ERROR:
+                    errored = True
+            if not final and last_think:
+                # sub-graph with no explicit RESULT node: use its last LLM
+                # THINK output (the sub's de-facto answer)
+                content = last_think
+                if content.startswith("[sub:"):
+                    content = content.split("] ", 1)[-1]
+                final = content
+            if errored:
+                # stop on first failing item — partial results kept, visible
+                ctx.variables.set(output_var, results)
+                logger.info(
+                    "iteration aborted at item %d node=%s (%d completed)",
+                    idx, node.label, len(results),
+                )
+                return
+            results.append(final)
+            ctx.variables.set(output_var, results)
+        logger.info("iteration done node=%s items=%d output=%s", node.label, len(results), output_var)
+        yield AgentEvent(
+            type=AgentEventType.RESULT,
+            content=json.dumps(results, ensure_ascii=False),
+            node_id=node.label,
+            metadata={
+                "items": len(results),
+                "output_var": output_var,
+                "flow_state": self._flow_state_snapshot(ctx, graph),
+            },
+        )
+
+    async def _execute_variable_aggregator_node(
+        self, ctx: AgentContext, node: NodeConfig, graph: AgentGraph
+    ) -> AsyncIterator[AgentEvent]:
+        """#556: merge variable(s) into one output (list or dict) — the
+        gather counterpart of iteration / parallel branches."""
+        self._seed_ctx_variables(ctx)
+        params = node.tool_params or {}
+        input_vars = params.get("input_vars") or []
+        output_var = params.get("output_var") or node.label or "aggregated"
+        if not input_vars:
+            yield AgentEvent(
+                type=AgentEventType.ERROR,
+                content="variable_aggregator: tool_params.input_vars is empty",
+                node_id=node.label,
+            )
+            return
+        if len(input_vars) == 1:
+            merged = ctx.variables.get(input_vars[0])
+            if merged is None:
+                merged = []
+        else:
+            merged = {v: ctx.variables.get(v) for v in input_vars}
+        ctx.variables.set(output_var, merged)
+        logger.info(
+            "variable_aggregator node=%s vars=%s output=%s", node.label, input_vars, output_var
+        )
+        yield AgentEvent(
+            type=AgentEventType.RESULT,
+            content=json.dumps(merged, ensure_ascii=False, default=str),
+            node_id=node.label,
+            metadata={
+                "aggregated_vars": input_vars,
+                "output_var": output_var,
+                "flow_state": self._flow_state_snapshot(ctx, graph),
+            },
+        )
+
+    def _flow_state_snapshot(
+        self, ctx: AgentContext, graph: AgentGraph
+    ) -> dict:
+        """#556: FlowState = keys declared at the start node
+        (tool_params.flow_state), snapshotted from ctx.variables."""
+        start = graph.get_node(graph.start_node_id) if graph.start_node_id else None
+        keys = (start.tool_params.get("flow_state") or []) if start else []
+        if not keys:
+            return {}
+        return {k: ctx.variables.get(k) for k in keys if ctx.variables.get(k) is not None}
 
     async def _execute_error_handler_node(
         self, ctx: AgentContext, node: NodeConfig, graph: AgentGraph
