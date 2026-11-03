@@ -467,6 +467,10 @@ python my_agent.py
 - ✅ **跨端结构一致性** — 金样 fixture 经 #551 编解码往返，同一图 JSON 在 studio 与 web 上结构渲染一致（位置可不同）；见 `web/src/lib/__tests__/fixtures/studio-flow-fixture.json`。
 - 有意延后（不在本 issue 验收标准内，归入 W2）：便签节点、按需自动布局。
 - 测试：`web/src/lib/__tests__/palette.test.ts`（4 — 注册表覆盖、11 个服务端类型全部可达、planned 集合精确）+ 画布面板组件测试（2）。web 全量 63 vitest，typecheck + build 绿。
+### 运行循环对齐（v0.14.x）— #561
+- ✅ **每个 LLM hop 携带 stop_reason** — THINK 事件新增 `metadata.stop_reason`，语义集：`tool_use`（模型请求工具调用；自动回灌工具结果）、`max_tokens`（finish_reason `length`，输出截断）、`end_turn`（无工具调用正常收尾）。待审批在 `safety_approval` 事件上报 `pause_turn`。终态原因仍在 END 事件（`end_turn` / `max_iterations` / `budget_exceeded` / `cancelled`）。
+- ✅ **tool_use 自动续跑图级验证** — `loop_mode="agent"` 的 llm 节点发出 tool_use 即触发工具并自动续跑，无需手工回边；每个 hop 是带独立 stop_reason 的 THINK 事件。线上证据：`tests/proof/prove_run_loop_parity_561.py`（2 hop，`['tool_use', 'end_turn']`，json_parse 工具调用且结果回灌，真实本地模型）。
+- 测试：`tests/test_issue_561_run_loop_parity.py`（6）— hop stop_reason 序列、多跳自动续跑（无回边）、非 agent 节点 tool_use 呈现、max_tokens hop、待审批 pause_turn、语义文档化。
 
 ### 集成
 - ✅ **fusion-mlx** — Apple Silicon 优化模型服务

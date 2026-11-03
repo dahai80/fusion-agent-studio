@@ -210,6 +210,8 @@ class _SafetyApprovalMixin:
             "diff_preview": safety_result.diff_preview.to_dict()
             if safety_result.diff_preview
             else None,
+            # #561: run paused awaiting approval — Claude-parity pause_turn.
+            "stop_reason": "pause_turn",
         }
         if policy_meta is not None:
             pending_meta["confirmation_policy"] = policy_meta

@@ -623,6 +623,10 @@ Audit `audit/fusion-agent-studio-vs-langflow-audit-1020.md` closed end-to-end; s
 - ✅ **Cross-surface structural parity** — golden fixture round-trips through the #551 codec so the same graph JSON renders identically in structure on studio and web (positions may differ); see `web/src/lib/__tests__/fixtures/studio-flow-fixture.json`.
 - Deliberately deferred (not in the issue's acceptance criteria, tracked for W2): sticky note node, on-demand auto-layout.
 - Tests: `web/src/lib/__tests__/palette.test.ts` (4 — registry coverage, all 11 server types reachable, planned set exact) + canvas palette component tests (2). Full web: 63 vitest, typecheck + build green.
+### Run-Loop Parity (v0.14.x) — #561
+- ✅ **stop_reason on every LLM hop** — THINK events now carry `metadata.stop_reason` from the documented semantic set: `tool_use` (model requested tool calls; auto-continue feeds the result back), `max_tokens` (finish_reason `length`, truncated output), `end_turn` (turn finished without tool calls). Pending approvals surface `pause_turn` on the `safety_approval` event. Terminal reasons remain on the END event (`end_turn` / `max_iterations` / `budget_exceeded` / `cancelled`).
+- ✅ **Tool_use auto-continue verified at graph level** — an `llm` node with `loop_mode="agent"` emitting tool_use triggers the tool and continues the run without any hand-wired return edge; each hop is a THINK event with its own stop_reason. Live evidence: `tests/proof/prove_run_loop_parity_561.py` (2 hops, `['tool_use', 'end_turn']`, json_parse tool called and result fed back, real local model).
+- Tests: `tests/test_issue_561_run_loop_parity.py` (6) — hop stop_reason sequence, multi-hop auto-continue (no return edge), non-agent node tool_use surfacing, max_tokens hop, pause_turn on pending approval, semantics documented.
 
 ### Integration
 - ✅ **fusion-mlx** — Apple Silicon optimized model serving
