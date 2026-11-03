@@ -150,6 +150,7 @@ export const NODE_DEFINITIONS: readonly NodeDefinition[] = [
             { key: 'label', label: 'Label', widget: 'text' },
             { key: 'mcp_server', label: 'MCP server', widget: 'text', required: true },
             { key: 'tool_name', label: 'Tool name', widget: 'text', required: true },
+            { key: 'auth_token', label: 'Auth token', widget: 'secret', advanced: true },
         ],
     },
     {
@@ -294,6 +295,7 @@ export const NODE_DEFINITIONS: readonly NodeDefinition[] = [
             { key: 'url', label: 'URL', widget: 'text', required: true },
             { key: 'headers', label: 'Headers (JSON)', widget: 'multiline', advanced: true },
             { key: 'body', label: 'Body', widget: 'multiline', advanced: true },
+            { key: 'api_key', label: 'API key', widget: 'secret', advanced: true },
         ],
     },
     {

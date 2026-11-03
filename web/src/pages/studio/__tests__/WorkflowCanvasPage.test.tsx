@@ -308,3 +308,76 @@ describe('WorkflowCanvasPage managed runs (#553)', () => {
         expect(screen.queryByRole('button', { name: /Cancel run/ })).not.toBeInTheDocument();
     });
 });
+
+describe('WorkflowCanvasPage inspector secrets + card summary (#554)', () => {
+    beforeEach(() => {
+        rpcMock.mockReset();
+        graphsMock.mockReset();
+        window.sessionStorage.clear();
+        window.localStorage.clear();
+    });
+
+    it('card shows the most relevant config value as summary', async () => {
+        rpcMock.mockImplementation(async (method: string) => {
+            if (method === 'graph.get')
+                return {
+                    graph: {
+                        nodes: {
+                            start: { type: 'start', label: 'start' },
+                            a: { type: 'llm', label: 'LLM', model: 'qwen3' },
+                        },
+                        edges: [{ source_id: 'start', target_id: 'a' }],
+                    },
+                };
+            if (method === 'budget.status') return { remaining: 800, max_tokens: 1000 };
+            if (method === 'safety.get_pending_actions')
+                return { actions: [{ action_id: 'seed', category: 'bash' }] };
+            if (method === 'tool.list') return { tools: [{ name: 'read_file' }] };
+            throw new Error(`unexpected rpc: ${method}`);
+        });
+        graphsMock.mockResolvedValue({ data: [] });
+        await renderCanvas();
+
+        expect(await screen.findByText(/qwen3/)).toBeInTheDocument();
+    });
+
+    it('Save strips secret-typed keys from the persisted graph payload', async () => {
+        rpcMock.mockImplementation(async (method: string) => {
+            if (method === 'graph.get')
+                return {
+                    graph: {
+                        nodes: {
+                            start: { type: 'start', label: 'start' },
+                            a: {
+                                type: 'http_request',
+                                label: 'HTTP',
+                                url: 'https://x',
+                                api_key: 'sk-leak-1',
+                            },
+                        },
+                        edges: [{ source_id: 'start', target_id: 'a' }],
+                        start_node_id: 'start',
+                    },
+                };
+            if (method === 'budget.status') return { remaining: 800, max_tokens: 1000 };
+            if (method === 'safety.get_pending_actions')
+                return { actions: [{ action_id: 'seed', category: 'bash' }] };
+            if (method === 'tool.list') return { tools: [{ name: 'read_file' }] };
+            if (method === 'graph.update') return { issues: [] };
+            throw new Error(`unexpected rpc: ${method}`);
+        });
+        graphsMock.mockResolvedValue({ data: [] });
+        const user = await renderCanvas();
+
+        await user.click(screen.getByRole('button', { name: 'Save' }));
+        // secret strip is a real diff — the #396 confirm dialog appears
+        const confirmBtn = await screen.findByRole('button', { name: 'Save changes' });
+        await user.click(confirmBtn);
+        await waitFor(() =>
+            expect(rpcMock).toHaveBeenCalledWith('graph.update', expect.anything())
+        );
+        const payload = JSON.stringify(rpcMock.mock.calls.find((c) => c[0] === 'graph.update'));
+        expect(payload).not.toContain('sk-leak-1');
+        expect(payload).toContain('https://x');
+    });
+});

@@ -467,6 +467,13 @@ python my_agent.py
 - ✅ **跨端结构一致性** — 金样 fixture 经 #551 编解码往返，同一图 JSON 在 studio 与 web 上结构渲染一致（位置可不同）；见 `web/src/lib/__tests__/fixtures/studio-flow-fixture.json`。
 - 有意延后（不在本 issue 验收标准内，归入 W2）：便签节点、按需自动布局。
 - 测试：`web/src/lib/__tests__/palette.test.ts`（4 — 注册表覆盖、11 个服务端类型全部可达、planned 集合精确）+ 画布面板组件测试（2）。web 全量 63 vitest，typecheck + build 绿。
+### 画布检查器 + 会话级密钥（v0.14.x）— #554
+- ✅ **全部统一节点类型内联可配置** — `fieldsForNode` 合并服务端镜像 `NODE_FIELDS` 与 #551 注册表 `configSchema`，所有非平凡类型（agent、mcp_tool、knowledge_retrieval、code、template、http_request、human_input、sub_flow、question_classifier 等）零定制表单即得检查器字段。
+- ✅ **密钥字段仅存会话** — 掩码 `type=password` 输入，后端为内存会话存储（`secretStore.ts`）；值绝不写入节点配置、localStorage 或持久化 JSON。纵深防御：`stripSessionSecrets` 在保存时剥除图中所有密钥型键（`api_key`/`auth_token`/`password` 等）— 测试断言泄漏值不出现在 `graph.update` 载荷。
+- ✅ **节点卡片摘要实时更新** — 确定性优先级（model > tool_name > agent_id > flow_id > url > …），超 48 字符截断，从节点状态渲染，检查器编辑即时反映到卡片。
+- ✅ 注册表新增：`http_request.api_key` 与 `mcp_tool.auth_token` 高级密钥字段。
+- 测试：`secretStore.test.ts`（8）+ 画布测试（2 — 卡片摘要渲染、经 #396 diff 确认框的保存载荷密钥剥除）。
+
 ### 托管 SSE 运行（v0.14.x）— #553
 - ✅ **执行与 HTTP 连接解耦** — 图流式执行改为后台 `asyncio.Task`（`RunRegistry` / `ManagedRun`），浏览器断开不再杀死运行。每帧携带单调 `seq` 写入 5000 帧回放缓冲。
 - ✅ **流中取消** — `POST /v1/graphs/{graph_id}/execute/stream/{run_id}/cancel` 中止后台任务，流内收到 `cancelled` 帧。画布运行中显示取消按钮。
