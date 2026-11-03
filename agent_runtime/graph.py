@@ -26,6 +26,8 @@ NodeType = Literal[
     "acp",
     "iteration",
     "variable_aggregator",
+    "human_input",
+    "sub_flow",
 ]
 
 
@@ -307,6 +309,7 @@ class AgentGraph:
         "start", "llm", "tool", "condition", "loop", "error_handler",
         "rag", "planner", "verify", "parallel", "acp", "end",
         "iteration", "variable_aggregator",
+        "human_input", "sub_flow",
     })
 
     def validate(self, tool_registry: Any = None) -> list[str]:

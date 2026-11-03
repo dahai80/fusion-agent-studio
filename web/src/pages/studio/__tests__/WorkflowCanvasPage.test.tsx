@@ -1,7 +1,7 @@
 // #489: component tests for the canvas safety pending-actions surface —
 // approve/reject fire their RPCs, and an approval failure surfaces the
 // error toast instead of silently vanishing.
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -443,5 +443,93 @@ describe('WorkflowCanvasPage variable inspector (#556)', () => {
         expect(screen.getByText('cn')).toBeInTheDocument();
         expect(screen.getByText('items')).toBeInTheDocument();
         expect(screen.getByText('["x","y"]')).toBeInTheDocument();
+    });
+});
+
+describe('WorkflowCanvasPage human input HiTL (#557)', () => {
+    beforeEach(() => {
+        rpcMock.mockReset();
+        graphsMock.mockReset();
+        window.sessionStorage.clear();
+        window.localStorage.clear();
+    });
+
+    it('approval frame with kind=human_input renders the decision card; approve responds via rpc', async () => {
+        class FakeES {
+            static instances: FakeES[] = [];
+            url: string;
+            closed = false;
+            onmessage: ((ev: { data: string }) => void) | null = null;
+            onerror: (() => void) | null = null;
+            constructor(url: string) {
+                this.url = url;
+                FakeES.instances.push(this);
+            }
+            close() {
+                this.closed = true;
+            }
+        }
+        vi.stubGlobal('EventSource', FakeES as unknown as typeof EventSource);
+        rpcMock.mockImplementation(async (method: string) => {
+            if (method === 'graph.get')
+                return {
+                    graph: {
+                        nodes: {
+                            start: { type: 'start', label: 'start' },
+                            ask: { type: 'human_input', label: 'Ask', prompt: 'Deploy?' },
+                        },
+                        edges: [{ source_id: 'start', target_id: 'ask' }],
+                        start_node_id: 'start',
+                    },
+                };
+            if (method === 'budget.status') return { remaining: 800, max_tokens: 1000 };
+            if (method === 'safety.get_pending_actions')
+                return { actions: [{ action_id: 'seed', category: 'bash' }] };
+            if (method === 'tool.list') return { tools: [{ name: 'read_file' }] };
+            if (method === 'human_input.respond') return { status: 'ok' };
+            throw new Error(`unexpected rpc: ${method}`);
+        });
+        graphsMock.mockResolvedValue({ data: [] });
+        const user = await renderCanvas();
+
+        await user.click(screen.getByRole('button', { name: 'Step' }));
+        await waitFor(() => expect(FakeES.instances).toHaveLength(1));
+        FakeES.instances[0].onmessage?.({
+            data: JSON.stringify({
+                type: 'safety_approval',
+                node_id: 'ask',
+                content: 'Proceed with deploy?',
+                seq: 2,
+                metadata: {
+                    kind: 'human_input',
+                    input_id: 'hi-abc',
+                    input_var: 'decision',
+                    prompt: 'Proceed with deploy?',
+                    fields: [],
+                },
+            }),
+        });
+
+        expect(await screen.findByText('Awaiting human input (1)')).toBeInTheDocument();
+
+        await user.type(
+            screen.getByPlaceholderText('Value (reason when rejecting)'),
+            'ship it'
+        );
+        // scope to the human-input card — the seeded bash action card also has an Approve button
+        const card = screen
+            .getByPlaceholderText('Value (reason when rejecting)')
+            .closest('div[class*="border-brand"]') as HTMLElement;
+        await user.click(within(card).getByRole('button', { name: 'Approve' }));
+        await waitFor(() =>
+            expect(rpcMock).toHaveBeenCalledWith(
+                'human_input.respond',
+                expect.objectContaining({ input_id: 'hi-abc', approved: true, value: 'ship it' })
+            )
+        );
+        // card clears after the decision
+        await waitFor(() =>
+            expect(screen.queryByText('Awaiting human input (1)')).not.toBeInTheDocument()
+        );
     });
 });

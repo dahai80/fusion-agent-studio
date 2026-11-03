@@ -25,7 +25,34 @@ class SafetyDispatcher(SubDispatcher):
             "safety.set_auto_mode": self._handle_safety_set_auto_mode,
             "safety.set_network_policy": self._handle_safety_set_network_policy,
             "safety.get_network_policy": self._handle_safety_get_network_policy,
+            # #557 HiTL: answer a pending human_input node on the runtime
+            "human_input.respond": self._handle_human_input_respond,
+            "human_input.list_pending": self._handle_human_input_list_pending,
         }
+
+    async def _handle_human_input_respond(self, params: dict) -> dict:
+        """#557: resolve a pending human_input future (approve/reject/edit-input)."""
+        input_id = params.get("input_id", "")
+        if not input_id:
+            return {"status": "error", "message": "input_id required"}
+        runtime = self._daemon._runtime
+        if not runtime or not hasattr(runtime, "resolve_human_input"):
+            return {"status": "error", "message": "no runtime with human_input support"}
+        decision = {
+            "approved": bool(params.get("approved", True)),
+            "value": params.get("value", ""),
+            "reason": params.get("reason", ""),
+        }
+        ok = runtime.resolve_human_input(input_id, decision)
+        logger.info("human_input.respond input_id=%s ok=%s", input_id, ok)
+        return {"status": "ok" if ok else "not_found", "input_id": input_id}
+
+    async def _handle_human_input_list_pending(self, params: dict) -> dict:
+        """#557: list human_input nodes awaiting a decision."""
+        runtime = self._daemon._runtime
+        if not runtime or not hasattr(runtime, "pending_human_inputs"):
+            return {"inputs": []}
+        return {"inputs": runtime.pending_human_inputs()}
 
     async def _handle_safety_check(self, params: dict) -> dict:
         content = params.get("content", "")

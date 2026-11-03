@@ -12,6 +12,7 @@ import asyncio
 import json
 import os
 import re
+import uuid
 from typing import Any, AsyncIterator
 
 from tools.plan_tools import EXIT_PLAN_MODE_SENTINEL
@@ -2021,6 +2022,180 @@ class _NodeExecutorsMixin:
             return {}
         return {k: ctx.variables.get(k) for k in keys if ctx.variables.get(k) is not None}
 
+    async def _execute_human_input_node(
+        self, ctx: AgentContext, node: NodeConfig, graph: AgentGraph
+    ) -> AsyncIterator[AgentEvent]:
+        """#557: pause the run for a human decision.
+
+        Same process: emit a SAFETY_APPROVAL request (kind=human_input) and
+        await the future resolved via resolve_human_input() (approve with
+        value / reject with reason). Across a backend restart: the
+        checkpoint saved before pausing + resume_from_checkpoint(
+        human_inputs={...}) re-executes this node, which sees the seeded
+        input variable and continues. Rejection terminates the branch
+        visibly (ERROR event with the reason).
+        """
+        self._seed_ctx_variables(ctx)
+        params = node.tool_params or {}
+        input_var = params.get("input_var") or node.label or "human_input"
+        prompt = str(params.get("prompt", ""))
+        fields = params.get("fields", [])
+        try:
+            timeout = float(params.get("timeout_seconds", 300))
+        except (TypeError, ValueError):
+            timeout = 300.0
+
+        existing = ctx.variables.get(input_var)
+        if existing not in (None, ""):
+            # resume path: the decision value was injected before re-run
+            yield AgentEvent(
+                type=AgentEventType.RESULT,
+                content=json.dumps({input_var: existing}, ensure_ascii=False, default=str),
+                node_id=node.label,
+                metadata={
+                    "input_var": input_var,
+                    "resumed": True,
+                    "flow_state": self._flow_state_snapshot(ctx, graph),
+                },
+            )
+            return
+
+        input_id = "hi-" + uuid.uuid4().hex[:12]
+        # persist FIRST — the checkpoint survives a backend restart
+        await self._save_checkpoint(ctx, graph)
+        logger.info(
+            "human_input pause node=%s input_id=%s input_var=%s", node.label, input_id, input_var
+        )
+        # register the future BEFORE emitting the request — a consumer that
+        # sees the SAFETY_APPROVAL event must be able to resolve immediately
+        loop = asyncio.get_running_loop()
+        future: asyncio.Future = loop.create_future()
+        self._human_input_futures[input_id] = future
+        yield AgentEvent(
+            type=AgentEventType.SAFETY_APPROVAL,
+            content=prompt,
+            node_id=node.label,
+            metadata={
+                "kind": "human_input",
+                "input_id": input_id,
+                "input_var": input_var,
+                "prompt": prompt,
+                "fields": fields,
+                "action": "request",
+            },
+        )
+        try:
+            decision = await asyncio.wait_for(future, timeout=timeout)
+        except asyncio.TimeoutError:
+            self._human_input_futures.pop(input_id, None)
+            # pause-and-persist: the stream ends here; resume via checkpoint
+            logger.info(
+                "human_input timeout — paused node=%s input_id=%s", node.label, input_id
+            )
+            yield AgentEvent(
+                type=AgentEventType.CHECKPOINT,
+                content=f"Paused awaiting human input at '{node.label}': {prompt}",
+                node_id=node.label,
+                metadata={
+                    "paused": True,
+                    "input_id": input_id,
+                    "input_var": input_var,
+                    "prompt": prompt,
+                    "fields": fields,
+                    "flow_state": self._flow_state_snapshot(ctx, graph),
+                },
+            )
+            return
+        finally:
+            self._human_input_futures.pop(input_id, None)
+
+        if not isinstance(decision, dict):
+            decision = {"approved": bool(decision), "value": ""}
+        if decision.get("approved") is False:
+            reason = str(decision.get("reason") or "rejected by human")
+            logger.info("human_input rejected node=%s reason=%s", node.label, reason)
+            yield AgentEvent(
+                type=AgentEventType.ERROR,
+                content=f"human_input rejected at '{node.label}': {reason}",
+                node_id=node.label,
+                metadata={
+                    "kind": "human_input",
+                    "input_id": input_id,
+                    "rejected": True,
+                    "reason": reason,
+                },
+            )
+            return
+        value = decision.get("value", decision.get("input", ""))
+        ctx.variables.set(input_var, value)
+        yield AgentEvent(
+            type=AgentEventType.RESULT,
+            content=json.dumps({input_var: value}, ensure_ascii=False, default=str),
+            node_id=node.label,
+            metadata={
+                "input_var": input_var,
+                "approved": True,
+                "flow_state": self._flow_state_snapshot(ctx, graph),
+            },
+        )
+
+    def resolve_human_input(self, input_id: str, decision: dict) -> bool:
+        """#557: resolve a pending human_input future (approve/reject/edit)."""
+        future = self._human_input_futures.get(input_id)
+        if future is None or future.done():
+            return False
+        future.set_result(decision)
+        logger.info("human_input resolved input_id=%s approved=%s",
+                    input_id, decision.get("approved"))
+        return True
+
+    def pending_human_inputs(self) -> list[dict]:
+        """#557: list input_ids awaiting a decision (for RPC polling)."""
+        return [
+            {"input_id": iid, "done": f.done()}
+            for iid, f in self._human_input_futures.items()
+        ]
+
+    async def _execute_sub_flow_node(
+        self, ctx: AgentContext, node: NodeConfig, graph: AgentGraph
+    ) -> AsyncIterator[AgentEvent]:
+        """#557: flow-as-tool — run a saved flow (by flow_id) as a node.
+
+        Loads the graph from the store (agent graphs) and delegates to the
+        audited _execute_sub_graph path (depth gates, input/output mapping).
+        Values pass in via input_mapping (parent var -> sub 'input'/var) and
+        out via output_mapping (sub var -> parent var).
+        """
+        params = node.tool_params or {}
+        flow_id = str(params.get("flow_id", ""))
+        if not flow_id:
+            yield AgentEvent(
+                type=AgentEventType.ERROR,
+                content="sub_flow: tool_params.flow_id is required",
+                node_id=node.label,
+            )
+            return
+        if not self.store:
+            yield AgentEvent(
+                type=AgentEventType.ERROR,
+                content=f"sub_flow: no store configured to load flow '{flow_id}'",
+                node_id=node.label,
+            )
+            return
+        sub = self.store.load_graph(flow_id)
+        if sub is None:
+            yield AgentEvent(
+                type=AgentEventType.ERROR,
+                content=f"sub_flow: flow '{flow_id}' not found",
+                node_id=node.label,
+            )
+            return
+        sub_params = dict(params)
+        sub_params["graph_json"] = sub.to_json()
+        logger.info("sub_flow node=%s flow=%s", node.label, flow_id)
+        async for ev in self._execute_sub_graph(ctx, sub_params, node):
+            yield ev
+
     async def _execute_error_handler_node(
         self, ctx: AgentContext, node: NodeConfig, graph: AgentGraph
     ) -> AsyncIterator[AgentEvent]:
@@ -2510,8 +2685,15 @@ class _NodeExecutorsMixin:
             {"graph_id": sub_graph.id, "graph_name": sub_graph.name},
         )
 
+        # #557: read post-execution sub values from sub_ctx.variables (writes
+        # land there after dispatch seeds a fresh VM), falling back to the
+        # pre-exec sub_vars snapshot for vars the flow never touched.
         for sub_var, parent_var in output_mapping.items():
-            val = sub_vars.get(sub_var, "")
+            val = ""
+            if sub_ctx.variables is not None and sub_ctx.variables.get(sub_var, "") != "":
+                val = sub_ctx.variables.get(sub_var, "")
+            else:
+                val = sub_vars.get(sub_var, "")
             ctx.variables.set(parent_var, val)
 
     def _extract_template_name(self, text: str) -> str:

@@ -48,13 +48,12 @@ describe('paletteGroups (#552)', () => {
             .filter((e) => e.planned)
             .map((e) => e.type)
             .sort();
+        // #557: human_input + sub_flow now executable server-side
         expect(planned).toEqual([
             'code',
             'http_request',
-            'human_input',
             'mcp_tool',
             'question_classifier',
-            'sub_flow',
             'template',
         ]);
     });

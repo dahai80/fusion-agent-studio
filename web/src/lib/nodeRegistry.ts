@@ -383,6 +383,9 @@ export const UNIFIED_TO_SERVER_TYPE: Readonly<Record<string, string>> = {
     variable_aggregator: 'variable_aggregator',
     knowledge_retrieval: 'rag',
     iteration: 'iteration',
+    // #557: human_input + sub_flow now executable server-side
+    human_input: 'human_input',
+    sub_flow: 'sub_flow',
 };
 
 export interface PaletteEntry {
