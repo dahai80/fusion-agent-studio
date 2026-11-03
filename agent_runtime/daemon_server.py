@@ -1338,6 +1338,7 @@ class DaemonServer:
             MemoryDispatcher,
             PlannerDispatcher,
             PluginDispatcher,
+            ReviewerDispatcher,
             SafetyDispatcher,
             SessionDispatcher,
             SkillsDispatcher,
@@ -1371,6 +1372,7 @@ class DaemonServer:
             SkillsDispatcher(self),
             SessionDispatcher(self),
             BundleDispatcher(self),
+            ReviewerDispatcher(self),
         ]
 
     async def _handle_context_compact(self, params: dict) -> dict:

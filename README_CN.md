@@ -442,6 +442,16 @@ python my_agent.py
 - ✅ **NodeDefinition + NodeRegistry — 17 型统一分类 (#551)** — `web/src/lib/nodeRegistry.ts` 注册完整统一集（start、end、llm、agent、tool、mcp_tool、condition、question_classifier、loop、iteration、variable_aggregator、knowledge_retrieval、code、template、http_request、human_input、sub_flow），key 与 studio#427 一致，按分类分组的调色板元数据 + 类型化 `configSchema` 表单（text/multiline/number/boolean/select/secret/tags/model）驱动检查器，无需每节点定制表单。本面仅元数据 — `run()` 留在后端（执行见 W1-4）。共享 `node-taxonomy-17.json` fixture 固定跨面契约。
 - 测试：`tests/test_issue_546_acceptance.py`（8）— OpenAPI 路由契约、ask 降级不 404、创建 422 畸形、执行前校验 422、合法执行路径；`web/src/lib/__tests__/workflowGraph.test.ts`（12）+ `nodeRegistry.test.ts`（7）— 解析/校验、端口矩阵、编解码往返 + 丢弃上报、金样跨面、17-key 分类 parity。
 
+### 评审包（v0.14.0）— #549
+- ✅ **四个一方评审包，标准 agent bundle 可安装** — `architecture-contract`（接口一致性、数据格式漂移、边界违规、破坏性变更风险）、`security`（STRIDE 排查、authn/authz 缺口、注入/SSRF/路径穿越、密钥泄露）、`domain`（领域正确性，可插拔领域知识笔记）、`red-team`（强制异议 — 必须给出最强客观发现，空结论被拒）。每个包都是标准 bundle（manifest.json + agent.md + skills），经 `bundle.install` 或 `reviewer.seed` 安装。
+- ✅ **结构化发现契约** — 每条发现为 `{severity: P0-P3, location, rationale, recommendation, pack}`；纯文本结论解析期被拒，以逐包错误呈现，绝不静默变空评审。
+- ✅ **盲审模式** — 默认 `blind: true`：评审包输入 = 产物 + 原始请求；作者理由/说明被排除在每个提示之外（可关闭，以不可信区块渲染）。
+- ✅ **并行扇出 + 逐包署名** — N 个包并发运行（`asyncio.gather`）；发现按严重度合并排序并带逐包状态/计数，单包失败被隔离不影响其余。
+- ✅ **RPC + UI** — daemon 上新增 `reviewer.packs` / `reviewer.schema` / `reviewer.seed` / `reviewer.run`；studio web 评审包（Review）页（`#/review`）：包勾选、盲审开关、严重度徽章发现列表、逐包摘要。
+- ✅ **自研指南** — `docs/guides/13-reviewer-packs.md`（EN）+ `_CN`（中文）：发现契约、RPC 面、领域知识钩子、bundle 布局、客户自研包的输出契约要求。
+- 线上验收：真实设计文档 × 4 包并行经 fusion-mlx（Qwen3-0.6B）— 9.4 s 墙钟（并发而非 4× 串行），全部发现符合 schema、署名正确、作者说明未出现在任何评审包输入（盲审验证）。
+- 测试：`tests/test_issue_549_reviewer_packs.py`（19）— 发现校验（纯文本拒绝）、解析（围栏/标量/散文）、扇出并发计时 + 署名、盲审/非盲审输入断言、单包失败隔离、严重度排序、4 包注册契约、bundle 生成、dispatcher 接线（run/seed/未知包路径）；`ReviewPage.test.tsx`（3）。
+
 ### 集成
 - ✅ **fusion-mlx** — Apple Silicon 优化模型服务
 - ✅ **OpenAI 兼容 API** — 兼容任何 OpenAI 兼容后端
