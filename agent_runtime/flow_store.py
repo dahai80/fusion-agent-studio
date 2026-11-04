@@ -21,7 +21,7 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-FLOW_SCHEMA_VERSION = 1
+FLOW_SCHEMA_VERSION = 2
 
 
 class FlowStoreError(Exception):
@@ -53,6 +53,7 @@ class FlowStore:
                     description TEXT NOT NULL DEFAULT '',
                     graph_json TEXT NOT NULL,
                     version INTEGER NOT NULL DEFAULT 1,
+                    kind TEXT NOT NULL DEFAULT 'flow',
                     created_at REAL NOT NULL,
                     updated_at REAL NOT NULL
                 );
@@ -69,6 +70,15 @@ class FlowStore:
                 "CREATE INDEX IF NOT EXISTS idx_flows_tenant ON flows(tenant_id)"
             )
             self._conn.commit()
+        # v2 migration: kind column ('flow' | 'template') on pre-v2 databases
+        cols = [r[1] for r in self._conn.execute("PRAGMA table_info(flows)").fetchall()]
+        if "kind" not in cols:
+            with self._lock:
+                self._conn.execute(
+                    "ALTER TABLE flows ADD COLUMN kind TEXT NOT NULL DEFAULT 'flow'"
+                )
+                self._conn.commit()
+            logger.info("flow store migrated to v2: added flows.kind")
         logger.info("flow store ready db=%s schema_v=%d", self.db_path, FLOW_SCHEMA_VERSION)
 
     def close(self):
@@ -94,6 +104,7 @@ class FlowStore:
         name: str = "",
         description: str = "",
         flow_id: str = "",
+        kind: str = "flow",
     ) -> dict:
         self._validate_graph(graph)
         now = time.time()
@@ -115,8 +126,8 @@ class FlowStore:
                     }
                 new_version = row["version"] + 1
                 self._conn.execute(
-                    "UPDATE flows SET graph_json=?, version=?, name=?, description=?, updated_at=? WHERE flow_id=? AND tenant_id=?",
-                    (graph_json, new_version, name or row_name(self._conn, flow_id, tenant_id), description, now, flow_id, tenant_id),
+                    "UPDATE flows SET graph_json=?, version=?, name=?, description=?, kind=?, updated_at=? WHERE flow_id=? AND tenant_id=?",
+                    (graph_json, new_version, name or row_name(self._conn, flow_id, tenant_id), description, kind, now, flow_id, tenant_id),
                 )
                 self._conn.execute(
                     "INSERT INTO flow_versions (flow_id, version, graph_json, created_at) VALUES (?,?,?,?)",
@@ -127,8 +138,8 @@ class FlowStore:
                 return {"flow_id": flow_id, "version": new_version, "created": False, "updated_at": now}
             fid = flow_id or ("flow-" + uuid.uuid4().hex[:12])
             self._conn.execute(
-                "INSERT INTO flows (flow_id, tenant_id, name, description, graph_json, version, created_at, updated_at) VALUES (?,?,?,?,?,1,?,?)",
-                (fid, tenant_id, name or "Untitled flow", description, graph_json, now, now),
+                "INSERT INTO flows (flow_id, tenant_id, name, description, graph_json, version, kind, created_at, updated_at) VALUES (?,?,?,?,?,1,?,?,?)",
+                (fid, tenant_id, name or "Untitled flow", description, graph_json, kind, now, now),
             )
             self._conn.execute(
                 "INSERT INTO flow_versions (flow_id, version, graph_json, created_at) VALUES (?,?,?,?)",
@@ -138,12 +149,18 @@ class FlowStore:
             logger.info("flow created id=%s tenant=%s", fid, tenant_id)
             return {"flow_id": fid, "version": 1, "created": True, "updated_at": now}
 
-    def list_flows(self, tenant_id: str = "") -> list[dict]:
+    def list_flows(self, tenant_id: str = "", kind: str = "flow") -> list[dict]:
         with self._lock:
-            rows = self._conn.execute(
-                "SELECT flow_id, name, description, version, created_at, updated_at FROM flows WHERE tenant_id=? ORDER BY updated_at DESC",
-                (tenant_id,),
-            ).fetchall()
+            if kind:
+                rows = self._conn.execute(
+                    "SELECT flow_id, name, description, version, kind, created_at, updated_at FROM flows WHERE tenant_id=? AND kind=? ORDER BY updated_at DESC",
+                    (tenant_id, kind),
+                ).fetchall()
+            else:
+                rows = self._conn.execute(
+                    "SELECT flow_id, name, description, version, kind, created_at, updated_at FROM flows WHERE tenant_id=? ORDER BY updated_at DESC",
+                    (tenant_id,),
+                ).fetchall()
         return [dict(r) for r in rows]
 
     def load_flow(self, flow_id: str, tenant_id: str = "") -> dict:

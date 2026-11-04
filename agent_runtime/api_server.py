@@ -2610,6 +2610,23 @@ async def _execute_managed_run(
         run.done = True
         if not run.buffer or run.buffer[-1].get("type") != "done":
             run.publish({"type": "done"})
+        # #558: best-effort archive into run history (canvas run list/replay/diff)
+        try:
+            from agent_runtime.run_history import RunHistoryStore
+
+            hist = getattr(app.state, "run_history_store", None)
+            if hist is None:
+                hist = RunHistoryStore()
+                app.state.run_history_store = hist
+            hist.save_run(
+                run.run_id,
+                run.graph_id,
+                getattr(graph, "name", ""),
+                list(run.buffer),
+                started_at=run.created_at,
+            )
+        except Exception as exc:
+            logger.warning("run history archive failed run=%s: %s", run.run_id, exc)
 
 
 @app.post(

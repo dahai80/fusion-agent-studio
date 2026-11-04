@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+import logging
+
 from .graph import AgentGraph, NodeConfig
+
+logger = logging.getLogger(__name__)
 
 
 class TemplateManager:
@@ -448,3 +452,246 @@ def register_default_templates() -> None:
         for src, tgt in tpl["edges"]:
             graph.add_edge(src, tgt)
         TemplateManager.register(tpl["name"], graph)
+
+
+def _plan_template_graphs() -> list[dict]:
+    """#558: 7 plan §7.3 builtin templates as from_dict-shaped dicts."""
+    import json as _json
+
+    iteration_sub = {
+        "name": "map-item",
+        "nodes": [
+            {"id": "s", "type": "start", "label": "Item Start"},
+            {
+                "id": "llm",
+                "type": "llm",
+                "label": "Process Item",
+                "model": "qwen3.5-9b",
+                "system_prompt": "Process the given item and return the result.",
+            },
+            {"id": "out", "type": "end", "label": "Item End"},
+        ],
+        "edges": [
+            {"source_id": "s", "target_id": "llm"},
+            {"source_id": "llm", "target_id": "out"},
+        ],
+        "start_node_id": "s",
+    }
+    return [
+        {
+            "name": "basic-llm-prompt",
+            "description": "Single LLM call: prompt in → answer out (simplest useful graph)",
+            "nodes": [
+                {"id": "start", "type": "start", "label": "Start"},
+                {
+                    "id": "llm",
+                    "type": "llm",
+                    "label": "LLM Answer",
+                    "model": "qwen3.5-9b",
+                    "system_prompt": "You are a helpful assistant.",
+                },
+                {"id": "end", "type": "end", "label": "End"},
+            ],
+            "edges": [
+                {"source_id": "start", "target_id": "llm"},
+                {"source_id": "llm", "target_id": "end"},
+            ],
+            "start_node_id": "start",
+        },
+        {
+            "name": "rag-qa",
+            "description": "RAG retrieval → LLM grounded answer (knowledge-base QA)",
+            "nodes": [
+                {"id": "start", "type": "start", "label": "Start"},
+                {
+                    "id": "rag",
+                    "type": "rag",
+                    "label": "Retrieve Context",
+                    "tool_params": {"rag_config": {"top_k": 5}},
+                },
+                {
+                    "id": "llm",
+                    "type": "llm",
+                    "label": "Grounded Answer",
+                    "model": "qwen3.5-9b",
+                    "system_prompt": "Answer strictly from the retrieved context.",
+                },
+                {"id": "end", "type": "end", "label": "End"},
+            ],
+            "edges": [
+                {"source_id": "start", "target_id": "rag"},
+                {"source_id": "rag", "target_id": "llm"},
+                {"source_id": "llm", "target_id": "end"},
+            ],
+            "start_node_id": "start",
+        },
+        {
+            "name": "agent-with-tools",
+            "description": "Agentic LLM loop with tool calls (multi-turn tool use)",
+            "nodes": [
+                {"id": "start", "type": "start", "label": "Start"},
+                {
+                    "id": "agent",
+                    "type": "llm",
+                    "label": "Agent Loop",
+                    "model": "qwen3.5-9b",
+                    "system_prompt": "You are an agent that uses tools to complete the task.",
+                    "loop_mode": "agent",
+                    "max_loop_iterations": 10,
+                },
+                {"id": "end", "type": "end", "label": "End"},
+            ],
+            "edges": [
+                {"source_id": "start", "target_id": "agent"},
+                {"source_id": "agent", "target_id": "end"},
+            ],
+            "start_node_id": "start",
+        },
+        {
+            "name": "supervisor-worker",
+            "description": "Supervisor LLM → condition branch → worker LLM (delegate pattern)",
+            "nodes": [
+                {"id": "start", "type": "start", "label": "Start"},
+                {
+                    "id": "supervisor",
+                    "type": "llm",
+                    "label": "Supervisor",
+                    "model": "qwen3.5-9b",
+                    "system_prompt": "Decide whether the task needs revision. Set needs_revision yes/no.",
+                },
+                {
+                    "id": "branch",
+                    "type": "condition",
+                    "label": "Needs Revision?",
+                    "condition_expr": "needs_revision == 'yes'",
+                },
+                {
+                    "id": "worker",
+                    "type": "llm",
+                    "label": "Worker Rewrite",
+                    "model": "qwen3.5-9b",
+                    "system_prompt": "Revise the work according to the supervisor feedback.",
+                },
+                {"id": "end", "type": "end", "label": "End"},
+            ],
+            "edges": [
+                {"source_id": "start", "target_id": "supervisor"},
+                {"source_id": "supervisor", "target_id": "branch"},
+                {"source_id": "branch", "target_id": "worker", "label": "true"},
+                {"source_id": "branch", "target_id": "end", "label": "false"},
+                {"source_id": "worker", "target_id": "end"},
+            ],
+            "start_node_id": "start",
+        },
+        {
+            "name": "human-approval-flow",
+            "description": "LLM draft → human approval gate (pause/resume on decision)",
+            "nodes": [
+                {"id": "start", "type": "start", "label": "Start"},
+                {
+                    "id": "draft",
+                    "type": "llm",
+                    "label": "Draft",
+                    "model": "qwen3.5-9b",
+                    "system_prompt": "Draft the deliverable requested by the user.",
+                },
+                {
+                    "id": "approve",
+                    "type": "human_input",
+                    "label": "Human Approval",
+                    "tool_params": {
+                        "input_var": "approval",
+                        "prompt": "Approve this draft?",
+                        "timeout_seconds": 3600,
+                    },
+                },
+                {"id": "end", "type": "end", "label": "End"},
+            ],
+            "edges": [
+                {"source_id": "start", "target_id": "draft"},
+                {"source_id": "draft", "target_id": "approve"},
+                {"source_id": "approve", "target_id": "end"},
+            ],
+            "start_node_id": "start",
+        },
+        {
+            "name": "document-pipeline",
+            "description": "Read file → LLM transform → write result file",
+            "nodes": [
+                {"id": "start", "type": "start", "label": "Start"},
+                {
+                    "id": "read",
+                    "type": "tool",
+                    "label": "Read Document",
+                    "tool_name": "file_read",
+                    "tool_params": {"path": "{{ doc_path }}"},
+                },
+                {
+                    "id": "llm",
+                    "type": "llm",
+                    "label": "Transform",
+                    "model": "qwen3.5-9b",
+                    "system_prompt": "Transform the document content as requested.",
+                },
+                {
+                    "id": "write",
+                    "type": "tool",
+                    "label": "Write Result",
+                    "tool_name": "file_write",
+                    "tool_params": {"path": "{{ out_path }}", "content": "{{ llm_output }}"},
+                },
+                {"id": "end", "type": "end", "label": "End"},
+            ],
+            "edges": [
+                {"source_id": "start", "target_id": "read"},
+                {"source_id": "read", "target_id": "llm"},
+                {"source_id": "llm", "target_id": "write"},
+                {"source_id": "write", "target_id": "end"},
+            ],
+            "start_node_id": "start",
+        },
+        {
+            "name": "iteration-map",
+            "description": "Map over a list variable → aggregate results (fan-out pattern)",
+            "nodes": [
+                {"id": "start", "type": "start", "label": "Start"},
+                {
+                    "id": "map",
+                    "type": "iteration",
+                    "label": "Map Items",
+                    "tool_params": {
+                        "items_var": "items",
+                        "output_var": "results",
+                        "max_items": 100,
+                        "graph_json": _json.dumps(iteration_sub, ensure_ascii=False),
+                        "input_mapping": {"item": "input"},
+                    },
+                },
+                {
+                    "id": "agg",
+                    "type": "variable_aggregator",
+                    "label": "Aggregate",
+                    "tool_params": {"input_vars": ["results"], "output_var": "final"},
+                },
+                {"id": "end", "type": "end", "label": "End"},
+            ],
+            "edges": [
+                {"source_id": "start", "target_id": "map"},
+                {"source_id": "map", "target_id": "agg"},
+                {"source_id": "agg", "target_id": "end"},
+            ],
+            "start_node_id": "start",
+        },
+    ]
+
+
+def register_plan_templates() -> int:
+    """#558: register the 7 plan §7.3 templates; returns count registered."""
+    registered = 0
+    for data in _plan_template_graphs():
+        graph = AgentGraph.from_dict(data)
+        graph.description = data["description"]
+        TemplateManager.register(data["name"], graph)
+        registered += 1
+    logger.info("plan templates registered count=%d", registered)
+    return registered
