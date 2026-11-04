@@ -68,6 +68,16 @@ const PIN_KEY_PREFIX = 'fusion.canvas.pins.';
 // a non-executable node type into the server graph.
 const NODE_GROUPS = paletteGroups();
 
+// #568: registry-grounded catalog for graph.nl_plan — executable types only,
+// deduped; the model can never emit a type outside this list (server re-checks).
+const NL_CATALOG = Array.from(
+    new Map(
+        NODE_GROUPS.flatMap((g) => g.entries)
+            .filter((e) => !e.planned)
+            .map((e) => [e.serverType, { type: e.serverType, label: e.displayName }])
+    ).values()
+);
+
 // #396: examples/*.json templates bundled at build time (no runtime disk read).
 const TEMPLATES: Array<{ name: string; graph: GraphJson }> = (() => {
     const modules = import.meta.glob('../../../../examples/*.json', {
@@ -263,6 +273,20 @@ function CanvasInner() {
     const [runDiff, setRunDiff] = useState<{
         nodes: Array<{ node_id: string; a: string; b: string; changed: boolean }>;
         changed_count: number;
+    } | null>(null);
+    // #568: NL builder — conversational graph assembly panel
+    const [nlOpen, setNlOpen] = useState(false);
+    const [nlMessages, setNlMessages] = useState<
+        Array<{ role: 'user' | 'assistant'; text: string }>
+    >([]);
+    const [nlInput, setNlInput] = useState('');
+    const [nlBusy, setNlBusy] = useState(false);
+    const [nlTemplates, setNlTemplates] = useState<
+        Array<{ name: string; description: string; source: string; flow_id?: string }>
+    >([]);
+    const [pendingNl, setPendingNl] = useState<{
+        description: string;
+        ops: Array<Record<string, unknown>>;
     } | null>(null);
     const [connectMenu, setConnectMenu] = useState<{
         x: number;
@@ -1324,6 +1348,156 @@ function CanvasInner() {
         if (runHistoryOpen) void loadRunHistory();
     }, [runHistoryOpen, loadRunHistory]);
 
+    // #568: NL builder ops → canvas mutations (every batch through the undo
+    // stack; destructive ops require explicit confirmation before applying).
+    const applyNlOps = useCallback(
+        (ops: Array<Record<string, unknown>>, confirmed = false) => {
+            const destructive = ops.some(
+                (o) => o.op === 'clear_graph' || o.op === 'remove_node'
+            );
+            if (destructive && !confirmed) {
+                const desc = ops
+                    .map((o) =>
+                        o.op === 'remove_node'
+                            ? `${t('删除节点', 'Delete node')} ${String(o.id)}`
+                            : t('清空画布', 'Clear graph')
+                    )
+                    .filter((v, i, a) => a.indexOf(v) === i)
+                    .join(', ');
+                setPendingNl({ description: desc, ops });
+                return;
+            }
+            pushHistory();
+            for (const op of ops) {
+                const kind = String(op.op || '');
+                if (kind === 'add_node') {
+                    const id = String(op.id || `nl_${Math.random().toString(36).slice(2, 6)}`);
+                    const ntype = String(op.type || 'llm');
+                    const label = String(op.label || id);
+                    setNodes((ns) => [
+                        ...ns,
+                        {
+                            id,
+                            type: 'fusionNode',
+                            position: {
+                                x: 80 + Math.random() * 260,
+                                y: 80 + Math.random() * 200,
+                            },
+                            data: {
+                                label,
+                                nodeType: ntype,
+                                config: { type: ntype, label, ...(op.config as object) },
+                            },
+                        } as Node,
+                    ]);
+                } else if (kind === 'remove_node') {
+                    const id = String(op.id);
+                    setNodes((ns) => ns.filter((n) => n.id !== id));
+                    setEdges((es) => es.filter((e) => e.source !== id && e.target !== id));
+                } else if (kind === 'set_config') {
+                    const id = String(op.id);
+                    setNodes((ns) =>
+                        ns.map((n) =>
+                            n.id === id
+                                ? {
+                                      ...n,
+                                      data: {
+                                          ...n.data,
+                                          config: {
+                                              ...(n.data.config as object),
+                                              ...(op.config as object),
+                                          },
+                                      },
+                                  }
+                                : n
+                        )
+                    );
+                } else if (kind === 'connect') {
+                    const src = String(op.source);
+                    const tgt = String(op.target);
+                    setEdges((es) =>
+                        addEdge(
+                            {
+                                id: `${src}-${tgt}-${es.length}`,
+                                source: src,
+                                target: tgt,
+                                label: op.label ? String(op.label) : undefined,
+                                markerEnd: { type: MarkerType.ArrowClosed },
+                            },
+                            es
+                        )
+                    );
+                } else if (kind === 'disconnect') {
+                    const src = String(op.source);
+                    const tgt = String(op.target);
+                    setEdges((es) =>
+                        es.filter((e) => !(e.source === src && e.target === tgt))
+                    );
+                } else if (kind === 'clear_graph') {
+                    setNodes([]);
+                    setEdges([]);
+                } else if (kind === 'instantiate_template') {
+                    void instantiateTemplate({ name: String(op.name || '') });
+                }
+            }
+        },
+        [pushHistory, setNodes, setEdges, instantiateTemplate, t]
+    );
+
+    const sendNlPrompt = useCallback(async () => {
+        const prompt = nlInput.trim();
+        if (!prompt || nlBusy) return;
+        setNlMessages((m) => [...m, { role: 'user', text: prompt }]);
+        setNlInput('');
+        setNlBusy(true);
+        try {
+            const raw = fromRf(graph, nodes as unknown as RfNode[], edges as unknown as RfEdge[]);
+            const res = await rpc<{
+                reply?: string;
+                ops?: Array<Record<string, unknown>>;
+                error?: string;
+                details?: string[];
+            }>('graph.nl_plan', {
+                prompt,
+                graph_json: stripSessionSecrets(raw),
+                catalog: NL_CATALOG,
+                templates: nlTemplates,
+            });
+            if (res.error) {
+                setNlMessages((m) => [
+                    ...m,
+                    {
+                        role: 'assistant',
+                        text: `${res.error}${res.details ? `: ${res.details.join('; ')}` : ''}`,
+                    },
+                ]);
+            } else {
+                const ops = res.ops || [];
+                setNlMessages((m) => [
+                    ...m,
+                    { role: 'assistant', text: res.reply || t('已应用变更', 'Applied changes') },
+                ]);
+                if (ops.length > 0) applyNlOps(ops);
+            }
+        } catch (e) {
+            setNlMessages((m) => [...m, { role: 'assistant', text: String(e) }]);
+        } finally {
+            setNlBusy(false);
+        }
+    }, [nlInput, nlBusy, graph, nodes, edges, nlTemplates, applyNlOps, t]);
+
+    // #568: template list for NL recommendations — fetched once when panel opens.
+    useEffect(() => {
+        if (nlOpen && nlTemplates.length === 0) {
+            rpc<{ templates?: Array<{ name: string; description: string; source: string; flow_id?: string }> }>(
+                'flow.template_list',
+                {}
+            )
+                .then((r) => setNlTemplates(r.templates || []))
+                .catch(() => {});
+        }
+    }, [nlOpen, nlTemplates.length]);
+
     useEffect(() => () => esRef.current?.close(), []);
 
     // #393: one generated form row per FieldSpec widget.
@@ -1855,6 +2029,66 @@ function CanvasInner() {
                         ) : null}
                     </div>
                 ) : null}
+            {/* #568: NL builder — describe what you want, the model edits the graph */}
+            <button
+                type="button"
+                className="w-full rounded border border-border px-2 py-1 text-[10px] disabled:opacity-40"
+                onClick={() => setNlOpen((v) => !v)}
+            >
+                {nlOpen
+                    ? t('▾ AI 搭建', '▾ AI Builder')
+                    : t('▸ AI 搭建', '▸ AI Builder')}
+            </button>
+            {nlOpen ? (
+                <div className="space-y-1">
+                    <div className="max-h-40 space-y-1 overflow-auto">
+                        {nlMessages.length === 0 ? (
+                            <div className="text-[10px] text-text-secondary">
+                                {t(
+                                    '描述你要的流程，例如：代码仓有变更就跑 agent 审查，结果留证据，需我审批后提 PR',
+                                    'Describe the flow you want, e.g. run a review agent on repo changes, keep evidence, require my approval before PR'
+                                )}
+                            </div>
+                        ) : (
+                            nlMessages.map((m, i) => (
+                                <div
+                                    key={i}
+                                    className={`rounded px-1.5 py-1 text-[10px] ${
+                                        m.role === 'user'
+                                            ? 'bg-brand/10 text-text-primary'
+                                            : 'bg-bg-elevated text-text-secondary'
+                                    }`}
+                                >
+                                    {m.text}
+                                </div>
+                            ))
+                        )}
+                    </div>
+                    <div className="flex gap-1">
+                        <input
+                            type="text"
+                            className="flex-1 rounded border border-border bg-bg px-1 py-0.5 text-[10px]"
+                            placeholder={t('用一句话描述流程…', 'Describe the flow in one line…')}
+                            value={nlInput}
+                            onChange={(e) => setNlInput(e.target.value)}
+                            onKeyDown={(e) => {
+                                if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
+                                    e.preventDefault();
+                                    void sendNlPrompt();
+                                }
+                            }}
+                        />
+                        <button
+                            type="button"
+                            className="rounded bg-brand px-1.5 py-0.5 text-[10px] text-white disabled:opacity-40"
+                            disabled={nlBusy || !nlInput.trim()}
+                            onClick={() => void sendNlPrompt()}
+                        >
+                            {nlBusy ? t('生成中…', 'Planning…') : t('生成', 'Plan')}
+                        </button>
+                    </div>
+                </div>
+            ) : null}
             </div>
             <div className="flex-1 relative">
                 <ReactFlow
@@ -2359,6 +2593,18 @@ function CanvasInner() {
                     if (next) void persist(next);
                 }}
                 onCancel={() => setPendingSave(null)}
+            />
+            <ConfirmDialog
+                open={pendingNl !== null}
+                title={t('确认破坏性修改', 'Confirm destructive change')}
+                description={pendingNl?.description}
+                danger
+                onConfirm={() => {
+                    const ops = pendingNl?.ops;
+                    setPendingNl(null);
+                    if (ops) applyNlOps(ops, true);
+                }}
+                onCancel={() => setPendingNl(null)}
             />
             {galleryOpen ? (
                 <div
