@@ -10,7 +10,7 @@ import {
 } from '@fusion/web-ui';
 import { formatRelativeTime } from '@fusion/web-ui/format';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { type RunDetail, type RunEvents, type RunResult, api, statusKind } from '../api';
+import { type RunDetail, type RunEvents, type RunResult, api, apiPost, statusKind } from '../api';
 import { PageHeader } from '../components/PageHeader';
 import { RunWaterfall } from '../components/RunWaterfall';
 import { StreamPanel } from '../components/StreamPanel';
@@ -203,6 +203,9 @@ export function RunDetailPage({ runId }: { runId: string }) {
                         }}
                     />
                 ) : null}
+                {result?.steps?.[0]?.session_id ? (
+                    <SessionOps sessionId={result.steps[0].session_id} />
+                ) : null}
                 <RunWaterfall
                     events={spans}
                     onRerunNode={
@@ -280,6 +283,76 @@ export function RunDetailPage({ runId }: { runId: string }) {
                 onConfirm={doCancel}
                 onCancel={() => setCancelOpen(false)}
             />
+        </div>
+    );
+}
+
+// #583: session lifecycle ops on the run's session — fork (branch a new
+// session from this one) and live-turn inject (queue input for the next
+// turn), previously CLI-only (fusion-agent fork/inject).
+function SessionOps({ sessionId }: { sessionId: string }) {
+    const t = useT();
+    const [injectText, setInjectText] = useState('');
+
+    const fork = async () => {
+        try {
+            const res = await apiPost<{ session_id?: string; id?: string }>(
+                `/v1/sessions/${encodeURIComponent(sessionId)}/fork`,
+                { title: `fork of ${sessionId}` }
+            );
+            sdk.toast.show({
+                level: 'success',
+                message: `${t('已分支', 'forked')}: ${res.session_id ?? res.id ?? '-'}`,
+            });
+        } catch (e) {
+            sdk.toast.show({ level: 'error', message: (e as Error).message });
+        }
+    };
+
+    const inject = async () => {
+        if (!injectText.trim()) return;
+        try {
+            await apiPost(`/v1/sessions/${encodeURIComponent(sessionId)}/inject`, {
+                input: injectText.trim(),
+            });
+            setInjectText('');
+            sdk.toast.show({ level: 'success', message: t('已注入下一轮', 'injected') });
+        } catch (e) {
+            sdk.toast.show({ level: 'error', message: (e as Error).message });
+        }
+    };
+
+    return (
+        <div data-testid="session-ops" className="mt-3 text-xs">
+            <div className="text-text-primary">
+                {t('会话操作', 'Session ops')}{' '}
+                <span className="font-mono text-text-secondary">{sessionId}</span>
+            </div>
+            <div className="mt-1.5 flex flex-wrap items-center gap-2">
+                <button
+                    type="button"
+                    data-testid="session-fork"
+                    onClick={fork}
+                    className="rounded-md border border-border px-3 py-1 text-text-primary hover:bg-bg-muted"
+                >
+                    {t('分支会话', 'Fork session')}
+                </button>
+                <input
+                    type="text"
+                    value={injectText}
+                    placeholder={t('注入下一轮的输入', 'input to inject for the next turn')}
+                    onChange={(e) => setInjectText(e.target.value)}
+                    className="w-64 rounded-md border border-border bg-bg-elevated px-2 py-1 text-text-primary"
+                />
+                <button
+                    type="button"
+                    data-testid="session-inject"
+                    onClick={inject}
+                    className="rounded-md border border-border px-3 py-1 text-text-primary hover:bg-bg-muted"
+                >
+                    {t('注入', 'Inject')}
+                </button>
+            </div>
         </div>
     );
 }

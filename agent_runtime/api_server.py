@@ -2956,6 +2956,12 @@ register_marketplace(
     _require_auth_if_configured,
 )
 
+# ── #583: cluster-ops proxy (/v1/cluster-ops/* → cluster_server :11457).
+# Registered BEFORE the web dist mount so the API routes win.
+from agent_runtime.api_cluster_ops import register_cluster_ops
+
+register_cluster_ops(app, _require_auth_if_configured)
+
 _CONSOLE_DIR = Path(__file__).resolve().parent.parent / "web" / "console"
 if _CONSOLE_DIR.is_dir():
     from fastapi.staticfiles import StaticFiles

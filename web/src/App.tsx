@@ -12,6 +12,7 @@ import { AiAgentPage } from './pages/studio/AiAgentPage';
 import { ApikeysPage } from './pages/studio/ApikeysPage';
 import { BuilderPage } from './pages/studio/BuilderPage';
 import { ChatPage } from './pages/studio/ChatPage';
+import { ClusterPage } from './pages/studio/ClusterPage';
 import { ConnectorsPage } from './pages/studio/ConnectorsPage';
 import { CronPage } from './pages/studio/CronPage';
 import { DashboardPage } from './pages/studio/DashboardPage';
@@ -19,6 +20,7 @@ import { GovernancePage } from './pages/studio/GovernancePage';
 import { HooksPage } from './pages/studio/HooksPage';
 import { MarketplacePage } from './pages/studio/MarketplacePage';
 import { MemoryPage } from './pages/studio/MemoryPage';
+import { ObservabilityPage } from './pages/studio/ObservabilityPage';
 import { ReviewPage } from './pages/studio/ReviewPage';
 import { SafetyPage } from './pages/studio/SafetyPage';
 import { SkillsPage } from './pages/studio/SkillsPage';
@@ -50,7 +52,9 @@ type StudioRoute =
     | 'chat'
     | 'aiagent'
     | 'canvas'
-    | 'governance';
+    | 'governance'
+    | 'cluster'
+    | 'observability';
 
 type Route =
     | { name: 'workflows' }
@@ -79,6 +83,8 @@ const STUDIO_ROUTES: ReadonlySet<string> = new Set<StudioRoute>([
     'aiagent',
     'canvas',
     'governance',
+    'cluster',
+    'observability',
 ]);
 
 export function parseHash(): Route {
@@ -140,6 +146,10 @@ function StudioPage(props: { tab: StudioRoute }) {
             return <WorkflowCanvasPage />;
         case 'governance':
             return <GovernancePage />;
+        case 'cluster':
+            return <ClusterPage />;
+        case 'observability':
+            return <ObservabilityPage />;
         case 'aiagent':
             return <AiAgentPage />;
         default:
