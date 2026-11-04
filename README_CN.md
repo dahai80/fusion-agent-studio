@@ -504,6 +504,16 @@ python my_agent.py
 - ✅ **画布决策卡片** — 携带 `kind: human_input` 的 `safety_approval` 帧渲染"等待人工输入"卡片（值输入 + 批准/拒绝），经 `human_input.respond` 应答；两类节点的 palette 项转为可执行。
 - 测试：`tests/test_issue_557_human_input.py`（10 — 批准续跑、拒绝原因+分支终止、超时暂停、预置变量消费路径、重启 E2E 恢复至 end_turn、sub_flow 值进/出、缺失/未知 flow 报错、RPC respond + list_pending、validate）+ 画布测试（1 — 决策卡片渲染与应答）。
 
+### 模板库 + 运行历史（v0.14.x）— #558
+- ✅ **FlowStore v2 `kind` 列** — flow 与 template 共用一个 store；v1 老库自动迁移（`ALTER TABLE flows ADD COLUMN kind`），存量行保持 `kind='flow'`。`list_flows(kind=...)` 过滤（`''` 为不过滤）。
+- ✅ **7 个内置图模板（方案 §7.3）** — `basic-llm-prompt`、`rag-qa`、`agent-with-tools`、`supervisor-worker`、`human-approval-flow`、`document-pipeline`、`iteration-map`；经 `register_plan_templates()` 注册，加载时全部 validate 通过。
+- ✅ **`flow.template_list` / `flow.template_save` / `flow.template_instantiate` / `flow.template_delete` RPC** — 经 daemon 的模板库：内置 + 租户自存模板，instantiate 克隆出新图（`{name}-instance`、新 id），保存按租户隔离。（`template.*` 命名空间仍归 deploy dispatcher 的 agent 模板所有。）
+- ✅ **RunHistoryStore（`agent_runtime/run_history.py`）** — 每次托管运行结束时归档事件帧（上限 500）；推导终态（completed/failed/cancelled）+ 每节点末次状态；`list_runs(graph_id, limit)`、`load_run`、`diff_runs`（逐节点 a/b/changed）。
+- ✅ **`run.history_list` / `run.history_get` / `run.diff` RPC** — 画布消费归档；store 首次调用历史 RPC 时惰性创建。
+- ✅ **托管运行归档钩子** — `_execute_managed_run` finally 块把 `run.buffer` 写入运行历史（best-effort，失败仅告警）。
+- ✅ **画布界面** — 模板库按钮 + 弹窗（内置/自定义徽标，点击实例化）；"存为模板"行；运行历史面板（状态配色、逐节点状态行、回放恢复节点状态 + 治理事件、两次勾选 Diff 表格）；空画布自动打开模板库。
+- 测试：`tests/test_issue_558_templates_history.py`（15 — v1 迁移、kind 过滤、内置模板校验、LLM/iteration/人工审批模板实跑、模板 RPC 往返 + 租户隔离 + 名称必填、summarize/save/list/load、500 帧截断、diff、history dispatcher 往返 + 惰性 store）+ 画布测试（2 — 模板库实例化触发 `flow.template_instantiate` + `graph.create`；历史面板回放/Diff 触发历史 RPC）。
+
 ### 集成
 - ✅ **fusion-mlx** — Apple Silicon 优化模型服务
 - ✅ **OpenAI 兼容 API** — 兼容任何 OpenAI 兼容后端

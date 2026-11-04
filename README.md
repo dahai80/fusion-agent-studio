@@ -660,6 +660,16 @@ Audit `audit/fusion-agent-studio-vs-langflow-audit-1020.md` closed end-to-end; s
 - ✅ **Canvas decision card** — `safety_approval` frames with `kind: human_input` render an "Awaiting human input" card with value input + Approve/Reject, answered via `human_input.respond`; palette entries for both node types are now server-executable.
 - Tests: `tests/test_issue_557_human_input.py` (10 — approve resolves + continues, reject reason + branch termination, timeout pause, pre-seeded consume path, restart E2E resume-to-end_turn, sub_flow values in/out, missing/unknown flow errors, RPC respond + list_pending, validate) + canvas test (1 — decision card renders and responds).
 
+### Template Library + Run History (v0.14.x) — #558
+- ✅ **FlowStore v2 `kind` column** — flows and templates share one store; v1 databases migrate automatically (`ALTER TABLE flows ADD COLUMN kind`), existing rows keep `kind='flow'`. `list_flows(kind=...)` filters (`''` = no filter).
+- ✅ **7 builtin graph templates (plan §7.3)** — `basic-llm-prompt`, `rag-qa`, `agent-with-tools`, `supervisor-worker`, `human-approval-flow`, `document-pipeline`, `iteration-map`; registered via `register_plan_templates()` and validated clean at load.
+- ✅ **`flow.template_list` / `flow.template_save` / `flow.template_instantiate` / `flow.template_delete` RPC** — template gallery over the daemon: builtin + tenant-saved templates, instantiate clones a fresh graph (`{name}-instance`, new id), tenant-scoped saves. (`template.*` stays owned by the deploy dispatcher's agent templates.)
+- ✅ **RunHistoryStore (`agent_runtime/run_history.py`)** — every managed run archives its event frames (capped 500) on completion; derives terminal status (completed/failed/cancelled) + per-node last-status; `list_runs(graph_id, limit)`, `load_run`, `diff_runs` (node-by-node a/b/changed).
+- ✅ **`run.history_list` / `run.history_get` / `run.diff` RPC** — canvas consumes the archive; the store is created lazily on first history call.
+- ✅ **Managed-run archive hook** — `_execute_managed_run` finally-block saves `run.buffer` into run history (best-effort, failure only warns).
+- ✅ **Canvas surfaces** — template gallery button + modal (builtin/custom badges, click to instantiate); "Save as template" row; run history panel with status colors, per-node status line, Replay (restores node stats + governance events), two-pick Diff table; empty canvas auto-opens the gallery.
+- Tests: `tests/test_issue_558_templates_history.py` (15 — v1 migration, kind filter, builtin validation, LLM/iteration/human-approval template runs, template RPC roundtrip + tenant isolation + name-required, summarize/save/list/load, 500-frame cap, diff, history dispatcher roundtrip + lazy store) + canvas tests (2 — gallery instantiate fires `flow.template_instantiate` + `graph.create`; history panel Replay/Diff fire history RPCs).
+
 ### Integration
 - ✅ **fusion-mlx** — Apple Silicon optimized model serving
 - ✅ **OpenAI-compatible API** — Works with any OpenAI-compatible backend
