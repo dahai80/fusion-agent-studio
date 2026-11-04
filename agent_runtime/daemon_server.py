@@ -4074,6 +4074,15 @@ class DaemonServer:
             logger.info("Loaded agents index: %d agents", len(self._agents))
         if not self._agents:
             self._rebuild_agents_index_from_disk()
+        # #588: built-in agents (e.g. multi-repo governance steward) are
+        # seeded once, idempotently, so they show up in the Agents page
+        # after a plain service restart with zero manual setup.
+        from .builtin_agents import seed_builtin_agents
+
+        try:
+            seed_builtin_agents(self)
+        except Exception as e:
+            logger.warning("Built-in agent seeding failed: %s", e)
         self._agents_index_loaded = True
 
     def _rebuild_agents_index_from_disk(self):

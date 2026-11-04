@@ -13,6 +13,9 @@ def daemon(tmp_path, monkeypatch):
     monkeypatch.setenv("FUSION_AGENT_STUDIO_HOME", str(fake_home / ".fusion-agent-studio"))
     d = DaemonServer(socket_path=str(tmp_path / "test.sock"))
     d._agents = {}
+    # #588: pin the index as already loaded so the built-in governance
+    # steward seed does not leak into these handler-level expectations.
+    d._agents_index_loaded = True
     yield d
 
 
