@@ -10,6 +10,7 @@ import pytest
 
 from agent_runtime.context import AgentContext
 from agent_runtime.graph import AgentGraph, NodeConfig
+from agent_runtime.paths import studio_home
 from agent_runtime.persistence import AgentStore, Checkpoint
 
 
@@ -175,7 +176,7 @@ class TestAgentStore:
 
     def test_default_db_path(self):
         store = AgentStore()
-        assert store.db_path == Path.home() / ".fusion-agent-studio" / "store.db"
+        assert store.db_path == studio_home() / "store.db"
         store.close()
 
     def test_checkpoint_defaults(self):

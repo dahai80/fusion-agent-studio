@@ -41,6 +41,7 @@ from .chat_engine import ChatEngine
 from .code_sandbox import CodeSandbox
 from .graph import AgentGraph, NodeConfig
 from .llm_gateway import LLMGateway
+from .paths import studio_home
 from .persistence import AgentStore
 from .rag_pipeline import RAGPipeline
 from .resident_reviewer import runtime_review_enabled as _runtime_review_enabled
@@ -214,13 +215,13 @@ class DaemonServer:
         if store_path:
             self._memory_db_path = str(Path(store_path).parent / "memory.db")
         else:
-            self._memory_db_path = str(Path.home() / ".fusion-agent-studio" / "memory.db")
+            self._memory_db_path = str(studio_home() / "memory.db")
         # #326: RPC auth base dir (JWT secret + apikeys index live next to the
         # store db; test isolation follows the tmp store_path parent).
         if store_path:
             self._auth_dir = str(Path(store_path).parent)
         else:
-            self._auth_dir = str(Path.home() / ".fusion-agent-studio")
+            self._auth_dir = str(studio_home())
         self._gateway = LLMGateway()
         self._runtime: AgentRuntime | None = None
         self._mlx_process: subprocess.Popen | None = None
@@ -526,7 +527,7 @@ class DaemonServer:
         if self._connector_mgr is None:
             from .connectors import ConnectorManager
 
-            base = Path.home() / ".fusion-agent-studio" / "connectors"
+            base = studio_home() / "connectors"
             self._connector_mgr = ConnectorManager(base)
             logger.info("ConnectorManager created at %s", base)
         return self._connector_mgr
@@ -535,7 +536,7 @@ class DaemonServer:
         if self._apikey_mgr is None:
             from .apikey_manager import ApiKeyManager
 
-            base = Path.home() / ".fusion-agent-studio" / "apikeys"
+            base = studio_home() / "apikeys"
             self._apikey_mgr = ApiKeyManager(base)
             logger.info("ApiKeyManager created at %s", base)
         return self._apikey_mgr
@@ -544,7 +545,7 @@ class DaemonServer:
         if self._style_mgr is None:
             from .style_manager import StyleManager
 
-            base = Path.home() / ".fusion-agent-studio" / "styles"
+            base = studio_home() / "styles"
             self._style_mgr = StyleManager(base)
             logger.info("StyleManager created at %s", base)
         return self._style_mgr
@@ -2181,7 +2182,7 @@ class DaemonServer:
         if out_root:
             base = Path(out_root) / (team or "default")
         else:
-            base = Path.home() / ".fusion-agent-studio" / "out" / (team or "default")
+            base = studio_home() / "out" / (team or "default")
         ev_dir = base / "evidence" / "executions"
         ev_dir.mkdir(parents=True, exist_ok=True)
         return ev_dir
@@ -3571,9 +3572,8 @@ class DaemonServer:
         from .triggers import CronManager
 
         if not hasattr(self, "_cron_manager") or self._cron_manager is None:
-            import os
 
-            db_path = os.path.expanduser("~/.fusion-agent-studio/cron.db")
+            db_path = str(studio_home() / "cron.db")
             self._cron_manager = CronManager(
                 db_path=db_path,
                 default_handler=self._cron_default_handler,
@@ -3717,7 +3717,7 @@ class DaemonServer:
 
             db_path = os.environ.get(
                 "FUSION_TASK_DB",
-                os.path.expanduser("~/.fusion-agent-studio/tasks.db"),
+                str(studio_home() / "tasks.db"),
             )
             self._task_store = TaskStore(db_path=db_path)
         return self._task_store
@@ -4055,10 +4055,10 @@ class DaemonServer:
         return self._persona_pack_manager
 
     def _agent_dir(self, agent_id: str) -> Path:
-        return Path.home() / ".fusion-agent-studio" / "agents" / agent_id
+        return studio_home() / "agents" / agent_id
 
     def _persist_agents_index(self):
-        idx_path = Path.home() / ".fusion-agent-studio" / "agents" / "index.json"
+        idx_path = studio_home() / "agents" / "index.json"
         idx_path.parent.mkdir(parents=True, exist_ok=True)
         with open(idx_path, "w", encoding="utf-8") as f:
             json.dump(self._agents, f, indent=4, ensure_ascii=False)
@@ -4067,7 +4067,7 @@ class DaemonServer:
     def _load_agents_index(self):
         if self._agents_index_loaded:
             return
-        idx_path = Path.home() / ".fusion-agent-studio" / "agents" / "index.json"
+        idx_path = studio_home() / "agents" / "index.json"
         if idx_path.exists():
             with open(idx_path, "r", encoding="utf-8") as f:
                 self._agents = json.load(f)
@@ -4077,7 +4077,7 @@ class DaemonServer:
         self._agents_index_loaded = True
 
     def _rebuild_agents_index_from_disk(self):
-        agents_root = Path.home() / ".fusion-agent-studio" / "agents"
+        agents_root = studio_home() / "agents"
         if not agents_root.is_dir():
             return
         count_before = len(self._agents)

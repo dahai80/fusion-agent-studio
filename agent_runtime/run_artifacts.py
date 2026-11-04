@@ -12,10 +12,12 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+from .paths import studio_home
+
 logger = logging.getLogger(__name__)
 
 SCHEMA = "run_artifact.v1"
-DEFAULT_ROOT = Path.home() / ".fusion-agent-studio" / "run_artifacts"
+DEFAULT_ROOT = studio_home() / "run_artifacts"
 
 _ENV_KEYS = (
     "FUSION_MLX_PORT",

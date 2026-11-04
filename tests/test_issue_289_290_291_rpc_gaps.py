@@ -12,8 +12,6 @@ StyleManager stack is exercised end to end.
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import pytest
 
 from agent_runtime.daemon_server import DaemonServer
@@ -23,7 +21,7 @@ from agent_runtime.daemon_server import DaemonServer
 def daemon(tmp_path, monkeypatch):
     fake_home = tmp_path / "home"
     fake_home.mkdir()
-    monkeypatch.setattr(Path, "home", lambda: fake_home)
+    monkeypatch.setenv("FUSION_AGENT_STUDIO_HOME", str(fake_home / ".fusion-agent-studio"))
     d = DaemonServer(socket_path=str(tmp_path / "test.sock"))
     d._agents = {}
     yield d

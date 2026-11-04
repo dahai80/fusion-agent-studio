@@ -15,9 +15,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from .paths import studio_home
+
 logger = logging.getLogger(__name__)
 
-DEFAULT_DB_PATH = Path.home() / ".fusion-agent-studio" / "metrics.db"
+DEFAULT_DB_PATH = studio_home() / "metrics.db"
 
 
 @dataclass

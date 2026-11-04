@@ -12,9 +12,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from .paths import studio_home
+
 logger = logging.getLogger(__name__)
 
-RUN_HISTORY_DIR = Path.home() / ".fusion-agent-studio" / "run_history"
+RUN_HISTORY_DIR = studio_home() / "run_history"
 
 
 @dataclass

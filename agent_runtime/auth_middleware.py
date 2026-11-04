@@ -1,5 +1,4 @@
 import logging
-from pathlib import Path
 from typing import Optional
 
 from fastapi import Depends, Request
@@ -8,11 +7,13 @@ from fastapi.security import APIKeyHeader
 from agent_runtime.apikey_manager import ApiKeyManager
 from agent_runtime.errors import ErrorCode, raise_api_error
 
+from .paths import studio_home
+
 logger = logging.getLogger(__name__)
 
 _api_key_header = APIKeyHeader(name="x-api-key", auto_error=False)
 
-_default_manager = ApiKeyManager(Path.home() / ".fusion-agent-studio")
+_default_manager = ApiKeyManager(studio_home())
 
 
 class ApiKeyAuth:

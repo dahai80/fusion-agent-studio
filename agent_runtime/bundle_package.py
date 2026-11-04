@@ -11,9 +11,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Awaitable, Callable
 
+from .paths import studio_home
+
 logger = logging.getLogger(__name__)
 
-BUNDLE_HOME = Path.home() / ".fusion-agent-studio" / "bundles"
+BUNDLE_HOME = studio_home() / "bundles"
 MANIFEST_NAME = "manifest.json"
 FACET_KEYS = (
     "agent",
@@ -161,7 +163,7 @@ class BundleInstaller:
         mcp_register: Callable[[dict], Awaitable[Any]] | None = None,
         mcp_unregister: Callable[[str], Awaitable[Any]] | None = None,
     ):
-        home = Path(home_dir) if home_dir else Path.home() / ".fusion-agent-studio"
+        home = Path(home_dir) if home_dir else studio_home()
         self.home_dir = home
         self.registry_dir = home / "bundles"
         self.agents_dir = Path(agents_dir) if agents_dir else home / "agents"

@@ -13,6 +13,8 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any, Callable
 
+from .paths import studio_home
+
 logger = logging.getLogger(__name__)
 
 
@@ -467,7 +469,7 @@ def get_webhook_manager() -> WebhookManager:
     global _webhook_manager_instance
     if _webhook_manager_instance is None:
         store_path = os.path.join(
-            os.path.expanduser("~"), ".fusion-agent-studio", "inbound_webhooks.json"
+            str(studio_home()), "inbound_webhooks.json"
         )
         _webhook_manager_instance = WebhookManager(store_path=store_path)
     return _webhook_manager_instance

@@ -9,10 +9,12 @@ import time
 import uuid
 from pathlib import Path
 
+from .paths import studio_home
+
 logger = logging.getLogger(__name__)
 
 DEFAULT_SNAPSHOT_DIR = os.path.join(
-    os.path.expanduser("~"), ".fusion-agent-studio", "file_checkpoints"
+    str(studio_home()), "file_checkpoints"
 )
 
 DEFAULT_EXCLUDES = frozenset(

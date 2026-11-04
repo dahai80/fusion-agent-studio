@@ -24,9 +24,11 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 from urllib.parse import urlparse
 
+from ..paths import studio_home
+
 logger = logging.getLogger(__name__)
 
-WEBHOOK_FILE = Path.home() / ".fusion-agent-studio" / "approval_webhooks.json"
+WEBHOOK_FILE = studio_home() / "approval_webhooks.json"
 _SIGNATURE_HEADER = "x-fusion-signature"
 _MAX_URL_LEN = 2048
 

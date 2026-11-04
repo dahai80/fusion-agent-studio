@@ -7,9 +7,11 @@ import time
 from pathlib import Path
 from typing import Any
 
+from .paths import studio_home
+
 logger = logging.getLogger(__name__)
 
-DEFAULT_FS_DIR = os.path.join(os.path.expanduser("~"), ".fusion-agent-studio", "sessions")
+DEFAULT_FS_DIR = os.path.join(str(studio_home()), "sessions")
 
 
 class SessionStore:

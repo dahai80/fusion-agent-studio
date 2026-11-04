@@ -6,6 +6,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from time import time
 
+from .paths import studio_home
+
 logger = logging.getLogger(__name__)
 
 try:
@@ -116,7 +118,7 @@ class KnowledgeBaseManager:
 
     def __init__(self, base_path=None):
         if base_path is None:
-            self.base_path = Path.home() / ".fusion-agent-studio" / "knowledge_bases"
+            self.base_path = studio_home() / "knowledge_bases"
         else:
             self.base_path = Path(base_path)
         self.base_path.mkdir(parents=True, exist_ok=True)

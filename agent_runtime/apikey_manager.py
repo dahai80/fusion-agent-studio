@@ -10,6 +10,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from .paths import studio_home
+
 logger = logging.getLogger(__name__)
 
 APIKEYS_DIR = "apikeys"
@@ -99,7 +101,7 @@ class ApiKeyManager:
         # index in two — keys created via UDS RPC were 401 on REST validation.
         # Merge a legacy root-level index into this manager's index (by id),
         # keep the file, and leave a marker so the merge runs once.
-        legacy = Path.home() / ".fusion-agent-studio" / APIKEYS_INDEX
+        legacy = studio_home() / APIKEYS_INDEX
         if legacy == self.index_path or not legacy.exists():
             return
         try:

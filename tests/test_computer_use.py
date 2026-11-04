@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import pytest
 
 from tools import create_default_registry
@@ -123,7 +121,7 @@ class TestRegistryIntegration:
         # 读 ~/.fusion-agent-studio/plugins. 隔离到空 tmp 目录, 避免本机插件
         # (如 douyin_*) 污染 registry.count 断言.
         fake_home = tmp_path / "home"
-        monkeypatch.setattr(Path, "home", lambda: fake_home)
+        monkeypatch.setenv("FUSION_AGENT_STUDIO_HOME", str(fake_home / ".fusion-agent-studio"))
         # BrowserTool 的 BROWSER_CONFIG_PATH 在模块导入时按真实 home 固化,
         # monkeypatch Path.home 已晚于该常量求值, 无法使其 skip. 显式指向空
         # tmp 路径, 强制 browser_available()=False, count 断言稳定为 38

@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 from typing import Callable
 
+from ..paths import studio_home
 from ..rag_pipeline import RAGConfig
 from .base import SubDispatcher
 
@@ -188,9 +189,8 @@ class KnowledgeDispatcher(SubDispatcher):
         from ..triggers import CronManager
 
         if not hasattr(self, "_cron_manager") or self._cron_manager is None:
-            import os
 
-            db_path = os.path.expanduser("~/.fusion-agent-studio/cron.db")
+            db_path = str(studio_home() / "cron.db")
             self._cron_manager = CronManager(db_path=db_path)
         return self._cron_manager
 

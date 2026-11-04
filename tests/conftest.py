@@ -1,4 +1,16 @@
+import os
+import tempfile
+
 import pytest
+
+# #591: redirect the whole studio data home to a session temp dir BEFORE any
+# test module (or production module constant) is imported, so no test may
+# touch the real ~/.fusion-agent-studio. studio_home() and every derived
+# path read this env var; subprocess-spawned daemons inherit it too.
+if not os.environ.get("FUSION_AGENT_STUDIO_HOME"):
+    os.environ["FUSION_AGENT_STUDIO_HOME"] = tempfile.mkdtemp(
+        prefix="fas-test-home-"
+    )
 
 
 @pytest.fixture(autouse=True)
@@ -29,3 +41,15 @@ def _rpc_auth_enforce_default_off(monkeypatch):
     # which sets FUSION_AUTH_ENFORCE=1 explicitly per test (applied after
     # this autouse fixture, so the test-level value wins).
     monkeypatch.setenv("FUSION_AUTH_ENFORCE", "0")
+
+
+def pytest_collection_modifyitems(config, items):
+    # #591: run the data-home pollution guard last, after every other test.
+    guard_first = None
+    for i, item in enumerate(items):
+        if item.fspath.strpath.endswith("test_data_home_guard.py"):
+            guard_first = i
+            break
+    if guard_first is not None:
+        guard = items.pop(guard_first)
+        items.append(guard)

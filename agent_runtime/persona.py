@@ -13,9 +13,11 @@ import re
 import threading
 from pathlib import Path
 
+from .paths import studio_home
+
 logger = logging.getLogger(__name__)
 
-PERSONA_ROOT = Path.home() / ".fusion-agent-studio" / "persona"
+PERSONA_ROOT = studio_home() / "persona"
 
 _LAYER_RE = re.compile(r"^(global|tenant|team)$")
 _SECTION_RE = re.compile(r"^##\s+(.+?)\s*$", re.MULTILINE)
