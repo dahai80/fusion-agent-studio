@@ -94,7 +94,6 @@ class AgentCommodity:
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> AgentCommodity:
         cap = data.get("capability") or {}
-        flat = not cap
         src = cap if isinstance(cap, dict) and cap else data
         bindings_raw = data.get("model_bindings") or {}
         bindings = {
