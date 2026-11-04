@@ -97,6 +97,16 @@ fusion-agent approvals webhooks list
 fusion-agent approvals webhooks remove <webhook_id>
 ```
 
+**决策 webhook 线上契约（#580）**：每次审批决策向注册 URL `POST` 一次：
+
+- 签名头 `x-fusion-signature: sha256=<hexdigest>`（HMAC-SHA256，secret 为
+  注册时共享值，签名覆盖原始 body 字节）——与 fusion-gateway
+  `ed25519:<b64>` 同属"算法随值上链"的生态约定
+- body 为**扁平**决策对象（顶层即字段，另带 `event: "approval.decided"`
+  标记，无嵌套 envelope）：`approved`（bool）、`status`、`approval_id`、
+  `decided_by`、`decided_at`、`reason`、`params` 等 —— cowork 消费端
+  `POST /api/hooks/webhook/{run_id}` 直接读顶层 `approved` 决定续跑/拒绝
+
 约束（服务端强制，CLI 只做前置校验）：requester 不能自批（requester !=
 decided_by）；external + 指派场景仅 assigned_to 可决策；已决策记录不可
 二次决策（409）。

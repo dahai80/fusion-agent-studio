@@ -37,8 +37,11 @@ def _validate_url(url: str) -> bool:
 
 
 def _sign(secret: str, body: bytes) -> str:
-    return hmac.new(secret.encode("utf-8"), body,
-                    hashlib.sha256).hexdigest()
+    # #580: ecosystem wire convention (fusion-gateway managed-settings signs
+    # `ed25519:<b64>`, cowork consumer expects `sha256=<hexdigest>`) — the
+    # algorithm rides on the wire, not just in the docs.
+    return "sha256=" + hmac.new(secret.encode("utf-8"), body,
+                                hashlib.sha256).hexdigest()
 
 
 class WebhookRegistry:
@@ -125,11 +128,17 @@ class WebhookRegistry:
 
         Never raises: delivery problems are logged + recorded on the
         registry record; the approval decision itself already succeeded.
+
+        #580: decision fields are FLAT at the top level of the JSON body
+        (plus an `event` marker) — the cowork consumer
+        (POST /api/hooks/webhook/{run_id}) reads top-level `approved` /
+        `decided_by` and never sees a nested envelope.
         """
         if not self._records:
             return
-        body = json.dumps({"event": event, "payload": payload},
-                          ensure_ascii=False).encode("utf-8")
+        body_dict = dict(payload)
+        body_dict["event"] = event
+        body = json.dumps(body_dict, ensure_ascii=False).encode("utf-8")
         import httpx
 
         for key, rec in list(self._records.items()):
@@ -181,4 +190,9 @@ def get_webhook_registry() -> WebhookRegistry:
 
 
 def verify_signature(secret: str, body: bytes, signature: str) -> bool:
-    return hmac.compare_digest(_sign(secret, body), signature)
+    # #580: accept both the wire format (`sha256=<hex>`) and a bare hexdigest
+    # (pre-#580 senders / lenient test harnesses).
+    sig = (signature or "").strip()
+    if sig.lower().startswith("sha256="):
+        sig = sig[len("sha256="):]
+    return hmac.compare_digest(_sign(secret, body)[len("sha256="):], sig)

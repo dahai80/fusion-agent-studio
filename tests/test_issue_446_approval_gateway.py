@@ -177,6 +177,9 @@ class TestWebhookRegistry:
         real = hmac.new(b"secret-1234567890", body,
                         hashlib.sha256).hexdigest()
         assert verify_signature("secret-1234567890", body, real) is True
+        # #580 wire format: prefixed value verifies too
+        assert verify_signature("secret-1234567890", body,
+                                "sha256=" + real) is True
         assert verify_signature("secret-1234567890", body, "0" * 64) is False
 
 
@@ -223,16 +226,57 @@ class TestWebhookDelivery:
         await door.approve(rec["id"], "rev")
         assert len(_Sink.deliveries) == 1
         d = _Sink.deliveries[0]
-        assert d["body"]["event"] == "approval.decided"
-        payload = d["body"]["payload"]
-        assert payload["approval_id"] == rec["id"]
-        assert payload["status"] == "approved"
-        assert payload["decided_by"] == "rev"
-        assert payload["params"]["project_id"] == "P-2"
+        # #580: flat decision body — fields at the top level, `event` marker
+        # alongside them, no nested envelope.
+        body = d["body"]
+        assert body["event"] == "approval.decided"
+        assert body["approval_id"] == rec["id"]
+        assert body["status"] == "approved"
+        assert body["approved"] is True
+        assert body["decided_by"] == "rev"
+        assert body["params"]["project_id"] == "P-2"
+        # #580 wire format: signature carries the algorithm prefix
+        assert d["signature"].startswith("sha256=")
         assert verify_signature("shared-secret-0123456789", d["raw"],
                                 d["signature"]) is True
         assert verify_signature("wrong-secret-987654321", d["raw"],
                                 d["signature"]) is False
+
+    async def test_cowork_consumer_contract(self, store, registry,
+                                            webhook_sink):
+        # #580: pin the exact extraction the cowork consumer performs
+        # (fusion_cowork/server/web_api.py hooks_webhook): verify
+        # `sha256=<hex>` HMAC over the raw body, then read top-level
+        # `approved` to resume or deny the HITL run.
+        import hashlib
+        import hmac as _hmac
+
+        registry.register(webhook_sink, "cowork-shared-secret-0123")
+        rec = store.create_external(
+            title="Gate resume", requester="cowork-bot", assigned_to="rev",
+            params={})
+        from agent_runtime.agent_platform.door import CapabilityDoor
+
+        door = CapabilityDoor(approval_store=store)
+        await door.approve(rec["id"], "rev")
+        d = _Sink.deliveries[0]
+
+        expected = "sha256=" + _hmac.new(
+            b"cowork-shared-secret-0123", d["raw"], hashlib.sha256).hexdigest()
+        assert d["signature"] == expected
+        assert d["body"].get("approved") is True
+        assert d["body"].get("decided_by") == "rev"
+
+        rec2 = store.create_external(
+            title="Gate resume deny", requester="cowork-bot",
+            assigned_to="rev", params={})
+        await door.reject(rec2["id"], "rev", "nope")
+        d2 = _Sink.deliveries[1]
+        expected2 = "sha256=" + _hmac.new(
+            b"cowork-shared-secret-0123", d2["raw"], hashlib.sha256).hexdigest()
+        assert d2["signature"] == expected2
+        assert d2["body"].get("approved") is False
+        assert d2["body"].get("reason") == "nope"
 
     async def test_no_webhooks_no_error(self, store, registry):
         rec = store.create_external(title="t", requester="eng",
