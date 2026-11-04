@@ -27,6 +27,7 @@
 | 11 | [记忆治理、人设与团队](./11-memory-persona-team.md) | 记忆隔离/衰减/冲突、人设分层热重载、agents.md 互转、roster/mailbox、SLO 导出 |
 | 12 | [画布与编排](./12-canvas-orchestration.md) | Langflow 对齐：schema 驱动表单、拖拽上画布、保存校验、模板、单节点试跑、6 种编排模式 |
 | 13 | [CLI 与 TypeScript SDK](./13-cli-and-sdk.md) | `fusion-agent submit/resume/list`、沙箱选择、TS SDK 与 web 接入 |
+| 14 | [集群运维与可观测](./14-cluster-observability.md) | #583 集群面板 / 可观测页 / 会话 fork 注入 |
 
 ## 通用约定（所有文档共用）
 

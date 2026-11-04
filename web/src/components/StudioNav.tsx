@@ -14,6 +14,8 @@ export const STUDIO_TABS: Array<{ key: string; label: string; labelEn: string; h
     { key: 'canvas', label: '画布', labelEn: 'Canvas', href: '#/canvas' },
     { key: 'workflows', label: '工作流', labelEn: 'Workflows', href: '#/workflows' },
     { key: 'governance', label: '治理', labelEn: 'Governance', href: '#/governance' },
+    { key: 'cluster', label: '集群', labelEn: 'Cluster', href: '#/cluster' },
+    { key: 'observability', label: '可观测', labelEn: 'Observability', href: '#/observability' },
     { key: 'dashboard', label: '仪表盘', labelEn: 'Dashboard', href: '#/dashboard' },
     { key: 'team', label: '团队', labelEn: 'Team', href: '#/team' },
     { key: 'memory', label: '记忆', labelEn: 'Memory', href: '#/memory' },
