@@ -112,6 +112,18 @@ jobs:
         working-directory: web
         run: bun run build
 
+      # #573 follow-up: a PR touching web/src must commit the rebuilt
+      # web/dist — the daemon serves the committed bundle, so a stale dist
+      # ships a UI that is missing the newest features (happened at #568).
+      - name: Dist freshness guard
+        working-directory: web
+        run: |
+          if [ -n "$(git status --porcelain dist)" ]; then
+            echo "::error::web/dist is stale — rebuild (cd web && bun install && bun run build) and commit dist"
+            git status --porcelain dist
+            exit 1
+          fi
+
   # #500: E2E — real daemon subprocess + stub MLX + Playwright chromium
   # against the built web dist. The suite self-skips when playwright or the
   # dist is missing, so this job stays green even if setup regresses.

@@ -185,6 +185,13 @@ export async function apiPut<T = Record<string, unknown>>(
     return res.data;
 }
 
+// #573: DELETE for the agent-platform webhook registry (same #405 apiBase
+// rule as the other verbs).
+export async function apiDelete<T = Record<string, unknown>>(path: string): Promise<T> {
+    const res = await sdk.http.request<T>(`${B()}${path}`, { method: 'DELETE' });
+    return res.data;
+}
+
 export const api = {
     dashboard: () => getJson<DashboardData>(`${B()}/v1/dashboard`),
     graphs: (page = 1, limit = 50) =>
