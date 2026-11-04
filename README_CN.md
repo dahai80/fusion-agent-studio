@@ -522,6 +522,8 @@ python my_agent.py
 - ✅ **macOS 原生** — SwiftUI 应用 + WKWebView 画布集成
 - ✅ **i18n** — 中英双语 UI 字符串
 
+- ✅ **智能体商品标准（#570）** — 智能体成为一等商业商品：能力字段（prompt 包、工具白名单、知识库绑定、版本、eval 集引用、文档包）即商品本体；模型绑定是独立可替换字段。一份定义出双 SKU（`local` = MLX 本地模型，零数据出境；`pro` = 网关模型矩阵云模型），仅 `model_bindings` 不同 — 跨 SKU 能力指纹不变。文档五件套（README 中英 + Quickstart + 能力规格 + Eval 报告 + Changelog）是发布门禁：`commodity.publish` 与 `marketplace.publish` 都会拒绝缺项上架。首族：四个审查包（#549）发布为 `reviewer-architecture-contract` / `reviewer-security` / `reviewer-domain` / `reviewer-red-team`，含逐包 eval 集（`eval-sets/`）与诚实的真实模型 eval 报告（`docs/agents/<agent>/`）。RPC：`commodity.validate` / `commodity.from_reviewer_pack` / `commodity.publish`（eval 摘要随上架附着）/ `commodity.eval_report`（按 SKU 绑定跑 eval 集）。详见 `docs/guides/` 与 `docs/agents/`。
+
 ---
 
 ## 项目结构
