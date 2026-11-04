@@ -27,6 +27,11 @@ BASE_URL_ENV = "FUSION_AGENT_STUDIO_URL"
 API_KEY_ENV = "FUSION_AGENT_STUDIO_API_KEY"
 API_KEY_FILE = Path.home() / ".fusion-agent-studio" / "web_module_key"
 RETRY_STATUS = {502, 503, 504}
+# #579: trusted UDS control plane — loopback credential recovery transport.
+UDS_SOCKET_ENV = "FUSION_STUDIO_SOCK"
+UDS_SOCKET_PATH = "/tmp/fusion-studio.sock"
+# #578: who approves/rejects when the operator does not pass --decided-by.
+DECIDER_ENV = "FUSION_APPROVAL_DECIDER"
 
 
 def _api_key(explicit: str = "") -> str:
@@ -41,6 +46,56 @@ def _api_key(explicit: str = "") -> str:
     except OSError as e:
         logger.warning("api key file unreadable: %s", e)
     return ""
+
+
+class UdsRpcClient:
+    """#579: JSON-RPC 2.0 over the daemon's UDS control plane.
+
+    The daemon verifies the peer uid on accept (#209) and marks UDS
+    connections as loopback-trusted — that is the entire trust model for
+    admin-key recovery. Never network-exposed.
+    """
+
+    def __init__(self, socket_path: str = "", timeout: float = 10.0):
+        self.socket_path = (
+            socket_path or os.environ.get(UDS_SOCKET_ENV, "") or UDS_SOCKET_PATH
+        )
+        self.timeout = timeout
+
+    def call(self, method: str, params: dict | None = None) -> dict:
+        import socket as _socket
+
+        payload = json.dumps(
+            {"jsonrpc": "2.0", "id": 1, "method": method, "params": params or {}}
+        ).encode() + b"\n"
+        try:
+            with _socket.socket(_socket.AF_UNIX, _socket.SOCK_STREAM) as sock:
+                sock.settimeout(self.timeout)
+                sock.connect(self.socket_path)
+                sock.sendall(payload)
+                buf = b""
+                while b"\n" not in buf:
+                    chunk = sock.recv(65536)
+                    if not chunk:
+                        break
+                    buf += chunk
+        except OSError as e:
+            raise RuntimeError(
+                f"UDS call failed on {self.socket_path}: {e} — is the daemon "
+                "running? (loopback recovery needs the local daemon socket)"
+            ) from e
+        if not buf:
+            raise RuntimeError(f"UDS call {method}: empty response from daemon")
+        try:
+            resp = json.loads(buf.split(b"\n", 1)[0])
+        except ValueError as e:
+            raise RuntimeError(f"UDS call {method}: malformed response: {e}") from e
+        if "error" in resp:
+            err = resp["error"]
+            raise RuntimeError(
+                f"UDS call {method} -> error {err.get('code')}: {err.get('message')}"
+            )
+        return resp.get("result", {})
 
 
 class AgentStudioClient:
@@ -146,6 +201,63 @@ class AgentStudioClient:
 
     def inject_session(self, session_id: str, text: str) -> dict:
         return self.request("POST", f"/v1/sessions/{session_id}/inject", {"input": text})
+
+    # ── #578: approvals + webhook registry (agent-platform REST) ──
+
+    def approvals_create(
+        self,
+        title: str,
+        requester: str,
+        assigned_to: str = "",
+        payload_json: str = "",
+        agent_id: str = "",
+        gate_type: str = "",
+    ) -> dict:
+        payload: dict = {"title": title, "requester": requester}
+        if assigned_to:
+            payload["assigned_to"] = assigned_to
+        if agent_id:
+            payload["agent_id"] = agent_id
+        body_payload: dict = {}
+        if payload_json:
+            try:
+                parsed = json.loads(payload_json)
+            except ValueError as e:
+                raise RuntimeError(f"--payload-json is not valid JSON: {e}") from e
+            if not isinstance(parsed, dict):
+                raise RuntimeError("--payload-json must decode to a JSON object")
+            body_payload = parsed
+        if gate_type:
+            body_payload = {**body_payload, "gate": gate_type}
+        if body_payload:
+            payload["payload"] = body_payload
+        return self.request("POST", "/v1/agent-platform/approvals", payload)
+
+    def approvals_list(self, status: str = "", limit: int = 50) -> dict:
+        return self.request("GET", f"/v1/agent-platform/approvals?status={status}&limit={limit}")
+
+    def approvals_decide(self, approval_id: str, approve: bool, decider: str, note: str = "") -> dict:
+        body: dict = {"decided_by": decider}
+        # Server contract: reject carries `reason` (required for reject);
+        # approve carries only decided_by — a note is sent as `reason` too,
+        # harmless if unused.
+        if note:
+            body["reason"] = note
+        action = "approve" if approve else "reject"
+        return self.request("POST", f"/v1/agent-platform/approvals/{approval_id}/{action}", body)
+
+    def webhooks_add(self, url: str, secret: str, events: str = "") -> dict:
+        body: dict = {"url": url, "secret": secret}
+        ev = [e.strip() for e in events.split(",") if e.strip()]
+        if ev:
+            body["events"] = ev
+        return self.request("POST", "/v1/agent-platform/webhooks", body)
+
+    def webhooks_list(self) -> dict:
+        return self.request("GET", "/v1/agent-platform/webhooks")
+
+    def webhooks_remove(self, webhook_id: str) -> dict:
+        return self.request("DELETE", f"/v1/agent-platform/webhooks/{webhook_id}")
 
     def stream(self, path: str) -> Iterator[dict]:
         with httpx.stream(
@@ -310,6 +422,115 @@ def _cmd_cancel(client: AgentStudioClient, args: argparse.Namespace) -> int:
     return 0
 
 
+# ── #578: approvals command group ──
+
+
+def _decider(explicit: str) -> str:
+    d = explicit.strip() or os.environ.get(DECIDER_ENV, "").strip()
+    if not d:
+        raise RuntimeError(
+            "decider identity required: pass --decided-by or set "
+            f"{DECIDER_ENV} (who is approving/rejecting)"
+        )
+    return d
+
+
+def _cmd_approvals_create(client: AgentStudioClient, args: argparse.Namespace) -> int:
+    rec = client.approvals_create(
+        title=args.title,
+        requester=args.requester,
+        assigned_to=args.assigned_to,
+        payload_json=args.payload_json,
+        agent_id=args.agent_id,
+        gate_type=args.type,
+    )
+    print(f"approval created: {rec.get('approval_id')} (status={rec.get('status')})")
+    print(f"poll: {client.base_url}{rec.get('poll', '/v1/agent-platform/approvals?status=pending')}")
+    return 0
+
+
+def _cmd_approvals_list(client: AgentStudioClient, args: argparse.Namespace) -> int:
+    rec = client.approvals_list(status=args.status, limit=args.limit)
+    if args.json:
+        print(json.dumps(rec, ensure_ascii=False, indent=2))
+        return 0
+    rows = rec.get("approvals", rec.get("data", []))
+    if not rows:
+        print(f"no approvals (status={args.status or 'all'})")
+        return 0
+    for r in rows:
+        print(
+            f"{r.get('id', '')}  status={r.get('status', '')}  "
+            f"kind={r.get('kind', '')}  requester={r.get('requester', '')}  "
+            f"assigned={r.get('assigned_to', '')}  {r.get('title', '')}"
+        )
+    return 0
+
+
+def _cmd_approvals_decide(client: AgentStudioClient, args: argparse.Namespace) -> int:
+    approve = args.decision == "approve"
+    rec = client.approvals_decide(
+        args.approval_id,
+        approve=approve,
+        decider=_decider(args.decided_by),
+        note=args.note,
+    )
+    print(f"approval {args.approval_id}: {rec.get('status', 'decided')}")
+    return 0
+
+
+def _cmd_webhooks_add(client: AgentStudioClient, args: argparse.Namespace) -> int:
+    rec = client.webhooks_add(args.url, args.secret, args.events)
+    print(f"webhook registered: {rec.get('id')} -> {rec.get('url')}")
+    return 0
+
+
+def _cmd_webhooks_list(client: AgentStudioClient, args: argparse.Namespace) -> int:
+    rec = client.webhooks_list()
+    if args.json:
+        print(json.dumps(rec, ensure_ascii=False, indent=2))
+        return 0
+    rows = rec.get("webhooks", rec.get("data", []))
+    if not rows:
+        print("no webhooks registered")
+        return 0
+    for r in rows:
+        print(f"{r.get('id', '')}  {r.get('url', '')}  events={','.join(r.get('events', []))}")
+    return 0
+
+
+def _cmd_webhooks_remove(client: AgentStudioClient, args: argparse.Namespace) -> int:
+    client.webhooks_remove(args.webhook_id)
+    print(f"webhook removed: {args.webhook_id}")
+    return 0
+
+
+# ── #579: loopback credential recovery (UDS, peer-uid verified) ──
+
+
+def _cmd_apikeys_recover(client: AgentStudioClient, args: argparse.Namespace) -> int:
+    uds = UdsRpcClient(socket_path=args.socket)
+    if args.rotate:
+        rec = uds.call("apikey.loopback_rotate", {"key_id": args.rotate})
+        label = f"rotated {args.rotate}"
+    else:
+        if not args.name:
+            raise RuntimeError(
+                "--name required (or pass --rotate KEY_ID to rotate an existing key)"
+            )
+        params: dict = {"name": args.name}
+        if args.permissions:
+            params["permissions"] = [p.strip() for p in args.permissions.split(",") if p.strip()]
+        rec = uds.call("apikey.loopback_create", params)
+        label = f"created {rec.get('key_id')} ({args.name})"
+    secret = rec.get("key_secret", "")
+    if not secret:
+        raise RuntimeError(f"issuance failed: {rec}")
+    print(f"{label}")
+    print(f"key_secret (shown once, store it now): {secret}")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="fusion-agent",
@@ -365,6 +586,65 @@ def build_parser() -> argparse.ArgumentParser:
     p_cancel = sub.add_parser("cancel", help="cancel a run")
     p_cancel.add_argument("run_id")
     p_cancel.set_defaults(func=_cmd_cancel)
+
+    # #578: approvals — G-gate registration + decisions over agent-platform REST
+    p_appr = sub.add_parser("approvals", help="approval gateway: create/list/approve/reject + webhooks")
+    appr_sub = p_appr.add_subparsers(dest="command_approvals", required=True)
+
+    p_acreate = appr_sub.add_parser("create", help="register an approval task (external kind)")
+    p_acreate.add_argument("--title", required=True)
+    p_acreate.add_argument("--requester", required=True)
+    p_acreate.add_argument("--assigned-to", required=True, help="reviewer who may decide")
+    p_acreate.add_argument("--type", default="", help="gate type tag, e.g. gate:g1 / gate:g4 / gate:g5")
+    p_acreate.add_argument("--payload-json", default="", help="opaque consumer payload as JSON object")
+    p_acreate.add_argument("--agent-id", default="")
+    p_acreate.set_defaults(func=_cmd_approvals_create)
+
+    p_alist = appr_sub.add_parser("list", help="list approvals")
+    p_alist.add_argument("--status", default="", choices=["", "pending", "approved", "rejected"])
+    p_alist.add_argument("--limit", type=int, default=50)
+    p_alist.set_defaults(func=_cmd_approvals_list)
+
+    for decision in ("approve", "reject"):
+        p_adec = appr_sub.add_parser(decision, help=f"{decision} an approval")
+        p_adec.add_argument("approval_id")
+        p_adec.add_argument("--decided-by", default="", help=f"who decided (default env {DECIDER_ENV})")
+        p_adec.add_argument("--note", default="", help="reason (required for reject)")
+        p_adec.set_defaults(func=_cmd_approvals_decide, decision=decision)
+
+    p_awk = appr_sub.add_parser("webhooks", help="decision webhook registry")
+    wk_sub = p_awk.add_subparsers(dest="command_webhooks", required=True)
+
+    p_wadd = wk_sub.add_parser("add", help="register a decision webhook")
+    p_wadd.add_argument("--url", required=True)
+    p_wadd.add_argument("--secret", required=True, help="HMAC secret, min 16 chars")
+    p_wadd.add_argument("--events", default="", help="comma-separated event filter")
+    p_wadd.set_defaults(func=_cmd_webhooks_add)
+
+    p_wlist = wk_sub.add_parser("list", help="list registered webhooks")
+    p_wlist.set_defaults(func=_cmd_webhooks_list)
+
+    p_wrm = wk_sub.add_parser("remove", help="remove a webhook by id")
+    p_wrm.add_argument("webhook_id")
+    p_wrm.set_defaults(func=_cmd_webhooks_remove)
+
+    # #579: loopback admin-key recovery over the trusted UDS control plane
+    p_ak = sub.add_parser("apikeys", help="admin API key lifecycle")
+    ak_sub = p_ak.add_subparsers(dest="command_apikeys", required=True)
+    p_akr = ak_sub.add_parser(
+        "recover",
+        help="issue/rotate an admin key without an existing HTTP key "
+        "(UDS loopback, peer-uid verified — local only)",
+    )
+    p_akr.add_argument("--name", default="", help="new key name (create path)")
+    p_akr.add_argument("--rotate", default="", help="rotate existing key id instead of creating")
+    p_akr.add_argument("--permissions", default="", help="comma-separated permissions (create path)")
+    p_akr.add_argument(
+        "--socket",
+        default="",
+        help=f"daemon UDS socket (default env {UDS_SOCKET_ENV} or {UDS_SOCKET_PATH})",
+    )
+    p_akr.set_defaults(func=_cmd_apikeys_recover)
     return parser
 
 

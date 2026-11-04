@@ -70,6 +70,57 @@ fusion-agent submit writer -i "跑在大节点上" --sandbox multi-node:mini-01
   （`FUSION_CLUSTER_URL`，默认 `http://127.0.0.1:11457`）。集群不可达时 run
   直接置为 `failed` 并返回错误，**不会**静默回退本地执行。
 
+### 审批网关（#578）
+
+G-gate（gate:g1 / gate:g4 / gate:g5）审批任务的注册、决策与决策 webhook
+注册表都走 `approvals` 命令组（agent-platform REST，鉴权同上）：
+
+```bash
+# 注册外部审批任务（assigned_to 必填 —— reviewer 才能拍板）
+fusion-agent approvals create \
+    --title "gate:g1 — proposal" \
+    --requester pipeline-bot \
+    --assigned-to owner-a \
+    --type gate:g1 \
+    --payload-json '{"repo":"fusion-agent-studio","pr":"#576"}'
+
+fusion-agent approvals list --status pending
+
+# 决策（身份来自 --decided-by 或 FUSION_APPROVAL_DECIDER）
+fusion-agent approvals approve <approval_id> --decided-by owner-a
+fusion-agent approvals reject <approval_id> --note "理由" --decided-by owner-a
+
+# 决策 webhook 注册表（HMAC secret >= 16 字符，服务端不回显）
+fusion-agent approvals webhooks add --url https://cb.example/hook \
+    --secret sixteen-char-key --events approval.decided
+fusion-agent approvals webhooks list
+fusion-agent approvals webhooks remove <webhook_id>
+```
+
+约束（服务端强制，CLI 只做前置校验）：requester 不能自批（requester !=
+decided_by）；external + 指派场景仅 assigned_to 可决策；已决策记录不可
+二次决策（409）。
+
+### 管理员密钥找回（#579 loopback）
+
+bootstrap key 明文只在首次启动打印一次；丢失后无需登录即可通过本机 UDS
+控制面找回（同 daemon 信任模型：`/tmp/fusion-studio.sock` 0o600 +
+peer-uid 校验，不暴露网络，落 `apikey.create` / `apikey.rotate` 审计）：
+
+```bash
+# 新建管理员 key（明文只打印一次）
+fusion-agent apikeys recover --name ops-recovery --permissions admin
+
+# 或轮换已有 key（旧 secret 立即失效）
+fusion-agent apikeys recover --rotate <key_id>
+
+# socket 路径覆盖（默认 /tmp/fusion-studio.sock，或 FUSION_STUDIO_SOCK）
+fusion-agent apikeys recover --name ops --socket /tmp/fusion-studio.sock
+```
+
+仅本机可用：这两个 RPC（`apikey.loopback_create` / `apikey.loopback_rotate`）
+只接受 peer-uid 校验通过的 UDS 连接，HTTP REST 与 web RPC 桥均不可达。
+
 ## TypeScript SDK
 
 位置：`sdk/typescript/`，包名 `@fusion/agent-studio-sdk`。
