@@ -144,29 +144,28 @@ def test_payload_json_invalid_rejected_early(rec, monkeypatch, capsys):
 
 
 def _serve_one_response(sock_path: str, result: dict, error: bool = False):
+    # Bind + listen synchronously in the caller thread so a client that
+    # observes the socket file can never hit the pre-listen window
+    # (bind-then-listen is not atomic; connecting in between gets
+    # ECONNREFUSED — flaked on CI).
+    srv = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    srv.bind(sock_path)
+    srv.listen(1)
+
     def run():
-        srv = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        srv.bind(sock_path)
-        srv.listen(1)
-        conn, _ = srv.accept()
-        with conn:
-            buf = b""
-            while b"\n" not in buf:
-                buf += conn.recv(65536)
-            body = {"error": result} if error else {"result": result}
-            conn.sendall(json.dumps({"jsonrpc": "2.0", "id": 1, **body}).encode() + b"\n")
-        srv.close()
+        try:
+            conn, _ = srv.accept()
+            with conn:
+                buf = b""
+                while b"\n" not in buf:
+                    buf += conn.recv(65536)
+                body = {"error": result} if error else {"result": result}
+                conn.sendall(json.dumps({"jsonrpc": "2.0", "id": 1, **body}).encode() + b"\n")
+        finally:
+            srv.close()
 
     t = threading.Thread(target=run, daemon=True)
     t.start()
-    import time
-
-    for _ in range(100):
-        import os
-
-        if os.path.exists(sock_path):
-            break
-        time.sleep(0.01)
     return t
 
 
