@@ -511,6 +511,9 @@ class CapabilityDoor:
                 "agent_id": rec.get("agent_id"),
                 "title": rec.get("title") or "",
                 "status": rec.get("status"),
+                # #580: cowork consumer resumes a HITL run from top-level
+                # `approved` — ship the boolean, not just the status string.
+                "approved": rec.get("status") == "approved",
                 "requester": rec.get("requester"),
                 "decided_by": rec.get("decided_by"),
                 "decided_at": rec.get("decided_at"),
