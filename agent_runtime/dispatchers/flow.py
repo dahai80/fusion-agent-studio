@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import uuid
 from typing import Any, Callable
@@ -14,6 +15,29 @@ from agent_runtime.flow_store import FlowStore, FlowStoreError, resolve_tenant_i
 
 logger = logging.getLogger(__name__)
 
+
+_NL_SYSTEM_PROMPT = """You are a workflow graph builder for a local AI agent platform.
+Convert the user's request into graph mutation ops. Respond ONLY with JSON:
+{"reply": "<one short sentence, same language as the user>",
+ "ops": [{"op": "...", ...}]}
+Allowed ops (and only these):
+- {"op":"add_node","id":"<short-id>","type":"<type>","label":"<human label>","config":{...}}
+- {"op":"remove_node","id":"<existing-id>"}
+- {"op":"set_config","id":"<existing-id>","config":{...}}
+- {"op":"connect","source":"<existing-id>","target":"<existing-id>","label":"<edge label or empty>"}
+- {"op":"disconnect","source":"<existing-id>","target":"<existing-id>"}
+- {"op":"clear_graph"}
+- {"op":"instantiate_template","name":"<template name>"}
+Rules:
+- "type" MUST be one of the allowed node types listed by the caller. Never invent types.
+- "config" values may reference run inputs with {{ variable }} syntax.
+- connect only ids that exist (after earlier ops in the same list).
+- Every graph needs exactly one start node and at least one end node.
+- If the request is better served by a template from the provided list, prefer
+  {"op":"instantiate_template"} plus follow-up ops on the instantiated graph,
+  and mention the template in reply.
+- If the request is ambiguous, ask a clarifying question in "reply" with empty ops.
+"""
 
 class FlowDispatcher:
     def __init__(self, daemon: Any):
@@ -32,6 +56,7 @@ class FlowDispatcher:
             "flow.template_save": self._handle_template_save,
             "flow.template_instantiate": self._handle_template_instantiate,
             "flow.template_delete": self._handle_template_delete,
+            "graph.nl_plan": self._handle_graph_nl_plan,
         }
 
     def _store(self) -> FlowStore:
@@ -225,3 +250,115 @@ class FlowDispatcher:
         if not deleted:
             return {"error": f"template '{flow_id}' not found for tenant '{tenant or 'default'}'"}
         return {"deleted": True, "flow_id": flow_id}
+
+    async def _handle_graph_nl_plan(self, params: dict) -> dict:
+        prompt = str(params.get("prompt", "") or "")
+        if not prompt.strip():
+            return {"error": "prompt required"}
+        catalog = params.get("catalog") or []
+        allowed_types = {str(c.get("type", "")) for c in catalog if isinstance(c, dict) and c.get("type")}
+        if not allowed_types:
+            from agent_runtime.graph import AgentGraph
+
+            allowed_types = set(AgentGraph._VALID_NODE_TYPES)
+        templates = params.get("templates") or []
+        template_names = {
+            str(t.get("name", ""))
+            for t in templates
+            if isinstance(t, dict) and t.get("name")
+        }
+        graph_state = params.get("graph_json")
+        catalog_desc = ", ".join(sorted(allowed_types))
+        template_desc = ", ".join(sorted(template_names)) if template_names else "(none)"
+        system = (
+            f"{_NL_SYSTEM_PROMPT}\nAllowed node types: {catalog_desc}\n"
+            f"Available templates: {template_desc}\n"
+        )
+        if isinstance(graph_state, dict) and graph_state.get("nodes"):
+            system += f"Current graph state: {json.dumps(graph_state, ensure_ascii=False)}\n"
+        messages = [
+            {"role": "system", "content": system},
+            {"role": "user", "content": prompt},
+        ]
+        model = str(params.get("model", "") or "")
+        rt = self._daemon._get_runtime()
+        gw = getattr(rt, "llm_gateway", None)
+        if gw is None:
+            return {"error": "no llm gateway available on daemon runtime"}
+        try:
+            resp = await gw.chat(messages, model=model, temperature=0.2)
+        except Exception as exc:
+            logger.warning("graph.nl_plan llm call failed: %s", exc)
+            return {"error": f"llm call failed: {exc}"}
+        content = getattr(resp, "content", "") or ""
+        try:
+            from fusion_core.parse import parse_llm_json_lenient
+
+            plan = parse_llm_json_lenient(content)
+        except Exception as exc:
+            logger.warning("graph.nl_plan parse failed: %s; raw=%r", exc, content[:200])
+            return {"error": f"model reply is not valid plan JSON: {exc}", "raw": content[:500]}
+        if isinstance(plan, list):
+            plan = {"ops": plan}
+        ops = plan.get("ops") or []
+        if not isinstance(ops, list):
+            return {"error": "plan.ops must be a list", "raw": content[:500]}
+        # Validate ops against the registry-grounded catalog + graph state.
+        existing = set()
+        if isinstance(graph_state, dict):
+            nodes_raw = graph_state.get("nodes")
+            if isinstance(nodes_raw, list):
+                existing = {str(n.get("id", "")) for n in nodes_raw if isinstance(n, dict)}
+            elif isinstance(nodes_raw, dict):
+                existing = set(nodes_raw.keys())
+        errors: list[str] = []
+        for i, op in enumerate(ops):
+            if not isinstance(op, dict):
+                errors.append(f"op[{i}]: not an object")
+                continue
+            kind = str(op.get("op", ""))
+            if kind == "add_node":
+                nid = str(op.get("id", ""))
+                ntype = str(op.get("type", ""))
+                if not nid or not nid.replace("-", "").replace("_", "").isalnum():
+                    errors.append(f"op[{i}]: add_node needs a short alphanumeric id")
+                elif nid in existing:
+                    errors.append(f"op[{i}]: node '{nid}' already exists — use set_config instead")
+                if ntype not in allowed_types:
+                    errors.append(
+                        f"op[{i}]: unknown node type '{ntype}' — allowed: {catalog_desc}"
+                    )
+                else:
+                    existing.add(nid)
+            elif kind in ("remove_node", "set_config"):
+                if str(op.get("id", "")) not in existing:
+                    errors.append(f"op[{i}]: {kind} target '{op.get('id')}' not in graph")
+                if kind == "remove_node" and str(op.get("id", "")) in existing:
+                    existing.discard(str(op.get("id", "")))
+            elif kind in ("connect", "disconnect"):
+                src, tgt = str(op.get("source", "")), str(op.get("target", ""))
+                if src not in existing or tgt not in existing:
+                    errors.append(
+                        f"op[{i}]: {kind} endpoints must exist in graph (got '{src}' -> '{tgt}')"
+                    )
+            elif kind == "clear_graph":
+                existing.clear()
+            elif kind == "instantiate_template":
+                name = str(op.get("name", ""))
+                if template_names and name not in template_names:
+                    errors.append(
+                        f"op[{i}]: unknown template '{name}' — available: {template_desc}"
+                    )
+            else:
+                errors.append(f"op[{i}]: unknown op kind '{kind}'")
+        if errors:
+            logger.info("graph.nl_plan rejected %d/%d ops", len(errors), len(ops))
+            return {
+                "error": "invalid plan ops",
+                "details": errors,
+                "allowed_types": sorted(allowed_types),
+                "reply": str(plan.get("reply", "")),
+            }
+        reply = str(plan.get("reply", ""))
+        logger.info("graph.nl_plan ok ops=%d templates=%s", len(ops), template_desc[:80])
+        return {"reply": reply, "ops": ops}
