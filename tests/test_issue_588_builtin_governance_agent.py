@@ -96,3 +96,22 @@ async def test_governance_dry_run_create_and_decide(daemon, monkeypatch):
     decided = door.approvals.decide(rec["id"], "approved", decided_by="owner")
     assert decided["status"] == "approved"
     assert decided["decided_by"] == "owner"
+
+
+def test_rest_index_loader_seeds_steward(monkeypatch, tmp_path):
+    # /v1/agents uses api_server._load_agents_index (daemon-agnostic); the
+    # steward must appear there too, before any authenticated RPC ran.
+    fake_home = tmp_path / "home"
+    (fake_home / ".fusion-agent-studio").mkdir(parents=True)
+    monkeypatch.setenv(
+        "FUSION_AGENT_STUDIO_HOME", str(fake_home / ".fusion-agent-studio")
+    )
+    from agent_runtime import api_server
+
+    index = api_server._load_agents_index()
+    assert GOVERNANCE_STEWARD_ID in index
+    # and it is persisted so the daemon-side loader sees it as well
+    idx = fake_home / ".fusion-agent-studio" / "agents" / "index.json"
+    import json
+
+    assert GOVERNANCE_STEWARD_ID in json.loads(idx.read_text())

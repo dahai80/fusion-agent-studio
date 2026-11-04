@@ -84,6 +84,46 @@ def seed_builtin_agents(daemon) -> list[str]:
     return seeded
 
 
+def seed_builtin_index(index: dict, agents_root=None) -> list[str]:
+    """#588: daemon-agnostic seeding for the HTTP api_server's index loader.
+
+    Same presence check + package bootstrap as seed_builtin_agents, but
+    operates on a plain index dict and persists agents/index.json directly,
+    so the steward is visible over REST even before any authenticated RPC
+    forces the daemon-side index load.
+    """
+    import json as _json
+
+    from .agent_package import AgentPackage
+    from .paths import studio_home
+
+    root = agents_root or studio_home() / "agents"
+    idx_path = root / "index.json"
+    seeded = []
+    for spec in BUILTIN_AGENTS:
+        agent_id = spec["id"]
+        if agent_id in index:
+            continue
+        agent_dir = root / agent_id
+        pkg = AgentPackage(agent_dir)
+        if not (agent_dir / ".fusion-agent" / "manifest.json").exists():
+            _create_builtin_agent(spec, pkg)
+        manifest = pkg.load_manifest()
+        index[agent_id] = manifest.to_dict()
+        index[agent_id]["id"] = agent_id
+        index[agent_id]["created_at"] = time.time()
+        seeded.append(agent_id)
+        logger.info("Seeded built-in agent (REST index): %s", agent_id)
+    if seeded:
+        try:
+            idx_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(idx_path, "w", encoding="utf-8") as f:
+                _json.dump(index, f, indent=4, ensure_ascii=False)
+        except OSError as e:
+            logger.warning("Failed to persist seeded agents index: %s", e)
+    return seeded
+
+
 def _create_builtin_agent(spec: dict, pkg) -> None:
     from .agent_package import AgentManifest
 

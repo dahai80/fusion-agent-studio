@@ -267,17 +267,28 @@ _telemetry = None
 
 def _load_agents_index() -> dict:
     if _daemon is not None and hasattr(_daemon, "_agents") and _daemon._agents:
-        return dict(_daemon._agents)
-    idx_path = studio_home() / "agents" / "index.json"
-    if idx_path.exists():
-        try:
-            with open(idx_path) as f:
-                return json.load(f)
-        except Exception:
-            pass
-    index = _rebuild_agents_index_from_disk()
-    if index:
-        logger.info("agents index rebuilt from disk: %d agents", len(index))
+        index = dict(_daemon._agents)
+    else:
+        index = {}
+        idx_path = studio_home() / "agents" / "index.json"
+        if idx_path.exists():
+            try:
+                with open(idx_path) as f:
+                    index = json.load(f)
+            except Exception:
+                index = {}
+        if not index:
+            index = _rebuild_agents_index_from_disk()
+            if index:
+                logger.info("agents index rebuilt from disk: %d agents", len(index))
+    # #588: make built-in agents (governance steward) visible over REST even
+    # before any authenticated RPC forces the daemon-side index load.
+    from agent_runtime.builtin_agents import seed_builtin_index
+
+    try:
+        seed_builtin_index(index)
+    except Exception as e:
+        logger.warning("built-in agent seeding (REST index) failed: %s", e)
     return index
 
 
