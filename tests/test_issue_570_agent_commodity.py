@@ -161,7 +161,20 @@ def test_publish_rejects_via_marketplace_publish_path():
 def test_publish_accepts_complete_commodity():
     d = _Daemon()
     out = asyncio.run(
-        CommodityDispatcher(d)._handle_publish({"commodity": _full_commodity().to_dict()})
+        CommodityDispatcher(d)._handle_publish(
+            {
+                "commodity": _full_commodity().to_dict(),
+                "eval_summary": {
+                    "sku": "local",
+                    "model_name": "mlx-community/Qwen3.5-4B-MLX-4bit",
+                    "pass_rate": 100.0,
+                    "passed": 3,
+                    "total": 3,
+                    "eval_set_ref": "eval-sets/reviewer-architecture-contract.json",
+                    "raw": "dropped",
+                },
+            }
+        )
     )
     assert out["status"] == "ok"
     assert out["skus"] == ["local", "pro"]
@@ -169,6 +182,8 @@ def test_publish_accepts_complete_commodity():
     entry = asyncio.run(entry)
     assert entry["entry"]["category"] == "agent-commodity"
     assert entry["entry"]["graph_data"]["capability_fingerprint"]
+    es = entry["entry"]["graph_data"]["eval_summary"]
+    assert es["pass_rate"] == 100.0 and "raw" not in es
 
 
 class _StubGateway(LLMGateway):
