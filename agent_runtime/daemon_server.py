@@ -1332,6 +1332,7 @@ class DaemonServer:
             ChatDispatcher,
             DeployDispatcher,
             FlowDispatcher,
+HistoryDispatcher,
             InfraDispatcher,
             KnowledgeDispatcher,
             MarketplaceDispatcher,
@@ -1374,6 +1375,7 @@ class DaemonServer:
             SessionDispatcher(self),
             BundleDispatcher(self),
             FlowDispatcher(self),
+    HistoryDispatcher(self),
             ReviewerDispatcher(self),
         ]
 
