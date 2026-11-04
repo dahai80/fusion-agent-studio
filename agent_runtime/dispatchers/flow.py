@@ -28,10 +28,10 @@ class FlowDispatcher:
             "flow.delete": self._handle_flow_delete,
             "flow.versions": self._handle_flow_versions,
             "flow.restore": self._handle_flow_restore,
-            "template.list": self._handle_template_list,
-            "template.save": self._handle_template_save,
-            "template.instantiate": self._handle_template_instantiate,
-            "template.delete": self._handle_template_delete,
+            "flow.template_list": self._handle_template_list,
+            "flow.template_save": self._handle_template_save,
+            "flow.template_instantiate": self._handle_template_instantiate,
+            "flow.template_delete": self._handle_template_delete,
         }
 
     def _store(self) -> FlowStore:
