@@ -10,8 +10,8 @@ import {
     TextInput,
     useAutoRetry,
 } from '@fusion/web-ui';
-import { useCallback, useEffect, useState } from 'react';
-import { rpc } from '../../api';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { apiDelete, apiGet, apiPost, rpc } from '../../api';
 import { PageHeader } from '../../components/PageHeader';
 import { Tabs } from '../../components/ui/Tabs';
 import { useT } from '../../i18n';
@@ -65,6 +65,47 @@ interface RunArtifactRecord extends RunArtifactSummary {
     graph?: unknown;
     environment?: unknown;
     conversation?: { count: number; messages: unknown[] };
+}
+
+// #573: external approval inbox (G-gates ride the #446 approval gateway).
+interface ExternalApproval {
+    id: string;
+    title: string;
+    requester: string;
+    assigned_to: string;
+    kind: string;
+    status: string;
+    params: Record<string, unknown>;
+    agent_id?: string;
+    created_at?: number;
+    decided_at?: number | null;
+    decided_by?: string;
+    result?: string;
+}
+
+interface WebhookRow {
+    id: string;
+    url: string;
+    events: string[];
+    created_at?: number;
+    last_status?: number | null;
+    delivery_count?: number;
+}
+
+// gate:g1|g4|g5 convention -> badge; extract the issue reference from payload.
+function gateBadge(title: string, capabilityId: string): string {
+    const m = `${capabilityId} ${title}`.match(/gate:(g[145])/i);
+    return m ? m[1].toUpperCase() : '';
+}
+
+function issueRef(payload: Record<string, unknown>): string {
+    for (const k of ['issue_url', 'issue_link', 'issue']) {
+        const v = payload[k];
+        if (typeof v === 'string' && v.trim()) return v.trim();
+    }
+    const n = payload.issue_number;
+    if (typeof n === 'number' || typeof n === 'string') return String(n);
+    return '';
 }
 
 function BudgetTab() {
@@ -440,6 +481,358 @@ function ArtifactsTab() {
     );
 }
 
+function ApprovalsTab() {
+    const t = useT();
+    const [principal, setPrincipal] = useState('');
+    const [status, setStatus] = useState('pending');
+    const [rows, setRows] = useState<ExternalApproval[]>([]);
+    const [error, setError] = useState('');
+    const [loading, setLoading] = useState(true);
+    const [reason, setReason] = useState('');
+    const [busyId, setBusyId] = useState('');
+    const tick = useRef(0);
+
+    const refresh = useCallback(async () => {
+        setError('');
+        try {
+            const data = await apiGet<{ approvals: ExternalApproval[] }>(
+                `/v1/agent-platform/approvals?status=${encodeURIComponent(status)}&limit=100`
+            );
+            setRows(data.approvals || []);
+        } catch (e) {
+            setError((e as Error).message);
+        } finally {
+            setLoading(false);
+        }
+    }, [status]);
+
+    useEffect(() => {
+        setLoading(true);
+        void refresh();
+        const iv = window.setInterval(() => {
+            tick.current += 1;
+            void refresh();
+        }, 10000);
+        return () => window.clearInterval(iv);
+    }, [refresh]);
+
+    // #573 AC: only the assigned reviewer (or any non-requester when the
+    // task is unassigned) may decide — everyone else is read-only.
+    const canDecide = (r: ExternalApproval): boolean => {
+        if (!principal.trim() || r.status !== 'pending') return false;
+        if (principal.trim() === r.requester) return false;
+        if (r.kind === 'external' && r.assigned_to && principal.trim() !== r.assigned_to)
+            return false;
+        return true;
+    };
+
+    const decide = async (r: ExternalApproval, approve: boolean) => {
+        setBusyId(r.id);
+        try {
+            await apiPost(
+                `/v1/agent-platform/approvals/${encodeURIComponent(r.id)}/${approve ? 'approve' : 'reject'}`,
+                approve
+                    ? { decided_by: principal.trim() }
+                    : { decided_by: principal.trim(), reason: reason.trim() }
+            );
+            sdk.toast.show({
+                level: 'success',
+                message: approve ? t('已批准', 'Approved') : t('已拒绝', 'Rejected'),
+            });
+            setReason('');
+            await refresh();
+        } catch (e) {
+            sdk.toast.show({ level: 'error', message: (e as Error).message });
+        } finally {
+            setBusyId('');
+        }
+    };
+
+    return (
+        <div className="space-y-3">
+            <div className="flex flex-wrap items-end gap-2">
+                <div className="w-56">
+                    <FormField label={t('当前审批人', 'Current principal')}>
+                        <TextInput
+                            value={principal}
+                            onChange={setPrincipal}
+                            placeholder={t('审批人标识', 'principal id')}
+                        />
+                    </FormField>
+                </div>
+                <div className="w-40">
+                    <FormField label={t('状态', 'Status')}>
+                        <select
+                            className="w-full rounded border border-border bg-bg px-2 py-1.5 text-sm"
+                            value={status}
+                            onChange={(e) => setStatus(e.target.value)}
+                        >
+                            <option value="pending">{t('待审', 'pending')}</option>
+                            <option value="approved">{t('已批准', 'approved')}</option>
+                            <option value="rejected">{t('已拒绝', 'rejected')}</option>
+                            <option value="">{t('全部', 'all')}</option>
+                        </select>
+                    </FormField>
+                </div>
+                <div className="w-64">
+                    <FormField label={t('拒绝理由', 'Rejection reason')}>
+                        <TextInput
+                            value={reason}
+                            onChange={setReason}
+                            placeholder={t('拒绝时必填', 'required on reject')}
+                        />
+                    </FormField>
+                </div>
+                <SubmitButton label={t('刷新', 'Refresh')} onAction={() => void refresh()} />
+            </div>
+            {error ? <ErrorState message={error} /> : null}
+            {loading && rows.length === 0 ? (
+                <SkeletonLines />
+            ) : rows.length === 0 ? (
+                <EmptyState title={t('暂无审批任务', 'No approval tasks')} />
+            ) : (
+                <DataTable<ExternalApproval>
+                    rows={rows}
+                    rowKey={(r) => r.id}
+                    pageSize={10}
+                    columns={[
+                        {
+                            key: 'title',
+                            header: t('标题', 'Title'),
+                            render: (r) => {
+                                const badge = gateBadge(r.title, r.agent_id || '');
+                                const issue = issueRef(r.params || {});
+                                return (
+                                    <div className="space-y-0.5">
+                                        <div className="flex items-center gap-1.5">
+                                            {badge ? (
+                                                <span className="rounded bg-brand/10 text-brand px-1.5 text-xs font-medium">
+                                                    {badge}
+                                                </span>
+                                            ) : null}
+                                            <span className="text-sm">{r.title || r.id}</span>
+                                        </div>
+                                        {issue ? (
+                                            <div className="text-xs text-text-secondary">
+                                                {t('关联 Issue', 'Issue')}: {issue}
+                                            </div>
+                                        ) : null}
+                                    </div>
+                                );
+                            },
+                        },
+                        {
+                            key: 'people',
+                            header: t('申请人 / 审批人', 'Requester / reviewer'),
+                            render: (r) => (
+                                <span className="text-xs text-text-secondary">
+                                    {r.requester || '-'} → {r.assigned_to || t('未指派', 'unassigned')}
+                                </span>
+                            ),
+                        },
+                        {
+                            key: 'payload',
+                            header: t('载荷', 'Payload'),
+                            render: (r) => (
+                                <pre className="max-h-20 max-w-xs overflow-auto whitespace-pre-wrap font-mono text-[11px] text-text-secondary">
+                                    {JSON.stringify(r.params ?? {}, null, 1)}
+                                </pre>
+                            ),
+                        },
+                        {
+                            key: 'status',
+                            header: t('状态', 'State'),
+                            render: (r) => (
+                                <span className="text-xs">
+                                    {r.status === 'pending'
+                                        ? t('待审', 'pending')
+                                        : r.status === 'approved'
+                                          ? t('已批准', 'approved')
+                                          : r.status === 'rejected'
+                                            ? t('已拒绝', 'rejected')
+                                            : r.status}
+                                </span>
+                            ),
+                        },
+                        {
+                            key: 'action',
+                            header: t('操作', 'Action'),
+                            render: (r) => {
+                                const ok = canDecide(r);
+                                return (
+                                    <div className="flex gap-1">
+                                        <button
+                                            type="button"
+                                            disabled={!ok || busyId === r.id}
+                                            className="rounded border border-border px-2 py-0.5 text-xs enabled:hover:border-brand disabled:opacity-40"
+                                            onClick={() => void decide(r, true)}
+                                        >
+                                            {t('批准', 'Approve')}
+                                        </button>
+                                        <button
+                                            type="button"
+                                            disabled={!ok || busyId === r.id}
+                                            className="rounded border border-border px-2 py-0.5 text-xs enabled:hover:border-error disabled:opacity-40"
+                                            onClick={() => void decide(r, false)}
+                                        >
+                                            {t('拒绝', 'Reject')}
+                                        </button>
+                                    </div>
+                                );
+                            },
+                        },
+                    ]}
+                />
+            )}
+        </div>
+    );
+}
+
+function WebhooksTab() {
+    const t = useT();
+    const [rows, setRows] = useState<WebhookRow[]>([]);
+    const [url, setUrl] = useState('');
+    const [secret, setSecret] = useState('');
+    const [events, setEvents] = useState('');
+    const [error, setError] = useState('');
+    const [loading, setLoading] = useState(true);
+
+    const refresh = useCallback(async () => {
+        setError('');
+        try {
+            const data = await apiGet<{ webhooks: WebhookRow[] }>(
+                '/v1/agent-platform/webhooks'
+            );
+            setRows(data.webhooks || []);
+        } catch (e) {
+            setError((e as Error).message);
+        } finally {
+            setLoading(false);
+        }
+    }, []);
+
+    useEffect(() => {
+        void refresh();
+    }, [refresh]);
+
+    const register = async () => {
+        const ev = events
+            .split(',')
+            .map((x) => x.trim())
+            .filter(Boolean);
+        try {
+            await apiPost('/v1/agent-platform/webhooks', {
+                url: url.trim(),
+                secret: secret.trim(),
+                ...(ev.length ? { events: ev } : {}),
+            });
+            sdk.toast.show({ level: 'success', message: t('已注册', 'Registered') });
+            setUrl('');
+            setSecret('');
+            setEvents('');
+            await refresh();
+        } catch (e) {
+            sdk.toast.show({ level: 'error', message: (e as Error).message });
+        }
+    };
+
+    const remove = async (id: string) => {
+        try {
+            await apiDelete(`/v1/agent-platform/webhooks/${encodeURIComponent(id)}`);
+            sdk.toast.show({ level: 'success', message: t('已删除', 'Deleted') });
+            await refresh();
+        } catch (e) {
+            sdk.toast.show({ level: 'error', message: (e as Error).message });
+        }
+    };
+
+    return (
+        <div className="space-y-3">
+            <div className="rounded border border-border bg-bg-elevated p-3 space-y-2">
+                <div className="text-sm font-medium">
+                    {t('注册决策 Webhook', 'Register decision webhook')}
+                </div>
+                <div className="flex flex-wrap items-end gap-2">
+                    <div className="w-72">
+                        <FormField label={t('回调 URL', 'Callback URL')}>
+                            <TextInput
+                                value={url}
+                                onChange={setUrl}
+                                placeholder="https://example.internal/hook"
+                            />
+                        </FormField>
+                    </div>
+                    <div className="w-56">
+                        <FormField label={t('签名密钥 (≥16 字符)', 'Signing secret (≥16 chars)')}>
+                            <TextInput value={secret} onChange={setSecret} placeholder="********" />
+                        </FormField>
+                    </div>
+                    <div className="w-56">
+                        <FormField label={t('事件 (逗号分隔)', 'Events (comma separated)')}>
+                            <TextInput
+                                value={events}
+                                onChange={setEvents}
+                                placeholder="approval.decided"
+                            />
+                        </FormField>
+                    </div>
+                    <SubmitButton label={t('注册', 'Register')} onAction={() => register()} />
+                </div>
+            </div>
+            {error ? <ErrorState message={error} /> : null}
+            {loading && rows.length === 0 ? (
+                <SkeletonLines />
+            ) : rows.length === 0 ? (
+                <EmptyState title={t('未注册 Webhook', 'No webhooks registered')} />
+            ) : (
+                <DataTable<WebhookRow>
+                    rows={rows}
+                    rowKey={(r) => r.id}
+                    pageSize={10}
+                    columns={[
+                        {
+                            key: 'url',
+                            header: 'URL',
+                            render: (r) => <span className="font-mono text-xs">{r.url}</span>,
+                        },
+                        {
+                            key: 'events',
+                            header: t('事件', 'Events'),
+                            render: (r) => (
+                                <span className="text-xs text-text-secondary">
+                                    {(r.events || []).join(', ')}
+                                </span>
+                            ),
+                        },
+                        {
+                            key: 'deliveries',
+                            header: t('投递', 'Deliveries'),
+                            render: (r) => (
+                                <span className="font-mono text-xs">
+                                    {r.delivery_count ?? 0} · {r.last_status ?? '-'}
+                                </span>
+                            ),
+                        },
+                        {
+                            key: 'action',
+                            header: t('操作', 'Action'),
+                            render: (r) => (
+                                <button
+                                    type="button"
+                                    className="rounded border border-border px-2 py-0.5 text-xs hover:border-error"
+                                    onClick={() => void remove(r.id)}
+                                >
+                                    {t('删除', 'Delete')}
+                                </button>
+                            ),
+                        },
+                    ]}
+                />
+            )}
+        </div>
+    );
+}
+
 export function GovernancePage() {
     const t = useT();
     const [tab, setTab] = useState('budget');
@@ -447,7 +840,10 @@ export function GovernancePage() {
         <div className="pb-8">
             <PageHeader
                 title={t('治理', 'Governance')}
-                subtitle={t('预算 / 权限 / 事件', 'Budget / permissions / events')}
+                subtitle={t(
+                    '预算 / 权限 / 事件 / 产物 / 审批 / Webhook',
+                    'Budget / permissions / events / artifacts / approvals / webhooks'
+                )}
             />
             <Tabs
                 tabs={[
@@ -455,6 +851,8 @@ export function GovernancePage() {
                     { key: 'permissions', label: t('权限', 'Permissions') },
                     { key: 'events', label: t('事件', 'Events') },
                     { key: 'artifacts', label: t('产物', 'Artifacts') },
+                    { key: 'approvals', label: t('审批收件箱', 'Approvals') },
+                    { key: 'webhooks', label: t('决策 Webhook', 'Webhooks') },
                 ]}
                 active={tab}
                 onChange={setTab}
@@ -464,6 +862,8 @@ export function GovernancePage() {
                 {tab === 'permissions' && <PermissionsTab />}
                 {tab === 'events' && <EventsTab />}
                 {tab === 'artifacts' && <ArtifactsTab />}
+                {tab === 'approvals' && <ApprovalsTab />}
+                {tab === 'webhooks' && <WebhooksTab />}
             </div>
         </div>
     );

@@ -7,13 +7,17 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const rpcMock = vi.hoisted(() => vi.fn());
 const toastMock = vi.hoisted(() => vi.fn());
+const apiGetMock = vi.hoisted(() => vi.fn());
+const apiPostMock = vi.hoisted(() => vi.fn());
+const apiDeleteMock = vi.hoisted(() => vi.fn());
 
 vi.mock('../../../api', () => ({
     rpc: (...args: unknown[]) => rpcMock(...args),
     api: {},
     apiBase: () => '',
-    apiGet: vi.fn(),
-    apiPost: vi.fn(),
+    apiGet: (...args: unknown[]) => apiGetMock(...args),
+    apiPost: (...args: unknown[]) => apiPostMock(...args),
+    apiDelete: (...args: unknown[]) => apiDeleteMock(...args),
     statusKind: () => 'ok',
 }));
 
@@ -36,6 +40,9 @@ describe('GovernancePage (#489)', () => {
     beforeEach(() => {
         rpcMock.mockReset();
         toastMock.mockReset();
+        apiGetMock.mockReset();
+        apiPostMock.mockReset();
+        apiDeleteMock.mockReset();
     });
 
     it('renders budget status and fires budget.set on submit', async () => {
@@ -199,5 +206,194 @@ describe('GovernancePage (#489)', () => {
         );
         // The tab still renders its data — no silent blank after failure.
         expect(screen.getByText('0 / 1000')).toBeInTheDocument();
+    });
+});
+
+const G1_APPROVAL = {
+    id: 'ga1',
+    title: 'gate:g1 — proposal approval for fusion-agent-studio#573',
+    requester: 'pipeline-bot',
+    assigned_to: 'owner-a',
+    kind: 'external',
+    status: 'pending',
+    params: { issue: 'fusion-agent-studio#573', impact: 'governance flow' },
+    agent_id: 'external',
+};
+
+function openApprovalsTab(user: ReturnType<typeof userEvent.setup>) {
+    return user.click(screen.getByRole('button', { name: 'Approvals' }));
+}
+
+describe('GovernancePage approvals inbox (#573)', () => {
+    beforeEach(() => {
+        rpcMock.mockReset();
+        toastMock.mockReset();
+        apiGetMock.mockReset();
+        apiPostMock.mockReset();
+        apiDeleteMock.mockReset();
+        rpcMock.mockResolvedValue({});
+    });
+
+    it('lists a gate:g1 approval with badge, issue ref and payload', async () => {
+        apiGetMock.mockImplementation(async (path: string) => {
+            if (path.startsWith('/v1/agent-platform/approvals'))
+                return { approvals: [G1_APPROVAL] };
+            if (path.startsWith('/v1/agent-platform/webhooks')) return { webhooks: [] };
+            throw new Error(`unexpected GET ${path}`);
+        });
+        const user = userEvent.setup();
+        render(<GovernancePage />);
+        await openApprovalsTab(user);
+
+        expect((await screen.findAllByText(/gate:g1/))[0]).toBeInTheDocument();
+        expect(screen.getAllByText('G1')[0]).toBeInTheDocument();
+        expect(screen.getAllByText(/fusion-agent-studio#573/)[0]).toBeInTheDocument();
+        expect(screen.getAllByText(/governance flow/)[0]).toBeInTheDocument();
+    });
+
+    it('assigned principal can approve; decision hits the REST endpoint', async () => {
+        apiGetMock.mockImplementation(async (path: string) => {
+            if (path.startsWith('/v1/agent-platform/approvals'))
+                return { approvals: [G1_APPROVAL] };
+            throw new Error(`unexpected GET ${path}`);
+        });
+        apiPostMock.mockResolvedValue({ id: 'ga1', status: 'approved' });
+        const user = userEvent.setup();
+        render(<GovernancePage />);
+        await openApprovalsTab(user);
+
+        await screen.findAllByText(/gate:g1/);
+        await user.type(screen.getByPlaceholderText('principal id'), 'owner-a');
+        const approveBtn = screen.getAllByRole('button', { name: 'Approve' })[0];
+        expect(approveBtn).not.toBeDisabled();
+        await user.click(approveBtn);
+
+        await waitFor(() =>
+            expect(apiPostMock).toHaveBeenCalledWith(
+                '/v1/agent-platform/approvals/ga1/approve',
+                { decided_by: 'owner-a' }
+            )
+        );
+        expect(toastMock).toHaveBeenCalledWith(
+            expect.objectContaining({ level: 'success', message: 'Approved' })
+        );
+    });
+
+    it('non-assigned principal is read-only', async () => {
+        apiGetMock.mockImplementation(async (path: string) => {
+            if (path.startsWith('/v1/agent-platform/approvals'))
+                return { approvals: [G1_APPROVAL] };
+            throw new Error(`unexpected GET ${path}`);
+        });
+        const user = userEvent.setup();
+        render(<GovernancePage />);
+        await openApprovalsTab(user);
+
+        await screen.findAllByText(/gate:g1/);
+        await user.type(screen.getByPlaceholderText('principal id'), 'someone-else');
+        expect(screen.getAllByRole('button', { name: 'Approve' })[0]).toBeDisabled();
+        expect(screen.getAllByRole('button', { name: 'Reject' })[0]).toBeDisabled();
+        expect(apiPostMock).not.toHaveBeenCalled();
+    });
+
+    it('reject sends the reason field', async () => {
+        apiGetMock.mockImplementation(async (path: string) => {
+            if (path.startsWith('/v1/agent-platform/approvals'))
+                return { approvals: [G1_APPROVAL] };
+            throw new Error(`unexpected GET ${path}`);
+        });
+        apiPostMock.mockResolvedValue({ id: 'ga1', status: 'rejected' });
+        const user = userEvent.setup();
+        render(<GovernancePage />);
+        await openApprovalsTab(user);
+
+        await screen.findAllByText(/gate:g1/);
+        await user.type(screen.getByPlaceholderText('principal id'), 'owner-a');
+        await user.type(screen.getByPlaceholderText('required on reject'), 'impact too broad');
+        await user.click(screen.getAllByRole('button', { name: 'Reject' })[0]);
+
+        await waitFor(() =>
+            expect(apiPostMock).toHaveBeenCalledWith(
+                '/v1/agent-platform/approvals/ga1/reject',
+                { decided_by: 'owner-a', reason: 'impact too broad' }
+            )
+        );
+    });
+});
+
+describe('GovernancePage webhook registry (#573)', () => {
+    beforeEach(() => {
+        rpcMock.mockReset();
+        toastMock.mockReset();
+        apiGetMock.mockReset();
+        apiPostMock.mockReset();
+        apiDeleteMock.mockReset();
+        rpcMock.mockResolvedValue({});
+    });
+
+    it('registers a webhook with url + secret and lists it', async () => {
+        apiGetMock.mockImplementation(async (path: string) => {
+            if (path.startsWith('/v1/agent-platform/webhooks'))
+                return {
+                    webhooks: [
+                        {
+                            id: 'wh1',
+                            url: 'https://cowork.internal/hook',
+                            events: ['approval.decided'],
+                            delivery_count: 3,
+                            last_status: 200,
+                        },
+                    ],
+                };
+            throw new Error(`unexpected GET ${path}`);
+        });
+        apiPostMock.mockResolvedValue({ id: 'wh1', url: 'https://cowork.internal/hook' });
+        const user = userEvent.setup();
+        render(<GovernancePage />);
+        await user.click(screen.getByRole('button', { name: 'Webhooks' }));
+
+        expect((await screen.findAllByText('https://cowork.internal/hook'))[0]).toBeInTheDocument();
+        await user.type(
+            screen.getByPlaceholderText('https://example.internal/hook'),
+            'https://cowork.internal/hook'
+        );
+        await user.type(screen.getByPlaceholderText('********'), 's3cret-value-16ch');
+        await user.click(screen.getByRole('button', { name: 'Register' }));
+
+        await waitFor(() =>
+            expect(apiPostMock).toHaveBeenCalledWith('/v1/agent-platform/webhooks', {
+                url: 'https://cowork.internal/hook',
+                secret: 's3cret-value-16ch',
+            })
+        );
+        expect(toastMock).toHaveBeenCalledWith(
+            expect.objectContaining({ level: 'success', message: 'Registered' })
+        );
+    });
+
+    it('deletes a webhook', async () => {
+        apiGetMock.mockImplementation(async (path: string) => {
+            if (path.startsWith('/v1/agent-platform/webhooks'))
+                return {
+                    webhooks: [
+                        { id: 'wh1', url: 'https://cowork.internal/hook', events: [] },
+                    ],
+                };
+            throw new Error(`unexpected GET ${path}`);
+        });
+        apiDeleteMock.mockResolvedValue({ deleted: true });
+        const user = userEvent.setup();
+        render(<GovernancePage />);
+        await user.click(screen.getByRole('button', { name: 'Webhooks' }));
+
+        await screen.findAllByText('https://cowork.internal/hook');
+        await user.click(screen.getAllByRole('button', { name: 'Delete' })[0]);
+
+        await waitFor(() =>
+            expect(apiDeleteMock).toHaveBeenCalledWith('/v1/agent-platform/webhooks/wh1')
+        );
+        expect(toastMock).toHaveBeenCalledWith(
+            expect.objectContaining({ level: 'success', message: 'Deleted' })
+        );
     });
 });
