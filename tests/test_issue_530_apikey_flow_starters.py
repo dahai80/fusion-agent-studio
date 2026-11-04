@@ -70,11 +70,11 @@ def test_starters_endpoint_serves_presets(client):
 
 def test_external_bearer_key_calls_deployed_agent_and_rotate_invalidates(client):
     import os
-    from pathlib import Path
 
     from agent_runtime.apikey_manager import ApiKeyManager
+    from agent_runtime.paths import studio_home
 
-    mgr = ApiKeyManager(Path(os.environ["HOME"]) / ".fusion-agent-studio" / "apikeys")
+    mgr = ApiKeyManager(studio_home() / "apikeys")
     created = mgr.create(name="ops-key")
     secret = created["key_secret"]
     key_id = created["key_id"]

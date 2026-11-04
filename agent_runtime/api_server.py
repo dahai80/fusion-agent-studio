@@ -30,6 +30,8 @@ from agent_runtime.errors import ErrorCode, raise_api_error
 from agent_runtime.persistence import AgentStore
 from agent_runtime.runtime import AgentRuntime
 
+from .paths import studio_home
+
 logger = logging.getLogger(__name__)
 
 
@@ -266,7 +268,7 @@ _telemetry = None
 def _load_agents_index() -> dict:
     if _daemon is not None and hasattr(_daemon, "_agents") and _daemon._agents:
         return dict(_daemon._agents)
-    idx_path = Path.home() / ".fusion-agent-studio" / "agents" / "index.json"
+    idx_path = studio_home() / "agents" / "index.json"
     if idx_path.exists():
         try:
             with open(idx_path) as f:
@@ -280,7 +282,7 @@ def _load_agents_index() -> dict:
 
 
 def _rebuild_agents_index_from_disk() -> dict:
-    agents_root = Path.home() / ".fusion-agent-studio" / "agents"
+    agents_root = studio_home() / "agents"
     if not agents_root.is_dir():
         return {}
     index: dict[str, dict] = {}
@@ -368,7 +370,7 @@ def _validate_key_result(api_key: str, client_ip: str = "") -> dict | None:
         return static
     from agent_runtime.apikey_manager import ApiKeyManager
 
-    mgr = ApiKeyManager(Path.home() / ".fusion-agent-studio" / "apikeys")
+    mgr = ApiKeyManager(studio_home() / "apikeys")
     result = mgr.validate(api_key, client_ip=client_ip)
     if result.get("valid"):
         return result
@@ -402,7 +404,7 @@ def _auth_configured() -> bool:
         return True
     from agent_runtime.apikey_manager import ApiKeyManager
 
-    mgr = ApiKeyManager(Path.home() / ".fusion-agent-studio" / "apikeys")
+    mgr = ApiKeyManager(studio_home() / "apikeys")
     return bool(mgr.list_keys())
 
 
@@ -2155,7 +2157,7 @@ async def v1_list_api_keys(request: Request):
     await _require_auth(request)
     from agent_runtime.apikey_manager import ApiKeyManager
 
-    mgr = ApiKeyManager(Path.home() / ".fusion-agent-studio" / "apikeys")
+    mgr = ApiKeyManager(studio_home() / "apikeys")
     return {"data": mgr.list_keys()}
 
 
@@ -2168,7 +2170,7 @@ async def v1_create_api_key(request: Request):
         raise_api_error(ErrorCode.PARAM_REQUIRED, param="name")
     from agent_runtime.apikey_manager import ApiKeyManager
 
-    mgr = ApiKeyManager(Path.home() / ".fusion-agent-studio" / "apikeys")
+    mgr = ApiKeyManager(studio_home() / "apikeys")
     result = mgr.create(
         name=name,
         permissions=body.get("permissions"),
@@ -2191,7 +2193,7 @@ async def v1_revoke_api_key(key_id: str, request: Request):
     await _require_auth(request)
     from agent_runtime.apikey_manager import ApiKeyManager
 
-    mgr = ApiKeyManager(Path.home() / ".fusion-agent-studio" / "apikeys")
+    mgr = ApiKeyManager(studio_home() / "apikeys")
     result = mgr.revoke(key_id)
     _get_audit_logger().log_action(
         actor_id="api",
@@ -2208,7 +2210,7 @@ async def v1_rotate_api_key(key_id: str, request: Request):
     await _require_auth(request)
     from agent_runtime.apikey_manager import ApiKeyManager
 
-    mgr = ApiKeyManager(Path.home() / ".fusion-agent-studio" / "apikeys")
+    mgr = ApiKeyManager(studio_home() / "apikeys")
     result = mgr.rotate(key_id)
     _get_audit_logger().log_action(
         actor_id="api",
@@ -2288,7 +2290,7 @@ async def v1_get_agent_logs(agent_id: str, page: int = 1, limit: int = 20):
 async def v1_list_connectors(request: Request):
     from agent_runtime.connectors import ConnectorManager
 
-    mgr = ConnectorManager(Path.home() / ".fusion-agent-studio")
+    mgr = ConnectorManager(studio_home())
     return {"data": mgr.list_connectors()}
 
 
@@ -2298,7 +2300,7 @@ async def v1_create_connector(request: Request):
     body = await request.json()
     from agent_runtime.connectors import ConnectorManager
 
-    mgr = ConnectorManager(Path.home() / ".fusion-agent-studio")
+    mgr = ConnectorManager(studio_home())
     result = mgr.add(
         name=body.get("name", ""),
         conn_type=body.get("type", "api_key"),
@@ -2319,7 +2321,7 @@ async def v1_delete_connector(connector_id: str, request: Request):
     await _require_auth(request)
     from agent_runtime.connectors import ConnectorManager
 
-    mgr = ConnectorManager(Path.home() / ".fusion-agent-studio")
+    mgr = ConnectorManager(studio_home())
     result = mgr.delete(connector_id)
     return result
 

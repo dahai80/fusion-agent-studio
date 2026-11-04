@@ -397,8 +397,11 @@ class AgentRuntime(_SafetyApprovalMixin, _CheckpointMixin, _DynamicToolsMixin, _
             "no",
         ):
             return None
-        log_dir = os.environ.get("FUSION_SESSION_EVENT_LOG_DIR") or os.path.expanduser(
-            "~/.fusion-agent-studio/session-events"
+        from .paths import studio_home
+
+        log_dir = (
+            os.environ.get("FUSION_SESSION_EVENT_LOG_DIR")
+            or str(studio_home() / "session-events")
         )
         try:
             log = SessionEventLog(ctx.session_id, log_dir=log_dir)

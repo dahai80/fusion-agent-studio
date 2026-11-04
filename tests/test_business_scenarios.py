@@ -28,6 +28,7 @@ from pathlib import Path
 import pytest
 
 from agent_runtime.daemon_server import DaemonServer
+from agent_runtime.paths import studio_home
 
 
 @pytest.fixture
@@ -35,7 +36,7 @@ def daemon(tmp_path):
     d = DaemonServer(socket_path=str(tmp_path / "test.sock"))
     d._agents = {}
     yield d
-    agents_dir = Path.home() / ".fusion-agent-studio" / "agents"
+    agents_dir = studio_home() / "agents"
     idx = agents_dir / "index.json"
     if idx.exists():
         idx.unlink()
@@ -373,9 +374,8 @@ class TestDeployScenario:
 
         # 审计 P2/dim3: deploy.import 限定 import 源在 ~/.fusion-agent-studio/exports/
         # (防路径穿越). export/import 闭环须在该目录内.
-        import os
 
-        exports_dir = Path(os.path.expanduser("~/.fusion-agent-studio/exports"))
+        exports_dir = studio_home() / "exports"
         exports_dir.mkdir(parents=True, exist_ok=True)
         export_path = exports_dir / "test_deploy_graph.json"
         try:

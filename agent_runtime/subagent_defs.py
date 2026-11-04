@@ -8,6 +8,8 @@ from pathlib import Path
 
 import yaml
 
+from .paths import studio_home
+
 logger = logging.getLogger(__name__)
 
 _FRONTMATTER_RE = re.compile(r"^---\s*\n(.*?)\n---\s*\n?", re.DOTALL)
@@ -15,7 +17,7 @@ _FRONTMATTER_RE = re.compile(r"^---\s*\n(.*?)\n---\s*\n?", re.DOTALL)
 MEMORY_SCOPES = ("", "user", "project", "local")
 EFFORT_LEVELS = ("", "low", "medium", "high", "xhigh", "max")
 
-DEFAULT_USER_AGENTS_DIR = str(Path.home() / ".fusion-agent-studio" / "agents")
+DEFAULT_USER_AGENTS_DIR = str(studio_home() / "agents")
 
 
 @dataclass

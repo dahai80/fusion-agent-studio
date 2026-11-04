@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 
 import pytest
 
@@ -102,7 +101,7 @@ class TestAgentListDedupe:
 
 class TestAgentPurgeTest:
     def _daemon(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(Path, "home", lambda: tmp_path)
+        monkeypatch.setenv("FUSION_AGENT_STUDIO_HOME", str(tmp_path / ".fusion-agent-studio"))
         agents_root = tmp_path / ".fusion-agent-studio" / "agents"
         agents = {}
         for aid, name in [

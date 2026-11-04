@@ -7,6 +7,7 @@ import re
 from pathlib import Path
 from typing import Any
 
+from agent_runtime.paths import studio_home
 from tools.base import BaseTool
 from tools.registry import ToolRegistry
 
@@ -28,7 +29,7 @@ class PluginManager:
     def __init__(self, registry: ToolRegistry, plugin_dir: str | Path = ""):
         self.registry = registry
         if not plugin_dir:
-            plugin_dir = Path.home() / ".fusion-agent-studio" / "plugins"
+            plugin_dir = studio_home() / "plugins"
         self.plugin_dir = Path(plugin_dir)
         self.plugin_dir.mkdir(parents=True, exist_ok=True)
         self._loaded: dict[str, str] = {}  # plugin_name -> file_path

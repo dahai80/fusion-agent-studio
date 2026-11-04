@@ -43,13 +43,15 @@ import httpx
 # #509: single-point admin key resolution per config-conventions (fusion-core).
 from fusion_core.config import admin_key as _fusion_admin_key
 
+from .paths import studio_home
+
 logger = logging.getLogger(__name__)
 
 GATEWAY_URL_ENV = "FUSION_SHELL_GATEWAY_URL"
 MANIFEST_PATH_ENV = "FUSION_SHELL_MANIFEST"
 UPSTREAM_ENV = "FUSION_SHELL_UPSTREAM"
 MODULE_KEY_ENV = "FUSION_AGENT_STUDIO_API_KEY"
-MODULE_KEY_FILE = Path.home() / ".fusion-agent-studio" / "web_module_key"
+MODULE_KEY_FILE = studio_home() / "web_module_key"
 DEFAULT_UPSTREAM = "http://127.0.0.1:11442"
 REGISTER_INTERVAL_SECONDS = 15.0
 HTTP_TIMEOUT_SECONDS = 5.0

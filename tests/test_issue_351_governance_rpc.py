@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import pytest
 
 STATIC_KEY = "fk-static-test-351"
@@ -54,7 +52,7 @@ def static_key_env(monkeypatch, tmp_path):
     monkeypatch.setenv("FUSION_AGENT_STUDIO_API_KEY", STATIC_KEY)
     fake_home = tmp_path / "home"
     (fake_home / ".fusion-agent-studio").mkdir(parents=True, exist_ok=True)
-    monkeypatch.setattr(Path, "home", lambda: fake_home)
+    monkeypatch.setenv("FUSION_AGENT_STUDIO_HOME", str(fake_home / ".fusion-agent-studio"))
     return STATIC_KEY
 
 

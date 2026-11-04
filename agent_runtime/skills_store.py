@@ -9,10 +9,12 @@ from pathlib import Path
 
 import yaml
 
+from .paths import studio_home
+
 logger = logging.getLogger(__name__)
 
-DEFAULT_SKILLS_DIR = str(Path.home() / ".fusion-agent-studio" / "skills")
-DEFAULT_PLUGIN_SKILLS_DIR = str(Path.home() / ".fusion-agent-studio" / "plugins")
+DEFAULT_SKILLS_DIR = str(studio_home() / "skills")
+DEFAULT_PLUGIN_SKILLS_DIR = str(studio_home() / "plugins")
 PROJECT_SKILLS_DIRS = (".fusion-agent-studio/skills", ".claude/skills")
 
 _FRONTMATTER_RE = re.compile(r"^---\s*\n(.*?)\n---\s*\n?", re.DOTALL)

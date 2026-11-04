@@ -25,9 +25,9 @@ import os
 import sqlite3
 import time
 import uuid
-from pathlib import Path
 from typing import Any, Awaitable, Callable, Dict, List, Optional, Tuple
 
+from ..paths import studio_home
 from .capabilities import get_capability, validate_params
 
 logger = logging.getLogger(__name__)
@@ -58,7 +58,7 @@ class CapabilityApprovalStore:
     def __init__(self, db_path: Optional[str] = None):
         if not db_path:
             db_path = str(
-                Path.home() / ".fusion-agent-studio" / "capability_approvals.db")
+                studio_home() / "capability_approvals.db")
         self.db_path = str(db_path)
         self._init_db()
 

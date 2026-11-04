@@ -10,10 +10,12 @@ import uuid
 from contextlib import contextmanager
 from pathlib import Path
 
+from .paths import studio_home
+
 logger = logging.getLogger(__name__)
 
 DEFAULT_DB = os.path.join(
-    os.path.expanduser("~"), ".fusion-agent-studio", "subagents.db"
+    str(studio_home()), "subagents.db"
 )
 
 

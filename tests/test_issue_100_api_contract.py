@@ -9,7 +9,6 @@ User instruction: "处理issue和pr，提交代码到代码仓，合并所有分
 from __future__ import annotations
 
 import json
-from pathlib import Path
 
 
 def _make_manifest(name: str = "BotA") -> dict:
@@ -77,7 +76,7 @@ class TestRebuildAgentsIndexFromDisk:
             json.dumps(_make_manifest("BotA")), encoding="utf-8"
         )
 
-        monkeypatch.setattr(Path, "home", lambda: fake_home)
+        monkeypatch.setenv("FUSION_AGENT_STUDIO_HOME", str(fake_home / ".fusion-agent-studio"))
         monkeypatch.setattr(api_server, "_daemon", None)
 
         index = api_server._rebuild_agents_index_from_disk()
@@ -100,7 +99,7 @@ class TestRebuildAgentsIndexFromDisk:
             "{not json", encoding="utf-8"
         )
 
-        monkeypatch.setattr(Path, "home", lambda: fake_home)
+        monkeypatch.setenv("FUSION_AGENT_STUDIO_HOME", str(fake_home / ".fusion-agent-studio"))
         monkeypatch.setattr(api_server, "_daemon", None)
 
         index = api_server._rebuild_agents_index_from_disk()
@@ -111,7 +110,7 @@ class TestRebuildAgentsIndexFromDisk:
 
         fake_home = tmp_path / "emptyhome"
         fake_home.mkdir()
-        monkeypatch.setattr(Path, "home", lambda: fake_home)
+        monkeypatch.setenv("FUSION_AGENT_STUDIO_HOME", str(fake_home / ".fusion-agent-studio"))
         monkeypatch.setattr(api_server, "_daemon", None)
 
         index = api_server._rebuild_agents_index_from_disk()
@@ -131,7 +130,7 @@ class TestDaemonRebuildIndex:
             json.dumps(_make_manifest("BotDaemon")), encoding="utf-8"
         )
 
-        monkeypatch.setattr(Path, "home", lambda: fake_home)
+        monkeypatch.setenv("FUSION_AGENT_STUDIO_HOME", str(fake_home / ".fusion-agent-studio"))
 
         daemon = DaemonServer(
             socket_path=str(tmp_path / "test.sock"),

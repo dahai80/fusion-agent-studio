@@ -7,6 +7,8 @@ import time
 import uuid
 from dataclasses import dataclass, field
 
+from .paths import studio_home
+
 logger = logging.getLogger(__name__)
 
 
@@ -440,7 +442,7 @@ class TelemetryEngine:
         target = path or os.environ.get(
             "FUSION_SLO_BASELINE_PATH",
             os.path.join(
-                os.path.expanduser("~"), ".fusion-agent-studio", "slo_baselines.jsonl"
+                str(studio_home()), "slo_baselines.jsonl"
             ),
         )
         record = {"schema": 1, "ts": time.time(), **self.slo_summary()}

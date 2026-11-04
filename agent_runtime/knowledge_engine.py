@@ -19,9 +19,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from .paths import studio_home
+
 logger = logging.getLogger(__name__)
 
-DEFAULT_DB_PATH = os.path.expanduser("~/.fusion-agent-studio/knowledge.db")
+DEFAULT_DB_PATH = str(studio_home() / "knowledge.db")
 EMBEDDING_DIM = 64
 RRF_K = 60
 
@@ -29,7 +31,7 @@ RRF_K = 60
 # FUSION_RAG_BACKEND=fusion_store 启用 fusion_store 向量后端 (HNSW),
 # 默认空 → 沿用 sqlite-vec (现网行为不变). FTS5 全文检索始终留在 SQLite
 # (fusion-store §1.3 不做全文). 向量结果与 FTS5 经 RRF 融合.
-DEFAULT_STORE_DIR = os.path.expanduser("~/.fusion-agent-studio/knowledge.fs")
+DEFAULT_STORE_DIR = str(studio_home() / "knowledge.fs")
 
 
 def _backend_from_env() -> str:

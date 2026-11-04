@@ -4,8 +4,9 @@ import sqlite3
 import time
 import uuid
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import Optional
+
+from .paths import studio_home
 
 logger = logging.getLogger(__name__)
 
@@ -53,7 +54,7 @@ class AuditEntry:
 class AuditLogger:
     def __init__(self, db_path: Optional[str] = None):
         if db_path is None:
-            db_path = str(Path.home() / ".fusion-agent-studio" / "audit.db")
+            db_path = str(studio_home() / "audit.db")
         self.db_path = db_path
         logger.info("AuditLogger initialized with db_path=%s", self.db_path)
         self._init_db()

@@ -27,6 +27,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from .paths import studio_home
+
 logger = logging.getLogger(__name__)
 
 FUSION_AGENT_DIR = ".fusion-agent"
@@ -40,7 +42,7 @@ WORKSPACE_DIR = "workspace"
 SOURCES_FILE = "sources.json"
 
 # C16: 全局 agents 根目录 (~/.fusion-agent-studio/agents). 与 DaemonServer._agent_dir 同.
-AGENTS_ROOT = Path.home() / ".fusion-agent-studio" / "agents"
+AGENTS_ROOT = studio_home() / "agents"
 
 
 def resolve_soul_prompt(

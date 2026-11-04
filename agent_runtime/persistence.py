@@ -15,6 +15,7 @@ from typing import Any
 from .chat_engine import ChatSession
 from .context import AgentContext
 from .graph import AgentGraph
+from .paths import studio_home
 
 logger = logging.getLogger(__name__)
 
@@ -51,7 +52,7 @@ class AgentStore:
 
     def __init__(self, db_path: str | Path = ""):
         if not db_path:
-            db_path = Path.home() / ".fusion-agent-studio" / "store.db"
+            db_path = studio_home() / "store.db"
         self.db_path = Path(db_path)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._conn: sqlite3.Connection | None = None

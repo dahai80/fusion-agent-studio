@@ -11,13 +11,15 @@ import time
 from pathlib import Path
 from typing import Any, Dict
 
+from ..paths import studio_home
+
 logger = logging.getLogger(__name__)
 
 
 class PublishRegistry:
     def __init__(self, path: str = ""):
         if not path:
-            path = str(Path.home() / ".fusion-agent-studio" / "publish_registry.json")
+            path = str(studio_home() / "publish_registry.json")
         self.path = Path(path)
 
     def _load(self) -> Dict[str, Any]:

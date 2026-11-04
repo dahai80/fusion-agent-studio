@@ -21,6 +21,8 @@ import time
 import uuid
 from pathlib import Path
 
+from .paths import studio_home
+
 logger = logging.getLogger(__name__)
 
 PERSONA_PACKS_DIRNAME = "persona_packs"
@@ -133,7 +135,7 @@ class PersonaPackManager:
         from .persona import PERSONA_ROOT
 
         self.store_dir = Path(store_dir) if store_dir else (
-            Path.home() / ".fusion-agent-studio" / PERSONA_PACKS_DIRNAME
+            studio_home() / PERSONA_PACKS_DIRNAME
         )
         self.packs_dir = self.store_dir / PERSONA_PACKS_DIRNAME
         self.index_path = self.store_dir / "persona_packs_index.json"

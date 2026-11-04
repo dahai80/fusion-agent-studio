@@ -15,6 +15,7 @@ import json
 from pathlib import Path
 
 from agent_runtime.context import AgentContext
+from agent_runtime.paths import studio_home
 from agent_runtime.permissions import PermissionEngine
 from agent_runtime.runtime import AgentRuntime
 from agent_runtime.skill_permissions import (
@@ -134,7 +135,7 @@ class TestPluginDirAcceptance:
 
     def test_with_project_dirs_includes_plugin_dir(self, tmp_path, monkeypatch):
         monkeypatch.chdir(tmp_path)
-        plugin_dir = Path.home() / ".fusion-agent-studio" / "plugins" / "stock-skill-498"
+        plugin_dir = studio_home() / "plugins" / "stock-skill-498"
         plugin_dir.mkdir(parents=True, exist_ok=True)
         (plugin_dir / "SKILL.md").write_text(STOCK_SKILL_MD, encoding="utf-8")
         try:

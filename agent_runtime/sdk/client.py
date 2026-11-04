@@ -3,15 +3,16 @@ from __future__ import annotations
 import json
 import logging
 
+from ..paths import studio_home
+
 logger = logging.getLogger(__name__)
 
 
 class AgentClient:
     def __init__(self, socket_path: str = "", default_timeout: float | None = None):
         if not socket_path:
-            import os
 
-            socket_path = os.path.expanduser("~/.fusion-agent-studio/daemon.sock")
+            socket_path = str(studio_home() / "daemon.sock")
         self.socket_path = socket_path
         # #207: per-call timeout fallback. None keeps legacy hang-forever so
         # existing callers (cron handler 调 daemon 内部直调不经此 client)不变.

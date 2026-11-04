@@ -16,6 +16,8 @@ import threading
 import time
 from pathlib import Path
 
+from .paths import studio_home
+
 logger = logging.getLogger(__name__)
 
 MAX_EVENT_FRAMES = 500
@@ -44,7 +46,7 @@ def _summarize(frames: list[dict]) -> tuple[str, dict[str, str]]:
 class RunHistoryStore:
     def __init__(self, db_path: str | Path = ""):
         if not db_path:
-            db_path = Path.home() / ".fusion-agent-studio" / "run_history.db"
+            db_path = studio_home() / "run_history.db"
         self.db_path = str(db_path)
         parent = Path(self.db_path).parent
         if not parent.exists():

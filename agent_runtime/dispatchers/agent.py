@@ -6,11 +6,11 @@ import asyncio
 import logging
 import os
 import time
-from pathlib import Path
 from typing import Callable
 
 from ..daemon_server import MLX_PORT
 from ..graph import AgentGraph, NodeConfig
+from ..paths import studio_home
 from .base import SubDispatcher
 
 logger = logging.getLogger(__name__)
@@ -1807,7 +1807,7 @@ class AgentDispatcher(SubDispatcher):
             return {"permissions": perms, "denied_tools": denied, "tools": tools_list}
         import os as _os
 
-        agents_dir = str(Path.home() / ".fusion-agent-studio" / "agents")
+        agents_dir = str(studio_home() / "agents")
         all_perms = []
         if _os.path.isdir(agents_dir):
             for name in _os.listdir(agents_dir):

@@ -19,6 +19,8 @@ import time
 import uuid
 from pathlib import Path
 
+from .paths import studio_home
+
 logger = logging.getLogger(__name__)
 
 FLOW_SCHEMA_VERSION = 2
@@ -31,7 +33,7 @@ class FlowStoreError(Exception):
 class FlowStore:
     def __init__(self, db_path: str | Path = ""):
         if not db_path:
-            db_path = Path.home() / ".fusion-agent-studio" / "flows.db"
+            db_path = studio_home() / "flows.db"
         self.db_path = str(db_path)
         parent = Path(self.db_path).parent
         if not parent.exists():

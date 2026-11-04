@@ -27,6 +27,8 @@ from fastapi.responses import JSONResponse
 
 from agent_runtime.errors import ErrorCode, raise_api_error
 
+from .paths import studio_home
+
 logger = logging.getLogger(__name__)
 
 RPC = Callable[[str, dict], Awaitable[dict]]
@@ -621,7 +623,7 @@ def register_agents_platform(
                 )
 
                 reg = PublishRegistry(str(
-                    Path.home() / ".fusion-agent-studio"
+                    studio_home()
                     / "tuned_model.json"))
                 rec = reg.get("tuned") or {}
                 if rec.get("model_id"):

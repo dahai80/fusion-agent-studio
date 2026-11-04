@@ -15,9 +15,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from .paths import studio_home
+
 logger = logging.getLogger(__name__)
 
-MARKETPLACE_DIR = Path.home() / ".fusion-agent-studio" / "marketplace"
+MARKETPLACE_DIR = studio_home() / "marketplace"
 AGENT_EXT = ".fusion-agent"
 
 

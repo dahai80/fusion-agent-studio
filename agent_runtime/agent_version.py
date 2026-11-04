@@ -6,6 +6,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
+from .paths import studio_home
+
 logger = logging.getLogger(__name__)
 
 
@@ -39,7 +41,7 @@ class VersionRecord:
 
 class AgentVersionStore:
     def __init__(self, base_path: Optional[Path] = None):
-        self.base_path = base_path or Path.home() / ".fusion-agent-studio" / "versions"
+        self.base_path = base_path or studio_home() / "versions"
         logger.info("AgentVersionStore initialized with base_path=%s", self.base_path)
 
     def _agent_dir(self, agent_id: str) -> Path:

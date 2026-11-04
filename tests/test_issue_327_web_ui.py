@@ -42,7 +42,7 @@ def static_key_env(monkeypatch, tmp_path):
     # (no real ~/.fusion-agent-studio fk- keys on the dev machine).
     fake_home = tmp_path / "home"
     (fake_home / ".fusion-agent-studio").mkdir(parents=True, exist_ok=True)
-    monkeypatch.setattr(Path, "home", lambda: fake_home)
+    monkeypatch.setenv("FUSION_AGENT_STUDIO_HOME", str(fake_home / ".fusion-agent-studio"))
     return STATIC_KEY
 
 

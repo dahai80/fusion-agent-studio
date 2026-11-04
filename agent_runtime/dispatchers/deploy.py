@@ -7,6 +7,7 @@ import logging
 from pathlib import Path
 from typing import Callable
 
+from ..paths import studio_home
 from .base import SubDispatcher
 
 logger = logging.getLogger(__name__)
@@ -76,9 +77,8 @@ class DeployDispatcher(SubDispatcher):
         # 审计 P2/dim3: deploy.import 原接任意路径 -> 路径穿越/任意文件读取.
         # 限定 import 源在 ~/.fusion-agent-studio/exports/ 内 (resolve + startswith,
         # 防 ../ 穿越逃逸). exports 目录由 deploy.export 写出, 自治闭环.
-        import os
 
-        export_root = Path(os.path.expanduser("~/.fusion-agent-studio/exports")).resolve()
+        export_root = (studio_home() / "exports").resolve()
         try:
             resolved = Path(filepath).resolve()
         except (OSError, ValueError) as e:
@@ -126,17 +126,17 @@ class DeployDispatcher(SubDispatcher):
         return self._daemon._marketplace
 
     def _agent_dir(self, agent_id: str) -> Path:
-        return Path.home() / ".fusion-agent-studio" / "agents" / agent_id
+        return studio_home() / "agents" / agent_id
 
     def _persist_agents_index(self):
-        idx_path = Path.home() / ".fusion-agent-studio" / "agents" / "index.json"
+        idx_path = studio_home() / "agents" / "index.json"
         idx_path.parent.mkdir(parents=True, exist_ok=True)
         with open(idx_path, "w", encoding="utf-8") as f:
             json.dump(self._daemon._agents, f, indent=4, ensure_ascii=False)
         logger.debug("Persisted agents index: %d agents", len(self._daemon._agents))
 
     def _load_agents_index(self):
-        idx_path = Path.home() / ".fusion-agent-studio" / "agents" / "index.json"
+        idx_path = studio_home() / "agents" / "index.json"
         if idx_path.exists() and not self._daemon._agents:
             with open(idx_path, "r", encoding="utf-8") as f:
                 self._daemon._agents = json.load(f)

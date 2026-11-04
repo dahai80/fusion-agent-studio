@@ -15,17 +15,18 @@ import logging
 import os
 import sys
 import time
-from pathlib import Path
 from typing import Iterator
 
 import httpx
+
+from .paths import studio_home
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_BASE_URL = "http://127.0.0.1:11442"
 BASE_URL_ENV = "FUSION_AGENT_STUDIO_URL"
 API_KEY_ENV = "FUSION_AGENT_STUDIO_API_KEY"
-API_KEY_FILE = Path.home() / ".fusion-agent-studio" / "web_module_key"
+API_KEY_FILE = studio_home() / "web_module_key"
 RETRY_STATUS = {502, 503, 504}
 # #579: trusted UDS control plane — loopback credential recovery transport.
 UDS_SOCKET_ENV = "FUSION_STUDIO_SOCK"

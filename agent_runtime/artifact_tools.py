@@ -24,9 +24,11 @@ from typing import Any
 
 from agent_runtime.agent_definition import ArtifactPolicyConfig
 
+from .paths import studio_home
+
 logger = logging.getLogger(__name__)
 
-ARTIFACTS_DIR = os.path.expanduser("~/.fusion-agent-studio/artifacts")
+ARTIFACTS_DIR = str(studio_home() / "artifacts")
 
 ARTIFACT_SYSTEM_PROMPT = """\
 # Artifact Long-Text Guidelines
