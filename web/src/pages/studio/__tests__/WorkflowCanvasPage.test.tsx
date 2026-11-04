@@ -654,3 +654,137 @@ describe('WorkflowCanvasPage template gallery + run history (#558)', () => {
         expect(screen.getByText(/llm: done \/ error/)).toBeInTheDocument();
     });
 });
+
+describe('WorkflowCanvasPage NL builder (#568)', () => {
+    beforeEach(() => {
+        rpcMock.mockReset();
+        graphsMock.mockReset();
+        window.sessionStorage.clear();
+        window.localStorage.clear();
+    });
+
+    function nlRpcs(nlImpl: (method: string, params?: unknown) => unknown) {
+        rpcMock.mockImplementation(async (method: string, params?: unknown) => {
+            if (method === 'budget.status') return { remaining: 800, max_tokens: 1000 };
+            if (method === 'safety.get_pending_actions') return { actions: [] };
+            if (method === 'tool.list') return { tools: [{ name: 'read_file' }] };
+            if (method === 'graph.get') return { graph: { nodes: [], edges: [] } };
+            return nlImpl(method, params);
+        });
+        graphsMock.mockResolvedValue({ data: [] });
+    }
+
+    async function openNlPanel(user: ReturnType<typeof userEvent.setup>) {
+        window.sessionStorage.setItem('fusion.canvas.graphId', 'g1');
+        render(<WorkflowCanvasPage />);
+        await screen.findByRole('button', { name: /AI Builder/ }, { timeout: 3000 });
+        await user.click(screen.getByRole('button', { name: /AI Builder/ }));
+        await screen.findByPlaceholderText('Describe the flow in one line…');
+    }
+
+    it('sends prompt + graph + registry catalog to graph.nl_plan and applies returned ops', async () => {
+        const seen: Array<{ method: string; params?: unknown }> = [];
+        nlRpcs((method, params) => {
+            seen.push({ method, params });
+            if (method === 'flow.template_list')
+                return { templates: [{ name: 'rag-qa', description: 'd', source: 'builtin' }] };
+            if (method === 'graph.nl_plan') {
+                return {
+                    reply: '已创建流程',
+                    ops: [
+                        { op: 'add_node', id: 'nl_review', type: 'llm', label: 'Review', config: {} },
+                        { op: 'add_node', id: 'nl_approve', type: 'human_input', label: 'Approve', config: {} },
+                        { op: 'connect', source: 'nl_review', target: 'nl_approve' },
+                    ],
+                };
+            }
+            throw new Error(`unexpected rpc: ${method}`);
+        });
+        const user = userEvent.setup();
+        await openNlPanel(user);
+
+        await user.type(screen.getByPlaceholderText('Describe the flow in one line…'), '搭一个审查流程');
+        await user.click(screen.getByRole('button', { name: 'Plan' }));
+
+        const planCall = seen.find((c) => c.method === 'graph.nl_plan');
+        expect(planCall).toBeTruthy();
+        const params = planCall!.params as { prompt: string; catalog: Array<{ type: string }>; templates: unknown[] };
+        expect(params.prompt).toBe('搭一个审查流程');
+        expect(params.catalog.map((c) => c.type)).toContain('human_input');
+        expect(params.templates).toHaveLength(1);
+
+        // reply surfaced; ops applied (second mutation enables the undo stack)
+        expect(await screen.findByText('已创建流程')).toBeInTheDocument();
+        await user.type(screen.getByPlaceholderText('Describe the flow in one line…'), '再加一个 end 节点');
+        rpcMock.mockImplementation(async (method: string) => {
+            if (method === 'budget.status') return { remaining: 800, max_tokens: 1000 };
+            if (method === 'safety.get_pending_actions') return { actions: [] };
+            if (method === 'tool.list') return { tools: [{ name: 'read_file' }] };
+            if (method === 'graph.get') return { graph: { nodes: [], edges: [] } };
+            if (method === 'graph.nl_plan')
+                return {
+                    reply: 'ok',
+                    ops: [{ op: 'add_node', id: 'nl_end', type: 'end', label: 'End', config: {} }],
+                };
+            throw new Error(`unexpected rpc: ${method}`);
+        });
+        await user.click(screen.getByRole('button', { name: 'Plan' }));
+        expect(await screen.findByText('ok')).toBeInTheDocument();
+        await waitFor(() => expect(screen.getByRole('button', { name: /Undo/ })).toBeEnabled());
+    });
+
+    it('destructive ops require confirmation before applying', async () => {
+        nlRpcs((method) => {
+            if (method === 'flow.template_list') return { templates: [] };
+            if (method === 'graph.nl_plan')
+                return { reply: '清空', ops: [{ op: 'remove_node', id: 'llm_1' }] };
+            throw new Error(`unexpected rpc: ${method}`);
+        });
+        const user = userEvent.setup();
+        await openNlPanel(user);
+
+        await user.type(screen.getByPlaceholderText('Describe the flow in one line…'), '删掉 llm 节点');
+        await user.click(screen.getByRole('button', { name: 'Plan' }));
+
+        expect(
+            await screen.findByText('Confirm destructive change')
+        ).toBeInTheDocument();
+        expect(screen.getByText(/Delete node llm_1/)).toBeInTheDocument();
+        // confirming applies the batch (second mutation enables undo)
+        rpcMock.mockImplementation(async (method: string) => {
+            if (method === 'budget.status') return { remaining: 800, max_tokens: 1000 };
+            if (method === 'safety.get_pending_actions') return { actions: [] };
+            if (method === 'tool.list') return { tools: [{ name: 'read_file' }] };
+            if (method === 'graph.get') return { graph: { nodes: [], edges: [] } };
+            if (method === 'graph.nl_plan')
+                return { reply: 'done', ops: [{ op: 'add_node', id: 'n2', type: 'end', label: 'E2', config: {} }] };
+            throw new Error(`unexpected rpc: ${method}`);
+        });
+        await user.click(screen.getByRole('button', { name: '确认' }));
+        await user.type(screen.getByPlaceholderText('Describe the flow in one line…'), 'second');
+        await user.click(screen.getByRole('button', { name: 'Plan' }));
+        expect(await screen.findByText('done')).toBeInTheDocument();
+        await waitFor(() => expect(screen.getByRole('button', { name: /Undo/ })).toBeEnabled());
+    });
+
+    it('surfaces server-side rejection with actionable details', async () => {
+        nlRpcs((method) => {
+            if (method === 'flow.template_list') return { templates: [] };
+            if (method === 'graph.nl_plan')
+                return {
+                    error: 'invalid plan ops',
+                    details: ["op[0]: unknown node type 'super_agent' — allowed: end, human_input, llm, start"],
+                    allowed_types: ['end', 'human_input', 'llm', 'start'],
+                };
+            throw new Error(`unexpected rpc: ${method}`);
+        });
+        const user = userEvent.setup();
+        await openNlPanel(user);
+
+        await user.type(screen.getByPlaceholderText('Describe the flow in one line…'), '用一个不存在的节点');
+        await user.click(screen.getByRole('button', { name: 'Plan' }));
+
+        expect(await screen.findByText(/invalid plan ops/)).toBeInTheDocument();
+        expect(screen.getByText(/super_agent/)).toBeInTheDocument();
+    });
+});
