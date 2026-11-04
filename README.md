@@ -681,6 +681,8 @@ Audit `audit/fusion-agent-studio-vs-langflow-audit-1020.md` closed end-to-end; s
 - ✅ **macOS native** — SwiftUI app with WKWebView canvas integration
 - ✅ **i18n** — English and Chinese UI strings
 
+- ✅ **Agent commodity standard (#570)** — the agent is the first-class commercial commodity: capability fields (prompt pack, tool allowlist, KB binding, version, eval-set ref, docs pack) are the product; the model binding is a separate replaceable field. One definition ships dual SKUs (`local` = MLX local model, zero data egress; `pro` = cloud model via gateway model matrix) differing only in `model_bindings` — the capability fingerprint is invariant across SKUs. Docs five-pack (README EN/CN + Quickstart + Capability spec + Eval report + Changelog) is a release gate: `commodity.publish` and `marketplace.publish` both reject listings missing any item. First family: the four reviewer packs (#549) published as `reviewer-architecture-contract` / `reviewer-security` / `reviewer-domain` / `reviewer-red-team` with per-pack eval sets (`eval-sets/`) and honest live eval reports under `docs/agents/<agent>/`. RPCs: `commodity.validate` / `commodity.from_reviewer_pack` / `commodity.publish` (attaches eval summary to the listing) / `commodity.eval_report` (runs the eval set through the reviewer runner on the selected SKU binding). See `docs/guides/` and `docs/agents/`.
+
 ---
 
 ## Project Structure

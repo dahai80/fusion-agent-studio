@@ -1330,9 +1330,10 @@ class DaemonServer:
             ArtifactDispatcher,
             BundleDispatcher,
             ChatDispatcher,
+            CommodityDispatcher,
             DeployDispatcher,
             FlowDispatcher,
-HistoryDispatcher,
+            HistoryDispatcher,
             InfraDispatcher,
             KnowledgeDispatcher,
             MarketplaceDispatcher,
@@ -1377,6 +1378,7 @@ HistoryDispatcher,
             FlowDispatcher(self),
     HistoryDispatcher(self),
             ReviewerDispatcher(self),
+            CommodityDispatcher(self),
         ]
 
     async def _handle_context_compact(self, params: dict) -> dict:
