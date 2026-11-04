@@ -632,7 +632,7 @@ describe('WorkflowCanvasPage template gallery + run history (#558)', () => {
         const user = userEvent.setup();
         window.sessionStorage.setItem('fusion.canvas.graphId', 'g1');
         render(<WorkflowCanvasPage />);
-        await screen.findByRole('button', { name: /Run history/, undefined }, { timeout: 3000 });
+        await screen.findByRole('button', { name: /Run history/ }, { timeout: 3000 });
 
         await user.click(screen.getByRole('button', { name: /Run history/ }));
         expect(await screen.findByText('completed')).toBeInTheDocument();
