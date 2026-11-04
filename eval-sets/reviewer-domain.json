@@ -1,0 +1,25 @@
+{
+  "agent_id": "reviewer-domain",
+  "version": 1,
+  "cases": [
+    {
+      "case_id": "dom-1",
+      "request": "domain correctness review",
+      "artifact": "billing/invoice.py: total = subtotal * 0.07  # flat tax for all regions\ntax rules: region CN VAT 13%, EU 20%, US varies by state",
+      "min_findings": 1
+    },
+    {
+      "case_id": "dom-2",
+      "request": "domain review of a ledger module",
+      "artifact": "ledger/entry.py: def balance(entries): return sum(e.amount for e in entries)  # signed amounts, debits negative",
+      "min_findings": 0,
+      "max_findings": 2
+    },
+    {
+      "case_id": "dom-3",
+      "request": "domain review",
+      "artifact": "shipping/fee.py: def fee(weight_kg): return weight_kg * 10  # ignores declared value insurance tiers",
+      "min_findings": 1
+    }
+  ]
+}

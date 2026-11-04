@@ -1,0 +1,25 @@
+{
+  "agent_id": "reviewer-security",
+  "version": 1,
+  "cases": [
+    {
+      "case_id": "sec-1",
+      "request": "security review",
+      "artifact": "app/exec.py: os.system('ls ' + user_input)\napp/db.py: cursor.execute('SELECT * FROM users WHERE id = ' + request.args['id'])",
+      "min_findings": 1
+    },
+    {
+      "case_id": "sec-2",
+      "request": "security review",
+      "artifact": "app/hello.py: def greet(name): return f'hello {name}'",
+      "min_findings": 0,
+      "max_findings": 2
+    },
+    {
+      "case_id": "sec-3",
+      "request": "security review",
+      "artifact": "app/token.py: secret = 'sk-live-9f3ab2c1'; auth_header = 'Bearer ' + secret",
+      "min_findings": 1
+    }
+  ]
+}

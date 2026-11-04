@@ -1,0 +1,25 @@
+{
+  "agent_id": "reviewer-red-team",
+  "version": 1,
+  "cases": [
+    {
+      "case_id": "rt-1",
+      "request": "argue why this design fails",
+      "artifact": "Design: single global rate limiter per process, in-memory counters, no persistence, deployed behind 12 stateless replicas.",
+      "min_findings": 1
+    },
+    {
+      "case_id": "rt-2",
+      "request": "argue why this design fails",
+      "artifact": "Design: config file loaded once at startup, hot-reload explicitly out of scope, values documented in README.",
+      "min_findings": 0,
+      "max_findings": 3
+    },
+    {
+      "case_id": "rt-3",
+      "request": "argue why this design fails",
+      "artifact": "Design: retry with unlimited attempts and no backoff on payment gateway calls.",
+      "min_findings": 1
+    }
+  ]
+}

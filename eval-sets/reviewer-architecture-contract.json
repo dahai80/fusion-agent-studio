@@ -1,0 +1,25 @@
+{
+  "agent_id": "reviewer-architecture-contract",
+  "version": 1,
+  "cases": [
+    {
+      "case_id": "ac-1",
+      "request": "review this module for architecture contract violations",
+      "artifact": "analytics/metrics.py: def latency_ms(): return 42\ningest/pipeline.py expects latency_us from analytics.metrics.latency_ms\nreport/printer.py: from analytics.metrics import latency_ms; print(latency_ms() + 'ms')",
+      "min_findings": 1
+    },
+    {
+      "case_id": "ac-2",
+      "request": "review this refactor",
+      "artifact": "auth/session.py: def create_session(user_id): return Session(user_id)\nweb/login.py: from auth.session import create_session",
+      "min_findings": 0,
+      "max_findings": 1
+    },
+    {
+      "case_id": "ac-3",
+      "request": "review interface consistency",
+      "artifact": "store/cache.py: def get(key: str) -> bytes\nstore/api.py declares get(key: str) -> str; api.py calls store.cache.get and decodes utf-8",
+      "min_findings": 1
+    }
+  ]
+}
