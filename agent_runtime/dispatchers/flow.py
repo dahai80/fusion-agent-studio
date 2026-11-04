@@ -30,6 +30,9 @@ Allowed ops (and only these):
 - {"op":"instantiate_template","name":"<template name>"}
 Rules:
 - "type" MUST be one of the allowed node types listed by the caller. Never invent types.
+- For llm/planner nodes set "model" in config to the caller-provided default
+  model when the current graph state shows one; otherwise omit it and the
+  server fills it.
 - "config" values may reference run inputs with {{ variable }} syntax.
 - connect only ids that exist (after earlier ops in the same list).
 - Every graph needs exactly one start node and at least one end node.
@@ -268,6 +271,7 @@ class FlowDispatcher:
             if isinstance(t, dict) and t.get("name")
         }
         graph_state = params.get("graph_json")
+        default_model = str(params.get("default_model", "") or "")
         catalog_desc = ", ".join(sorted(allowed_types))
         template_desc = ", ".join(sorted(template_names)) if template_names else "(none)"
         system = (
@@ -312,7 +316,30 @@ class FlowDispatcher:
             elif isinstance(nodes_raw, dict):
                 existing = set(nodes_raw.keys())
         errors: list[str] = []
+        # Two sets: `targets` is the union of state ids and every id added in
+        # this plan (plans apply atomically, so an op may reference ids added
+        # LATER in the same list — models emit connects before adds);
+        # `existing` replays add/remove/clear in order for duplicate detection.
+        targets = set(existing)
+        for op in ops:
+            if isinstance(op, dict) and str(op.get("op", "")) == "add_node":
+                nid = str(op.get("id", ""))
+                if nid and nid.replace("-", "").replace("_", "").isalnum():
+                    targets.add(nid)
         for i, op in enumerate(ops):
+            # Deterministic fill (Rule 5): llm/planner nodes need an executable
+            # model — the model-provided default wins, else caller default_model.
+            if (
+                default_model
+                and str(op.get("op", "")) == "add_node"
+                and str(op.get("type", "")) in ("llm", "planner")
+            ):
+                cfg = op.get("config")
+                if not isinstance(cfg, dict):
+                    cfg = {}
+                    op["config"] = cfg
+                if not cfg.get("model"):
+                    cfg["model"] = default_model
             if not isinstance(op, dict):
                 errors.append(f"op[{i}]: not an object")
                 continue
@@ -330,14 +357,15 @@ class FlowDispatcher:
                     )
                 else:
                     existing.add(nid)
+                    targets.add(nid)
             elif kind in ("remove_node", "set_config"):
-                if str(op.get("id", "")) not in existing:
+                if str(op.get("id", "")) not in targets:
                     errors.append(f"op[{i}]: {kind} target '{op.get('id')}' not in graph")
                 if kind == "remove_node" and str(op.get("id", "")) in existing:
                     existing.discard(str(op.get("id", "")))
             elif kind in ("connect", "disconnect"):
                 src, tgt = str(op.get("source", "")), str(op.get("target", ""))
-                if src not in existing or tgt not in existing:
+                if src not in targets or tgt not in targets:
                     errors.append(
                         f"op[{i}]: {kind} endpoints must exist in graph (got '{src}' -> '{tgt}')"
                     )

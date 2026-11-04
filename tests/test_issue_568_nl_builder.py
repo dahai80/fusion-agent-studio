@@ -213,6 +213,20 @@ def test_remove_frees_id_for_readd():
     assert "error" not in out
 
 
+def test_connect_before_add_accepted_forward_reference():
+    reply = json_reply(
+        {
+            "reply": "",
+            "ops": [
+                {"op": "connect", "source": "start", "target": "new_llm"},
+                {"op": "add_node", "id": "new_llm", "type": "llm"},
+            ],
+        }
+    )
+    out = _plan(reply)
+    assert "error" not in out, out
+
+
 def test_catalog_fallback_to_server_types():
     reply = json_reply(
         {"reply": "", "ops": [{"op": "add_node", "id": "v", "type": "verify"}]}
