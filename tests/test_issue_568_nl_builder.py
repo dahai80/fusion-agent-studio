@@ -17,7 +17,7 @@ import asyncio
 import pytest
 
 from agent_runtime.dispatchers.flow import FlowDispatcher
-from agent_runtime.llm_gateway import LLMGateway, ModelConfig
+from agent_runtime.llm_gateway import LLMGateway
 from server.fusion_mlx_client import LLMResponse
 
 CATALOG = [
