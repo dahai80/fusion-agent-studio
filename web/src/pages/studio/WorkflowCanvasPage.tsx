@@ -248,6 +248,22 @@ function CanvasInner() {
         Array<{ input_id: string; input_var: string; prompt: string; fields: unknown[] }>
     >([]);
     const [humanInputValue, setHumanInputValue] = useState('');
+    // #558: template gallery + run history (template.* / run.history_* RPCs)
+    const [galleryOpen, setGalleryOpen] = useState(false);
+    const [gallery, setGallery] = useState<
+        Array<{ name: string; description: string; source: string; flow_id?: string; node_count?: number }>
+    >([]);
+    const [templateName, setTemplateName] = useState('');
+    const [templateNameOpen, setTemplateNameOpen] = useState(false);
+    const [runHistoryOpen, setRunHistoryOpen] = useState(false);
+    const [runHistory, setRunHistory] = useState<
+        Array<{ run_id: string; status: string; finished_at: number; node_status: Record<string, string> }>
+    >([]);
+    const [diffPicks, setDiffPicks] = useState<string[]>([]);
+    const [runDiff, setRunDiff] = useState<{
+        nodes: Array<{ node_id: string; a: string; b: string; changed: boolean }>;
+        changed_count: number;
+    } | null>(null);
     const [connectMenu, setConnectMenu] = useState<{
         x: number;
         y: number;
@@ -492,10 +508,15 @@ function CanvasInner() {
                 window.sessionStorage.removeItem(CANVAS_GRAPH_KEY);
                 setGraphId(preselected);
                 void loadGraph(preselected);
+            } else {
+                // #558: first visit with no graph — surface the template gallery
+                setGalleryOpen(true);
+                void openGallery();
             }
         } catch {
             // storage unavailable
         }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [loadGraph]);
 
     const onNodesChange = useCallback(
@@ -1175,6 +1196,134 @@ function CanvasInner() {
         [humanInputValue, showToast, t]
     );
 
+    // #558: template gallery — builtin plan templates + saved tenant templates
+    const openGallery = useCallback(async () => {
+        try {
+            const res = await rpc<{ templates?: Array<{ name: string; description: string; source: string; flow_id?: string; node_count?: number }> }>(
+                'flow.template_list',
+                {}
+            );
+            setGallery(res.templates || []);
+            setGalleryOpen(true);
+        } catch (e) {
+            showToast(`${t('模板加载失败', 'Template load failed')}: ${String(e)}`);
+        }
+    }, [showToast, t]);
+
+    const instantiateTemplate = useCallback(
+        async (tpl: { name: string; flow_id?: string }) => {
+            try {
+                const res = await rpc<{ graph?: unknown }>('flow.template_instantiate', {
+                    name: tpl.flow_id ? '' : tpl.name,
+                    flow_id: tpl.flow_id || '',
+                });
+                const created = await rpc<{ graph_id?: string }>('graph.create', {
+                    name: `${tpl.name}-instance`,
+                    graph: res.graph,
+                });
+                if (created.graph_id) {
+                    setGraphId(created.graph_id);
+                    await loadGraph(created.graph_id);
+                }
+                setGalleryOpen(false);
+                showToast(t('模板已实例化', 'Template instantiated'));
+            } catch (e) {
+                showToast(`${t('实例化失败', 'Instantiate failed')}: ${String(e)}`);
+            }
+        },
+        [loadGraph, showToast, t]
+    );
+
+    const saveAsTemplate = useCallback(async () => {
+        if (!templateName.trim()) {
+            showToast(t('请输入模板名称', 'Template name required'));
+            return;
+        }
+        try {
+            const raw = fromRf(graph, nodes as unknown as RfNode[], edges as unknown as RfEdge[]);
+            const next = stripSessionSecrets(raw);
+            await rpc('flow.template_save', {
+                name: templateName.trim(),
+                description: next.description || '',
+                graph: next,
+            });
+            setTemplateName('');
+            setTemplateNameOpen(false);
+            showToast(t('已存为模板', 'Saved as template'));
+        } catch (e) {
+            showToast(`${t('模板保存失败', 'Template save failed')}: ${String(e)}`);
+        }
+    }, [edges, graph, nodes, showToast, t, templateName]);
+
+    const loadRunHistory = useCallback(async () => {
+        try {
+            const res = await rpc<{
+                runs?: Array<{ run_id: string; status: string; finished_at: number; node_status: Record<string, string> }>;
+            }>('run.history_list', { graph_id: graphId, limit: 20 });
+            setRunHistory(res.runs || []);
+            setDiffPicks([]);
+            setRunDiff(null);
+        } catch (e) {
+            showToast(`${t('运行历史加载失败', 'Run history load failed')}: ${String(e)}`);
+        }
+    }, [graphId, showToast, t]);
+
+    const replayRun = useCallback(
+        async (runId: string) => {
+            try {
+                const res = await rpc<{
+                    run?: { node_status?: Record<string, string>; events?: Array<Record<string, unknown>> };
+                }>('run.history_get', { run_id: runId });
+                const run = res.run;
+                if (!run) return;
+                const mapped: Record<string, { tokens: number; toolCalls: number; status?: string }> = {};
+                for (const [node, status] of Object.entries(run.node_status || {})) {
+                    mapped[node] = { tokens: 0, toolCalls: 0, status };
+                }
+                nodeStatsRef.current = mapped;
+                setNodeStats(mapped);
+                const gov: GovEvent[] = (run.events || [])
+                    .filter((e) => ['hook', 'permission', 'budget', 'safety_approval', 'plan_approval'].includes(String(e.kind || e.type)))
+                    .map((e) => ({
+                        ts: Number(e.timestamp || 0),
+                        kind: String(e.kind || e.type || ''),
+                        nodeId: String(e.node_id || ''),
+                        detail: String(e.content || ''),
+                    }));
+                setGovEvents(gov);
+                setActiveNodes(
+                    Object.fromEntries(Object.entries(run.node_status || {}).map(([n, s]) => [n, s]))
+                );
+                showToast(t('已回放历史运行', 'Run replayed'));
+            } catch (e) {
+                showToast(`${t('回放失败', 'Replay failed')}: ${String(e)}`);
+            }
+        },
+        [showToast, t]
+    );
+
+    const toggleDiffPick = useCallback((runId: string) => {
+        setDiffPicks((prev) =>
+            prev.includes(runId) ? prev.filter((r) => r !== runId) : [...prev.slice(-1), runId]
+        );
+    }, []);
+
+    const diffSelectedRuns = useCallback(async () => {
+        if (diffPicks.length !== 2) return;
+        try {
+            const res = await rpc<{
+                diff?: { nodes: Array<{ node_id: string; a: string; b: string; changed: boolean }>; changed_count: number };
+            }>('run.diff', { run_a: diffPicks[0], run_b: diffPicks[1] });
+            setRunDiff(res.diff || null);
+        } catch (e) {
+            showToast(`${t('Diff 失败', 'Diff failed')}: ${String(e)}`);
+        }
+    }, [diffPicks, showToast, t]);
+
+    useEffect(() => {
+        if (runHistoryOpen) void loadRunHistory();
+    }, [runHistoryOpen, loadRunHistory]);
+
     useEffect(() => () => esRef.current?.close(), []);
 
     // #393: one generated form row per FieldSpec widget.
@@ -1506,6 +1655,40 @@ function CanvasInner() {
                         />
                     </label>
                 </div>
+                <button
+                    type="button"
+                    className="w-full rounded border border-border px-2 py-1 text-[10px] hover:border-brand"
+                    onClick={() => void openGallery()}
+                >
+                    ▦ {t('模板库', 'Templates')}
+                </button>
+                <button
+                    type="button"
+                    className="w-full rounded border border-border px-2 py-1 text-[10px] disabled:opacity-40"
+                    disabled={!graphId || saving}
+                    onClick={() => setTemplateNameOpen((v) => !v)}
+                >
+                    ⇗ {t('存为模板', 'Save as template')}
+                </button>
+                {templateNameOpen ? (
+                    <div className="flex gap-1">
+                        <input
+                            type="text"
+                            className="flex-1 rounded border border-border bg-bg px-1 py-0.5 text-[10px]"
+                            placeholder={t('模板名称', 'Template name')}
+                            value={templateName}
+                            onChange={(e) => setTemplateName(e.target.value)}
+                        />
+                        <button
+                            type="button"
+                            className="rounded bg-brand px-1.5 py-0.5 text-[10px] text-white disabled:opacity-40"
+                            disabled={!graphId || saving}
+                            onClick={() => void saveAsTemplate()}
+                        >
+                            {t('存为模板', 'Save')}
+                        </button>
+                    </div>
+                ) : null}
                 {TEMPLATES.length > 0 ? (
                     <div>
                         <div className="text-xs text-text-secondary pt-1">
@@ -1584,6 +1767,92 @@ function CanvasInner() {
                                 </div>
                             ))
                         )}
+                    </div>
+                ) : null}
+                {/* #558: run history — list past managed runs, replay, diff two */}
+                <button
+                    type="button"
+                    className="w-full rounded border border-border px-2 py-1 text-[10px] disabled:opacity-40"
+                    disabled={!graphId}
+                    onClick={() => setRunHistoryOpen((v) => !v)}
+                >
+                    {runHistoryOpen
+                        ? t('▾ 运行历史', '▾ Run history')
+                        : t('▸ 运行历史', '▸ Run history')}
+                </button>
+                {runHistoryOpen ? (
+                    <div className="space-y-0.5">
+                        {runHistory.length === 0 ? (
+                            <div className="text-[10px] text-text-secondary">
+                                {t('暂无历史运行', 'No archived runs')}
+                            </div>
+                        ) : (
+                            runHistory.map((r) => (
+                                <div
+                                    key={r.run_id}
+                                    className="rounded border border-border px-1 py-0.5 text-[10px]"
+                                >
+                                    <div className="flex items-center gap-1">
+                                        <input
+                                            type="checkbox"
+                                            checked={diffPicks.includes(r.run_id)}
+                                            onChange={() => toggleDiffPick(r.run_id)}
+                                            title={t('选两次做 Diff', 'Pick two to diff')}
+                                        />
+                                        <span
+                                            className={
+                                                r.status === 'completed'
+                                                    ? 'text-emerald-600'
+                                                    : r.status === 'failed'
+                                                      ? 'text-red-500'
+                                                      : 'text-amber-500'
+                                            }
+                                        >
+                                            {r.status}
+                                        </span>
+                                        <span className="flex-1 truncate text-text-secondary tabular-nums">
+                                            {new Date(r.finished_at * 1000).toLocaleString()}
+                                        </span>
+                                        <button
+                                            type="button"
+                                            className="rounded border border-border px-1 hover:border-brand"
+                                            onClick={() => void replayRun(r.run_id)}
+                                        >
+                                            {t('回放', 'Replay')}
+                                        </button>
+                                    </div>
+                                    <div className="truncate text-text-secondary">
+                                        {Object.entries(r.node_status)
+                                            .map(([n, s]) => `${n}:${s}`)
+                                            .join(' ')}
+                                    </div>
+                                </div>
+                            ))
+                        )}
+                        {diffPicks.length === 2 ? (
+                            <button
+                                type="button"
+                                className="w-full rounded border border-brand px-2 py-1 text-[10px] text-brand"
+                                onClick={() => void diffSelectedRuns()}
+                            >
+                                {t('Diff 选中运行', 'Diff selected runs')}
+                            </button>
+                        ) : null}
+                        {runDiff ? (
+                            <div className="rounded border border-border px-1 py-0.5 text-[10px]">
+                                <div className="text-text-secondary">
+                                    {t('变更节点', 'Changed nodes')}: {runDiff.changed_count}
+                                </div>
+                                {runDiff.nodes.map((row) => (
+                                    <div
+                                        key={row.node_id}
+                                        className={row.changed ? 'text-amber-500' : 'text-text-secondary'}
+                                    >
+                                        {row.node_id}: {row.a || '—'} / {row.b || '—'}
+                                    </div>
+                                ))}
+                            </div>
+                        ) : null}
                     </div>
                 ) : null}
             </div>
@@ -2091,6 +2360,63 @@ function CanvasInner() {
                 }}
                 onCancel={() => setPendingSave(null)}
             />
+            {galleryOpen ? (
+                <div
+                    className="absolute inset-0 z-50 flex items-center justify-center bg-black/40"
+                    onClick={() => setGalleryOpen(false)}
+                >
+                    <div
+                        className="max-h-[70vh] w-[560px] overflow-auto rounded-xl border border-border bg-bg p-4 shadow-lg"
+                        onClick={(e) => e.stopPropagation()}
+                    >
+                        <div className="mb-2 flex items-center justify-between">
+                            <div className="text-sm text-text-primary">
+                                {t('模板库', 'Template gallery')}
+                            </div>
+                            <button
+                                type="button"
+                                className="rounded border border-border px-2 py-0.5 text-xs"
+                                onClick={() => setGalleryOpen(false)}
+                            >
+                                ✕
+                            </button>
+                        </div>
+                        <div className="grid grid-cols-2 gap-2">
+                            {gallery.map((tpl) => (
+                                <button
+                                    type="button"
+                                    key={tpl.flow_id || tpl.name}
+                                    className="rounded-lg border border-border p-2 text-left hover:border-brand"
+                                    onClick={() =>
+                                        void instantiateTemplate({
+                                            name: tpl.name,
+                                            flow_id: tpl.flow_id,
+                                        })
+                                    }
+                                >
+                                    <div className="flex items-center gap-1">
+                                        <span className="text-xs text-text-primary">{tpl.name}</span>
+                                        <span
+                                            className={`rounded px-1 text-[9px] ${
+                                                tpl.source === 'builtin'
+                                                    ? 'bg-brand/10 text-brand'
+                                                    : 'bg-emerald-500/10 text-emerald-600'
+                                            }`}
+                                        >
+                                            {tpl.source === 'builtin'
+                                                ? t('内置', 'builtin')
+                                                : t('自定义', 'custom')}
+                                        </span>
+                                    </div>
+                                    <div className="mt-0.5 text-[10px] text-text-secondary">
+                                        {tpl.description}
+                                    </div>
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+                </div>
+            ) : null}
         </div>
     );
 }
