@@ -42,6 +42,8 @@ class InfraDispatcher(SubDispatcher):
             "apikey.revoke": self._handle_apikey_revoke,
             "apikey.rotate": self._handle_apikey_rotate,
             "apikey.update": self._handle_apikey_update,
+            "apikey.loopback_create": self._handle_apikey_loopback_create,
+            "apikey.loopback_rotate": self._handle_apikey_loopback_rotate,
             "cron.register": self._handle_cron_register,
             "cron.unregister": self._handle_cron_unregister,
             "cron.list": self._handle_cron_list,
@@ -217,6 +219,69 @@ class InfraDispatcher(SubDispatcher):
         mgr = self._daemon._get_apikey_manager()
         key_id = params.get("key_id", "")
         return mgr.update(key_id, params.get("updates", {}))
+
+    # ── #579: loopback credential recovery (UDS-only, peer-uid verified) ──
+
+    def _loopback_guard(self) -> dict | None:
+        from ..loopback import is_loopback_trusted
+
+        if is_loopback_trusted():
+            return None
+        logger.warning(
+            "#579 loopback issuance rejected: method only callable over the "
+            "peer-uid-verified UDS control plane, current transport is not trusted"
+        )
+        return {
+            "status": "error",
+            "message": "loopback issuance requires the trusted UDS control plane "
+            "(unix socket /tmp/fusion-studio.sock, same-uid peer verified)",
+        }
+
+    def _loopback_audit(self, action: str, key_id: str, ok: bool) -> None:
+        try:
+            self._daemon._get_audit_logger().log_action(
+                actor_id="loopback-cli",
+                action=action,
+                resource_type="api_key",
+                resource_id=key_id,
+                result="success" if ok else "failed",
+            )
+        except Exception as e:
+            logger.error("#579 loopback audit write failed for %s: %s", action, e)
+
+    async def _handle_apikey_loopback_create(self, params: dict) -> dict:
+        blocked = self._loopback_guard()
+        if blocked:
+            return blocked
+        name = params.get("name", "")
+        if not name:
+            return {"status": "error", "message": "name parameter required"}
+        mgr = self._daemon._get_apikey_manager()
+        result = mgr.create(
+            name=name,
+            permissions=params.get("permissions"),
+            allowed_agent_ids=params.get("allowed_agent_ids"),
+            ip_whitelist=params.get("ip_whitelist"),
+            expires_at=params.get("expires_at"),
+        )
+        ok = bool(result.get("key_secret"))
+        self._loopback_audit("apikey.create", str(result.get("key_id", "")), ok)
+        logger.info("#579 loopback key issued: key_id=%s name=%s", result.get("key_id"), name)
+        return result
+
+    async def _handle_apikey_loopback_rotate(self, params: dict) -> dict:
+        blocked = self._loopback_guard()
+        if blocked:
+            return blocked
+        key_id = params.get("key_id", "")
+        if not key_id:
+            return {"status": "error", "message": "key_id parameter required"}
+        mgr = self._daemon._get_apikey_manager()
+        result = mgr.rotate(key_id)
+        ok = bool(result.get("key_secret"))
+        self._loopback_audit("apikey.rotate", key_id, ok)
+        logger.info("#579 loopback key rotated: key_id=%s", key_id)
+        return result
 
     # ── Analytics handler ──
 

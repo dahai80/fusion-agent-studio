@@ -45,8 +45,19 @@ JWT_LEEWAY_SECONDS = 30
 # that is present but invalid is rejected on ANY method — the client
 # authEnforced probe (ping + forged jwt) must observe 401, so ping must NOT
 # be a blanket bypass.
+# #579: loopback credential recovery joins the allowlist — these methods are
+# safe pre-auth ONLY because they additionally require the peer-uid-verified
+# UDS transport (agent_runtime/loopback.py) and the deny-by-default HTTP
+# bridge never allowlists them.
 PRE_AUTH_ALLOWLIST = frozenset(
-    {"auth.login", "ping", "daemon.ping", "rpc.discover"}
+    {
+        "auth.login",
+        "ping",
+        "daemon.ping",
+        "rpc.discover",
+        "apikey.loopback_create",
+        "apikey.loopback_rotate",
+    }
 )
 
 

@@ -1125,6 +1125,13 @@ class DaemonServer:
                 pass
             return
         logger.info("Client connected: %s", peer)
+        # #579: peer-uid verified UDS connection — mark this connection task's
+        # context as loopback-trusted so loopback-only RPC methods (admin key
+        # recovery) are callable. ContextVar is per-task: concurrent UDS
+        # connections and HTTP handlers never see this mark.
+        from .loopback import set_transport_trust
+
+        set_transport_trust("uds")
         buf = b""
 
         try:
