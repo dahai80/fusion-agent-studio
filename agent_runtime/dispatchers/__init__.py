@@ -5,6 +5,7 @@ from .artifact import ArtifactDispatcher
 from .base import SubDispatcher
 from .bundle import BundleDispatcher
 from .chat import ChatDispatcher
+from .commodity import CommodityDispatcher
 from .deploy import DeployDispatcher
 from .flow import FlowDispatcher
 from .history import HistoryDispatcher
@@ -44,6 +45,7 @@ __all__ = [
     "FlowDispatcher",
 "HistoryDispatcher",
     "ReviewerDispatcher",
+    "CommodityDispatcher",
     "SubAgentDispatcher",
     "SkillsDispatcher",
     "SessionDispatcher",

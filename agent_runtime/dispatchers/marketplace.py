@@ -59,6 +59,23 @@ class MarketplaceDispatcher(SubDispatcher):
     async def _handle_marketplace_publish(self, params: dict) -> dict:
         from ..agent_marketplace import MarketEntry
 
+        # #570: agent-commodity listings must pass schema + docs five-pack
+        # validation before they can be published.
+        commodity_raw = (params.get("graph_data") or {}).get("commodity")
+        if isinstance(commodity_raw, dict):
+            from ..agent_commodity import AgentCommodity
+
+            errors = AgentCommodity.from_dict(commodity_raw).validate()
+            if errors:
+                logger.warning(
+                    "marketplace.publish rejected commodity listing: %d errors", len(errors)
+                )
+                return {
+                    "status": "error",
+                    "message": "commodity listing failed validation",
+                    "errors": errors,
+                }
+
         mp = self._daemon._get_marketplace()
         entry = MarketEntry(
             name=params.get("name", ""),
@@ -145,8 +162,7 @@ class MarketplaceDispatcher(SubDispatcher):
         if result.get("status") == "error":
             logger.warning("marketplace.persona_pack_install refused: %s", result)
             return result
-        logger.info("marketplace.persona_pack_install: id=%s path=%s",
-                    pack_id, result.get("path"))
+        logger.info("marketplace.persona_pack_install: id=%s path=%s", pack_id, result.get("path"))
         return result
 
     async def _handle_persona_pack_list(self, params: dict) -> dict:

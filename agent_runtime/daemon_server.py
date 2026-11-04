@@ -1341,6 +1341,7 @@ HistoryDispatcher,
             PlannerDispatcher,
             PluginDispatcher,
             ReviewerDispatcher,
+            CommodityDispatcher,
             SafetyDispatcher,
             SessionDispatcher,
             SkillsDispatcher,
@@ -1377,6 +1378,7 @@ HistoryDispatcher,
             FlowDispatcher(self),
     HistoryDispatcher(self),
             ReviewerDispatcher(self),
+            CommodityDispatcher(self),
         ]
 
     async def _handle_context_compact(self, params: dict) -> dict:
