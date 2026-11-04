@@ -51,6 +51,7 @@ import {
 } from '../../lib/graphSchema';
 import { paletteGroups } from '../../lib/nodeRegistry';
 import { getSecret, hasSecret, isSecretField, setSecret } from '../../lib/secretStore';
+import { standaloneApiKey } from '../../sdk';
 
 const PORT_COLOR: Record<string, string> = {
     flow: '#6b7280',
@@ -972,7 +973,7 @@ function CanvasInner() {
             if (opts.onlyNode) qs.set('only_node', opts.onlyNode);
             const breakpointNode = nodes.find((n) => (n.data as FusionNodeData).breakpoint);
             if (breakpointNode && !opts.onlyNode) qs.set('stop_after', breakpointNode.id);
-            const cfgKey = import.meta.env.VITE_API_KEY as string | undefined;
+            const cfgKey = standaloneApiKey();
             if (cfgKey) qs.set('api_key', cfgKey);
 
             const handleFrame = (raw: string) => {
@@ -1131,7 +1132,7 @@ function CanvasInner() {
         setNodeStats({ ...nodeStatsRef.current });
         if (!graphId || !runIdRef.current) return;
         try {
-            const cfgKey = import.meta.env.VITE_API_KEY as string | undefined;
+            const cfgKey = standaloneApiKey();
             const res = await fetch(
                 `${apiBase()}/v1/graphs/${encodeURIComponent(graphId)}/execute/stream/${runIdRef.current}/cancel`,
                 {

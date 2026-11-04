@@ -20,6 +20,8 @@ vi.mock('../../../sdk', () => ({
     },
     isEmbedded: () => false,
     embeddedParam: () => false,
+    standaloneApiKey: () => '',
+    setStandaloneApiKey: () => {},
 }));
 
 import { ApikeysPage } from '../ApikeysPage';

@@ -3,6 +3,7 @@ import { formatDuration, formatTokenCount } from '@fusion/web-ui/format';
 import { useEffect, useRef, useState } from 'react';
 import { apiBase } from '../api';
 import { useT } from '../i18n';
+import { standaloneApiKey } from '../sdk';
 
 // Spec §7.1 true streaming: SSE per-token TOKEN events, follow-scroll lock
 // (inside StreamingMarkdown), a stop button, and live token/elapsed readout.
@@ -56,7 +57,7 @@ export function StreamPanel({
     useEffect(() => {
         const qs = new URLSearchParams({ input });
         if (onlyNode) qs.set('only_node', onlyNode);
-        const cfgKey = import.meta.env.VITE_API_KEY as string | undefined;
+        const cfgKey = standaloneApiKey();
         if (cfgKey) qs.set('api_key', cfgKey);
         const es = new EventSource(
             `${apiBase()}/v1/graphs/${encodeURIComponent(graphId)}/execute/stream?${qs.toString()}`
