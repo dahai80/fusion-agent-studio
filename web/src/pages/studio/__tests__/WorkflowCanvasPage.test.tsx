@@ -533,3 +533,124 @@ describe('WorkflowCanvasPage human input HiTL (#557)', () => {
         );
     });
 });
+
+describe('WorkflowCanvasPage template gallery + run history (#558)', () => {
+    beforeEach(() => {
+        rpcMock.mockReset();
+        graphsMock.mockReset();
+        window.sessionStorage.clear();
+        window.localStorage.clear();
+    });
+
+    function templateRpcs() {
+        rpcMock.mockImplementation(async (method: string) => {
+            if (method === 'budget.status') return { remaining: 800, max_tokens: 1000 };
+            if (method === 'safety.get_pending_actions') return { actions: [] };
+            if (method === 'tool.list') return { tools: [{ name: 'read_file' }] };
+            if (method === 'graph.get') return { graph: { nodes: [], edges: [] } };
+            if (method === 'flow.template_list')
+                return {
+                    templates: [
+                        {
+                            name: 'basic-llm-prompt',
+                            description: 'Single LLM call',
+                            source: 'builtin',
+                        },
+                        {
+                            name: 'my-tpl',
+                            description: 'saved template',
+                            source: 'tenant',
+                            flow_id: 'flow-t1',
+                        },
+                    ],
+                };
+            if (method === 'flow.template_instantiate')
+                return { graph: { nodes: [], edges: [] }, graph_id: 'newg' };
+            if (method === 'graph.create') return { graph_id: 'g-new' };
+            throw new Error(`unexpected rpc: ${method}`);
+        });
+        graphsMock.mockResolvedValue({ data: [] });
+    }
+
+    it('empty canvas opens the template gallery and instantiate fires template_instantiate + graph.create', async () => {
+        templateRpcs();
+        const user = userEvent.setup();
+        render(<WorkflowCanvasPage />);
+
+        expect(await screen.findByText('Template gallery', undefined, { timeout: 3000 })).toBeInTheDocument();
+        expect(screen.getByText('basic-llm-prompt')).toBeInTheDocument();
+        expect(screen.getByText('builtin')).toBeInTheDocument();
+        expect(screen.getByText('custom')).toBeInTheDocument();
+
+        await user.click(screen.getByText('my-tpl'));
+        await waitFor(() =>
+            expect(rpcMock).toHaveBeenCalledWith('flow.template_instantiate', { name: '', flow_id: 'flow-t1' })
+        );
+        await waitFor(() => expect(rpcMock).toHaveBeenCalledWith('graph.create', expect.anything()));
+    });
+
+    it('run history panel lists archived runs, replay + diff fire history RPCs', async () => {
+        templateRpcs();
+        rpcMock.mockImplementation(async (method: string) => {
+            if (method === 'budget.status') return { remaining: 800, max_tokens: 1000 };
+            if (method === 'safety.get_pending_actions') return { actions: [] };
+            if (method === 'tool.list') return { tools: [{ name: 'read_file' }] };
+            if (method === 'graph.get') return { graph: { nodes: [], edges: [] } };
+            if (method === 'run.history_list')
+                return {
+                    runs: [
+                        {
+                            run_id: 'r1',
+                            status: 'completed',
+                            finished_at: 1700000000,
+                            node_status: { s: 'done', llm: 'done' },
+                        },
+                        {
+                            run_id: 'r2',
+                            status: 'failed',
+                            finished_at: 1700000100,
+                            node_status: { s: 'done', llm: 'error' },
+                        },
+                    ],
+                };
+            if (method === 'run.history_get')
+                return {
+                    run: {
+                        node_status: { s: 'done', llm: 'done' },
+                        events: [{ type: 'end', node_id: 'e', content: 'ok', timestamp: 1 }],
+                    },
+                };
+            if (method === 'run.diff')
+                return {
+                    diff: {
+                        nodes: [{ node_id: 'llm', a: 'done', b: 'error', changed: true }],
+                        changed_count: 1,
+                    },
+                };
+            throw new Error(`unexpected rpc: ${method}`);
+        });
+        const user = userEvent.setup();
+        window.sessionStorage.setItem('fusion.canvas.graphId', 'g1');
+        render(<WorkflowCanvasPage />);
+        await screen.findByRole('button', { name: /Run history/, undefined }, { timeout: 3000 });
+
+        await user.click(screen.getByRole('button', { name: /Run history/ }));
+        expect(await screen.findByText('completed')).toBeInTheDocument();
+        expect(screen.getByText('failed')).toBeInTheDocument();
+        expect(screen.getByText(/llm:done/)).toBeInTheDocument();
+
+        const r1Card = screen.getByText('completed').closest('div[class*="rounded"]') as HTMLElement;
+        await user.click(within(r1Card).getByRole('button', { name: 'Replay' }));
+        await waitFor(() => expect(rpcMock).toHaveBeenCalledWith('run.history_get', { run_id: 'r1' }));
+
+        const boxes = screen.getAllByTitle('Pick two to diff');
+        await user.click(boxes[0]);
+        await user.click(boxes[1]);
+        await user.click(screen.getByRole('button', { name: 'Diff selected runs' }));
+        await waitFor(() =>
+            expect(rpcMock).toHaveBeenCalledWith('run.diff', { run_a: 'r1', run_b: 'r2' })
+        );
+        expect(await screen.findByText(/Changed nodes: 1/)).toBeInTheDocument();
+        expect(screen.getByText(/llm: done \/ error/)).toBeInTheDocument();
+    });
+});
