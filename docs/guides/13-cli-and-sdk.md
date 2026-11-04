@@ -170,6 +170,13 @@ const rest = new AgentStudioClient({
 });
 ```
 
+**独立模式运行时密钥（#584）**：daemon 静态托管（:11442 直接打开）时写操作
+需要鉴权，而嵌入 shell 的不变式是 UI 不持有任何密钥。独立模式下在
+「API 密钥」页顶部的「本机直连访问密钥」卡片粘贴管理员密钥（来自
+`fusion-agent apikeys recover` 或 daemon 首次启动日志），保存到浏览器
+localStorage 后，`sdk.ts` 在每次 HTTP 调用与 SSE 查询串上自动携带；
+嵌入模式永不读取该存储。构建期 `VITE_API_KEY` 仅作为开发兜底。
+
 - 错误：非 2xx 抛 `AgentStudioError`（含 `status` 与解析后的 `body`）
 - 重试：`502/503/504` 与网络错误按 `retries`（默认 2）线性退避
 - 超时：`timeoutMs`（默认 60s）

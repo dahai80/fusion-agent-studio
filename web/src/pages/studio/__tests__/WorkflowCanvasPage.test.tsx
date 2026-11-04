@@ -26,6 +26,7 @@ vi.mock('../../../sdk', () => ({
     },
     isEmbedded: () => false,
     embeddedParam: () => false,
+    standaloneApiKey: () => '',
 }));
 
 import { WorkflowCanvasPage } from '../WorkflowCanvasPage';

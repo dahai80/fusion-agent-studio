@@ -14,7 +14,7 @@ import { Switch } from '../../components/ui/Switch';
 import { Tabs } from '../../components/ui/Tabs';
 import { useT } from '../../i18n';
 import { hashQuery } from '../../lib/routeQuery';
-import { sdk } from '../../sdk';
+import { sdk, standaloneApiKey } from '../../sdk';
 
 // #330: per-token SSE chat with a selected agent. GET
 // /v1/agents/{agent_id}/execute/stream (auth via gateway-injected Bearer in
@@ -298,7 +298,7 @@ export function AiAgentPage() {
         const ctrl = new AbortController();
         abortRef.current = ctrl;
         const qs = new URLSearchParams({ input: text, thinking: showThinking ? '1' : '0' });
-        const cfgKey = import.meta.env.VITE_API_KEY as string | undefined;
+        const cfgKey = standaloneApiKey();
         if (cfgKey) qs.set('api_key', cfgKey);
         try {
             const res = await fetch(

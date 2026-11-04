@@ -15,7 +15,7 @@ import { rpc } from '../../api';
 import { PageHeader } from '../../components/PageHeader';
 import { Modal } from '../../components/ui/Modal';
 import { useT } from '../../i18n';
-import { sdk } from '../../sdk';
+import { isEmbedded, sdk, setStandaloneApiKey, standaloneApiKey } from '../../sdk';
 
 // API keys (ApikeyTabView equivalent): list / create / rotate / revoke —
 // apikey.* RPC.
@@ -38,6 +38,15 @@ export function ApikeysPage() {
     const [showCreate, setShowCreate] = useState(false);
     const [name, setName] = useState('');
     const [created, setCreated] = useState<string>('');
+    // #584: standalone serving (daemon static host) enforces auth once any
+    // key exists, but the embedded shell invariant keeps keys out of the UI.
+    // In standalone the operator pastes an admin key here (from
+    // `fusion-agent apikeys recover` or the daemon bootstrap log); it is
+    // stored in localStorage and attached by sdk.ts on every call.
+    const standalone = !isEmbedded();
+    const [accessKey, setAccessKey] = useState<string>(() =>
+        standalone ? standaloneApiKey() : ''
+    );
 
     const create = async () => {
         if (!name.trim()) return;
@@ -95,6 +104,70 @@ export function ApikeysPage() {
                     </button>
                 }
             />
+            {standalone ? (
+                <div
+                    data-testid="standalone-access-key"
+                    className="mx-4 mt-2 rounded-md border border-border bg-bg-card px-3 py-2 text-xs"
+                >
+                    <div className="text-text-primary">
+                        {t('本机直连访问密钥', 'Standalone access key')}
+                    </div>
+                    <div className="mt-1 text-text-secondary">
+                        {t(
+                            '独立模式（daemon 静态托管）下，写操作需要访问密钥。粘贴管理员密钥（来自 fusion-agent apikeys recover 或 daemon 首次启动日志），保存后本浏览器所有请求自动携带。',
+                            'Standalone mode (daemon static host) enforces auth on writes. Paste an admin key (from fusion-agent apikeys recover or the daemon bootstrap log); after saving, every request from this browser carries it.'
+                        )}
+                    </div>
+                    <div className="mt-2 flex items-center gap-2">
+                        <input
+                            data-testid="standalone-key-input"
+                            type="password"
+                            value={accessKey}
+                            placeholder={t('粘贴访问密钥', 'paste access key')}
+                            onChange={(e) => setAccessKey(e.target.value)}
+                            className="w-72 rounded-md border border-border bg-bg-elevated px-2 py-1 font-mono text-xs text-text-primary"
+                        />
+                        <button
+                            type="button"
+                            data-testid="standalone-key-save"
+                            onClick={() => {
+                                setStandaloneApiKey(accessKey);
+                                setAccessKey(standaloneApiKey());
+                                sdk.toast.show({
+                                    level: 'success',
+                                    message: t(
+                                        '访问密钥已保存到本浏览器',
+                                        'access key saved to this browser'
+                                    ),
+                                });
+                            }}
+                            className="rounded-md border border-border px-3 py-1 text-xs text-text-primary hover:bg-bg-muted"
+                        >
+                            {t('保存', 'Save')}
+                        </button>
+                        <button
+                            type="button"
+                            data-testid="standalone-key-clear"
+                            onClick={() => {
+                                setStandaloneApiKey('');
+                                setAccessKey('');
+                                sdk.toast.show({
+                                    level: 'success',
+                                    message: t('访问密钥已清除', 'access key cleared'),
+                                });
+                            }}
+                            className="rounded-md border border-border px-3 py-1 text-xs text-text-secondary hover:bg-bg-muted"
+                        >
+                            {t('清除', 'Clear')}
+                        </button>
+                        <span data-testid="standalone-key-state" className="text-text-muted">
+                            {standaloneApiKey()
+                                ? t('已配置', 'configured')
+                                : t('未配置', 'not configured')}
+                        </span>
+                    </div>
+                </div>
+            ) : null}
             {/* #543: bootstrap guidance — the list is masked to the key id
                 prefix, which is right, but a first-run user needs the path
                 from "I see a prefix" to "I have a working key". */}
