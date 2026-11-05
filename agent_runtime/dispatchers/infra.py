@@ -365,6 +365,7 @@ class InfraDispatcher(SubDispatcher):
             team=params.get("team", "default"),
             depends_on=params.get("depends_on", []) or [],
             sandbox=str(params.get("sandbox", "local") or "local"),
+            owner_agent=str(params.get("owner_agent", "") or ""),
         )
         task = store.submit(task)
         # #238: 幂等去重命中 -> 回写 deduped=True, caller 知是旧 task 非新建.

@@ -868,23 +868,44 @@ class TaskStore:
         team = team or "default"
         now = time.time()
         with self._write_lock:
-            sql = (
-                "UPDATE tasks SET status = ?, owner_agent = ?, attempt_token = ?, "
-                "updated_at = ?, last_run_at = ? "
-                "WHERE task_id = ("
-                "  SELECT task_id FROM tasks "
-                "  WHERE team = ? AND status = ? AND owner_agent = '' "
-                "  ORDER BY priority DESC, created_at ASC LIMIT 1"
-                ") AND status = ? "
-                "RETURNING task_id"
-            )
-            row = self._conn.execute(
-                sql,
-                (
+            # #604: team="*" wildcard — the executor picks tasks across all
+            # teams (dequeue is claim-atomic either way).
+            # Schedule placeholders (task.submit trigger=cron/run_at) are
+            # never claimable — the registered CronJob fires and lands its
+            # own executable task via the cron handler; executing the
+            # placeholder directly would double-run the schedule.
+            not_scheduled = "AND cron_expression = '' AND run_at = 0"
+            if team == "*":
+                sql = (
+                    "UPDATE tasks SET status = ?, owner_agent = ?, attempt_token = ?, "
+                    "updated_at = ?, last_run_at = ? "
+                    "WHERE task_id = ("
+                    "  SELECT task_id FROM tasks "
+                    f"  WHERE status = ? AND owner_agent = '' {not_scheduled} "
+                    "  ORDER BY priority DESC, created_at ASC LIMIT 1"
+                    ") AND status = ? "
+                    "RETURNING task_id"
+                )
+                params: tuple = (
+                    TASK_STATUS_RUNNING, owner_agent, token, now, now,
+                    TASK_STATUS_PENDING, TASK_STATUS_PENDING,
+                )
+            else:
+                sql = (
+                    "UPDATE tasks SET status = ?, owner_agent = ?, attempt_token = ?, "
+                    "updated_at = ?, last_run_at = ? "
+                    "WHERE task_id = ("
+                    "  SELECT task_id FROM tasks "
+                    f"  WHERE team = ? AND status = ? AND owner_agent = '' {not_scheduled} "
+                    "  ORDER BY priority DESC, created_at ASC LIMIT 1"
+                    ") AND status = ? "
+                    "RETURNING task_id"
+                )
+                params = (
                     TASK_STATUS_RUNNING, owner_agent, token, now, now,
                     team, TASK_STATUS_PENDING, TASK_STATUS_PENDING,
-                ),
-            ).fetchone()
+                )
+            row = self._conn.execute(sql, params).fetchone()
             if row is None:
                 return None
             task_id = row[0]
@@ -937,6 +958,72 @@ class TaskStore:
                 )
                 return False
         return True
+
+    def requeue(self, task_id: str, actor: str = "", reason: str = "") -> Task | None:
+        # #604 TaskExecutor retry: terminal failed task back to pending for a
+        # fresh attempt. Clears the claim (owner_agent/attempt_token) so
+        # dequeue can re-claim it; bumps retry_count; created_at untouched
+        # (queue position preserved); history row keeps the audit trail.
+        task = self._get_task(task_id)
+        if not task:
+            return None
+        task.status = TASK_STATUS_PENDING
+        task.owner_agent = ""
+        task.attempt_token = ""
+        task.retry_count += 1
+        task.updated_at = time.time()
+        self._save_task(task)
+        self._append_history(
+            task_id,
+            TASK_STATUS_FAILED,
+            TASK_STATUS_PENDING,
+            REVIEW_STATE_NONE,
+            REVIEW_STATE_NONE,
+            actor or "task-executor",
+            reason or "retry re-enqueue",
+        )
+        logger.info(
+            "Task %s requeued for retry (attempt %d, reason=%s)",
+            task_id, task.retry_count, reason,
+        )
+        return task
+
+    def reset_orphans(self, owner_agent: str) -> int:
+        # #604 crash recovery: tasks left running by a previous daemon life
+        # (crash/kill mid-execution) go back to pending so the executor picks
+        # them up again. attempt_token reset forces a fresh claim token.
+        if not self._conn or not owner_agent:
+            return 0
+        now = time.time()
+        with self._write_lock:
+            rows = self._conn.execute(
+                "SELECT task_id FROM tasks "
+                "WHERE status = ? AND owner_agent = ?",
+                (TASK_STATUS_RUNNING, owner_agent),
+            ).fetchall()
+            ids = [r[0] for r in rows]
+            if not ids:
+                return 0
+            self._conn.execute(
+                "UPDATE tasks SET status = ?, owner_agent = '', attempt_token = '', "
+                "updated_at = ? WHERE status = ? AND owner_agent = ?",
+                (TASK_STATUS_PENDING, now, TASK_STATUS_RUNNING, owner_agent),
+            )
+            for tid in ids:
+                self._append_history(
+                    tid,
+                    TASK_STATUS_RUNNING,
+                    TASK_STATUS_PENDING,
+                    REVIEW_STATE_NONE,
+                    REVIEW_STATE_NONE,
+                    owner_agent,
+                    "orphan reset",
+                )
+            self._conn.commit()
+        for tid in ids:
+            self._tasks.pop(tid, None)
+        logger.info("Reset %d orphan running tasks from owner=%s", len(ids), owner_agent)
+        return len(ids)
 
     def move_task(
         self,

@@ -1205,6 +1205,10 @@ async def v1_submit_run(request: Request):
     except ValueError as e:
         raise_api_error(ErrorCode.PARAM_FORMAT_ERROR, param="sandbox", detail=str(e))
     # Submit a task record (immediate trigger). The task store owns the run_id.
+    # #604: paths that dispatch execution inline (spec override, multi-node
+    # delegation, graph binding) pre-claim the task so the task executor
+    # worker never double-executes them; plain agent_id runs stay unclaimed
+    # and are picked up by the executor.
     submit_params = {
         "title": title,
         "description": goal,
@@ -1216,6 +1220,8 @@ async def v1_submit_run(request: Request):
         "idempotency_key": idempotency_key,
         "sandbox": sandbox.raw,
     }
+    if spec or graph_id or not sandbox.is_local:
+        submit_params["owner_agent"] = "api"
     # constraints -> task priority + max_retries (best-effort passthrough).
     if isinstance(constraints, dict):
         if "priority" in constraints:

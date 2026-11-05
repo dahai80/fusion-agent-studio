@@ -749,6 +749,11 @@ class DaemonServer:
             self._get_inbox_consumer().start()
         except Exception as e:
             logger.warning("Inbox consumer failed to start: %s", e)
+        try:
+            # #604: task board executor — pending tasks must be executed.
+            self._get_task_executor().start()
+        except Exception as e:
+            logger.warning("Task executor failed to start: %s", e)
         logger.info(
             "Daemon listening on %s + WS on %d + Cluster on %d + HTTP on %d",
             self.socket_path,
@@ -1009,6 +1014,9 @@ class DaemonServer:
         if getattr(self, "_inbox_consumer", None) is not None:
             await self._inbox_consumer.stop()
             self._inbox_consumer = None
+        if getattr(self, "_task_executor", None) is not None:
+            await self._task_executor.stop()
+            self._task_executor = None
         if hasattr(self, "_vector_strategy") and self._vector_strategy:
             await self._vector_strategy.close()
         if self._server:
@@ -3707,6 +3715,19 @@ class DaemonServer:
             )
         return self._inbox_consumer
 
+    def _get_task_executor(self):
+        # #604: single execution exit for the task board. Plain agent_id and
+        # graph_id submissions land here; cron (non-loop) converges onto it.
+        if getattr(self, "_task_executor", None) is None:
+            from .task_executor import DisabledTaskExecutor, TaskExecutor, executor_enabled
+
+            if not executor_enabled():
+                logger.info("TaskExecutor disabled by FUSION_TASK_EXECUTOR_DISABLED")
+                self._task_executor = DisabledTaskExecutor()
+            else:
+                self._task_executor = TaskExecutor(self)
+        return self._task_executor
+
     def _get_task_store(self):
         # #141: 通用 Task 持久化, 独立 tasks.db. 测试可设 self._task_store 注入临时库.
         # M1-7: FUSION_TASK_DB env 让 proof 脚本子进程隔离 tasks.db.
@@ -3804,6 +3825,9 @@ class DaemonServer:
                 trigger=TRIGGER_CRON,
                 idempotency_key=idem_key,
                 team=team,
+                # #604: executor-driven path rehydrates variables from the
+                # task record, so the raw input_data must ride with it.
+                input=raw,
             )
         )
         logger.info(
@@ -3812,6 +3836,28 @@ class DaemonServer:
             task.task_id,
             idem_key,
         )
+
+        # #604: non-loop cron jobs converge onto the task executor (single
+        # execution exit). Loop-mode jobs keep the in-handler await path —
+        # per-iteration token budget accounting (#477) needs the execution_id.
+        if (
+            getattr(job, "loop_mode", "cron") == "cron"
+            and self._get_task_executor().running
+        ):
+            await self._broadcast_event(
+                "task.created",
+                {
+                    "task_id": task.task_id,
+                    "graph_id": job.graph_id,
+                    "trigger": "cron",
+                    "cron_job_id": job.id,
+                    "team": team,
+                },
+            )
+            logger.info(
+                "Cron job %s task %s queued to task executor", job.id, task.task_id
+            )
+            return {"status": "queued", "task_id": task.task_id}
 
         exec_params = {
             "graph_id": job.graph_id,

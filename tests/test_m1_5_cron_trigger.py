@@ -116,9 +116,10 @@ class TestCronTriggerTaskCreation:
         job = _make_job(graph_id="g-cron-1", job_id="j1", fire_time=1000000)
         result = await daemon._cron_default_handler(job)
 
-        assert result["status"] == "triggered"
+        # #604: cron converges onto the task executor — submit only, the
+        # worker executes; no direct graph dispatch, no execution_id here.
+        assert result["status"] == "queued"
         assert result["task_id"].startswith("task_")
-        assert result["execution_id"].startswith("exec_")
 
         get = await _rpc_call(daemon.socket_path, "task.get", {"task_id": result["task_id"]})
         task = get["result"]["task"]
@@ -131,7 +132,7 @@ class TestCronTriggerTaskCreation:
         _make_graph(daemon, "g-cron-2")
         job = _make_job(graph_id="g-cron-2", job_id="j2", fire_time=2000000)
         r1 = await daemon._cron_default_handler(job)
-        assert r1["status"] == "triggered"
+        assert r1["status"] == "queued"
         task1_id = r1["task_id"]
 
         r2 = await daemon._cron_default_handler(job)
@@ -145,8 +146,8 @@ class TestCronTriggerTaskCreation:
         job2 = _make_job(graph_id="g-cron-3", job_id="j3", fire_time=3000015)
         r1 = await daemon._cron_default_handler(job1)
         r2 = await daemon._cron_default_handler(job2)
-        assert r1["status"] == "triggered"
-        assert r2["status"] == "triggered"
+        assert r1["status"] == "queued"
+        assert r2["status"] == "queued"
         assert r1["task_id"] != r2["task_id"]
 
     @pytest.mark.asyncio
@@ -163,30 +164,20 @@ class TestCronTriggerTaskCreation:
         _make_graph(daemon, "g-cron-complete")
         job = _make_job(graph_id="g-cron-complete", job_id="j4", fire_time=4000000)
         result = await daemon._cron_default_handler(job)
-        execution_id = result["execution_id"]
+        assert result["status"] == "queued"
 
-        deadline = asyncio.get_event_loop().time() + 15
-        final = {"status": "unknown"}
+        # #604: the task executor (started with the daemon) picks the queued
+        # cron task up and drives it to completion on the task board.
+        deadline = asyncio.get_event_loop().time() + 20
+        task = {"status": "unknown"}
         while asyncio.get_event_loop().time() < deadline:
-            status_resp = await _rpc_call(
-                daemon.socket_path,
-                "graph.status",
-                {"execution_id": execution_id},
-            )
-            final = status_resp["result"]
-            if final["status"] in ("completed", "failed", "cancelled"):
+            get = await _rpc_call(daemon.socket_path, "task.get", {"task_id": result["task_id"]})
+            task = get["result"]["task"]
+            if task["status"] in ("completed", "failed", "canceled"):
                 break
             await asyncio.sleep(0.3)
 
-        assert final["status"] == "completed", f"got {final}"
-
-        get = await _rpc_call(daemon.socket_path, "task.get", {"task_id": result["task_id"]})
-        task = get["result"]["task"]
-        assert task["status"] == "completed"
-        assert (
-            task.get("execution_id") == execution_id
-            or task.get("last_result", {}).get("execution_id") == execution_id
-        )
+        assert task["status"] == "completed", f"got {task}"
 
     @pytest.mark.asyncio
     async def test_cron_with_input_data_variables(self, daemon, tmp_path):
@@ -202,7 +193,7 @@ class TestCronTriggerTaskCreation:
             input_data=json.dumps({"team": "ops", "custom_var": "value123"}),
         )
         result = await daemon._cron_default_handler(job)
-        assert result["status"] == "triggered"
+        assert result["status"] == "queued"
 
         get = await _rpc_call(daemon.socket_path, "task.get", {"task_id": result["task_id"]})
         task = get["result"]["task"]
