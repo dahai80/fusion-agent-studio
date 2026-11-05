@@ -51,6 +51,19 @@ BASELINE = _snapshot()
 
 
 def test_real_data_home_untouched_by_suite():
+    # A live studio daemon on the dev machine legitimately writes to the
+    # real home (cron.db WAL, audit.db, logs) while the suite runs — the
+    # guard can only be meaningful on a quiet CI runner.
+    import socket
+
+    try:
+        with socket.create_connection(("127.0.0.1", 11442), timeout=0.5):
+            import pytest
+
+            pytest.skip("live studio daemon on :11442; guard enforced in CI")
+    except OSError:
+        pass
+
     after = _snapshot()
     added = sorted(set(after) - set(BASELINE))
     removed = sorted(set(BASELINE) - set(after))
