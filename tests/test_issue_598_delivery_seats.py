@@ -8,11 +8,11 @@ import json
 
 import pytest
 
-from agent_runtime.builtin_agents import (
-    DELIVERY_SEAT_IDS,
-    seed_builtin_agents,
-)
+from agent_runtime.builtin_agents import seed_builtin_agents
 from agent_runtime.daemon_server import DaemonServer
+from agent_runtime.seat_pack import seat_ids
+
+DELIVERY_SEAT_IDS = seat_ids()
 
 
 @pytest.fixture
@@ -70,9 +70,12 @@ def test_reviewer_findings_schema_contract(daemon):
         for key in ("verdict", "findings", "severity", "file", "line", "desc"):
             assert key in prompt, f"{seat_id} schema key {key} missing"
         assert '"pass" | "blocking"' in prompt, seat_id
-        for sev in ("P0", "P1", "P2", "P3"):
-            assert sev in prompt, f"{seat_id} severity {sev} missing"
-        assert "P0 or P1" in prompt, seat_id
+        from agent_runtime.seat_pack import load_seat_specs
+
+        schema = load_seat_specs()[seat_id]["findings_schema"]
+        assert schema["severities"] == ["P0", "P1", "P2", "P3"], seat_id
+        assert schema["blocking_severities"] == ["P0", "P1"], seat_id
+        assert "P0" in prompt and "P1" in prompt, seat_id
 
 
 def test_reviewer_checklists(daemon):

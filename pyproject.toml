@@ -101,3 +101,6 @@ exclude_lines = [
 
 [tool.setuptools.packages.find]
 include = ["agent_runtime*", "tools*", "server*"]
+
+[tool.setuptools.package-data]
+agent_runtime = ["seats/*.yaml"]
