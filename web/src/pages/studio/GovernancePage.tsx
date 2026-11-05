@@ -484,6 +484,7 @@ function ArtifactsTab() {
 function ApprovalsTab() {
     const t = useT();
     const [principal, setPrincipal] = useState('');
+    const [approvers, setApprovers] = useState<string[]>([]);
     const [status, setStatus] = useState('pending');
     const [rows, setRows] = useState<ExternalApproval[]>([]);
     const [error, setError] = useState('');
@@ -491,6 +492,17 @@ function ApprovalsTab() {
     const [reason, setReason] = useState('');
     const [busyId, setBusyId] = useState('');
     const tick = useRef(0);
+
+    // #596: approver identity must be a selection, not free text — typos
+    // land in the hash-chain ledger (decided_by) and break attribution.
+    useEffect(() => {
+        apiGet<{ approvers: string[] }>('/v1/agent-platform/approvers')
+            .then((d) => setApprovers(d.approvers ?? []))
+            .catch((e) => {
+                console.warn('[web] approver list load failed', (e as Error).message);
+                setApprovers([]);
+            });
+    }, []);
 
     const refresh = useCallback(async () => {
         setError('');
@@ -527,6 +539,14 @@ function ApprovalsTab() {
     };
 
     const decide = async (r: ExternalApproval, approve: boolean) => {
+        if (!principal.trim()) {
+            // #596: no approver selected — refuse visibly, never unattributed.
+            sdk.toast.show({
+                level: 'error',
+                message: t('请先选择审批人', 'select an approver first'),
+            });
+            return;
+        }
         setBusyId(r.id);
         try {
             await apiPost(
@@ -553,11 +573,25 @@ function ApprovalsTab() {
             <div className="flex flex-wrap items-end gap-2">
                 <div className="w-56">
                     <FormField label={t('当前审批人', 'Current principal')}>
-                        <TextInput
+                        {/* #596: selection, not free text — decided_by in the
+                            ledger stores the chosen identity verbatim. */}
+                        <select
+                            data-testid="approver-select"
+                            className="w-full rounded border border-border bg-bg px-2 py-1.5 text-sm"
                             value={principal}
-                            onChange={setPrincipal}
-                            placeholder={t('审批人标识', 'principal id')}
-                        />
+                            onChange={(e) => setPrincipal(e.target.value)}
+                        >
+                            <option value="">
+                                {approvers.length
+                                    ? t('请选择审批人', 'select an approver')
+                                    : t('无可用审批人', 'no approvers configured')}
+                            </option>
+                            {approvers.map((a) => (
+                                <option key={a} value={a}>
+                                    {a}
+                                </option>
+                            ))}
+                        </select>
                     </FormField>
                 </div>
                 <div className="w-40">

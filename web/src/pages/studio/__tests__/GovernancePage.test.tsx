@@ -236,6 +236,8 @@ describe('GovernancePage approvals inbox (#573)', () => {
 
     it('lists a gate:g1 approval with badge, issue ref and payload', async () => {
         apiGetMock.mockImplementation(async (path: string) => {
+            if (path === '/v1/agent-platform/approvers')
+                return { approvers: ['owner-a', 'reviewer-b'] };
             if (path.startsWith('/v1/agent-platform/approvals'))
                 return { approvals: [G1_APPROVAL] };
             if (path.startsWith('/v1/agent-platform/webhooks')) return { webhooks: [] };
@@ -253,6 +255,8 @@ describe('GovernancePage approvals inbox (#573)', () => {
 
     it('assigned principal can approve; decision hits the REST endpoint', async () => {
         apiGetMock.mockImplementation(async (path: string) => {
+            if (path === '/v1/agent-platform/approvers')
+                return { approvers: ['owner-a', 'reviewer-b'] };
             if (path.startsWith('/v1/agent-platform/approvals'))
                 return { approvals: [G1_APPROVAL] };
             throw new Error(`unexpected GET ${path}`);
@@ -263,7 +267,7 @@ describe('GovernancePage approvals inbox (#573)', () => {
         await openApprovalsTab(user);
 
         await screen.findAllByText(/gate:g1/);
-        await user.type(screen.getByPlaceholderText('principal id'), 'owner-a');
+        await user.selectOptions(screen.getByTestId('approver-select'), 'owner-a');
         const approveBtn = screen.getAllByRole('button', { name: 'Approve' })[0];
         expect(approveBtn).not.toBeDisabled();
         await user.click(approveBtn);
@@ -281,6 +285,8 @@ describe('GovernancePage approvals inbox (#573)', () => {
 
     it('non-assigned principal is read-only', async () => {
         apiGetMock.mockImplementation(async (path: string) => {
+            if (path === '/v1/agent-platform/approvers')
+                return { approvers: ['owner-a', 'reviewer-b'] };
             if (path.startsWith('/v1/agent-platform/approvals'))
                 return { approvals: [G1_APPROVAL] };
             throw new Error(`unexpected GET ${path}`);
@@ -290,7 +296,7 @@ describe('GovernancePage approvals inbox (#573)', () => {
         await openApprovalsTab(user);
 
         await screen.findAllByText(/gate:g1/);
-        await user.type(screen.getByPlaceholderText('principal id'), 'someone-else');
+        await user.selectOptions(screen.getByTestId('approver-select'), 'reviewer-b');
         expect(screen.getAllByRole('button', { name: 'Approve' })[0]).toBeDisabled();
         expect(screen.getAllByRole('button', { name: 'Reject' })[0]).toBeDisabled();
         expect(apiPostMock).not.toHaveBeenCalled();
@@ -298,6 +304,8 @@ describe('GovernancePage approvals inbox (#573)', () => {
 
     it('reject sends the reason field', async () => {
         apiGetMock.mockImplementation(async (path: string) => {
+            if (path === '/v1/agent-platform/approvers')
+                return { approvers: ['owner-a', 'reviewer-b'] };
             if (path.startsWith('/v1/agent-platform/approvals'))
                 return { approvals: [G1_APPROVAL] };
             throw new Error(`unexpected GET ${path}`);
@@ -308,7 +316,7 @@ describe('GovernancePage approvals inbox (#573)', () => {
         await openApprovalsTab(user);
 
         await screen.findAllByText(/gate:g1/);
-        await user.type(screen.getByPlaceholderText('principal id'), 'owner-a');
+        await user.selectOptions(screen.getByTestId('approver-select'), 'owner-a');
         await user.type(screen.getByPlaceholderText('required on reject'), 'impact too broad');
         await user.click(screen.getAllByRole('button', { name: 'Reject' })[0]);
 
@@ -316,6 +324,64 @@ describe('GovernancePage approvals inbox (#573)', () => {
             expect(apiPostMock).toHaveBeenCalledWith(
                 '/v1/agent-platform/approvals/ga1/reject',
                 { decided_by: 'owner-a', reason: 'impact too broad' }
+            )
+        );
+    });
+});
+
+describe('GovernancePage approver identity (#596)', () => {
+    beforeEach(() => {
+        rpcMock.mockReset();
+        toastMock.mockReset();
+        apiGetMock.mockReset();
+        apiPostMock.mockReset();
+        apiDeleteMock.mockReset();
+        rpcMock.mockResolvedValue({});
+    });
+
+    function mockInbox() {
+        apiGetMock.mockImplementation(async (path: string) => {
+            if (path === '/v1/agent-platform/approvers')
+                return { approvers: ['owner-a', 'reviewer-b'], source: 'env' };
+            if (path.startsWith('/v1/agent-platform/approvals'))
+                return { approvals: [G1_APPROVAL] };
+            throw new Error(`unexpected GET ${path}`);
+        });
+    }
+
+    it('approver identity is a select of configured approvers, never free text', async () => {
+        mockInbox();
+        const user = userEvent.setup();
+        render(<GovernancePage />);
+        await openApprovalsTab(user);
+
+        await screen.findAllByText(/gate:g1/);
+        const sel = screen.getByTestId('approver-select') as HTMLSelectElement;
+        expect(sel.tagName).toBe('SELECT');
+        expect(screen.queryByPlaceholderText('principal id')).toBeNull();
+        // unselected: decision buttons stay disabled (no unattributed decisions)
+        expect(sel.value).toBe('');
+        expect(screen.getAllByRole('button', { name: 'Approve' })[0]).toBeDisabled();
+        expect(screen.getAllByRole('button', { name: 'Reject' })[0]).toBeDisabled();
+        expect(screen.getAllByText('owner-a').length).toBeGreaterThan(0);
+        expect(screen.getAllByText('reviewer-b').length).toBeGreaterThan(0);
+        expect(apiPostMock).not.toHaveBeenCalled();
+    });
+
+    it('stores the selected identity verbatim as decided_by', async () => {
+        mockInbox();
+        apiPostMock.mockResolvedValue({ id: 'ga1', status: 'approved' });
+        const user = userEvent.setup();
+        render(<GovernancePage />);
+        await openApprovalsTab(user);
+
+        await screen.findAllByText(/gate:g1/);
+        await user.selectOptions(screen.getByTestId('approver-select'), 'owner-a');
+        await user.click(screen.getAllByRole('button', { name: 'Approve' })[0]);
+        await waitFor(() =>
+            expect(apiPostMock).toHaveBeenCalledWith(
+                '/v1/agent-platform/approvals/ga1/approve',
+                { decided_by: 'owner-a' }
             )
         );
     });
@@ -333,6 +399,8 @@ describe('GovernancePage webhook registry (#573)', () => {
 
     it('registers a webhook with url + secret and lists it', async () => {
         apiGetMock.mockImplementation(async (path: string) => {
+            if (path === '/v1/agent-platform/approvers')
+                return { approvers: ['owner-a', 'reviewer-b'] };
             if (path.startsWith('/v1/agent-platform/webhooks'))
                 return {
                     webhooks: [
@@ -373,6 +441,8 @@ describe('GovernancePage webhook registry (#573)', () => {
 
     it('deletes a webhook', async () => {
         apiGetMock.mockImplementation(async (path: string) => {
+            if (path === '/v1/agent-platform/approvers')
+                return { approvers: ['owner-a', 'reviewer-b'] };
             if (path.startsWith('/v1/agent-platform/webhooks'))
                 return {
                     webhooks: [

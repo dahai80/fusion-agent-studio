@@ -198,6 +198,23 @@ def register_agents_platform(
         return {"approvals": _door().approvals.list(status=status,
                                                     limit=limit)}
 
+    # #596: valid approver identities for the approval inbox. The GUI must
+    # present these as a selection (no free text) so the hash-chain ledger's
+    # decided_by is always an auditable identity. Configured via
+    # FUSION_APPROVERS (comma-separated); default is ["owner"].
+    @router.get("/v1/agent-platform/approvers")
+    async def agent_platform_approvers():
+        import os
+
+        raw = os.environ.get("FUSION_APPROVERS", "").strip()
+        if raw:
+            items = [x.strip() for x in raw.split(",") if x.strip()]
+            source = "env"
+        else:
+            items = ["owner"]
+            source = "default"
+        return {"approvers": items, "source": source}
+
     # #446: external approval-task creation — outside consumers (e.g.
     # EnviPermit) ride the same workbench + requester != approver
     # invariant. `payload` is opaque consumer data (their object ids,
