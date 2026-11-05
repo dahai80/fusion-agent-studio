@@ -8,7 +8,7 @@ on:
 
 jobs:
   test:
-    runs-on: macos-14
+    runs-on: macos-15
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v5
@@ -35,7 +35,7 @@ jobs:
   # M1-7 (#306): proof scripts — concurrent dequeue safety, crash-recovery
   # reconcile, publish idempotency. M1 exit gate.
   proof:
-    runs-on: macos-14
+    runs-on: macos-15
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v5
@@ -85,7 +85,7 @@ jobs:
   # @fusion/web-ui and @fusion/web-sdk are vendored in web/vendor/@fusion (no
   # registry/network fetch beyond bun + vite themselves).
   web:
-    runs-on: macos-14
+    runs-on: macos-15
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v5
@@ -133,7 +133,7 @@ jobs:
   # against the built web dist. The suite self-skips when playwright or the
   # dist is missing, so this job stays green even if setup regresses.
   e2e:
-    runs-on: macos-14
+    runs-on: macos-15
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v5
@@ -173,7 +173,7 @@ jobs:
   # Informational: survivors are reported but never fail the build; the pilot
   # exists to surface weak-test spots, not to gate merges.
   mutation:
-    runs-on: macos-14
+    runs-on: macos-15
     timeout-minutes: 25
     continue-on-error: true
     steps:
