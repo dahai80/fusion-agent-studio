@@ -57,8 +57,178 @@ BUILTIN_AGENTS = [
         "status": "published",
         "visibility": "public",
         "safety_level": "L3",
-    }
+    },
 ]
+# #598 seats are appended after _delivery_seat_agents() is defined below.
+
+DELIVERY_SEAT_IDS = (
+    "delivery-ba",
+    "delivery-architect",
+    "delivery-env-mock",
+    "delivery-security-reviewer",
+    "delivery-privacy-reviewer",
+)
+
+# ── #598: product-delivery pipeline agent seats ─────────────────────
+# architecture/product-delivery-pipeline-1105.md §8 + §10. Five published
+# presets invocable via studio_run / graph execute from the cowork
+# product_lifecycle template. Reviewer findings use one fixed,
+# machine-consumable schema so the pipeline counts blocking verdicts
+# deterministically.
+
+REVIEWER_FINDINGS_SCHEMA = (
+    'Output contract (machine-consumable, output ONLY this JSON):\n'
+    '{"verdict": "pass" | "blocking",\n'
+    ' "findings": [{"severity": "P0" | "P1" | "P2" | "P3",\n'
+    '               "file": "<path>", "line": <int>, "desc": "<string>"}]}\n'
+    "verdict=blocking iff any finding is P0 or P1. No prose outside the JSON.\n"
+)
+
+_SECURITY_CHECKLIST = (
+    "- injection (SQL/command/template/prompt)\n"
+    "- authentication and authorization gaps\n"
+    "- hardcoded secrets or credentials\n"
+    "- dependency vulnerabilities (unpinned/known-CVE)\n"
+    "- high-risk APIs (shell eval, unsafe deserialization, network egress)\n"
+)
+
+_PRIVACY_CHECKLIST = (
+    "- PII collection beyond stated purpose\n"
+    "- PII storage without minimization or encryption\n"
+    "- PII transit over unencrypted channels\n"
+    "- PII leaking into logs, traces or error messages\n"
+    "- third-party exfiltration (telemetry/SDKs sending user data)\n"
+)
+
+
+def _reviewer_prompt(role: str, checklist: str) -> str:
+    return (
+        f"You are the {role} seat in the product-delivery pipeline. You "
+        "review a PR diff (read it with the git/file tools, or via the "
+        "diff text given in the input) and produce a machine-consumable "
+        "verdict the pipeline counts deterministically (blocking = 0 "
+        "means the task is ready for gate C).\n\n"
+        "Checklist (fixed, do not skip items):\n"
+        f"{checklist}\n"
+        f"{REVIEWER_FINDINGS_SCHEMA}\n"
+        "Severity calibration is shared across all reviewer seats: P0 = "
+        "exploitable/blocking now, P1 = must fix before gate C, P2 = "
+        "should fix, P3 = note. Only report what the diff shows; never "
+        "invent file paths or line numbers."
+    )
+
+
+def _delivery_seat_agents() -> list[dict]:
+    ba_prompt = (
+        "You are the BA (Business Analyst) seat of the product-delivery "
+        "pipeline. Input: raw requirement text. Output: a PRD document "
+        "with exactly these sections — background, goals, user stories "
+        "(as-a/I-want/so-that), feature list, acceptance criteria "
+        "(testable, per feature). Save the document via artifact_create "
+        "(title = '<slug>-prd') and return the artifact id. No code, no "
+        "architecture decisions — that is the Architect seat."
+    )
+    arch_prompt = (
+        "You are the Architect seat of the product-delivery pipeline. "
+        "Input: an approved PRD. Output three artifacts: (1) architecture "
+        "design doc (components, data flow, technology choices with "
+        "rationale), (2) project plan (milestones, dependencies), (3) "
+        "task breakdown list — every task carries its own scope and "
+        "testable acceptance criteria. Save each via artifact_create "
+        "(titles '<slug>-arch', '<slug>-plan', '<slug>-tasks') and "
+        "return the artifact ids."
+    )
+    mock_prompt = (
+        "You are the Env/Mock (environment) seat of the "
+        "product-delivery pipeline. Input: PRD and/or architecture "
+        "artifacts. Output: a mock pack for staging human-acceptance — "
+        "stub services for external dependencies, fixture data, a "
+        "compose overlay for local staging, and seed scripts. Save the "
+        "pack via artifact_create (title '<slug>-mock-pack') and return "
+        "the artifact id. Mocks must be deterministic and documented; "
+        "never point staging at real third-party endpoints."
+    )
+    seats = [
+        {
+            "id": "delivery-ba",
+            "name": "Delivery BA Agent",
+            "system_prompt": ba_prompt,
+            "description": (
+                "Product-delivery seat 1: requirement text to PRD "
+                "document (background/goals/user stories/feature list/"
+                "acceptance criteria), versioned as an artifact. "
+                "需求分析师席：需求原文到 PRD 文档产物。"
+            ),
+            "tools": ["artifact_create", "file_write", "json_parse"],
+            "capabilities": ["delivery", "ba", "prd", "artifacts"],
+            "tags": ["delivery", "built-in"],
+        },
+        {
+            "id": "delivery-architect",
+            "name": "Delivery Architect Agent",
+            "system_prompt": arch_prompt,
+            "description": (
+                "Product-delivery seat 2: approved PRD to architecture "
+                "design doc + project plan + task breakdown (per-task "
+                "scope + acceptance criteria), versioned as artifacts. "
+                "架构师席：PRD 到架构/计划/任务分解产物。"
+            ),
+            "tools": ["artifact_create", "file_read", "file_write"],
+            "capabilities": ["delivery", "architect", "artifacts"],
+            "tags": ["delivery", "built-in"],
+        },
+        {
+            "id": "delivery-env-mock",
+            "name": "Delivery Env/Mock Agent",
+            "system_prompt": mock_prompt,
+            "description": (
+                "Product-delivery seat 6: PRD/architecture to mock pack "
+                "(stub services, fixture data, compose overlay, seed) "
+                "for staging human-acceptance, versioned as an "
+                "artifact. 环境师席：mock pack 生成产物。"
+            ),
+            "tools": ["artifact_create", "file_write", "terminal"],
+            "capabilities": ["delivery", "mock", "staging", "artifacts"],
+            "tags": ["delivery", "built-in"],
+        },
+        {
+            "id": "delivery-security-reviewer",
+            "name": "Delivery Security Reviewer",
+            "system_prompt": _reviewer_prompt(
+                "Security Reviewer", _SECURITY_CHECKLIST
+            ),
+            "description": (
+                "Product-delivery seat 7a: PR diff review with the fixed "
+                "findings schema {severity, file, line, desc} and "
+                "verdict pass|blocking; checklist = injection/auth/"
+                "secrets/dependency vulns/high-risk APIs. 安全评审席。"
+            ),
+            "tools": ["git", "file_read", "http_request"],
+            "capabilities": ["delivery", "review", "security"],
+            "tags": ["delivery", "reviewer", "built-in"],
+        },
+        {
+            "id": "delivery-privacy-reviewer",
+            "name": "Delivery Privacy Reviewer",
+            "system_prompt": _reviewer_prompt(
+                "Privacy Reviewer", _PRIVACY_CHECKLIST
+            ),
+            "description": (
+                "Product-delivery seat 7b: PR diff review with the fixed "
+                "findings schema {severity, file, line, desc} and "
+                "verdict pass|blocking; checklist = PII collection/"
+                "storage/transit/log leakage/third-party exfiltration. "
+                "隐私评审席。"
+            ),
+            "tools": ["git", "file_read", "http_request"],
+            "capabilities": ["delivery", "review", "privacy"],
+            "tags": ["delivery", "reviewer", "built-in"],
+        },
+    ]
+    return seats
+
+
+BUILTIN_AGENTS.extend(_delivery_seat_agents())
 
 
 def seed_builtin_agents(daemon) -> list[str]:

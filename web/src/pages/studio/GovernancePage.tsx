@@ -108,6 +108,54 @@ function issueRef(payload: Record<string, unknown>): string {
     return '';
 }
 
+function firstString(payload: Record<string, unknown>, keys: string[]): string {
+    for (const k of keys) {
+        const v = payload[k];
+        if (typeof v === 'string' && v.trim()) return v.trim();
+    }
+    return '';
+}
+
+// #599: decision-card evidence extracted from params — PR link, artifact
+// preview ids and reviewer verdicts (items[] per the #309 contract).
+function prLink(payload: Record<string, unknown>): string {
+    return firstString(payload, ['pr_url', 'pr_link', 'pr', 'pull_request_url']);
+}
+
+function artifactRefs(payload: Record<string, unknown>): string[] {
+    for (const k of ['artifact_ids', 'artifact_id', 'artifacts']) {
+        const v = payload[k];
+        if (Array.isArray(v)) {
+            const ids = v
+                .filter((x): x is string => typeof x === 'string' && !!x.trim())
+                .map((x) => x.trim());
+            if (ids.length) return ids;
+        }
+        if (typeof v === 'string' && v.trim()) return [v.trim()];
+    }
+    return [];
+}
+
+function verdictSummary(payload: Record<string, unknown>): string {
+    const items = payload.items;
+    if (!Array.isArray(items)) return '';
+    let blocking = 0;
+    let pass = 0;
+    const parts: string[] = [];
+    for (const it of items) {
+        if (typeof it !== 'object' || it === null) continue;
+        const rec = it as Record<string, unknown>;
+        const verdict = firstString(rec, ['verdict', 'decision']);
+        const who = firstString(rec, ['reviewer', 'seat', 'agent_id', 'name']);
+        if (verdict === 'blocking') blocking += 1;
+        else if (verdict === 'pass' || verdict === 'approved') pass += 1;
+        if (who && verdict) parts.push(`${who}: ${verdict}`);
+    }
+    if (!blocking && !pass) return '';
+    const counts = `${blocking} blocking / ${pass} pass`;
+    return parts.length ? `${counts} — ${parts.join(', ')}` : counts;
+}
+
 function BudgetTab() {
     const t = useT();
     const { data, error, loading, attempt, manualRetry } = useAutoRetry(
@@ -635,7 +683,12 @@ function ApprovalsTab() {
                             header: t('标题', 'Title'),
                             render: (r) => {
                                 const badge = gateBadge(r.title, r.agent_id || '');
-                                const issue = issueRef(r.params || {});
+                                const params = r.params || {};
+                                const issue = issueRef(params);
+                                const pr = prLink(params);
+                                const arts = artifactRefs(params);
+                                const verdicts = verdictSummary(params);
+                                const hasEvidence = !!(pr || arts.length || verdicts);
                                 return (
                                     <div className="space-y-0.5">
                                         <div className="flex items-center gap-1.5">
@@ -651,6 +704,33 @@ function ApprovalsTab() {
                                                 {t('关联 Issue', 'Issue')}: {issue}
                                             </div>
                                         ) : null}
+                                        {hasEvidence ? (
+                                            <div data-testid="evidence" className="space-y-0.5">
+                                                {pr ? (
+                                                    <div className="text-xs">
+                                                        <a
+                                                            href={pr}
+                                                            target="_blank"
+                                                            rel="noreferrer"
+                                                            className="text-brand hover:underline"
+                                                        >
+                                                            {t('关联 PR', 'PR')}
+                                                        </a>
+                                                    </div>
+                                                ) : null}
+                                                {arts.length ? (
+                                                    <div className="text-xs text-text-secondary">
+                                                        {t('产物预览', 'Artifacts')}:{' '}
+                                                        {arts.join(', ')}
+                                                    </div>
+                                                ) : null}
+                                                {verdicts ? (
+                                                    <div className="text-xs text-text-secondary">
+                                                        {t('评审结论', 'Reviews')}: {verdicts}
+                                                    </div>
+                                                ) : null}
+                                            </div>
+                                        ) : null}
                                     </div>
                                 );
                             },
@@ -660,7 +740,8 @@ function ApprovalsTab() {
                             header: t('申请人 / 审批人', 'Requester / reviewer'),
                             render: (r) => (
                                 <span className="text-xs text-text-secondary">
-                                    {r.requester || '-'} → {r.assigned_to || t('未指派', 'unassigned')}
+                                    {r.requester || '-'} →{' '}
+                                    {r.assigned_to || t('未指派', 'unassigned')}
                                 </span>
                             ),
                         },
@@ -734,9 +815,7 @@ function WebhooksTab() {
     const refresh = useCallback(async () => {
         setError('');
         try {
-            const data = await apiGet<{ webhooks: WebhookRow[] }>(
-                '/v1/agent-platform/webhooks'
-            );
+            const data = await apiGet<{ webhooks: WebhookRow[] }>('/v1/agent-platform/webhooks');
             setRows(data.webhooks || []);
         } catch (e) {
             setError((e as Error).message);
