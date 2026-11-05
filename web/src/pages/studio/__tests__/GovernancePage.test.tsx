@@ -273,10 +273,9 @@ describe('GovernancePage approvals inbox (#573)', () => {
         await user.click(approveBtn);
 
         await waitFor(() =>
-            expect(apiPostMock).toHaveBeenCalledWith(
-                '/v1/agent-platform/approvals/ga1/approve',
-                { decided_by: 'owner-a' }
-            )
+            expect(apiPostMock).toHaveBeenCalledWith('/v1/agent-platform/approvals/ga1/approve', {
+                decided_by: 'owner-a',
+            })
         );
         expect(toastMock).toHaveBeenCalledWith(
             expect.objectContaining({ level: 'success', message: 'Approved' })
@@ -321,10 +320,10 @@ describe('GovernancePage approvals inbox (#573)', () => {
         await user.click(screen.getAllByRole('button', { name: 'Reject' })[0]);
 
         await waitFor(() =>
-            expect(apiPostMock).toHaveBeenCalledWith(
-                '/v1/agent-platform/approvals/ga1/reject',
-                { decided_by: 'owner-a', reason: 'impact too broad' }
-            )
+            expect(apiPostMock).toHaveBeenCalledWith('/v1/agent-platform/approvals/ga1/reject', {
+                decided_by: 'owner-a',
+                reason: 'impact too broad',
+            })
         );
     });
 });
@@ -379,11 +378,73 @@ describe('GovernancePage approver identity (#596)', () => {
         await user.selectOptions(screen.getByTestId('approver-select'), 'owner-a');
         await user.click(screen.getAllByRole('button', { name: 'Approve' })[0]);
         await waitFor(() =>
-            expect(apiPostMock).toHaveBeenCalledWith(
-                '/v1/agent-platform/approvals/ga1/approve',
-                { decided_by: 'owner-a' }
-            )
+            expect(apiPostMock).toHaveBeenCalledWith('/v1/agent-platform/approvals/ga1/approve', {
+                decided_by: 'owner-a',
+            })
         );
+    });
+});
+
+describe('GovernancePage decision-card evidence (#599)', () => {
+    beforeEach(() => {
+        rpcMock.mockReset();
+        toastMock.mockReset();
+        apiGetMock.mockReset();
+        apiPostMock.mockReset();
+        apiDeleteMock.mockReset();
+        rpcMock.mockResolvedValue({});
+    });
+
+    const EVIDENCE_APPROVAL = {
+        ...G1_APPROVAL,
+        id: 'ga-ev',
+        title: 'gate:g5 — rollout sign-off for delivery pipeline',
+        params: {
+            issue: 'fusion-agent-studio#598',
+            pr_url: 'https://github.com/dahai80/fusion-agent-studio/pull/601',
+            artifact_ids: ['art-prd-1', 'art-arch-2'],
+            items: [
+                { reviewer: 'delivery-security-reviewer', verdict: 'pass' },
+                { reviewer: 'delivery-privacy-reviewer', verdict: 'blocking' },
+            ],
+        },
+    };
+
+    function mockEvidenceInbox(rows: unknown[]) {
+        apiGetMock.mockImplementation(async (path: string) => {
+            if (path === '/v1/agent-platform/approvers') return { approvers: ['owner-a'] };
+            if (path.startsWith('/v1/agent-platform/approvals')) return { approvals: rows };
+            throw new Error(`unexpected GET ${path}`);
+        });
+    }
+
+    it('renders PR link, artifact preview and reviewer verdict summary', async () => {
+        mockEvidenceInbox([EVIDENCE_APPROVAL]);
+        const user = userEvent.setup();
+        render(<GovernancePage />);
+        await openApprovalsTab(user);
+
+        const evidence = (await screen.findAllByTestId('evidence'))[0];
+        const link = evidence.querySelector('a');
+        expect(link).not.toBeNull();
+        expect(link?.getAttribute('href')).toBe(
+            'https://github.com/dahai80/fusion-agent-studio/pull/601'
+        );
+        expect(link?.getAttribute('target')).toBe('_blank');
+        expect(evidence.textContent).toContain('art-prd-1, art-arch-2');
+        expect(evidence.textContent).toContain('1 blocking / 1 pass');
+        expect(evidence.textContent).toContain('delivery-security-reviewer: pass');
+        expect(evidence.textContent).toContain('delivery-privacy-reviewer: blocking');
+    });
+
+    it('renders no evidence block when params carry none', async () => {
+        mockEvidenceInbox([G1_APPROVAL]);
+        const user = userEvent.setup();
+        render(<GovernancePage />);
+        await openApprovalsTab(user);
+
+        await screen.findAllByText(/gate:g1/);
+        expect(screen.queryByTestId('evidence')).toBeNull();
     });
 });
 
@@ -445,9 +506,7 @@ describe('GovernancePage webhook registry (#573)', () => {
                 return { approvers: ['owner-a', 'reviewer-b'] };
             if (path.startsWith('/v1/agent-platform/webhooks'))
                 return {
-                    webhooks: [
-                        { id: 'wh1', url: 'https://cowork.internal/hook', events: [] },
-                    ],
+                    webhooks: [{ id: 'wh1', url: 'https://cowork.internal/hook', events: [] }],
                 };
             throw new Error(`unexpected GET ${path}`);
         });
