@@ -144,9 +144,27 @@ class TaskExecutor:
                 team=task.team,
             )
             if task.agent_id and not task.graph_id:
-                await self._execute_agent(task)
+                try:
+                    await self._execute_agent(task)
+                except Exception as e:
+                    # dispatch failure is a task failure, not a worker crash
+                    # (e.g. graph/agent gone since submission)
+                    logger.warning(
+                        "TaskExecutor dispatch %s failed: %s", task_id, e
+                    )
+                    store.update_status(
+                        task_id, "failed", last_error=f"dispatch failed: {e}"
+                    )
             elif task.graph_id:
-                await self._execute_graph(task)
+                try:
+                    await self._execute_graph(task)
+                except Exception as e:
+                    logger.warning(
+                        "TaskExecutor dispatch %s failed: %s", task_id, e
+                    )
+                    store.update_status(
+                        task_id, "failed", last_error=f"dispatch failed: {e}"
+                    )
             else:
                 store.update_status(
                     task_id,
@@ -195,6 +213,10 @@ class TaskExecutor:
     def _spec_for_agent(self, agent_id: str) -> dict:
         from .agent_package import resolve_soul_prompt
 
+        # the agents index is lazy everywhere else too — the executor may be
+        # the first code path to need it after a plain daemon restart
+        if not getattr(self._daemon, "_agents_index_loaded", True):
+            self._daemon._load_agents_index()
         spec: dict = {"name": agent_id}
         meta = (self._daemon._agents or {}).get(agent_id)
         if meta is None:
