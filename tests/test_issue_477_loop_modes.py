@@ -310,11 +310,16 @@ class TestDaemonWiring:
             }
 
         daemon_stub._handle_graph_execute_async = fake_exec
+        # #604: plain cron jobs converge onto the task executor (status
+        # "queued"); only loop-mode jobs keep the in-handler await path, so
+        # permission-mode forwarding is asserted on a loop-mode job.
         job = _job(
             "j_daemon_pm",
             graph_id="g1",
             permission_mode="plan",
             input_data='{"team": "t"}',
+            loop_mode="interval",
+            interval_seconds=30,
         )
         out = await daemon_stub._cron_default_handler(job)
         assert out["status"] == "triggered"

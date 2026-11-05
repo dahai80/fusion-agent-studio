@@ -1097,10 +1097,10 @@ class TestDaemonCronRuntime:
         job = cm.get("cron_e2e_test")
         assert job is not None and job.graph_id == graph_id
         result = await daemon._cron_default_handler(job)
-        # M1-5: cron 降为触发器. handler 创建 Task → execute_async, 返回 triggered (不再同步 completed).
-        assert result["status"] == "triggered"
+        # M1-5: cron 降为触发器; #604: 非 loop cron 收编到 task executor —
+        # handler 只落任务板, executor 负责执行 (返回 queued, 无 execution_id).
+        assert result["status"] == "queued"
         assert result["task_id"].startswith("task_")
-        assert "execution_id" in result
         await cm.aunregister("cron_e2e_test")
 
     @pytest.mark.asyncio
