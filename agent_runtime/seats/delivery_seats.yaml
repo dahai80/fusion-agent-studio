@@ -27,7 +27,7 @@ seats:
     status: published
     visibility: public
     safety_level: L1
-    tools: [artifact_create, file_write, json_parse]
+    tools: [artifact_create, file_write, file_list, json_parse]
     capabilities: [delivery, ba, prd, artifacts]
     tags: [delivery, built-in]
     description: >-
@@ -49,7 +49,7 @@ seats:
     status: published
     visibility: public
     safety_level: L1
-    tools: [artifact_create, file_read, file_write]
+    tools: [artifact_get_source, artifact_create, file_read, file_write, file_list]
     capabilities: [delivery, architect, artifacts]
     tags: [delivery, built-in]
     description: >-
@@ -62,7 +62,9 @@ seats:
       doc (components, data flow, technology choices with rationale),
       (2) project plan (milestones, dependencies), (3) task breakdown
       list — every task carries its own scope and testable acceptance
-      criteria. Save each via artifact_create (titles '<slug>-arch',
+      criteria. Locate the PRD with file_list / read it via
+      artifact_get_source (by artifact id) or file_read before
+      designing. Save each via artifact_create (titles '<slug>-arch',
       '<slug>-plan', '<slug>-tasks') and return the artifact ids.
 
   delivery-env-mock:
@@ -71,7 +73,7 @@ seats:
     status: published
     visibility: public
     safety_level: L1
-    tools: [artifact_create, file_write, terminal]
+    tools: [artifact_get_source, artifact_create, file_write, terminal]
     capabilities: [delivery, mock, staging, artifacts]
     tags: [delivery, built-in]
     description: >-
@@ -195,7 +197,7 @@ seats:
     status: published
     visibility: public
     safety_level: L1
-    tools: [artifact_create, file_read, http_request]
+    tools: [artifact_get_source, artifact_create, file_read, file_list, http_request]
     capabilities: [delivery, devrel, community, artifacts]
     tags: [delivery, built-in]
     description: >-

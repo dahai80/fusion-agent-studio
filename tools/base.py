@@ -60,7 +60,14 @@ class BaseTool(ABC):
                 "parameters": {
                     "type": "object",
                     "properties": self.parameters,
-                    "required": list(self.parameters.keys()),
+                    # Params carrying a schema default are optional; listing
+                    # them as required made models burn turns on args the
+                    # tool would have defaulted anyway (#629).
+                    "required": [
+                        key
+                        for key, prop in self.parameters.items()
+                        if isinstance(prop, dict) and "default" not in prop
+                    ],
                 },
             },
         }

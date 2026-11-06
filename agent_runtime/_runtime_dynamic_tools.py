@@ -54,6 +54,17 @@ class _DynamicToolsMixin:
         ):
             if req_key not in validated:
                 logger.warning("Tool '%s': missing required arg '%s'", tool.name, req_key)
+        for key, prop in schema.items():
+            # Schema-defaulted params are optional: auto-fill so the tool
+            # always receives a concrete value, and never hard-reject on
+            # a missing-optional-shaped arg (#629).
+            if isinstance(prop, dict) and "default" in prop and key not in validated:
+                validated[key] = prop["default"]
+                logger.warning(
+                    "Tool '%s': filled missing optional arg '%s' with default",
+                    tool.name,
+                    key,
+                )
         return validated
 
     @staticmethod
