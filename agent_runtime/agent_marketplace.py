@@ -19,7 +19,10 @@ from .paths import studio_home
 
 logger = logging.getLogger(__name__)
 
-MARKETPLACE_DIR = studio_home() / "marketplace"
+# #620: no module-level MARKETPLACE_DIR — binding studio_home() at import
+# time froze the real data home before conftest redirects the env, and test
+# publishes polluted the real index (1683 junk entries, cleaned 2026-11-06).
+# The store dir resolves lazily in AgentMarketplace.__init__ instead.
 AGENT_EXT = ".fusion-agent"
 
 
@@ -89,7 +92,9 @@ class AgentMarketplace:
     """Agent template marketplace with search, install, and export."""
 
     def __init__(self, store_dir: Path | str | None = None):
-        self.store_dir = Path(store_dir) if store_dir else MARKETPLACE_DIR
+        # #620: lazy resolution — honors FUSION_AGENT_STUDIO_HOME set after
+        # this module was imported.
+        self.store_dir = Path(store_dir) if store_dir else studio_home() / "marketplace"
         self.store_dir.mkdir(parents=True, exist_ok=True)
         self._index: dict[str, MarketEntry] = {}
         self._load_index()
