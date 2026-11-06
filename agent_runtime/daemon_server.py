@@ -193,6 +193,35 @@ def _resolve_mlx_base_url() -> str:
     return os.environ.get("FUSION_GATEWAY_URL", f"http://127.0.0.1:{port}/v1")
 
 
+def _normalized_model_tail(model_id: str) -> str:
+    # #626: catalog ids use "--" (mlx-community--Qwen3.5-4B-MLX-4bit) while
+    # fusion-mlx settings use "/" (mlx-community/Qwen3.5-4B-MLX-4bit);
+    # normalize so both compare equal on the tail.
+    return model_id.strip().replace("--", "/").lower().rsplit("/", 1)[-1]
+
+
+def _parse_model_size_b(model_id: str) -> float:
+    # #626: parsed parameter size in billions for capability ranking.
+    # Quant tokens (4bit/8bit/bf16/mixed_3_4) must not inflate the size —
+    # strip `\d+bit`-style suffixes before scanning.
+    tail = _normalized_model_tail(model_id)
+    tail = re.sub(r"\d+(\.\d+)?-?bit", "", tail)
+    sizes = [float(m) for m in re.findall(r"(\d+(?:\.\d+)?)\s*b", tail)]
+    return max(sizes) if sizes else 0.0
+
+
+def _read_mlx_own_default() -> str:
+    # #626: fusion-mlx declares default_model in ~/.fusion-mlx/settings.json;
+    # discovery previously ignored it entirely.
+    try:
+        settings = Path.home() / ".fusion-mlx" / "settings.json"
+        data = json.loads(settings.read_text())
+        return str(data.get("default_model", "") or "").strip()
+    except Exception as exc:
+        logger.debug("read fusion-mlx settings failed: %s", exc)
+        return ""
+
+
 class DaemonServer:
     def __init__(
         self,
@@ -4724,7 +4753,12 @@ class DaemonServer:
     def _discover_mlx_model_id(self, api_key: str) -> str:
         # 查询已运行 fusion-mlx 的模型目录，作为 gateway 默认模型 (bug1 联动)。
         # /v1/models 返回目录内全部模型，含图像/视频/编码器组件，
-        # 需过滤出对话模型并优先 Qwen3 9B 级 (对齐 bug1 默认 Qwen3.6-9B-4bit)。
+        # 需过滤出对话模型。#626: 旧 preferred 列表是过期硬编码（真实目录
+        # 已无这些 id），qwen fallback 又按目录序取第一个 -> 0.6B 成为
+        # daemon 默认，seat agent 工具调用全挂。改为：
+        # 1) fusion-mlx settings.json 自带 default_model 优先（目录内存在时）；
+        # 2) 否则按解析参数量取最大 qwen（27B > 9B > 4B > 0.6B），不靠目录序；
+        # 3) 低于 4B 记 WARNING（seat agent 依赖工具调用质量）。
         try:
             import urllib.request
 
@@ -4747,28 +4781,44 @@ class DaemonServer:
                 "skyreels",
                 "ltx",
                 "tts",
+                # #626: image/VL/embedding entries are not chat models
+                "image",
+                "vl",
+                "embed",
             )
             chat_ids = [i for i in ids if not any(x in i.lower() for x in excluded)]
             if not chat_ids:
                 return ids[0] if ids else ""
-            preferred = (
-                "Qwen3.6-9B-4bit",
-                "Qwen3.5-9B-4bit",
-                "Qwen3.6-27B-mxfp8",
-                "Qwen3.6-27B-mixed_3_4",
-                "Qwen3.6-27B-bf16",
-            )
-            for want in preferred:
+            own = _read_mlx_own_default()
+            if own:
+                own_tail = _normalized_model_tail(own)
                 for cid in chat_ids:
-                    if cid == want:
-                        logger.info("select mlx default model (preferred): %s", cid)
+                    if _normalized_model_tail(cid) == own_tail:
+                        logger.info(
+                            "select mlx default model (fusion-mlx settings): %s", cid
+                        )
                         return cid
-            for cid in chat_ids:
-                if "qwen" in cid.lower():
-                    logger.info("select mlx default model (qwen fallback): %s", cid)
-                    return cid
-            logger.info("select mlx default model (first chat): %s", chat_ids[0])
-            return chat_ids[0]
+                logger.info(
+                    "fusion-mlx settings default %r not in catalog; falling back to size ranking",
+                    own,
+                )
+            qwen_chat = [c for c in chat_ids if "qwen" in c.lower()]
+            pool = qwen_chat or chat_ids
+            best = max(pool, key=_parse_model_size_b)
+            size = _parse_model_size_b(best)
+            if 0 < size < 4.0:
+                logger.warning(
+                    "mlx default model %s (%.1fB) below 4B capability floor; "
+                    "seat agents depend on tool-calling quality",
+                    best,
+                    size,
+                )
+            logger.info(
+                "select mlx default model (%s): %s",
+                "largest qwen" if qwen_chat else "largest chat",
+                best,
+            )
+            return best
         except Exception as exc:
             logger.warning("discover mlx model id failed: %s", exc)
         return ""
