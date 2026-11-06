@@ -364,12 +364,27 @@ class DaemonServer:
             from tools import create_default_registry
 
             registry = create_default_registry()
+            # #623: artifact_fc tools ship with _manager=None, so every
+            # artifact_create call errored "ArtifactManager not available" —
+            # seat subagents retried until max_turns and failed the node.
+            # Wire the local ArtifactManager (sync CRUD surface the tools
+            # expect; the bridge's remote-first RPC surface stays on the
+            # artifact.* RPC path).
+            _artifacts = self._get_artifact_manager().local
+            _wired = 0
+            for _tool in registry._tools.values():
+                if hasattr(_tool, "_manager") and _tool._manager is None:
+                    _tool._manager = _artifacts
+                    _wired += 1
+            if _wired:
+                logger.info("wired %d artifact tools with local ArtifactManager", _wired)
             self._runtime = AgentRuntime(
                 llm_gateway=self._gateway,
                 tool_registry=registry,
                 safety_gateway=self._get_safety(),
                 memory_engine=self._get_memory(),
                 telemetry_engine=self._get_telemetry_engine(),
+                artifact_manager=_artifacts,
             )
             logger.info(
                 "AgentRuntime created with %d tools, safety+memory+telemetry wired",

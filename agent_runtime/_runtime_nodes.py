@@ -58,6 +58,32 @@ class _NodeExecutorsMixin:
             return True
 
     @staticmethod
+    def _escalate_repeat_tool_error(ctx: AgentContext, tool_name: str, result: str) -> str:
+        # #623: small models retry a deterministically-failing tool until
+        # max_turns (observed: artifact_create x5 -> "Max iterations
+        # exceeded"). After the same tool returns the same error twice,
+        # append a fallback hint so the next LLM call pivots.
+        counts = getattr(ctx, "_repeat_tool_errors", None)
+        if counts is None:
+            counts = {}
+            ctx._repeat_tool_errors = counts
+        key = f"{tool_name}::{result[:160]}"
+        counts[key] = counts.get(key, 0) + 1
+        if counts[key] < 2:
+            return result
+        logger.warning(
+            "repeat tool error escalation tool=%s count=%d node_ctx=%s",
+            tool_name,
+            counts[key],
+            getattr(ctx, "session_id", ""),
+        )
+        return (
+            f"{result} (hint: this tool failed identically {counts[key]} times "
+            "in this session and is likely unavailable in this runtime; stop "
+            "retrying it and use an alternative such as file_write)"
+        )
+
+    @staticmethod
     def _detect_unclosed_artifacts(content: str) -> list[str]:
         opens = re.findall(r'<artifact[^>]*\bid=["\']([^"\']+)["\']', content)
         closes = re.findall(r"</artifact>", content)
@@ -664,6 +690,9 @@ class _NodeExecutorsMixin:
                 )
                 for (fn, fa, tcid), res in zip(parsed_calls, results):
                     result_str, is_error = res
+                    if is_error:
+                        # #623: repeated identical failures get a fallback hint.
+                        result_str = self._escalate_repeat_tool_error(ctx, fn, result_str)
                     ctx.add_message("tool", result_str, tool_call_id=tcid)
                     ctx.messages[-1]["_node_id"] = node.label
                     post_event = "POST_TOOL_USE_FAILURE" if is_error else "POST_TOOL_USE"
@@ -1014,6 +1043,9 @@ class _NodeExecutorsMixin:
                         )
                         continue
 
+                    if isinstance(result, str) and result.startswith("Error:"):
+                        # #623: repeated identical failures get a fallback hint.
+                        result = self._escalate_repeat_tool_error(ctx, func_name, result)
                     ctx.add_message("tool", result, tool_call_id=tc.get("id", ""))
                     ctx.messages[-1]["_node_id"] = node.label
 
