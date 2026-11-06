@@ -257,6 +257,7 @@ class SafetyGateway:
         category: str,
         content: str = "",
         context: str = "",
+        injection_advisory: bool = False,
     ) -> SafetyVerdict:
         # #258: unified guard delegation. Guard is the judgment SSOT; local
         # policy lookup is gone. If the backend failed to init, fail closed.
@@ -270,10 +271,16 @@ class SafetyGateway:
                 requires_approval=True,
                 metadata={"category": category, "backend_missing": True},
             )
-        return self._evaluate_action_guard(category, content, context)
+        return self._evaluate_action_guard(
+            category, content, context, injection_advisory=injection_advisory
+        )
 
     def _evaluate_action_guard(
-        self, category: str, content: str, context: str
+        self,
+        category: str,
+        content: str,
+        context: str,
+        injection_advisory: bool = False,
     ) -> SafetyVerdict:
         # #252 guard thin-client: delegate judgment to fusion-guard. Guard is the
         # security-rule SSOT; local policies/_DANGEROUS_PATTERNS are advisory only.
@@ -281,7 +288,7 @@ class SafetyGateway:
         # file_write/code_edit generated locally (guard doesn't diff).
         if self.enable_injection and content:
             inj = detect_prompt_injection(content)
-            if inj["detected"]:
+            if inj["detected"] and not injection_advisory:
                 logger.warning(
                     "Guard mode: injection detected (%d patterns) before delegate",
                     inj["match_count"],
@@ -298,6 +305,16 @@ class SafetyGateway:
                     reason=f"Prompt injection detected ({inj['match_count']} patterns)",
                     requires_approval=True,
                     metadata={"injection": True, "matches": inj["matches"]},
+                )
+            if inj["detected"] and injection_advisory:
+                # #615: tool-result content is untrusted data, not an
+                # instruction channel — flag in logs only, keep guard
+                # delegation so real dangerous content still gets judged.
+                logger.warning(
+                    "Injection patterns in tool-result content treated as "
+                    "advisory (%d patterns): %s",
+                    inj["match_count"],
+                    [m["match"] for m in inj["matches"]][:3],
                 )
 
         verdict = self._guard_backend.evaluate(category, content, context)
@@ -461,10 +478,12 @@ class SafetyGateway:
             action["card"] = card
         return actions
 
-    def check(self, content: str, context: str = "") -> SafetyVerdict:
+    def check(
+        self, content: str, context: str = "", injection_advisory: bool = False
+    ) -> SafetyVerdict:
         if self.enable_injection:
             inj = detect_prompt_injection(content)
-            if inj["detected"]:
+            if inj["detected"] and not injection_advisory:
                 if self._level_ord(self.level) >= self._level_ord(SafetyLevel.L2):
                     logger.warning(
                         "Injection blocked at L%d: %d patterns",
@@ -486,6 +505,15 @@ class SafetyGateway:
                     reason=f"Prompt injection detected ({inj['match_count']} patterns)",
                     requires_approval=True,
                     metadata={"injection": True, "matches": inj["matches"]},
+                )
+            if inj["detected"] and injection_advisory:
+                # #615: tool-result content is untrusted data, not an
+                # instruction channel — log only, continue to guard judgment.
+                logger.warning(
+                    "Injection patterns in tool-result content treated as "
+                    "advisory (%d patterns): %s",
+                    inj["match_count"],
+                    [m["match"] for m in inj["matches"]][:3],
                 )
 
         # #258: delegate content judgment to the guard backend. Guard-up ->
@@ -650,12 +678,18 @@ class SafetyGateway:
 
 
 _INJECTION_PATTERNS = [
-    re.compile(r"(?i)ignore\s+(previous|above|all)\s+instructions?", re.IGNORECASE),
+    # #615: word-order tolerant — "ignore all previous instructions" escaped
+    # the old single-slot alternation.
+    re.compile(r"(?i)ignore\s+((?:all|previous|above)\s+)+instructions?", re.IGNORECASE),
     re.compile(
         r"(?i)forget\s+(your|all|previous)\s+(instructions|rules|prompt)", re.IGNORECASE
     ),
     re.compile(r"(?i)you\s+are\s+now\s+a", re.IGNORECASE),
-    re.compile(r"(?i)system\s*:\s*", re.IGNORECASE),
+    # #615: anchored to line start (instruction-style position). The old
+    # unanchored `system\s*:` matched benign prose like
+    # "Read-only file system: '/app'" in tool results and flagged every
+    # subsequent llm_call as injection, hard-failing headless seat agents.
+    re.compile(r"(?im)^[ \t]{0,16}system\s*:"),
     re.compile(r"(?i)new\s+instructions?\s*:", re.IGNORECASE),
     re.compile(
         r"(?i)disregard\s+(your|all|previous)\s+(instructions|rules)", re.IGNORECASE
