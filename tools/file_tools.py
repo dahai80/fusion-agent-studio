@@ -112,12 +112,6 @@ def resolve_workpath(path: str) -> Path:
     return p.resolve()
 
 
-def ensure_workspace_dir(dirpath: Path) -> None:
-    try:
-        dirpath.mkdir(parents=True, exist_ok=True)
-    except OSError as e:
-        logger.warning("workspace mkdir failed dir=%s: %s", dirpath, e)
-
 
 class FileReadTool(BaseTool):
     """Read the contents of a file."""

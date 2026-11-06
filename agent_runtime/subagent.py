@@ -363,16 +363,16 @@ class SubAgentRunner:
         )
         # #616: without a workspace hint, seat agents hallucinated container
         # paths (/app/...) and every file_write failed read-only. Point them
-        # at the writable workspace root and pre-create it.
+        # at the writable workspace root; the dir is created on first write
+        # (no eager mkdir here — the #591 suite guard forbids touching the
+        # real data home from tests).
         try:
-            from tools.file_tools import ensure_workspace_dir, workspace_root
+            from tools.file_tools import workspace_root
 
-            ws_root = workspace_root()
-            ensure_workspace_dir(ws_root)
             framing += (
                 f"\n\nWorkspace: when writing files, use absolute paths under "
-                f"{ws_root} (writable workspace). System paths like /app are "
-                f"read-only and will fail."
+                f"{workspace_root()} (writable workspace). System paths like "
+                f"/app are read-only and will fail."
             )
         except Exception as e:
             logger.warning("subagent workspace hint skipped: %s", e)
