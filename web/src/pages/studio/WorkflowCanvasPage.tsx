@@ -266,6 +266,9 @@ function CanvasInner() {
     >([]);
     const [templateName, setTemplateName] = useState('');
     const [templateNameOpen, setTemplateNameOpen] = useState(false);
+    // #605: create-new-graph entry — graph creation was API-only before this.
+    const [newGraphOpen, setNewGraphOpen] = useState(false);
+    const [newGraphName, setNewGraphName] = useState('');
     const [runHistoryOpen, setRunHistoryOpen] = useState(false);
     const [runHistory, setRunHistory] = useState<
         Array<{ run_id: string; status: string; finished_at: number; node_status: Record<string, string> }>
@@ -901,6 +904,35 @@ function CanvasInner() {
         },
         [loadGraph, showToast, t]
     );
+
+    // #605: create a fresh empty graph (graph.create with name only), refresh
+    // the selector and load it on the canvas for editing.
+    const createGraph = useCallback(
+        async (name: string) => {
+            try {
+                const res = await rpc<{ graph_id?: string }>('graph.create', {
+                    name: name || t('未命名工作流', 'Untitled workflow'),
+                    description: '',
+                    graph_data: {},
+                });
+                const newId = res.graph_id || '';
+                if (!newId) throw new Error('no graph_id returned');
+                const refreshed = await api.graphs();
+                setGraphs(refreshed.data.map((g) => ({ graph_id: g.graph_id, name: g.name })));
+                setGraphId(newId);
+                void loadGraph(newId);
+                showToast(t('工作流已创建', 'Workflow created'));
+            } catch (e) {
+                showToast(`${t('创建失败', 'Create failed')}: ${String(e)}`);
+            }
+        },
+        [loadGraph, showToast, t]
+    );
+
+    const startNewGraph = useCallback(() => {
+        setNewGraphOpen(true);
+        setNewGraphName('');
+    }, []);
 
     const onImportFile = useCallback(
         (ev: React.ChangeEvent<HTMLInputElement>) => {
@@ -1690,6 +1722,11 @@ function CanvasInner() {
                     className="w-full rounded border border-border bg-bg px-2 py-1 text-xs"
                     value={graphId}
                     onChange={(e) => {
+                        if (e.target.value === '__new__') {
+                            e.target.value = graphId;
+                            startNewGraph();
+                            return;
+                        }
                         setGraphId(e.target.value);
                         void loadGraph(e.target.value);
                     }}
@@ -1700,7 +1737,37 @@ function CanvasInner() {
                             {g.name}
                         </option>
                     ))}
+                    <option value="__new__">+ {t('新建工作流…', 'New workflow…')}</option>
                 </select>
+                {newGraphOpen ? (
+                    <div className="flex gap-1">
+                        <input
+                            type="text"
+                            className="flex-1 rounded border border-border bg-bg px-1 py-0.5 text-[10px]"
+                            placeholder={t('工作流名称', 'Workflow name')}
+                            value={newGraphName}
+                            autoFocus
+                            onChange={(e) => setNewGraphName(e.target.value)}
+                            onKeyDown={(e) => {
+                                if (e.key === 'Enter' && newGraphName.trim()) {
+                                    setNewGraphOpen(false);
+                                    void createGraph(newGraphName.trim());
+                                }
+                            }}
+                        />
+                        <button
+                            type="button"
+                            className="rounded bg-brand px-1.5 py-0.5 text-[10px] text-white disabled:opacity-40"
+                            disabled={!newGraphName.trim()}
+                            onClick={() => {
+                                setNewGraphOpen(false);
+                                void createGraph(newGraphName.trim());
+                            }}
+                        >
+                            {t('创建', 'Create')}
+                        </button>
+                    </div>
+                ) : null}
                 {NODE_GROUPS.map((grp) => (
                     <div key={grp.title}>
                         <div className="text-xs text-text-secondary pt-1">
