@@ -789,3 +789,67 @@ describe('WorkflowCanvasPage NL builder (#568)', () => {
         expect(screen.getByText(/super_agent/)).toBeInTheDocument();
     });
 });
+
+describe('WorkflowCanvasPage create-new-graph entry (#605)', () => {
+    beforeEach(() => {
+        rpcMock.mockReset();
+        graphsMock.mockReset();
+        window.sessionStorage.clear();
+        window.localStorage.clear();
+    });
+
+    it('creates a new graph from the selector inline entry and loads it', async () => {
+        defaultRpcs([{ action_id: 'seed', category: 'bash' }]);
+        graphsMock.mockResolvedValue({ data: [{ graph_id: 'g1', name: 'G1' }] });
+        const user = await renderCanvas();
+
+        await user.selectOptions(screen.getByDisplayValue('G1'), '__new__');
+        const nameInput = await screen.findByPlaceholderText('Workflow name');
+        await user.type(nameInput, 'My Flow');
+        rpcMock.mockImplementation(async (method: string) => {
+            if (method === 'budget.status') return { remaining: 800, max_tokens: 1000 };
+            if (method === 'safety.get_pending_actions') return { actions: [] };
+            if (method === 'tool.list') return { tools: [{ name: 'read_file' }] };
+            if (method === 'graph.create') return { graph_id: 'g-new' };
+            if (method === 'graph.get')
+                return { graph: { name: 'My Flow', nodes: [], edges: [] } };
+            throw new Error(`unexpected rpc: ${method}`);
+        });
+        graphsMock.mockResolvedValue({
+            data: [
+                { graph_id: 'g1', name: 'G1' },
+                { graph_id: 'g-new', name: 'My Flow' },
+            ],
+        });
+        await user.click(screen.getByRole('button', { name: 'Create' }));
+
+        await waitFor(() =>
+            expect(rpcMock).toHaveBeenCalledWith(
+                'graph.create',
+                expect.objectContaining({ name: 'My Flow' })
+            )
+        );
+        expect(await screen.findByText('Workflow created')).toBeInTheDocument();
+        expect(await screen.findByDisplayValue('My Flow')).toBeInTheDocument();
+    });
+
+    it('surfaces a create failure via the toast (not a silent no-op)', async () => {
+        defaultRpcs([{ action_id: 'seed', category: 'bash' }]);
+        graphsMock.mockResolvedValue({ data: [{ graph_id: 'g1', name: 'G1' }] });
+        const user = await renderCanvas();
+
+        await user.selectOptions(screen.getByDisplayValue('G1'), '__new__');
+        const nameInput = await screen.findByPlaceholderText('Workflow name');
+        await user.type(nameInput, 'Bad');
+        rpcMock.mockImplementation(async (method: string) => {
+            if (method === 'budget.status') return { remaining: 800, max_tokens: 1000 };
+            if (method === 'safety.get_pending_actions') return { actions: [] };
+            if (method === 'tool.list') return { tools: [{ name: 'read_file' }] };
+            if (method === 'graph.create') throw new Error('boom');
+            throw new Error(`unexpected rpc: ${method}`);
+        });
+        await user.click(screen.getByRole('button', { name: 'Create' }));
+
+        expect(await screen.findByText(/Create failed/)).toBeInTheDocument();
+    });
+});

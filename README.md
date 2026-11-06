@@ -678,6 +678,10 @@ Audit `audit/fusion-agent-studio-vs-langflow-audit-1020.md` closed end-to-end; s
 - ✅ **Canvas surfaces** — template gallery button + modal (builtin/custom badges, click to instantiate); "Save as template" row; run history panel with status colors, per-node status line, Replay (restores node stats + governance events), two-pick Diff table; empty canvas auto-opens the gallery.
 - Tests: `tests/test_issue_558_templates_history.py` (15 — v1 migration, kind filter, builtin validation, LLM/iteration/human-approval template runs, template RPC roundtrip + tenant isolation + name-required, summarize/save/list/load, 500-frame cap, diff, history dispatcher roundtrip + lazy store) + canvas tests (2 — gallery instantiate fires `flow.template_instantiate` + `graph.create`; history panel Replay/Diff fire history RPCs).
 
+### Create-New-Graph Entry (v0.14.x) — #605
+- ✅ **Canvas inline graph creation** — graph creation was API-only (`graph.create` reachable only via import/templates); the canvas workflow selector now offers a `+ New workflow…` inline entry that opens a name input (Enter or Create to submit) and builds a fresh empty graph, refreshes the selector and loads it for editing. Create failures surface through the toast instead of silently no-oping.
+- Tests: canvas component tests (2 — selector entry fires `graph.create` + loads the new graph; failure shows the `Create failed` toast).
+
 ### Integration
 - ✅ **fusion-mlx** — Apple Silicon optimized model serving
 - ✅ **OpenAI-compatible API** — Works with any OpenAI-compatible backend
