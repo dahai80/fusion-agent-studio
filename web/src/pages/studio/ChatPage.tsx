@@ -49,6 +49,9 @@ export function ChatPage() {
     const [sending, setSending] = useState(false);
     const [showCreate, setShowCreate] = useState(false);
     const [newTitle, setNewTitle] = useState('');
+    // window.confirm() is suppressed inside the sandboxed shell iframe (returns
+    // false with no dialog), so deletion "did nothing". Two-step inline confirm.
+    const [confirmDelete, setConfirmDelete] = useState('');
 
     const { data, error, loading, attempt, manualRetry } = useAutoRetry(
         () => rpc<{ sessions?: SessionItem[] }>('chat.list'),
@@ -123,7 +126,6 @@ export function ChatPage() {
     };
 
     const removeSession = async (sessionId: string) => {
-        if (!window.confirm(t('确认删除该会话？', 'Delete this session?'))) return;
         try {
             await rpc('chat.delete', { session_id: sessionId });
             if (selected === sessionId) {
@@ -134,6 +136,8 @@ export function ChatPage() {
             manualRetry();
         } catch (e) {
             sdk.toast.show({ level: 'error', message: (e as Error).message });
+        } finally {
+            setConfirmDelete('');
         }
     };
 
@@ -208,10 +212,22 @@ export function ChatPage() {
                                             )}
                                             <button
                                                 type="button"
-                                                onClick={() => removeSession(id)}
-                                                className="text-xs text-error hover:underline"
+                                                onClick={() => {
+                                                    if (confirmDelete === id) {
+                                                        void removeSession(id);
+                                                    } else {
+                                                        setConfirmDelete(id);
+                                                    }
+                                                }}
+                                                className={`text-xs hover:underline ${
+                                                    confirmDelete === id
+                                                        ? 'font-medium text-error'
+                                                        : 'text-error'
+                                                }`}
                                             >
-                                                {t('删除', 'Delete')}
+                                                {confirmDelete === id
+                                                    ? t('确认删除？', 'Confirm delete?')
+                                                    : t('删除', 'Delete')}
                                             </button>
                                         </div>
                                     </li>

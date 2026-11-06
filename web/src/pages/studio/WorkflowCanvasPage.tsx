@@ -262,7 +262,13 @@ function CanvasInner() {
     // #558: template gallery + run history (template.* / run.history_* RPCs)
     const [galleryOpen, setGalleryOpen] = useState(false);
     const [gallery, setGallery] = useState<
-        Array<{ name: string; description: string; source: string; flow_id?: string; node_count?: number }>
+        Array<{
+            name: string;
+            description: string;
+            source: string;
+            flow_id?: string;
+            node_count?: number;
+        }>
     >([]);
     const [templateName, setTemplateName] = useState('');
     const [templateNameOpen, setTemplateNameOpen] = useState(false);
@@ -271,7 +277,12 @@ function CanvasInner() {
     const [newGraphName, setNewGraphName] = useState('');
     const [runHistoryOpen, setRunHistoryOpen] = useState(false);
     const [runHistory, setRunHistory] = useState<
-        Array<{ run_id: string; status: string; finished_at: number; node_status: Record<string, string> }>
+        Array<{
+            run_id: string;
+            status: string;
+            finished_at: number;
+            node_status: Record<string, string>;
+        }>
     >([]);
     const [diffPicks, setDiffPicks] = useState<string[]>([]);
     const [runDiff, setRunDiff] = useState<{
@@ -1256,10 +1267,15 @@ function CanvasInner() {
     // #558: template gallery — builtin plan templates + saved tenant templates
     const openGallery = useCallback(async () => {
         try {
-            const res = await rpc<{ templates?: Array<{ name: string; description: string; source: string; flow_id?: string; node_count?: number }> }>(
-                'flow.template_list',
-                {}
-            );
+            const res = await rpc<{
+                templates?: Array<{
+                    name: string;
+                    description: string;
+                    source: string;
+                    flow_id?: string;
+                    node_count?: number;
+                }>;
+            }>('flow.template_list', {});
             setGallery(res.templates || []);
             setGalleryOpen(true);
         } catch (e) {
@@ -1315,7 +1331,12 @@ function CanvasInner() {
     const loadRunHistory = useCallback(async () => {
         try {
             const res = await rpc<{
-                runs?: Array<{ run_id: string; status: string; finished_at: number; node_status: Record<string, string> }>;
+                runs?: Array<{
+                    run_id: string;
+                    status: string;
+                    finished_at: number;
+                    node_status: Record<string, string>;
+                }>;
             }>('run.history_list', { graph_id: graphId, limit: 20 });
             setRunHistory(res.runs || []);
             setDiffPicks([]);
@@ -1329,18 +1350,32 @@ function CanvasInner() {
         async (runId: string) => {
             try {
                 const res = await rpc<{
-                    run?: { node_status?: Record<string, string>; events?: Array<Record<string, unknown>> };
+                    run?: {
+                        node_status?: Record<string, string>;
+                        events?: Array<Record<string, unknown>>;
+                    };
                 }>('run.history_get', { run_id: runId });
                 const run = res.run;
                 if (!run) return;
-                const mapped: Record<string, { tokens: number; toolCalls: number; status?: string }> = {};
+                const mapped: Record<
+                    string,
+                    { tokens: number; toolCalls: number; status?: string }
+                > = {};
                 for (const [node, status] of Object.entries(run.node_status || {})) {
                     mapped[node] = { tokens: 0, toolCalls: 0, status };
                 }
                 nodeStatsRef.current = mapped;
                 setNodeStats(mapped);
                 const gov: GovEvent[] = (run.events || [])
-                    .filter((e) => ['hook', 'permission', 'budget', 'safety_approval', 'plan_approval'].includes(String(e.kind || e.type)))
+                    .filter((e) =>
+                        [
+                            'hook',
+                            'permission',
+                            'budget',
+                            'safety_approval',
+                            'plan_approval',
+                        ].includes(String(e.kind || e.type))
+                    )
                     .map((e) => ({
                         ts: Number(e.timestamp || 0),
                         kind: String(e.kind || e.type || ''),
@@ -1349,7 +1384,9 @@ function CanvasInner() {
                     }));
                 setGovEvents(gov);
                 setActiveNodes(
-                    Object.fromEntries(Object.entries(run.node_status || {}).map(([n, s]) => [n, s]))
+                    Object.fromEntries(
+                        Object.entries(run.node_status || {}).map(([n, s]) => [n, s])
+                    )
                 );
                 showToast(t('已回放历史运行', 'Run replayed'));
             } catch (e) {
@@ -1369,7 +1406,10 @@ function CanvasInner() {
         if (diffPicks.length !== 2) return;
         try {
             const res = await rpc<{
-                diff?: { nodes: Array<{ node_id: string; a: string; b: string; changed: boolean }>; changed_count: number };
+                diff?: {
+                    nodes: Array<{ node_id: string; a: string; b: string; changed: boolean }>;
+                    changed_count: number;
+                };
             }>('run.diff', { run_a: diffPicks[0], run_b: diffPicks[1] });
             setRunDiff(res.diff || null);
         } catch (e) {
@@ -1385,9 +1425,7 @@ function CanvasInner() {
     // stack; destructive ops require explicit confirmation before applying).
     const applyNlOps = useCallback(
         (ops: Array<Record<string, unknown>>, confirmed = false) => {
-            const destructive = ops.some(
-                (o) => o.op === 'clear_graph' || o.op === 'remove_node'
-            );
+            const destructive = ops.some((o) => o.op === 'clear_graph' || o.op === 'remove_node');
             if (destructive && !confirmed) {
                 const desc = ops
                     .map((o) =>
@@ -1463,9 +1501,7 @@ function CanvasInner() {
                 } else if (kind === 'disconnect') {
                     const src = String(op.source);
                     const tgt = String(op.target);
-                    setEdges((es) =>
-                        es.filter((e) => !(e.source === src && e.target === tgt))
-                    );
+                    setEdges((es) => es.filter((e) => !(e.source === src && e.target === tgt)));
                 } else if (kind === 'clear_graph') {
                     setNodes([]);
                     setEdges([]);
@@ -1522,10 +1558,14 @@ function CanvasInner() {
     // #568: template list for NL recommendations — fetched once when panel opens.
     useEffect(() => {
         if (nlOpen && nlTemplates.length === 0) {
-            rpc<{ templates?: Array<{ name: string; description: string; source: string; flow_id?: string }> }>(
-                'flow.template_list',
-                {}
-            )
+            rpc<{
+                templates?: Array<{
+                    name: string;
+                    description: string;
+                    source: string;
+                    flow_id?: string;
+                }>;
+            }>('flow.template_list', {})
                 .then((r) => setNlTemplates(r.templates || []))
                 .catch(() => {});
         }
@@ -2088,7 +2128,9 @@ function CanvasInner() {
                                 {runDiff.nodes.map((row) => (
                                     <div
                                         key={row.node_id}
-                                        className={row.changed ? 'text-amber-500' : 'text-text-secondary'}
+                                        className={
+                                            row.changed ? 'text-amber-500' : 'text-text-secondary'
+                                        }
                                     >
                                         {row.node_id}: {row.a || '—'} / {row.b || '—'}
                                     </div>
@@ -2097,66 +2139,67 @@ function CanvasInner() {
                         ) : null}
                     </div>
                 ) : null}
-            {/* #568: NL builder — describe what you want, the model edits the graph */}
-            <button
-                type="button"
-                className="w-full rounded border border-border px-2 py-1 text-[10px] disabled:opacity-40"
-                onClick={() => setNlOpen((v) => !v)}
-            >
-                {nlOpen
-                    ? t('▾ AI 搭建', '▾ AI Builder')
-                    : t('▸ AI 搭建', '▸ AI Builder')}
-            </button>
-            {nlOpen ? (
-                <div className="space-y-1">
-                    <div className="max-h-40 space-y-1 overflow-auto">
-                        {nlMessages.length === 0 ? (
-                            <div className="text-[10px] text-text-secondary">
-                                {t(
-                                    '描述你要的流程，例如：代码仓有变更就跑 agent 审查，结果留证据，需我审批后提 PR',
-                                    'Describe the flow you want, e.g. run a review agent on repo changes, keep evidence, require my approval before PR'
-                                )}
-                            </div>
-                        ) : (
-                            nlMessages.map((m, i) => (
-                                <div
-                                    key={i}
-                                    className={`rounded px-1.5 py-1 text-[10px] ${
-                                        m.role === 'user'
-                                            ? 'bg-brand/10 text-text-primary'
-                                            : 'bg-bg-elevated text-text-secondary'
-                                    }`}
-                                >
-                                    {m.text}
+                {/* #568: NL builder — describe what you want, the model edits the graph */}
+                <button
+                    type="button"
+                    className="w-full rounded border border-border px-2 py-1 text-[10px] disabled:opacity-40"
+                    onClick={() => setNlOpen((v) => !v)}
+                >
+                    {nlOpen ? t('▾ AI 搭建', '▾ AI Builder') : t('▸ AI 搭建', '▸ AI Builder')}
+                </button>
+                {nlOpen ? (
+                    <div className="space-y-1">
+                        <div className="max-h-40 space-y-1 overflow-auto">
+                            {nlMessages.length === 0 ? (
+                                <div className="text-[10px] text-text-secondary">
+                                    {t(
+                                        '描述你要的流程，例如：代码仓有变更就跑 agent 审查，结果留证据，需我审批后提 PR',
+                                        'Describe the flow you want, e.g. run a review agent on repo changes, keep evidence, require my approval before PR'
+                                    )}
                                 </div>
-                            ))
-                        )}
+                            ) : (
+                                nlMessages.map((m, i) => (
+                                    <div
+                                        key={i}
+                                        className={`rounded px-1.5 py-1 text-[10px] ${
+                                            m.role === 'user'
+                                                ? 'bg-brand/10 text-text-primary'
+                                                : 'bg-bg-elevated text-text-secondary'
+                                        }`}
+                                    >
+                                        {m.text}
+                                    </div>
+                                ))
+                            )}
+                        </div>
+                        <div className="flex gap-1">
+                            <input
+                                type="text"
+                                className="flex-1 rounded border border-border bg-bg px-1 py-0.5 text-[10px]"
+                                placeholder={t(
+                                    '用一句话描述流程…',
+                                    'Describe the flow in one line…'
+                                )}
+                                value={nlInput}
+                                onChange={(e) => setNlInput(e.target.value)}
+                                onKeyDown={(e) => {
+                                    if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
+                                        e.preventDefault();
+                                        void sendNlPrompt();
+                                    }
+                                }}
+                            />
+                            <button
+                                type="button"
+                                className="rounded bg-brand px-1.5 py-0.5 text-[10px] text-white disabled:opacity-40"
+                                disabled={nlBusy || !nlInput.trim()}
+                                onClick={() => void sendNlPrompt()}
+                            >
+                                {nlBusy ? t('生成中…', 'Planning…') : t('生成', 'Plan')}
+                            </button>
+                        </div>
                     </div>
-                    <div className="flex gap-1">
-                        <input
-                            type="text"
-                            className="flex-1 rounded border border-border bg-bg px-1 py-0.5 text-[10px]"
-                            placeholder={t('用一句话描述流程…', 'Describe the flow in one line…')}
-                            value={nlInput}
-                            onChange={(e) => setNlInput(e.target.value)}
-                            onKeyDown={(e) => {
-                                if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
-                                    e.preventDefault();
-                                    void sendNlPrompt();
-                                }
-                            }}
-                        />
-                        <button
-                            type="button"
-                            className="rounded bg-brand px-1.5 py-0.5 text-[10px] text-white disabled:opacity-40"
-                            disabled={nlBusy || !nlInput.trim()}
-                            onClick={() => void sendNlPrompt()}
-                        >
-                            {nlBusy ? t('生成中…', 'Planning…') : t('生成', 'Plan')}
-                        </button>
-                    </div>
-                </div>
-            ) : null}
+                ) : null}
             </div>
             <div className="flex-1 relative">
                 <ReactFlow
@@ -2696,6 +2739,11 @@ function CanvasInner() {
                             </button>
                         </div>
                         <div className="grid grid-cols-2 gap-2">
+                            {gallery.length === 0 ? (
+                                <div className="col-span-2 py-6 text-center text-xs text-text-secondary">
+                                    {t('暂无模板', 'No templates available')}
+                                </div>
+                            ) : null}
                             {gallery.map((tpl) => (
                                 <button
                                     type="button"
@@ -2709,7 +2757,9 @@ function CanvasInner() {
                                     }
                                 >
                                     <div className="flex items-center gap-1">
-                                        <span className="text-xs text-text-primary">{tpl.name}</span>
+                                        <span className="text-xs text-text-primary">
+                                            {tpl.name}
+                                        </span>
                                         <span
                                             className={`rounded px-1 text-[9px] ${
                                                 tpl.source === 'builtin'

@@ -240,3 +240,54 @@ class TestAdhocGraphExtraction:
 
         graph, manifest = await build_agent_adhoc_graph(FakeDaemon(), "nope", "hi")
         assert graph is None and manifest is None
+
+
+class TestGuiFeatureAllowlist:
+    """GUI features shipped against the bridge must be allowlisted — deny-by-
+    default means a missing row silently 400s the whole page feature."""
+
+    def test_canvas_template_gallery_methods_allowed(self):
+        from agent_runtime.rpc_bridge import WEB_RPC_ALLOWLIST
+
+        for method in (
+            "flow.template_list",
+            "flow.template_save",
+            "flow.template_instantiate",
+            "flow.template_delete",
+        ):
+            assert method in WEB_RPC_ALLOWLIST, method
+
+    def test_reviewer_pack_methods_allowed(self):
+        from agent_runtime.rpc_bridge import WEB_RPC_ALLOWLIST
+
+        for method in ("reviewer.packs", "reviewer.run", "reviewer.schema", "reviewer.seed"):
+            assert method in WEB_RPC_ALLOWLIST, method
+
+    def test_canvas_history_nl_hitl_methods_allowed(self):
+        from agent_runtime.rpc_bridge import WEB_RPC_ALLOWLIST
+
+        for method in (
+            "graph.version_list",
+            "graph.version_restore",
+            "graph.nl_plan",
+            "human_input.respond",
+            "run.history_list",
+            "run.history_get",
+            "run.diff",
+        ):
+            assert method in WEB_RPC_ALLOWLIST, method
+
+    def test_respond_is_audited_as_mutating(self):
+        from agent_runtime.rpc_bridge import _is_mutating
+
+        assert _is_mutating("human_input.respond")
+
+    def test_allowlisted_bridge_method_dispatches_end_to_end(self, static_key_env, stub_daemon):
+        resp = _client().post(
+            "/v1/rpc",
+            json={"method": "reviewer.packs", "params": {}},
+            headers={"x-api-key": STATIC_KEY},
+        )
+        # The stub daemon has no reviewer handler, so the call cannot fully
+        # dispatch — but it must pass the allowlist gate (no "not allowed").
+        assert "not allowed" not in json.dumps(resp.json()), "reviewer.packs must pass the allowlist gate"
