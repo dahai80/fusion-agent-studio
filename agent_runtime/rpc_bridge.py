@@ -217,6 +217,27 @@ WEB_RPC_ALLOWLIST: frozenset[str] = frozenset(
         "graph.delete",
         "graph.cancel",
         "graph.status",
+        # canvas version history (#484) + NL builder (#568) + HiTL responses
+        # (#557) — shipped GUI features were missing from this allowlist and
+        # silently 400'd on the /v1/rpc bridge (deny-by-default)
+        "graph.version_list",
+        "graph.version_restore",
+        "graph.nl_plan",
+        "human_input.respond",
+        # run history + diff (#558)
+        "run.history_list",
+        "run.history_get",
+        "run.diff",
+        # flow store + template gallery (#555/#558)
+        "flow.template_list",
+        "flow.template_save",
+        "flow.template_instantiate",
+        "flow.template_delete",
+        # reviewer packs (#549)
+        "reviewer.packs",
+        "reviewer.run",
+        "reviewer.schema",
+        "reviewer.seed",
         # #397: multi-agent orchestration patterns GUI (workflow engine)
         "workflow.list",
         "workflow.get",
@@ -237,6 +258,7 @@ _MUTATING_VERBS = frozenset(
         "create",
         "update",
         "delete",
+        "respond",
         "register",
         "unregister",
         "publish",

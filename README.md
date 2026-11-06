@@ -682,6 +682,14 @@ Audit `audit/fusion-agent-studio-vs-langflow-audit-1020.md` closed end-to-end; s
 - ✅ **Canvas inline graph creation** — graph creation was API-only (`graph.create` reachable only via import/templates); the canvas workflow selector now offers a `+ New workflow…` inline entry that opens a name input (Enter or Create to submit) and builds a fresh empty graph, refreshes the selector and loads it for editing. Create failures surface through the toast instead of silently no-oping.
 - Tests: canvas component tests (2 — selector entry fires `graph.create` + loads the new graph; failure shows the `Create failed` toast).
 
+### Web GUI Live-Use Fixes (v0.14.x) — rpc-bridge allowlist + UX
+- ✅ **13 missing `WEB_RPC_ALLOWLIST` rows** — shipped GUI features silently 400'd on the deny-by-default `/v1/rpc` bridge: flow templates (gallery empty dialog), reviewer packs (`HttpError: status 400` on the Review page), graph version history, NL builder (`graph.nl_plan`), HiTL responses (`human_input.respond`), run history/diff. Each row now allowlisted + contract-tested; `respond` added to the audited mutating verbs. Live-verified against a restarted daemon: `flow.template_list` 200 (8 templates), `reviewer.packs` 200 (4 packs).
+- ✅ **StudioNav "More" dropdown** — the panel was absolutely positioned inside a `overflow-x-auto` nav, which clips vertical overflow (CSS: one non-visible axis forces the other to auto) — it opened but rendered invisibly. Now portaled to `<body>` with fixed positioning at the button's viewport rect.
+- ✅ **Chat delete two-step confirm** — `window.confirm()` is suppressed in the sandboxed shell iframe (returns false with no dialog), so Delete appeared dead. Replaced with an inline two-step "Confirm delete?" button.
+- ✅ **Marketplace card grid** — flat `DataTable` replaced with a package-card grid: per-type lucide icon, version/type/author/downloads badges, clamped description, installed state, hover elevation; token-based colors (dark-mode safe).
+- ✅ **Template gallery empty state** — the auto-opened gallery now shows "No templates available" instead of a blank dialog when the list is empty.
+- Tests: `tests/test_issue_330_rpc_bridge.py` +5 allowlist contract rows; web suite 110/110.
+
 ### Integration
 - ✅ **fusion-mlx** — Apple Silicon optimized model serving
 - ✅ **OpenAI-compatible API** — Works with any OpenAI-compatible backend

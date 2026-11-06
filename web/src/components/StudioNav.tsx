@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useT } from '../i18n';
 
 // Studio module nav — mirrors the macOS AgentStudio FusionTabBar. #406 IA
@@ -37,15 +38,31 @@ export function StudioNav(props: { active: string }) {
     const { active } = props;
     const t = useT();
     const [moreOpen, setMoreOpen] = useState(false);
-    const moreRef = useRef<HTMLDivElement | null>(null);
+    const [morePos, setMorePos] = useState<{ left: number; top: number } | null>(null);
+    const btnRef = useRef<HTMLButtonElement | null>(null);
+    const panelRef = useRef<HTMLDivElement | null>(null);
     const primary = STUDIO_TABS.filter((tab) => PRIMARY_KEYS.has(tab.key));
     const secondary = STUDIO_TABS.filter((tab) => !PRIMARY_KEYS.has(tab.key));
     const secondaryActive = secondary.some((tab) => tab.key === active);
 
+    const toggleMore = () => {
+        if (!moreOpen && btnRef.current) {
+            // The nav scrolls horizontally, so an absolutely-positioned panel
+            // inside it gets clipped (overflow-x auto implies overflow-y
+            // auto). Portal the panel to <body> at the button's viewport
+            // position instead.
+            const r = btnRef.current.getBoundingClientRect();
+            setMorePos({ left: r.left, top: r.bottom + 4 });
+        }
+        setMoreOpen((v) => !v);
+    };
+
     useEffect(() => {
         if (!moreOpen) return;
         const onDown = (ev: MouseEvent) => {
-            if (!moreRef.current?.contains(ev.target as Node)) setMoreOpen(false);
+            const target = ev.target as Node;
+            if (btnRef.current?.contains(target) || panelRef.current?.contains(target)) return;
+            setMoreOpen(false);
         };
         window.addEventListener('mousedown', onDown);
         return () => window.removeEventListener('mousedown', onDown);
@@ -66,38 +83,44 @@ export function StudioNav(props: { active: string }) {
                     {t(tab.label, tab.labelEn)}
                 </a>
             ))}
-            <div className="relative" ref={moreRef}>
-                <button
-                    type="button"
-                    onClick={() => setMoreOpen((v) => !v)}
-                    aria-expanded={moreOpen}
-                    className={`whitespace-nowrap rounded-md px-2.5 py-1.5 text-xs ${
-                        secondaryActive
-                            ? 'bg-bg-muted text-brand'
-                            : 'text-text-secondary hover:text-text-primary'
-                    }`}
-                >
-                    {t('更多', 'More')} {moreOpen ? '▴' : '▾'}
-                </button>
-                {moreOpen ? (
-                    <div className="absolute left-0 top-full z-20 mt-1 grid w-64 grid-cols-2 gap-1 rounded-card border border-border bg-bg-elevated p-2 shadow-lg">
-                        {secondary.map((tab) => (
-                            <a
-                                key={tab.key}
-                                href={tab.href}
-                                onClick={() => setMoreOpen(false)}
-                                className={`rounded-md px-2 py-1 text-xs ${
-                                    active === tab.key
-                                        ? 'bg-bg-muted text-brand'
-                                        : 'text-text-secondary hover:bg-bg-muted hover:text-text-primary'
-                                }`}
-                            >
-                                {t(tab.label, tab.labelEn)}
-                            </a>
-                        ))}
-                    </div>
-                ) : null}
-            </div>
+            <button
+                ref={btnRef}
+                type="button"
+                onClick={toggleMore}
+                aria-expanded={moreOpen}
+                className={`whitespace-nowrap rounded-md px-2.5 py-1.5 text-xs ${
+                    secondaryActive
+                        ? 'bg-bg-muted text-brand'
+                        : 'text-text-secondary hover:text-text-primary'
+                }`}
+            >
+                {t('更多', 'More')} {moreOpen ? '▴' : '▾'}
+            </button>
+            {moreOpen && morePos
+                ? createPortal(
+                      <div
+                          ref={panelRef}
+                          style={{ position: 'fixed', left: morePos.left, top: morePos.top }}
+                          className="z-50 grid w-64 grid-cols-2 gap-1 rounded-card border border-border bg-bg-elevated p-2 shadow-lg"
+                      >
+                          {secondary.map((tab) => (
+                              <a
+                                  key={tab.key}
+                                  href={tab.href}
+                                  onClick={() => setMoreOpen(false)}
+                                  className={`rounded-md px-2 py-1 text-xs ${
+                                      active === tab.key
+                                          ? 'bg-bg-muted text-brand'
+                                          : 'text-text-secondary hover:bg-bg-muted hover:text-text-primary'
+                                  }`}
+                              >
+                                  {t(tab.label, tab.labelEn)}
+                              </a>
+                          ))}
+                      </div>,
+                      document.body
+                  )
+                : null}
         </nav>
     );
 }
