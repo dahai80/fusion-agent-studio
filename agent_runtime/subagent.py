@@ -361,6 +361,21 @@ class SubAgentRunner:
             f"You are subagent '{spec.name}'. Complete the assigned task and reply "
             f"with your final report as plain text."
         )
+        # #616: without a workspace hint, seat agents hallucinated container
+        # paths (/app/...) and every file_write failed read-only. Point them
+        # at the writable workspace root and pre-create it.
+        try:
+            from tools.file_tools import ensure_workspace_dir, workspace_root
+
+            ws_root = workspace_root()
+            ensure_workspace_dir(ws_root)
+            framing += (
+                f"\n\nWorkspace: when writing files, use absolute paths under "
+                f"{ws_root} (writable workspace). System paths like /app are "
+                f"read-only and will fail."
+            )
+        except Exception as e:
+            logger.warning("subagent workspace hint skipped: %s", e)
         system_prompt = spec.system_prompt
         skill_prompt = self._load_skill_prompts(spec.skills)
         if skill_prompt:

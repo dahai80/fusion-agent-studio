@@ -84,6 +84,41 @@ def _is_write_blocked(filepath: Path) -> str | None:
     return None
 
 
+# #616: sandbox=local has no per-session cwd — seat subagents hallucinated
+# container paths (/app/...) and every file_write failed with
+# "[Errno 30] Read-only file system: '/app'". Relative paths and the
+# container-style /app root now resolve against a writable workspace root
+# (env FUSION_WORKSPACE_DIR, default ~/.fusion-agent-studio/workspaces).
+_CONTAINER_APP_ROOT = "/app"
+
+
+def workspace_root() -> Path:
+    raw = os.environ.get("FUSION_WORKSPACE_DIR", "").strip()
+    if raw:
+        return Path(raw).expanduser()
+    return Path.home() / ".fusion-agent-studio" / "workspaces"
+
+
+def resolve_workpath(path: str) -> Path:
+    p = Path(path).expanduser()
+    if not p.is_absolute():
+        return (workspace_root() / p).resolve()
+    spath = str(p)
+    if spath == _CONTAINER_APP_ROOT or spath.startswith(_CONTAINER_APP_ROOT + "/"):
+        rel = spath[len(_CONTAINER_APP_ROOT):].lstrip("/")
+        resolved = (workspace_root() / rel).resolve() if rel else workspace_root().resolve()
+        logger.info("remapped container path %s to workspace %s", path, resolved)
+        return resolved
+    return p.resolve()
+
+
+def ensure_workspace_dir(dirpath: Path) -> None:
+    try:
+        dirpath.mkdir(parents=True, exist_ok=True)
+    except OSError as e:
+        logger.warning("workspace mkdir failed dir=%s: %s", dirpath, e)
+
+
 class FileReadTool(BaseTool):
     """Read the contents of a file."""
 
@@ -109,7 +144,7 @@ class FileReadTool(BaseTool):
         if not path:
             return "Error: path is required"
 
-        filepath = Path(path).expanduser().resolve()
+        filepath = resolve_workpath(path)
 
         if not filepath.exists():
             return f"Error: File not found: {filepath}"
@@ -185,7 +220,7 @@ class FileWriteTool(BaseTool):
         if not path:
             return "Error: path is required"
 
-        filepath = Path(path).expanduser().resolve()
+        filepath = resolve_workpath(path)
 
         blocked = _is_write_blocked(filepath)
         if blocked:
@@ -234,7 +269,7 @@ class FileListTool(BaseTool):
         pattern = kwargs.get("pattern", "")
         max_results = int(kwargs.get("max_results", 50))
 
-        dirpath = Path(path).expanduser().resolve()
+        dirpath = resolve_workpath(path)
 
         if not dirpath.exists():
             return f"Error: Path not found: {dirpath}"
@@ -321,7 +356,7 @@ class FileEditTool(BaseTool):
         if old_string == new_string:
             return "Error: old_string and new_string are identical — nothing to change"
 
-        filepath = Path(path).expanduser().resolve()
+        filepath = resolve_workpath(path)
 
         blocked = _is_write_blocked(filepath)
         if blocked:
@@ -400,7 +435,7 @@ class FileDeleteTool(BaseTool):
         if not path:
             return "Error: path is required"
 
-        filepath = Path(path).expanduser().resolve()
+        filepath = resolve_workpath(path)
 
         blocked = _is_write_blocked(filepath)
         if blocked:
@@ -484,7 +519,7 @@ class FileGrepTool(BaseTool):
         if not pattern:
             return "Error: pattern is required"
 
-        root = Path(path).expanduser().resolve()
+        root = resolve_workpath(path)
         if not root.exists():
             return f"Error: Path not found: {root}"
         if not root.is_dir():
@@ -583,7 +618,7 @@ class FileGlobTool(BaseTool):
         if not path:
             return "Error: path is required"
 
-        root = Path(path).expanduser().resolve()
+        root = resolve_workpath(path)
         if not root.exists():
             return f"Error: Path not found: {root}"
         if not root.is_dir():

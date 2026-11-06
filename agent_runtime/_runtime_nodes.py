@@ -30,6 +30,19 @@ from .json_schema import JsonSchemaValidator
 from .variable_manager import VariableManager
 
 
+def _llm_call_timeout() -> float:
+    # #617: per-call wall clock for llm_gateway.chat. Hard-coded 120s killed
+    # seat agents generating long documents on a local ~20 tok/s model.
+    # FUSION_LLM_TIMEOUT (seconds) overrides; the gateway's own stream
+    # timeout (default 300s) still bounds the underlying HTTP call.
+    raw = os.environ.get("FUSION_LLM_TIMEOUT", "").strip()
+    try:
+        return float(raw) if raw else 120.0
+    except ValueError:
+        logger.warning("invalid FUSION_LLM_TIMEOUT=%r, using 120.0", raw)
+        return 120.0
+
+
 class _NodeExecutorsMixin:
     @staticmethod
     def _thinking_visible(ctx: AgentContext, node: NodeConfig) -> bool:
@@ -264,10 +277,20 @@ class _NodeExecutorsMixin:
                     messages.insert(0, {"role": "system", "content": schema_instruction})
 
         if self.safety_gateway:
+            # #615: after a tool executes, the last message is the tool result —
+            # untrusted data, not an instruction channel. Injection patterns
+            # found in it (e.g. "file system: '/app'" in an error string) are
+            # logged as advisory instead of forcing a safety approval that
+            # headless runs cannot answer.
+            last_msg = messages[-1] if messages else {}
+            is_tool_result = (
+                isinstance(last_msg, dict) and last_msg.get("role") == "tool"
+            )
             safety_result = self.safety_gateway.evaluate_action(
                 category="llm_call",
                 content=str(messages[-1]) if messages else "",
                 context=f"model={model} node={node.label}",
+                injection_advisory=is_tool_result,
             )
             if safety_result.action.value == "block" and not safety_result.requires_approval:
                 ctx.error = f"SafetyGateway blocked LLM call: {safety_result.reason}"
@@ -408,7 +431,7 @@ class _NodeExecutorsMixin:
                                         temperature=node.temperature,
                                         effort=effort or None,
                                     ),
-                                    timeout=120.0,
+                                    timeout=_llm_call_timeout(),
                                 )
                                 content = gw_resp.content or ""
                                 tool_calls = gw_resp.tool_calls or []
@@ -434,7 +457,7 @@ class _NodeExecutorsMixin:
                         effort=effort or None,
                         tool_choice=node.tool_choice or None,
                     ),
-                    timeout=120.0,
+                    timeout=_llm_call_timeout(),
                 )
                 if gw_resp.finish_reason == "error" and gw_resp.usage.get("error"):
                     raise RuntimeError(gw_resp.usage["error"])
@@ -443,9 +466,17 @@ class _NodeExecutorsMixin:
                 usage = gw_resp.usage
                 resp_model = gw_resp.model or model
         except Exception as e:
-            ctx.error = f"LLM call failed: {e}"
+            # #617: str(asyncio.TimeoutError()) is empty — render the timeout
+            # explicitly instead of the useless "LLM call failed: ".
+            if isinstance(e, asyncio.TimeoutError):
+                ctx.error = (
+                    f"LLM call failed: timeout after {_llm_call_timeout():.0f}s "
+                    "(asyncio.TimeoutError)"
+                )
+            else:
+                ctx.error = f"LLM call failed: {e}"
             llm_status = "error"
-            yield AgentEvent(type=AgentEventType.ERROR, content=str(e))
+            yield AgentEvent(type=AgentEventType.ERROR, content=ctx.error)
             return
 
         # C13: end llm.call span — 计数+延迟+token 用量入属性.
@@ -1113,7 +1144,7 @@ class _NodeExecutorsMixin:
                                 effort=node.effort or None,
                                 tool_choice=node.tool_choice or None,
                             ),
-                            timeout=120.0,
+                            timeout=_llm_call_timeout(),
                         )
                     except Exception as e:
                         logger.warning(
