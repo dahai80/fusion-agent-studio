@@ -73,6 +73,10 @@ seats:
     status: published
     visibility: public
     safety_level: L1
+    # #636: the env-mock task shape (read context + stub services +
+    # fixtures + compose overlay + seed, each versioned) legitimately
+    # needs more turns than the 8-turn subagent default.
+    max_iterations: 24
     tools: [artifact_get_source, artifact_create, file_write, terminal]
     capabilities: [delivery, mock, staging, artifacts]
     tags: [delivery, built-in]

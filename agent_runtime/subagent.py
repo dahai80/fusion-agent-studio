@@ -684,6 +684,16 @@ class SubAgentRunner:
                 turns,
                 spec.max_turns,
             )
+            # #636: make "budget exhausted mid-work" distinguishable from a
+            # content failure at the consumer — bare "Max iterations
+            # exceeded" hid turns/tokens/report emptiness.
+            if error_text == "Max iterations exceeded":
+                error_text = (
+                    f"Max iterations exceeded after {turns}/{spec.max_turns} turns "
+                    f"({tokens_used} tokens, report_len={len(report_text)}) — "
+                    "budget exhausted mid-work, not a content failure; "
+                    "raise the agent's max_iterations or fix a turn-burning loop"
+                )
         logger.info(
             "subagent run done name=%s ok=%s turns=%d tokens=%d report_len=%d partial=%s",
             spec.name,
