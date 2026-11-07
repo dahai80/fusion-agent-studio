@@ -1,3 +1,19 @@
+---
+doc_id: fusion-agent-studio/readme
+product: fusion-agent-studio
+class: platform
+entry: service
+doc_type: readme
+title: {zh: Fusion-MLX Agent Studio, en: Fusion-MLX Agent Studio}
+audience: engineer
+status: draft
+version: 0.14.17
+updated: 2026-11-07
+owner: @dahai
+source_of_truth:
+  - README.md
+---
+
 <div align="center">
 
 # Fusion-MLX Agent Studio
@@ -187,7 +203,7 @@ python my_agent.py
 - ✅ **Metrics engine** — SQLite-backed inference/session metrics with aggregation queries
 - ✅ **Agent marketplace** — Import/export .fusion-agent packages, search, categories, install
 - ✅ **Data ingestion** — Document readers (txt/md/json/csv/html), ETL pipeline, chunking (fixed-size, sentence, markdown-heading)
-- ✅ **Cluster manager** — Moved to [fusion-multi-node](../fusion-multi-node/) — standalone multi-node cluster for Apple Silicon
+- ✅ **Cluster manager** — Moved to [fusion-multi-node](https://github.com/dahai80/fusion-multi-node) — standalone multi-node cluster for Apple Silicon
 - ✅ **Code sandbox** — AST safety analysis, diff preview, macOS sandbox-exec isolation for code execution; multi-language support (#161) — python/shell/bash/javascript/swift/go (interpreted) + cpp/c (compiled via clang), with `agent.code_languages` RPC returning the environment's actually-available languages so the frontend renders the selector dynamically
 - ✅ **3-Tier aware engine** — Debounce → AST diff → LLM gate cascade for file-change significance detection
 - ✅ **FMP router v2** — @Mention routing, round-robin turns, per-agent circuit breaker, message dedup

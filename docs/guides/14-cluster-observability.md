@@ -1,3 +1,19 @@
+---
+doc_id: fusion-agent-studio/guide/14-cluster-observability
+product: fusion-agent-studio
+class: platform
+entry: service
+doc_type: guide
+title: {zh: 集群可观测性, en: Cluster Observability}
+audience: engineer
+status: draft
+version: 0.14.17
+updated: 2026-11-07
+owner: @dahai
+source_of_truth:
+  - docs/guides/14-cluster-observability.md
+---
+
 # 14 集群运维与可观测
 
 本篇覆盖 #583 补齐的三块 Web 面：集群运维面板、可观测页、会话

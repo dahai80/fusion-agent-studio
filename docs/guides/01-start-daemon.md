@@ -1,3 +1,19 @@
+---
+doc_id: fusion-agent-studio/guide/01-start-daemon
+product: fusion-agent-studio
+class: platform
+entry: service
+doc_type: guide
+title: {zh: 启动守护进程, en: Start the Daemon}
+audience: engineer
+status: draft
+version: 0.14.17
+updated: 2026-11-07
+owner: @dahai
+source_of_truth:
+  - docs/guides/01-start-daemon.md
+---
+
 # 01 启动 Daemon
 
 > 场景：你已经 `pip install -e .` 装好 fusion-agent-studio，现在要把它跑起来。

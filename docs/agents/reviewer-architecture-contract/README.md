@@ -1,3 +1,19 @@
+---
+doc_id: fusion-agent-studio/guide/reviewer-architecture-contract-readme
+product: fusion-agent-studio
+class: platform
+entry: service
+doc_type: readme
+title: {zh: 架构契约评审员说明, en: Reviewer: Architecture Contract README}
+audience: engineer
+status: draft
+version: 0.14.17
+updated: 2026-11-07
+owner: @dahai
+source_of_truth:
+  - docs/agents/reviewer-architecture-contract/README.md
+---
+
 # Architecture-Contract Reviewer Agent
 
 Commodity agent from the first published agent family (#570). Capability:

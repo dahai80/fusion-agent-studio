@@ -1,3 +1,19 @@
+---
+doc_id: fusion-agent-studio/guide/reviewer-security-readme
+product: fusion-agent-studio
+class: platform
+entry: service
+doc_type: readme
+title: {zh: 安全评审员说明, en: Reviewer: Security README}
+audience: engineer
+status: draft
+version: 0.14.17
+updated: 2026-11-07
+owner: @dahai
+source_of_truth:
+  - docs/agents/reviewer-security/README.md
+---
+
 # Security Reviewer Agent
 
 Commodity agent from the first published agent family (#570). Capability:

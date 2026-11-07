@@ -1,3 +1,19 @@
+---
+doc_id: fusion-agent-studio/guide/02-create-agent
+product: fusion-agent-studio
+class: platform
+entry: service
+doc_type: guide
+title: {zh: 创建智能体, en: Create an Agent}
+audience: engineer
+status: draft
+version: 0.14.17
+updated: 2026-11-07
+owner: @dahai
+source_of_truth:
+  - docs/guides/02-create-agent.md
+---
+
 # 02 创建你的第一个 Agent
 
 > 场景：daemon 已启动，你想从零建一个能跑的智能体并执行它。

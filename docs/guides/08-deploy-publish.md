@@ -1,3 +1,19 @@
+---
+doc_id: fusion-agent-studio/guide/08-deploy-publish
+product: fusion-agent-studio
+class: platform
+entry: service
+doc_type: guide
+title: {zh: 部署与发布, en: Deploy and Publish}
+audience: engineer
+status: draft
+version: 0.14.17
+updated: 2026-11-07
+owner: @dahai
+source_of_truth:
+  - docs/guides/08-deploy-publish.md
+---
+
 # 08 部署与发布
 
 > 场景：智能体调通了，技能装好了，定时任务也挂上了。现在要把它"交付"出去——导出成可移植文件、发布成可调用 API、塞进本地 marketplace 供别人装、或导出成独立 FastAPI 服务。本篇讲四条交付路径。

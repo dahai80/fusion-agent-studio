@@ -1,3 +1,19 @@
+---
+doc_id: fusion-agent-studio/guide/reviewer-security-changelog
+product: fusion-agent-studio
+class: platform
+entry: service
+doc_type: changelog
+title: {zh: 安全评审员变更日志, en: Reviewer: Security Changelog}
+audience: engineer
+status: draft
+version: 0.14.17
+updated: 2026-11-07
+owner: @dahai
+source_of_truth:
+  - docs/agents/reviewer-security/CHANGELOG.md
+---
+
 # Changelog — reviewer-security
 
 ## 1.0.0 (2026-11-04)

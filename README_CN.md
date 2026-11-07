@@ -1,3 +1,19 @@
+---
+doc_id: fusion-agent-studio/readme
+product: fusion-agent-studio
+class: platform
+entry: service
+doc_type: readme
+title: {zh: Fusion-MLX Agent Studio（中文）, en: Fusion-MLX Agent Studio (Chinese)}
+audience: engineer
+status: draft
+version: 0.14.17
+updated: 2026-11-07
+owner: @dahai
+source_of_truth:
+  - README_CN.md
+---
+
 <div align="center">
 
 # Fusion-MLX Agent Studio
@@ -175,7 +191,7 @@ python my_agent.py
 - ✅ **指标引擎** — SQLite 支持的推理/会话指标，聚合查询
 - ✅ **智能体市场** — 导入/导出 .fusion-agent 包、搜索、分类、安装
 - ✅ **数据导入** — 文档阅读器 (txt/md/json/csv/html)、ETL 管道、分块 (fixed-size、sentence、markdown-heading)
-- ✅ **集群管理器** — 已迁移至 [fusion-multi-node](../fusion-multi-node/) — Apple Silicon 独立多节点集群
+- ✅ **集群管理器** — 已迁移至 [fusion-multi-node](https://github.com/dahai80/fusion-multi-node) — Apple Silicon 独立多节点集群
 - ✅ **代码沙箱** — AST 安全分析、diff 预览、macOS sandbox-exec 隔离执行
 - ✅ **三级感知引擎** — Debounce → AST diff → LLM gate 级联，文件变更显著性检测
 - ✅ **FMP 路由 v2** — @Mention 路由、轮询调度、每智能体熔断器、消息去重
@@ -443,7 +459,7 @@ python my_agent.py
 - 测试：`tests/test_issue_546_acceptance.py`（8）— OpenAPI 路由契约、ask 降级不 404、创建 422 畸形、执行前校验 422、合法执行路径；`web/src/lib/__tests__/workflowGraph.test.ts`（12）+ `nodeRegistry.test.ts`（7）— 解析/校验、端口矩阵、编解码往返 + 丢弃上报、金样跨面、17-key 分类 parity。
 
 ### 评审包（v0.14.0）— #549
-- ✅ **四个一方评审包，标准 agent bundle 可安装** — `architecture-contract`（接口一致性、数据格式漂移、边界违规、破坏性变更风险）、`security`（STRIDE 排查、authn/authz 缺口、注入/SSRF/路径穿越、密钥泄露）、`domain`（领域正确性，可插拔领域知识笔记）、`red-team`（强制异议 — 必须给出最强客观发现，空结论被拒）。每个包都是标准 bundle（manifest.json + agent.md + skills），经 `bundle.install` 或 `reviewer.seed` 安装。
+- ✅ **四个一方评审包，标准 agent bundle 可安装** — `architecture-contract`（接口一致性、数据格式漂移、边界违规、破坏性变更风险）、`security`（STRIDE 排查、authn/authz 缺口、注入/SSRF/路径穿越、密钥泄露）、`domain`（领域正确性，可插拔领域知识笔记）、`red-team`（强制异议 — 必须给出最有分量的客观发现，空结论被拒）。每个包都是标准 bundle（manifest.json + agent.md + skills），经 `bundle.install` 或 `reviewer.seed` 安装。
 - ✅ **结构化发现契约** — 每条发现为 `{severity: P0-P3, location, rationale, recommendation, pack}`；纯文本结论解析期被拒，以逐包错误呈现，绝不静默变空评审。
 - ✅ **盲审模式** — 默认 `blind: true`：评审包输入 = 产物 + 原始请求；作者理由/说明被排除在每个提示之外（可关闭，以不可信区块渲染）。
 - ✅ **并行扇出 + 逐包署名** — N 个包并发运行（`asyncio.gather`）；发现按严重度合并排序并带逐包状态/计数，单包失败被隔离不影响其余。
@@ -639,7 +655,7 @@ fusion-agent-studio/
 | **桌面原生** | ❌ Web | ❌ Web | ❌ Web | ❌ Web | **✅ macOS SwiftUI** |
 | **系统工具** | ❌ | ❌ | ⚠️ 部分 | ❌ | **✅ 终端/文件/Git/Xcode** |
 | **多模型** | ❌ (Ollama 单一) | ✅ 云 | ❌ | ❌ | **✅ EnginePool + MemoryEnforcer** |
-| **量化** | ❌ (有限 GGUF) | ❌ | ❌ | ❌ | **✅ 40+ 格式，2-bit 极致** |
+| **量化** | ❌ (有限 GGUF) | ❌ | ❌ | ❌ | **✅ 40+ 格式，2-bit 量化** |
 | **成本** | 云 API 费用 | 云 API 费用 | 免费 | 免费 | **零 API 费用，无限调用** |
 
 ---
