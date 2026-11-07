@@ -838,7 +838,14 @@ class LLMGateway:
             except Exception as exc:
                 # issue #470: gateway 错误直接上抛, 不再直连 fusion-mlx 兜底 —
                 # 静默 cloud→local 重试会绕过 gateway 的路由策略/审计/成本上限.
-                logger.warning("Default client call failed for %s: %s", config.name, exc)
+                # #633: str(exc) can be empty (e.g. wrapped httpx auth errors) —
+                # log class + repr so env/auth failures are diagnosable from logs.
+                logger.warning(
+                    "Default client call failed for %s: %s: %r",
+                    config.name,
+                    type(exc).__name__,
+                    exc,
+                )
                 raise
 
         try:
@@ -908,7 +915,9 @@ class LLMGateway:
                 model=resolved_model,
             )
         except Exception as exc:
-            logger.error("Default client call failed: %s", exc)
+            logger.error(
+                "Default client call failed: %s: %r", type(exc).__name__, exc
+            )
             return GatewayResponse(
                 content="",
                 model=resolved_model,
