@@ -9,7 +9,7 @@ audience: engineer
 status: draft
 version: 0.14.17
 updated: 2026-11-07
-owner: @dahai
+owner: "@dahai"
 source_of_truth:
   - docs/superpowers/specs/2026-08-25-a1-per-exec-state-design.md
 ---
