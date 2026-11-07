@@ -1,3 +1,19 @@
+---
+doc_id: fusion-agent-studio/guide/nl-graph-builder
+product: fusion-agent-studio
+class: platform
+entry: service
+doc_type: guide
+title: {zh: 自然语言建图, en: Natural Language Graph Builder}
+audience: engineer
+status: draft
+version: 0.14.17
+updated: 2026-11-07
+owner: @dahai
+source_of_truth:
+  - docs/guides/nl-graph-builder.md
+---
+
 # NL Graph Builder — Shared GraphEditor Mutation Contract (#568)
 
 Conversational flow building: the user describes what they want, the model

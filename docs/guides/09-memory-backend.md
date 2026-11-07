@@ -1,3 +1,19 @@
+---
+doc_id: fusion-agent-studio/guide/09-memory-backend
+product: fusion-agent-studio
+class: platform
+entry: service
+doc_type: guide
+title: {zh: 记忆后端, en: Memory Backend}
+audience: engineer
+status: draft
+version: 0.14.17
+updated: 2026-11-07
+owner: @dahai
+source_of_truth:
+  - docs/guides/09-memory-backend.md
+---
+
 # 09 切换记忆后端到 fusion-memory
 
 > 场景：你的智能体跑了一阵，本地 SQLite 记忆库越来越满，检索开始变慢。你想要更强的语义检索 + 实体图谱 + 遗忘曲线，于是装了 fusion-memory（fm-server）。本篇讲怎么把 agent-studio 的记忆存储切到 fusion-memory，怎么确认切成功了，切过去后哪些功能会降级。

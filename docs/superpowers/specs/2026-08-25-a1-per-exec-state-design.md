@@ -1,3 +1,19 @@
+---
+doc_id: fusion-agent-studio/guide/2026-08-25-a1-per-exec-state-design
+product: fusion-agent-studio
+class: platform
+entry: service
+doc_type: guide
+title: {zh: A1 每执行态设计, en: A1 Per-Execution State Design}
+audience: engineer
+status: draft
+version: 0.14.17
+updated: 2026-11-07
+owner: @dahai
+source_of_truth:
+  - docs/superpowers/specs/2026-08-25-a1-per-exec-state-design.md
+---
+
 # A-1 Per-Execution State Migration — Design
 
 Audit 0825 finding A-1: `AgentRuntime` is a process-level singleton; concurrent graph

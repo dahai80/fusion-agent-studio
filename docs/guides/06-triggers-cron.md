@@ -1,3 +1,19 @@
+---
+doc_id: fusion-agent-studio/guide/06-triggers-cron
+product: fusion-agent-studio
+class: platform
+entry: service
+doc_type: guide
+title: {zh: 触发器与定时任务, en: Triggers and Cron}
+audience: engineer
+status: draft
+version: 0.14.17
+updated: 2026-11-07
+owner: @dahai
+source_of_truth:
+  - docs/guides/06-triggers-cron.md
+---
+
 # 06 触发与定时任务
 
 > 场景：你想让智能体"每天早上 8 点巡检磁盘"、"每次代码提交自动跑审查"、"并发跑 5 个任务并按项目分组看结果"。这些不是手动 `agent.execute` 能干的——需要触发器、任务队列、项目聚合。本篇讲 fusion-agent-studio 的四套触发机制。

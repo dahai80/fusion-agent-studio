@@ -1,3 +1,19 @@
+---
+doc_id: fusion-agent-studio/guide/reviewer-security-readme
+product: fusion-agent-studio
+class: platform
+entry: service
+doc_type: readme
+title: {zh: 安全评审员说明（中文）, en: Reviewer: Security README (Chinese)}
+audience: engineer
+status: draft
+version: 0.14.17
+updated: 2026-11-07
+owner: @dahai
+source_of_truth:
+  - docs/agents/reviewer-security/README_CN.md
+---
+
 # Security Reviewer 智能体
 
 首个发布智能体商品族（#570）成员。能力：Reviews security vulnerabilities: injection, secrets in code, unsafe execution, auth bypasses.

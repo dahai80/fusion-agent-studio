@@ -1,3 +1,19 @@
+---
+doc_id: fusion-agent-studio/guide/11-memory-persona-team
+product: fusion-agent-studio
+class: platform
+entry: service
+doc_type: guide
+title: {zh: 记忆、人格与团队, en: Memory, Persona and Team}
+audience: engineer
+status: draft
+version: 0.14.17
+updated: 2026-11-07
+owner: @dahai
+source_of_truth:
+  - docs/guides/11-memory-persona-team.md
+---
+
 # 11 记忆治理、人设分层与团队协作
 
 本篇覆盖 v0.9.0（#389/#390/#391）新增的三组能力：记忆衰减与冲突检测、人设分层热重载与 agents.md 互转、团队 durable roster 与 mailbox。所有示例沿用 [01 篇](./01-start-daemon.md) 的 `rpc()` 脚手架。

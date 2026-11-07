@@ -1,3 +1,19 @@
+---
+doc_id: fusion-agent-studio/guide/05-use-mcp
+product: fusion-agent-studio
+class: platform
+entry: service
+doc_type: guide
+title: {zh: 使用 MCP, en: Use MCP}
+audience: engineer
+status: draft
+version: 0.14.17
+updated: 2026-11-07
+owner: @dahai
+source_of_truth:
+  - docs/guides/05-use-mcp.md
+---
+
 # 05 Agent 调用 MCP 服务
 
 > 场景：你想让智能体用一个外部能力——比如官方的 filesystem MCP server、或自己写的 MCP 工具——而不是自己重新造。MCP（Model Context Protocol）是接外部工具/资源的标准协议。本篇讲怎么把一个 MCP server 注册进来、发现它的工具/资源/提示、让智能体用上。

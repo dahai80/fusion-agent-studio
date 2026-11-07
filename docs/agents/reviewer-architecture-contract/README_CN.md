@@ -1,3 +1,19 @@
+---
+doc_id: fusion-agent-studio/guide/reviewer-architecture-contract-readme
+product: fusion-agent-studio
+class: platform
+entry: service
+doc_type: readme
+title: {zh: 架构契约评审员说明（中文）, en: Reviewer: Architecture Contract README (Chinese)}
+audience: engineer
+status: draft
+version: 0.14.17
+updated: 2026-11-07
+owner: @dahai
+source_of_truth:
+  - docs/agents/reviewer-architecture-contract/README_CN.md
+---
+
 # Architecture-Contract Reviewer 智能体
 
 首个发布智能体商品族（#570）成员。能力：Reviews architecture-contract violations: interface consistency, data-format drift, boundary reach-past, breaking-change risk.

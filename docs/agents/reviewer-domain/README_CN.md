@@ -1,3 +1,19 @@
+---
+doc_id: fusion-agent-studio/guide/reviewer-domain-readme
+product: fusion-agent-studio
+class: platform
+entry: service
+doc_type: readme
+title: {zh: 领域评审员说明（中文）, en: Reviewer: Domain README (Chinese)}
+audience: engineer
+status: draft
+version: 0.14.17
+updated: 2026-11-07
+owner: @dahai
+source_of_truth:
+  - docs/agents/reviewer-domain/README_CN.md
+---
+
 # Domain Reviewer 智能体
 
 首个发布智能体商品族（#570）成员。能力：Reviews business-domain correctness: rule mismatches, unit errors, missing regional/edge-case handling.

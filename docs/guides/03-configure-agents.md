@@ -1,3 +1,19 @@
+---
+doc_id: fusion-agent-studio/guide/03-configure-agents
+product: fusion-agent-studio
+class: platform
+entry: service
+doc_type: guide
+title: {zh: 配置智能体, en: Configure Agents}
+audience: engineer
+status: draft
+version: 0.14.17
+updated: 2026-11-07
+owner: @dahai
+source_of_truth:
+  - docs/guides/03-configure-agents.md
+---
+
 # 03 配置不同类型的 Agent
 
 > 场景：你会建智能体了。现在想让不同智能体干不同活——一个写代码、一个做研究、一个守规矩的安全员。本篇讲怎么配置出"性格各异"的智能体。

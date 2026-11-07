@@ -1,3 +1,19 @@
+---
+doc_id: fusion-agent-studio/readme/sdk-typescript
+product: fusion-agent-studio
+class: platform
+entry: service
+doc_type: readme
+title: {zh: TypeScript SDK 说明, en: TypeScript SDK README}
+audience: engineer
+status: draft
+version: 0.14.17
+updated: 2026-11-07
+owner: @dahai
+source_of_truth:
+  - sdk/typescript/README.md
+---
+
 # @fusion/agent-studio-sdk
 
 TypeScript client for Fusion Agent Studio. Wraps the daemon REST surface

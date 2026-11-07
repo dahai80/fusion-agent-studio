@@ -1,3 +1,19 @@
+---
+doc_id: fusion-agent-studio/guide/reviewer-security-capability-spec
+product: fusion-agent-studio
+class: platform
+entry: service
+doc_type: guide
+title: {zh: 安全评审员能力规格, en: Reviewer: Security Capability Spec}
+audience: engineer
+status: draft
+version: 0.14.17
+updated: 2026-11-07
+owner: @dahai
+source_of_truth:
+  - docs/agents/reviewer-security/CAPABILITY_SPEC.md
+---
+
 # Capability Spec — Security Reviewer Agent
 
 ## Inputs

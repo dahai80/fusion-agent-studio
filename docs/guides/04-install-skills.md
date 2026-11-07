@@ -1,3 +1,19 @@
+---
+doc_id: fusion-agent-studio/guide/04-install-skills
+product: fusion-agent-studio
+class: platform
+entry: service
+doc_type: guide
+title: {zh: 安装技能, en: Install Skills}
+audience: engineer
+status: draft
+version: 0.14.17
+updated: 2026-11-07
+owner: @dahai
+source_of_truth:
+  - docs/guides/04-install-skills.md
+---
+
 # 04 给 Agent 安装 Skill
 
 > 场景：你的编码助手每次都要"读文件→改代码→跑测试→看结果"，手写系统提示让 LLM 自己编排很容易漏步。Skill 把这套固定流程写死成"技能"，一步到位、可复用、可插拔。

@@ -1,3 +1,19 @@
+---
+doc_id: fusion-agent-studio/guide/reviewer-architecture-contract-quickstart
+product: fusion-agent-studio
+class: platform
+entry: service
+doc_type: guide
+title: {zh: 架构契约评审员快速开始, en: Reviewer: Architecture Contract Quickstart}
+audience: engineer
+status: draft
+version: 0.14.17
+updated: 2026-11-07
+owner: @dahai
+source_of_truth:
+  - docs/agents/reviewer-architecture-contract/QUICKSTART.md
+---
+
 # Quickstart — Architecture-Contract Reviewer Agent (10 minutes)
 
 ## 1. Prerequisites (2 min)

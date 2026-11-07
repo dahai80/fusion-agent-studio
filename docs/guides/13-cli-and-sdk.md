@@ -1,3 +1,19 @@
+---
+doc_id: fusion-agent-studio/guide/13-cli-and-sdk
+product: fusion-agent-studio
+class: platform
+entry: service
+doc_type: guide
+title: {zh: CLI 与 SDK, en: CLI and SDK}
+audience: engineer
+status: draft
+version: 0.14.17
+updated: 2026-11-07
+owner: @dahai
+source_of_truth:
+  - docs/guides/13-cli-and-sdk.md
+---
+
 # 13 CLI 与 TypeScript SDK
 
 本篇覆盖两个对外集成面：运维 CLI `fusion-agent`（#432）和 TypeScript SDK
