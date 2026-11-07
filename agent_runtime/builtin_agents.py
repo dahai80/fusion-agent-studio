@@ -150,6 +150,9 @@ def _create_builtin_agent(spec: dict, pkg) -> None:
         description=spec.get("description", ""),
         status=spec.get("status", "published"),
         visibility=spec.get("visibility", "public"),
+        # #636: seat packs may carry a per-agent iteration budget; 0 keeps
+        # the runtime default.
+        max_iterations=int(spec.get("max_iterations", 0) or 0),
     )
     # soul.md carries the prompt so resolve_soul_prompt() (the shared
     # execution path) picks it up; manifest keeps it too.

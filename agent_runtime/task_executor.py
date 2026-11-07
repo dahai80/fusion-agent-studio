@@ -227,6 +227,13 @@ class TaskExecutor:
         tools = meta.get("tools") or []
         if tools:
             spec["tools"] = list(tools)
+        # #636: honor the manifest's per-agent iteration budget on the
+        # subagent path too — the graph path (agent.execute) already reads
+        # max_iterations; without this, seat agents run on the 8-turn
+        # SubAgentSpec default regardless of their configured budget.
+        max_iter = int(meta.get("max_iterations", 0) or 0)
+        if max_iter > 0:
+            spec["max_turns"] = max_iter
         prompt = resolve_soul_prompt(agent_id)
         if prompt:
             spec["system_prompt"] = prompt
