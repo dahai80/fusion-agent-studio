@@ -11,7 +11,6 @@ version: 0.14.17
 updated: 2026-11-07
 owner: @dahai
 source_of_truth:
-  - CLAUDE.md
   - agent_runtime/runtime.py
   - agent_runtime/graph.py
   - agent_runtime/daemon_server.py

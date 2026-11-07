@@ -12,7 +12,6 @@ updated: 2026-11-07
 owner: @dahai
 source_of_truth:
   - start.sh
-  - CLAUDE.md
   - docs/guides/01-start-daemon.md
 ---
 
