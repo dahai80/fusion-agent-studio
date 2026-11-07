@@ -132,6 +132,17 @@ class SubAgentDispatcher(SubDispatcher):
             # #461: what actually constrained this run (post intersection).
             "effective_overrides": effective_overrides or {},
         }
+        if not report.ok and report.partial and not report.report:
+            # #640: budget exhausted with an empty report — surface the
+            # workspace root so orchestrators can recover from disk state
+            # without guessing where deliverables landed.
+            try:
+                from tools.file_tools import workspace_root
+
+                last_result["workspace_root"] = str(workspace_root())
+                last_result["recoverable"] = "workspace_state"
+            except Exception as e:
+                logger.warning("workspace_root unavailable for recovery hint: %s", e)
         if report.ok:
             ts.update_status(task_id, "completed", last_result=last_result)
         else:
