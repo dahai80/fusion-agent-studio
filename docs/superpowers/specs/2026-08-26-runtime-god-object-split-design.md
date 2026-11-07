@@ -9,7 +9,7 @@ audience: engineer
 status: draft
 version: 0.14.17
 updated: 2026-11-07
-owner: @dahai
+owner: "@dahai"
 source_of_truth:
   - docs/superpowers/specs/2026-08-26-runtime-god-object-split-design.md
 ---
