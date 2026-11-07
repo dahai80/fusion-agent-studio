@@ -222,6 +222,41 @@ def _read_mlx_own_default() -> str:
         return ""
 
 
+class _EmbeddedUvicornServer:
+    # #633: uvicorn embedded in the daemon loop must not own signals.
+    # uvicorn.Server.capture_signals() replaces SIGINT/SIGTERM handlers while
+    # serving and only re-raises them after its graceful shutdown completes —
+    # so SIGTERM first stops just the HTTP surface, and the daemon's own
+    # loop.add_signal_handler stop flow is deferred (or lost entirely while a
+    # hung in-flight request keeps graceful shutdown open). The daemon wedged
+    # in exactly that half-dead state on 2026-11-07 (HTTP dead, loop alive,
+    # heartbeats still logging). Both in-process servers use this wrapper so
+    # the daemon's run_forever handlers stay authoritative.
+    def __init__(self, config):
+        import uvicorn
+
+        self._server = uvicorn.Server(config)
+
+    @property
+    def should_exit(self) -> bool:
+        return self._server.should_exit
+
+    async def serve(self) -> None:
+        import contextlib
+
+        original = self._server.capture_signals
+
+        @contextlib.contextmanager
+        def _no_signal_capture():
+            yield
+
+        self._server.capture_signals = _no_signal_capture  # type: ignore[method-assign]
+        try:
+            await self._server.serve()
+        finally:
+            self._server.capture_signals = original  # type: ignore[method-assign]
+
+
 class DaemonServer:
     def __init__(
         self,
@@ -744,7 +779,7 @@ class DaemonServer:
                     port=self.cluster_port,
                     log_level="warning",
                 )
-                cluster_server = uvicorn.Server(config)
+                cluster_server = _EmbeddedUvicornServer(config)
                 self._cluster_task = asyncio.create_task(cluster_server.serve())
                 logger.info("Cluster API server started on port %d", self.cluster_port)
             except Exception as e:
@@ -765,7 +800,7 @@ class DaemonServer:
                     port=self.http_port,
                     log_level="warning",
                 )
-                http_server = uvicorn2.Server(http_config)
+                http_server = _EmbeddedUvicornServer(http_config)
                 self._http_task = asyncio.create_task(http_server.serve())
                 logger.info("FastAPI HTTP server started on port %d", self.http_port)
             except Exception as e:
@@ -1160,8 +1195,22 @@ class DaemonServer:
         for sig in (signal.SIGINT, signal.SIGTERM):
             loop.add_signal_handler(sig, _signal_handler)
 
-        await stop_event.wait()
-        await self.stop()
+        # #633: thread-based stall watchdog — if this loop stops servicing
+        # beats (any sync call blocking it), dump thread + task stacks to
+        # stderr so the wedge point is diagnosable without root.
+        from .loop_watchdog import LoopWatchdog, watchdog_enabled
+
+        watchdog: LoopWatchdog | None = None
+        if watchdog_enabled():
+            watchdog = LoopWatchdog(loop)
+            watchdog.start()
+
+        try:
+            await stop_event.wait()
+            await self.stop()
+        finally:
+            if watchdog is not None:
+                watchdog.stop()
 
     async def _handle_client(
         self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter

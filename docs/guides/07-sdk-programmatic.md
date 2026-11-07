@@ -1,3 +1,19 @@
+---
+doc_id: fusion-agent-studio/guide/07-sdk-programmatic
+product: fusion-agent-studio
+class: platform
+entry: service
+doc_type: guide
+title: {zh: SDK 编程接口, en: SDK Programmatic Usage}
+audience: engineer
+status: draft
+version: 0.14.17
+updated: 2026-11-07
+owner: @dahai
+source_of_truth:
+  - docs/guides/07-sdk-programmatic.md
+---
+
 # 07 程序化集成（SDK）
 
 > 场景：前面的示例都用裸 socket RPC 演示底层机制。实际写应用时，你想要个 Python SDK——能建模智能体、流式拿结果、注册自定义工具、一键脚手架。本篇讲 `agent_runtime.sdk`。

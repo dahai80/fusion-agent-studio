@@ -1,3 +1,19 @@
+---
+doc_id: fusion-agent-studio/guide/2026-08-26-runtime-god-object-split-design
+product: fusion-agent-studio
+class: platform
+entry: service
+doc_type: guide
+title: {zh: 运行时拆分设计, en: Runtime God-Object Split Design}
+audience: engineer
+status: draft
+version: 0.14.17
+updated: 2026-11-07
+owner: @dahai
+source_of_truth:
+  - docs/superpowers/specs/2026-08-26-runtime-god-object-split-design.md
+---
+
 # Design: runtime.py god-object split (audit 0826 P2-4 tech-debt)
 
 ## Context

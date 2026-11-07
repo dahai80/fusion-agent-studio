@@ -1,3 +1,19 @@
+---
+doc_id: fusion-agent-studio/readme/web
+product: fusion-agent-studio
+class: platform
+entry: service
+doc_type: readme
+title: {zh: Web 控制台说明, en: Web Console README}
+audience: engineer
+status: draft
+version: 0.14.17
+updated: 2026-11-07
+owner: @dahai
+source_of_truth:
+  - web/README.md
+---
+
 # Fusion Agent Studio — Web UI
 
 Agent workflow web application (issue #327): graph list, run submission with live

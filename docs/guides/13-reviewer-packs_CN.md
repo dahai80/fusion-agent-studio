@@ -1,3 +1,19 @@
+---
+doc_id: fusion-agent-studio/guide/13-reviewer-packs-cn
+product: fusion-agent-studio
+class: platform
+entry: service
+doc_type: guide
+title: {zh: 评审员包（中文）, en: Reviewer Packs (Chinese)}
+audience: engineer
+status: draft
+version: 0.14.17
+updated: 2026-11-07
+owner: @dahai
+source_of_truth:
+  - docs/guides/13-reviewer-packs_CN.md
+---
+
 # 指南 13 — 评审包（#549）
 
 对任意产物（设计文档 / 代码 / 规格）运行基于角色的多评审人检查 — 四个一方评审包并行执行，返回符合 schema 的结构化发现并带逐包署名。无需手写提示词。
@@ -9,7 +25,7 @@
 | `architecture-contract` | 接口一致性、数据格式漂移、跨模块边界违规、破坏性变更风险 |
 | `security` | STRIDE 攻击面排查、authn/authz 缺口、注入/SSRF/路径穿越、密钥泄露 |
 | `domain` | 领域正确性检查，支持按客户领域插拔知识笔记 |
-| `red-team` | 强制异议 — 论证产物为何会失败；必须给出最强客观发现 |
+| `red-team` | 强制异议 — 论证产物为何会失败；必须给出最有分量的客观发现 |
 
 ## 发现契约
 

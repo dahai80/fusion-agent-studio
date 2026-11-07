@@ -1,3 +1,19 @@
+---
+doc_id: fusion-agent-studio/guide/reviewer-architecture-contract-changelog
+product: fusion-agent-studio
+class: platform
+entry: service
+doc_type: changelog
+title: {zh: 架构契约评审员变更日志, en: Reviewer: Architecture Contract Changelog}
+audience: engineer
+status: draft
+version: 0.14.17
+updated: 2026-11-07
+owner: @dahai
+source_of_truth:
+  - docs/agents/reviewer-architecture-contract/CHANGELOG.md
+---
+
 # Changelog — reviewer-architecture-contract
 
 ## 1.0.0 (2026-11-04)

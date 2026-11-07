@@ -1,3 +1,19 @@
+---
+doc_id: fusion-agent-studio/guide/reviewer-red-team-quickstart
+product: fusion-agent-studio
+class: platform
+entry: service
+doc_type: guide
+title: {zh: 红队评审员快速开始, en: Reviewer: Red Team Quickstart}
+audience: engineer
+status: draft
+version: 0.14.17
+updated: 2026-11-07
+owner: @dahai
+source_of_truth:
+  - docs/agents/reviewer-red-team/QUICKSTART.md
+---
+
 # Quickstart — Red-Team Reviewer Agent (10 minutes)
 
 ## 1. Prerequisites (2 min)

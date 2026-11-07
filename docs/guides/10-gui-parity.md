@@ -1,3 +1,19 @@
+---
+doc_id: fusion-agent-studio/guide/10-gui-parity
+product: fusion-agent-studio
+class: platform
+entry: service
+doc_type: guide
+title: {zh: GUI 能力对齐, en: GUI Parity}
+audience: engineer
+status: draft
+version: 0.14.17
+updated: 2026-11-07
+owner: @dahai
+source_of_truth:
+  - docs/guides/10-gui-parity.md
+---
+
 # 10 GUI 对标三件：权限卡、思考通道、运行产物
 
 N9（#348）为 GUI 补齐三块能力：四类权限审批卡、思考通道开关、运行产物版本化三元组。三块均在 daemon / HTTP 层落地，web 端已接入；SwiftUI 端按上游 issue 推进。

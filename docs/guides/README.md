@@ -1,3 +1,19 @@
+---
+doc_id: fusion-agent-studio/guide/guides-overview
+product: fusion-agent-studio
+class: platform
+entry: service
+doc_type: guide
+title: {zh: 场景指南总览, en: Guided Tutorials Overview}
+audience: engineer
+status: draft
+version: 0.14.17
+updated: 2026-11-07
+owner: @dahai
+source_of_truth:
+  - docs/guides/README.md
+---
+
 # Fusion-MLX Agent Studio 引导式使用指南
 
 本目录是一组**场景化、引导式**使用文档，面向初次使用 fusion-agent-studio 的客户与开发者。不同于顶层 [README](../../README.md) 的"功能清单"视角，这里按**真实使用路径**组织：从启动服务到创建智能体、配置、装技能、接 MCP、触发定时任务、程序化集成、部署发布，一步步带你跑通。

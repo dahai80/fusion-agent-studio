@@ -1,3 +1,19 @@
+---
+doc_id: fusion-agent-studio/guide/12-canvas-orchestration
+product: fusion-agent-studio
+class: platform
+entry: service
+doc_type: guide
+title: {zh: 画布编排, en: Canvas Orchestration}
+audience: engineer
+status: draft
+version: 0.14.17
+updated: 2026-11-07
+owner: @dahai
+source_of_truth:
+  - docs/guides/12-canvas-orchestration.md
+---
+
 # Guide 12 — Canvas & Orchestrations
 
 Langflow-parity canvas batch (#393-#398, v0.10.0). Everything edits the single

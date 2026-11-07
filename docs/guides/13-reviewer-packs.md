@@ -1,3 +1,19 @@
+---
+doc_id: fusion-agent-studio/guide/13-reviewer-packs
+product: fusion-agent-studio
+class: platform
+entry: service
+doc_type: guide
+title: {zh: 评审员包, en: Reviewer Packs}
+audience: engineer
+status: draft
+version: 0.14.17
+updated: 2026-11-07
+owner: @dahai
+source_of_truth:
+  - docs/guides/13-reviewer-packs.md
+---
+
 # Guide 13 — Reviewer Packs (#549)
 
 Run role-based multi-reviewer passes on any artifact (design doc, code, spec) — four first-party packs execute in parallel and return schema-conforming findings with per-pack attribution. No prompt-writing required.

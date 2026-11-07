@@ -1,3 +1,19 @@
+---
+doc_id: fusion-agent-studio/readme/web
+product: fusion-agent-studio
+class: platform
+entry: service
+doc_type: readme
+title: {zh: Web 控制台说明（中文）, en: Web Console README (Chinese)}
+audience: engineer
+status: draft
+version: 0.14.17
+updated: 2026-11-07
+owner: @dahai
+source_of_truth:
+  - web/README_CN.md
+---
+
 # Fusion Agent Studio — Web UI（中文说明）
 
 Agent 工作流 Web 应用（issue #327）：图列表、带实时 SSE 流式输出的运行提交、

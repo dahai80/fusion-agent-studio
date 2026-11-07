@@ -1,3 +1,19 @@
+---
+doc_id: fusion-agent-studio/guide/reviewer-red-team-readme
+product: fusion-agent-studio
+class: platform
+entry: service
+doc_type: readme
+title: {zh: 红队评审员说明（中文）, en: Reviewer: Red Team README (Chinese)}
+audience: engineer
+status: draft
+version: 0.14.17
+updated: 2026-11-07
+owner: @dahai
+source_of_truth:
+  - docs/agents/reviewer-red-team/README_CN.md
+---
+
 # Red-Team Reviewer 智能体
 
 首个发布智能体商品族（#570）成员。能力：Mandatory dissent review: argues concretely why the artifact will fail, must produce a strongest-objective finding.
