@@ -261,7 +261,10 @@ async def _registry_loop_body(client: Any, manifest: dict[str, Any], interval: f
                 # (or static override); admin key only as last-resort fallback.
                 module_key = load_module_key()
                 beat_key = module_key or os.environ.get(MODULE_KEY_ENV, "").strip() or admin_key
-                headers = {"Authorization": f"Bearer {beat_key}", "Content-Type": "application/json"}
+                headers = {
+                    "Authorization": f"Bearer {beat_key}",
+                    "Content-Type": "application/json",
+                }
                 resp = await client.post(
                     f"{gateway}/api/v1/shell/manifests/{module_id}/heartbeat",
                     headers=headers,
@@ -277,7 +280,9 @@ async def _registry_loop_body(client: Any, manifest: dict[str, Any], interval: f
                     # WITHOUT api_key so the gateway issues an fm- key.
                     logger.warning(
                         "shell heartbeat %d (credential rejected), re-registering without api_key %s",
-                        resp.status_code, module_id)
+                        resp.status_code,
+                        module_id,
+                    )
                     registered = False
                     force_issue = True
                 elif resp.status_code != 200:
@@ -290,7 +295,13 @@ async def _registry_loop_body(client: Any, manifest: dict[str, Any], interval: f
             logger.info("shell registry loop cancelled (module=%s)", module_id)
             raise
         except Exception as e:
-            logger.warning("shell registry loop error (will retry): %s", e)
+            # #633: %s alone renders empty for several httpx/asyncio exceptions —
+            # log type + repr so heartbeat failures are diagnosable from logs.
+            logger.warning(
+                "shell registry loop error (will retry): %s: %r",
+                type(e).__name__,
+                e,
+            )
         await asyncio.sleep(interval)
 
 

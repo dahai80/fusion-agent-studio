@@ -64,9 +64,12 @@ rotate_logs() {
     rotate_log "$STDERR_LOG"
 }
 
-log_info()  { printf "\033[0;32m[INFO]\033[0m  %s\n" "$*"; }
-log_warn()  { printf "\033[0;33m[WARN]\033[0m  %s\n" "$*"; }
-log_error() { printf "\033[0;31m[ERROR]\033[0m %s\n" "$*"; }
+# #633: all script diagnostics go to stderr — callers (fusion-sv) capture
+# stderr only; stdout-side diagnostics were lost, leaving RestartFailed
+# events with empty detail.
+log_info()  { printf "\033[0;32m[INFO]\033[0m  %s\n" "$*" >&2; }
+log_warn()  { printf "\033[0;33m[WARN]\033[0m  %s\n" "$*" >&2; }
+log_error() { printf "\033[0;31m[ERROR]\033[0m %s\n" "$*" >&2; }
 
 ensure_venv() {
     if [[ -f "${VENV}/bin/activate" ]]; then
@@ -217,7 +220,7 @@ start() {
         fi
         if ! kill -0 "$pid" 2>/dev/null; then
             log_error "process exited prematurely. recent stderr:"
-            tail -n 20 "$STDERR_LOG" 2>/dev/null || true
+            tail -n 20 "$STDERR_LOG" 2>/dev/null >&2 || true
             rm -f "$PID_FILE"
             exit 1
         fi
@@ -225,7 +228,14 @@ start() {
     done
 
     log_error "timeout after ${HEALTH_WAIT}s waiting for socket. recent stderr:"
-    tail -n 20 "$STDERR_LOG" 2>/dev/null || true
+    tail -n 20 "$STDERR_LOG" 2>/dev/null >&2 || true
+    # #633: do not leave the un-healthy child running — the next restart's
+    # stop() would TERM it mid-flight (observed "Terminated: 15" race in the
+    # 2026-11-07 incident). Kill it here and clear the pid file.
+    kill "$pid" 2>/dev/null || true
+    sleep 1
+    kill -9 "$pid" 2>/dev/null || true
+    rm -f "$PID_FILE"
     exit 1
 }
 
