@@ -63,6 +63,9 @@ class TestTranscripts:
     async def test_resume_continues_with_prior_context(self):
         responses = [
             _llm_response(tool_calls=[_tc("t1", {"tag": "a"})]),
+            # #640: the partial first run now reserves a report turn, so the
+            # second response feeds that; the third still finishes the resume.
+            _llm_response(content="finished the job"),
             _llm_response(content="finished the job"),
         ]
         rt, client = _make_parent(responses, tools=_tools())

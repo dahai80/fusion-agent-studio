@@ -43,6 +43,20 @@ _CATASTROPHIC_PATTERNS = [
     re.compile(r":\(\)\s*\{\s*:\s*\|\s*:\s*&\s*\}\s*;\s*:"),
 ]
 
+# #640: host-side paths that can never resolve inside the workspace-scoped
+# container (only the session workdir is mounted at /workspace).
+_HOST_PATH_PATTERN = re.compile(
+    r"(?:/Users/\S+|/home/\S+|~/\S+|~|/app/\S+)", re.IGNORECASE
+)
+
+
+def _find_host_path(command: str) -> str:
+    # 'Shell expansions like $HOME are left alone — they may legitimately
+    # resolve to container-local paths (/root). Literal host roots
+    # (/Users, /home, /app, ~) are always unreachable in the container.
+    m = _HOST_PATH_PATTERN.search(command)
+    return m.group(0) if m else ""
+
 
 class TerminalTool(BaseTool):
     """Execute shell commands in a subprocess."""
@@ -108,6 +122,19 @@ class TerminalTool(BaseTool):
             logger.warning("workspace backend resolve failed: %s", e)
             backend = "local"
         if backend == "docker":
+            # #640: the container only mounts the session workdir at
+            # /workspace — host paths are unreachable. Fail fast with an
+            # actionable scope message instead of letting the command die
+            # inside the container with no boundary context.
+            host_path = _find_host_path(command)
+            if host_path:
+                logger.warning("terminal container blocked host path: %s", host_path)
+                return (
+                    "Error: sandboxed: workspace-scoped access only — path "
+                    f"'{host_path}' is outside the session workspace. Only the "
+                    "session workdir is mounted, at /workspace inside the "
+                    "sandbox; re-anchor your paths there."
+                )
             result = await asyncio.to_thread(
                 run_in_container,
                 ["bash", "-lc", command],
@@ -123,7 +150,11 @@ class TerminalTool(BaseTool):
                 return out if out else "Command completed (exit code 0, no output)"
             prefix = f"Error: Command exited with code {result.exit_code}"
             detail = result.stderr.strip() or result.stdout.strip()
-            return f"{prefix}:\n{detail}" if detail else prefix
+            body = f"{prefix}:\n{detail}" if detail else prefix
+            # #640: container failures are often host-path misses; always
+            # carry the scope so the agent can re-anchor without burning
+            # turns guessing the boundary.
+            return f"{body}\n[hint] sandboxed: workspace-scoped access only — the session workdir is mounted at /workspace; host paths are not reachable."
 
         try:
             proc = await asyncio.create_subprocess_shell(

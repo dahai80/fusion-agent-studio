@@ -11,6 +11,7 @@ denied by the existing E-16 depth gate.
 
 from __future__ import annotations
 
+import asyncio
 import fnmatch
 import logging
 import os
@@ -677,6 +678,13 @@ class SubAgentRunner:
                 budget.max_tokens,
             )
         partial = str(getattr(sub_ctx, "stop_reason", "") or "") == "max_iterations"
+        if partial and not report_text:
+            # #640: a run that exhausted its budget after writing
+            # deliverables to disk still loses its report — reserve one
+            # tool-free turn to emit it from workspace state.
+            recovered = await self._reserve_report_turn(spec, sub_ctx)
+            if recovered:
+                report_text = recovered
         if partial:
             logger.warning(
                 "subagent hit max_turns name=%s turns=%d max=%d, output marked partial",
@@ -713,6 +721,43 @@ class SubAgentRunner:
             team=spec.team,
             partial=partial,
         )
+
+    async def _reserve_report_turn(self, spec: SubAgentSpec, sub_ctx: AgentContext) -> str:
+        # #640: on max_iterations with an empty report, spend one final
+        # tool-free LLM turn so disk deliverables are not lost to the
+        # consumer. Best-effort: any failure returns "" and the run stays
+        # partial-with-empty-report as before.
+        gateway = getattr(self.parent_runtime, "llm_gateway", None)
+        if gateway is None:
+            logger.warning(
+                "subagent reserve report turn skipped name=%s: no gateway", spec.name
+            )
+            return ""
+        instruction = (
+            "Your turn budget is exhausted. Do NOT use any tools. From the "
+            "conversation above and the files you already wrote, produce the "
+            "final report now: what was delivered, the file paths, and any "
+            "remaining gaps. Plain text only — this is the only report the "
+            "consumer will receive."
+        )
+        messages = list(sub_ctx.messages) + [{"role": "user", "content": instruction}]
+        try:
+            from ._runtime_nodes import _llm_call_timeout
+
+            resp = await asyncio.wait_for(
+                gateway.chat(messages=messages, model=spec.model, max_tokens=2048, temperature=0.2),
+                timeout=_llm_call_timeout(),
+            )
+        except Exception as e:
+            logger.warning("subagent reserve report turn failed name=%s: %s", spec.name, e)
+            return ""
+        content = str(getattr(resp, "content", "") or "").strip()
+        if content:
+            sub_ctx.messages.append({"role": "assistant", "content": content})
+            logger.info(
+                "subagent reserve report turn name=%s report_len=%d", spec.name, len(content)
+            )
+        return content
 
     async def resume(
         self,
