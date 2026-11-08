@@ -1,0 +1,10 @@
+{
+  "_contract": "POST /v1/runs response — cowork reads run_id + status. Two shapes: with spec overrides (this fixture, spec_applied=true + effective_overrides) and plain agent_id/graph_id path ({run_id, status, deduped} only, no spec_applied).",
+  "run_id": "task-1731000000-1",
+  "status": "running",
+  "deduped": false,
+  "spec_applied": true,
+  "effective_overrides": {
+    "max_turns": 24
+  }
+}

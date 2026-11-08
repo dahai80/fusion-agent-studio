@@ -1,0 +1,32 @@
+{
+  "_contract": "Run status semantics as consumed by cowork studio_run + managed-run consumers — task-store terminal set, as#643 report-only completion, as#646 managed-run parking, budget-exhaustion marker",
+  "terminal_statuses": ["completed", "failed", "canceled"],
+  "non_terminal_statuses": ["pending", "running"],
+  "status_details": {
+    "completed": {
+      "note": "clean success; task-store runs also end completed when report-only"
+    },
+    "completed_max_turns": {
+      "status": "completed",
+      "last_result.warning": "max turns reached, report-only completion",
+      "last_result.partial": true,
+      "note": "as#643: turn exhaustion with a substantive report is a completion, not a failure"
+    },
+    "parked_managed_run": {
+      "plane": "managed SSE runs (run_registry.ManagedRun, as#646)",
+      "park_status_fields": ["parked", "parked_at", "parked_until", "park_reason", "resumes_at"],
+      "park_reason": "usage_limit",
+      "event": {
+        "type": "parked",
+        "park_reason": "usage_limit",
+        "resumes_at": "unix ts number",
+        "message": "parked — resumes at <ts>"
+      },
+      "note": "auto-resumed by ParkedRunRecovery when the window resets; 24h cap fails honestly"
+    },
+    "failed": {
+      "last_error_marker_budget_exhausted": "max iterations",
+      "note": "as#640+: empty-report exhaustion fails with enriched 'Max iterations exceeded after N/M turns' text; cowork matches case-insensitively on 'max iterations' for report-only recovery"
+    }
+  }
+}

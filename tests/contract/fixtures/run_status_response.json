@@ -1,0 +1,18 @@
+{
+  "_contract": "GET /v1/runs/{run_id} response — cowork polls status until terminal; progress/error/effective_overrides pinned",
+  "run_id": "task-1731000000-1",
+  "status": "completed",
+  "progress": {
+    "events": 12,
+    "artifact_ids": ["art-1"],
+    "retry_count": 0
+  },
+  "error": "",
+  "agent_id": "delivery-dev",
+  "graph_id": "",
+  "created_at": 1731000000.0,
+  "updated_at": 1731000060.0,
+  "effective_overrides": {
+    "max_turns": 24
+  }
+}
