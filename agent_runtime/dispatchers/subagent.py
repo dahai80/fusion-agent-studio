@@ -128,6 +128,8 @@ class SubAgentDispatcher(SubDispatcher):
             "tokens_used": report.tokens_used,
             "agent_id": report.agent_id,
             "partial": report.partial,
+            # #643: report-only completion warning (empty on clean runs).
+            "warning": getattr(report, "warning", "") or "",
             "duration_ms": report.duration_ms,
             # #461: what actually constrained this run (post intersection).
             "effective_overrides": effective_overrides or {},

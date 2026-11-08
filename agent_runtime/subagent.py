@@ -27,6 +27,10 @@ from .token_budget import TokenBudget
 
 logger = logging.getLogger(__name__)
 
+# #643: a max_turns-exhausted run whose report is at least this long is
+# judged a report-only completion (ok=True + warning), not a failure.
+_REPORT_ONLY_MIN_CHARS = 500
+
 _FORK_MESSAGE_WINDOW = 20
 _CONTROL_FLOW_TOOL_NAMES = ("register_tool", "unregister_tool")
 
@@ -120,6 +124,10 @@ class SubAgentReport:
     duration_ms: int = 0
     agent_id: str = ""
     partial: bool = False
+    # #643: set on report-only completion (max_turns exhausted but a
+    # substantive report was produced) so operators can distinguish
+    # graceful completion from true failure.
+    warning: str = ""
 
     def to_dict(self) -> dict:
         return {
@@ -133,6 +141,7 @@ class SubAgentReport:
             "duration_ms": self.duration_ms,
             "agent_id": self.agent_id,
             "partial": self.partial,
+            "warning": self.warning,
         }
 
     @classmethod
@@ -148,6 +157,7 @@ class SubAgentReport:
             duration_ms=int(data.get("duration_ms", 0)),
             agent_id=str(data.get("agent_id", "") or ""),
             partial=bool(data.get("partial", False)),
+            warning=str(data.get("warning", "") or ""),
         )
 
 
@@ -702,6 +712,22 @@ class SubAgentRunner:
                     "budget exhausted mid-work, not a content failure; "
                     "raise the agent's max_iterations or fix a turn-burning loop"
                 )
+        warning = ""
+        if partial and len(report_text) >= _REPORT_ONLY_MIN_CHARS:
+            # #643: turn-exhaustion with a substantive report is a
+            # report-only completion — the deliverable exists and is
+            # described in the transcript; judging it failed discards
+            # finished work. Keep partial=True and attach a visible
+            # warning so operators can tell this from a clean finish.
+            ok = True
+            error_text = ""
+            warning = "max turns reached, report-only completion"
+            logger.info(
+                "subagent report-only completion name=%s turns=%d report_len=%d",
+                spec.name,
+                turns,
+                len(report_text),
+            )
         logger.info(
             "subagent run done name=%s ok=%s turns=%d tokens=%d report_len=%d partial=%s",
             spec.name,
@@ -720,6 +746,7 @@ class SubAgentRunner:
             error=error_text,
             team=spec.team,
             partial=partial,
+            warning=warning,
         )
 
     async def _reserve_report_turn(self, spec: SubAgentSpec, sub_ctx: AgentContext) -> str:
