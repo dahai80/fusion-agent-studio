@@ -1,0 +1,11 @@
+{
+  "_contract": "POST /v1/graphs/{graph_id}/execute response (ExecutionResponse) — cowork _run_graph_sync reads status + events",
+  "session_id": "sess-1",
+  "status": "completed",
+  "events": [
+    {
+      "type": "node_start",
+      "node": "start"
+    }
+  ]
+}

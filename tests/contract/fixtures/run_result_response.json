@@ -1,0 +1,23 @@
+{
+  "_contract": "GET /v1/runs/{run_id}/result response — cowork reads last_error + artifacts + last_result (report/parking fields live here)",
+  "run_id": "task-1731000000-1",
+  "status": "completed",
+  "steps": [
+    {
+      "session_id": "sub-1",
+      "events": 12
+    }
+  ],
+  "artifacts": ["art-1"],
+  "logs": [],
+  "last_result": {
+    "report": "# Delivery Report",
+    "ok": true,
+    "turns": 12,
+    "tokens_used": 48211,
+    "partial": false,
+    "warning": "",
+    "error_class": ""
+  },
+  "last_error": ""
+}
