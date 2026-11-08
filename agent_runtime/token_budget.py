@@ -81,6 +81,14 @@ class TokenBudget:
             self.day_key = today
             self.day_spent_tokens = 0
 
+    def next_day_reset_at(self) -> float:
+        # #646: epoch of the next day-cap roll (local midnight) — the reset
+        # window a parked run waits out when the day budget exhausted.
+        import datetime as _dt
+
+        tomorrow = _dt.date.fromisoformat(self._today()) + _dt.timedelta(days=1)
+        return time.mktime(tomorrow.timetuple()) if self.day_max_tokens > 0 else 0.0
+
     def record_usage(
         self,
         prompt_tokens: int,
