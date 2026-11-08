@@ -7,6 +7,7 @@ fusion-mlx's engine, pool, or MLX code.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -71,6 +72,32 @@ def _normalize_usage(usage: dict) -> dict:
         if isinstance(details, dict) and details.get("reasoning_tokens"):
             out["reasoning_tokens"] = details["reasoning_tokens"]
     return out
+
+
+def _llm_retry_config() -> tuple[int, float]:
+    # #649: transient 5xx / connection resets used to kill pipeline nodes
+    # on a single 503 even though the backend recovered seconds later.
+    # FUSION_LLM_RETRY_MAX = total attempts (default 3), FUSION_LLM_RETRY_BACKOFF
+    # = base seconds (default 2.0); delay = base * 4**attempt (2s/8s/32s).
+    try:
+        attempts = int(os.environ.get("FUSION_LLM_RETRY_MAX", "3"))
+    except ValueError:
+        attempts = 3
+    try:
+        base = float(os.environ.get("FUSION_LLM_RETRY_BACKOFF", "2.0"))
+    except ValueError:
+        base = 2.0
+    return max(1, attempts), max(0.0, base)
+
+
+def _is_retryable_llm_error(exc: Exception) -> bool:
+    # 4xx (auth/validation) fails fast — retrying can never succeed.
+    # 5xx and transport errors (connection reset/timeout) are transient.
+    if isinstance(exc, httpx.TransportError):
+        return True
+    if isinstance(exc, httpx.HTTPStatusError):
+        return exc.response.status_code >= 500
+    return False
 
 
 @dataclass
@@ -170,8 +197,29 @@ class FusionMLXClient:
             payload["tools"] = tools
         payload.update(kwargs)
 
-        resp = await self.client.post("/chat/completions", json=payload)
-        resp.raise_for_status()
+        # #649: retry transient 5xx / transport errors with exponential
+        # backoff; 4xx fails fast. Every retry is logged with attempt
+        # count + upstream so failures stay diagnosable.
+        attempts, backoff = _llm_retry_config()
+        for attempt in range(attempts):
+            try:
+                resp = await self.client.post("/chat/completions", json=payload)
+                resp.raise_for_status()
+                break
+            except Exception as e:
+                if not _is_retryable_llm_error(e) or attempt == attempts - 1:
+                    if attempt > 0:
+                        logger.error(
+                            "LLM call failed after %d attempts upstream=%s err=%s",
+                            attempt + 1, self.base_url, e,
+                        )
+                    raise
+                delay = backoff * (4 ** attempt)
+                logger.warning(
+                    "LLM call retry attempt=%d/%d upstream=%s err=%s next_in=%.1fs",
+                    attempt + 1, attempts, self.base_url, e, delay,
+                )
+                await asyncio.sleep(delay)
         data = resp.json()
 
         # Gateway/mlx can return 200 with an error envelope or "choices": null
@@ -288,36 +336,61 @@ class FusionMLXClient:
         payload.update(kwargs)
         payload.setdefault("stream_options", {"include_usage": True})
 
-        async with self.client.stream(
-            "POST", "/chat/completions", json=payload
-        ) as response:
-            response.raise_for_status()
-            async for line in response.aiter_lines():
-                if not line.startswith("data: "):
-                    continue
-                data_str = line[6:]
-                if data_str.strip() == "[DONE]":
-                    break
-                try:
-                    data = json.loads(data_str)
-                except json.JSONDecodeError:
-                    logger.warning("Failed to parse SSE chunk: %s", data_str[:100])
-                    continue
-
-                choices = data.get("choices") or [{}]
-                choice = choices[0]
-                delta = choice.get("delta") or {}
-                finish_reason = choice.get("finish_reason")
-                usage = data.get("usage")
-
-                chunk = StreamChunk(
-                    delta_content=delta.get("content") or "",
-                    delta_tool_calls=delta.get("tool_calls") or [],
-                    finish_reason=finish_reason,
-                    usage=_normalize_usage(usage or {}),
-                    delta_reasoning=_reasoning_delta(delta),
+        # #649: retry the stream-open only (before the first chunk) —
+        # once tokens flow, a retry would duplicate output.
+        attempts, backoff = _llm_retry_config()
+        for attempt in range(attempts):
+            try:
+                stream_cm = self.client.stream(
+                    "POST", "/chat/completions", json=payload
                 )
-                yield chunk
+                response = await stream_cm.__aenter__()
+                response.raise_for_status()
+                break
+            except Exception as e:
+                if not _is_retryable_llm_error(e) or attempt == attempts - 1:
+                    if attempt > 0:
+                        logger.error(
+                            "LLM stream open failed after %d attempts upstream=%s err=%s",
+                            attempt + 1, self.base_url, e,
+                        )
+                    raise
+                delay = backoff * (4 ** attempt)
+                logger.warning(
+                    "LLM stream open retry attempt=%d/%d upstream=%s err=%s next_in=%.1fs",
+                    attempt + 1, attempts, self.base_url, e, delay,
+                )
+                await asyncio.sleep(delay)
+
+        try:
+            async for line in response.aiter_lines():
+                    if not line.startswith("data: "):
+                        continue
+                    data_str = line[6:]
+                    if data_str.strip() == "[DONE]":
+                        break
+                    try:
+                        data = json.loads(data_str)
+                    except json.JSONDecodeError:
+                        logger.warning("Failed to parse SSE chunk: %s", data_str[:100])
+                        continue
+
+                    choices = data.get("choices") or [{}]
+                    choice = choices[0]
+                    delta = choice.get("delta") or {}
+                    finish_reason = choice.get("finish_reason")
+                    usage = data.get("usage")
+
+                    chunk = StreamChunk(
+                        delta_content=delta.get("content") or "",
+                        delta_tool_calls=delta.get("tool_calls") or [],
+                        finish_reason=finish_reason,
+                        usage=_normalize_usage(usage or {}),
+                        delta_reasoning=_reasoning_delta(delta),
+                    )
+                    yield chunk
+        finally:
+            await stream_cm.__aexit__(None, None, None)
 
     async def get_agent_session(self, session_id: str) -> dict[str, Any]:
         """Get an existing agent session's state via OpenClaw protocol."""
