@@ -1,0 +1,10 @@
+{
+  "_contract": "POST /v1/runs request body — as sent by fusion-cowork studio_run nodes (single source of truth; cowork pack consumes the same file)",
+  "goal": "deliver the thing",
+  "agent_id": "delivery-dev",
+  "title": "r37 n3",
+  "idempotency_key": "run-abc-node-3",
+  "spec": {
+    "max_turns": 24
+  }
+}

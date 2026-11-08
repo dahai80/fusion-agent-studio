@@ -1,0 +1,5 @@
+{
+  "_contract": "POST /v1/graphs/{graph_id}/execute request body — graph_id in body is MANDATORY even though redundant with the path (cow#135 F-1: missing -> 422)",
+  "graph_id": "graph-1",
+  "input_text": "deliver the thing"
+}
