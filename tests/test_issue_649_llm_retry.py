@@ -12,9 +12,7 @@ from server.fusion_mlx_client import FusionMLXClient
 
 def _client(handler) -> FusionMLXClient:
     c = FusionMLXClient(base_url="http://test:11432/v1", api_key="k")
-    c._client = httpx.AsyncClient(
-        transport=httpx.MockTransport(handler), base_url=c.base_url
-    )
+    c._client = httpx.AsyncClient(transport=httpx.MockTransport(handler), base_url=c.base_url)
     return c
 
 
@@ -95,13 +93,31 @@ async def test_connection_reset_retried():
 
 
 def test_retry_env_override(monkeypatch):
+    # #13: config projects onto the kernel-owned RetryPolicy type
     from server.fusion_mlx_client import _llm_retry_config
 
     monkeypatch.setenv("FUSION_LLM_RETRY_MAX", "5")
     monkeypatch.setenv("FUSION_LLM_RETRY_BACKOFF", "1.5")
-    assert _llm_retry_config() == (5, 1.5)
+    policy = _llm_retry_config()
+    assert policy.attempts == 5 and policy.base_backoff == 1.5
+    assert policy.multiplier == 4.0 and policy.max_backoff == 32.0
     monkeypatch.setenv("FUSION_LLM_RETRY_MAX", "bogus")
-    assert _llm_retry_config()[0] >= 1
+    assert _llm_retry_config().attempts >= 1
+
+
+def test_deadline_default_from_env(monkeypatch):
+    # #13: LLM deadline declared once, env-overridable (as#615)
+    from server.fusion_mlx_client import _llm_deadline_seconds
+
+    monkeypatch.setenv("FUSION_LLM_DEADLINE_S", "45")
+    assert _llm_deadline_seconds() == 45.0
+    monkeypatch.setenv("FUSION_LLM_DEADLINE_S", "bogus")
+    assert _llm_deadline_seconds() == 120.0
+    # explicit constructor arg still wins over env
+    c = FusionMLXClient(timeout=7.0)
+    assert c.timeout == 7.0
+    c2 = FusionMLXClient(api_key="")
+    assert c2.timeout == 120.0
 
 
 def test_4xx_not_retryable():
