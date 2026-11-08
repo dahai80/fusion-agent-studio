@@ -19,6 +19,10 @@ import httpx
 # #509: single-point key resolution per config-conventions (fusion-core).
 from fusion_core.config import client_key
 
+# #13: retry policy type owned by the fusion-harness kernel (spec
+# verification-infra-1108 §3.4) — this module projects env config onto it.
+from fusion_harness import RetryPolicy
+
 logger = logging.getLogger(__name__)
 
 
@@ -29,10 +33,12 @@ class LLMResponse:
     content: str
     tool_calls: list[dict] = field(default_factory=list)
     finish_reason: str = "stop"
-    usage: dict = field(default_factory=lambda: {
-        "prompt_tokens": 0,
-        "completion_tokens": 0,
-    })
+    usage: dict = field(
+        default_factory=lambda: {
+            "prompt_tokens": 0,
+            "completion_tokens": 0,
+        }
+    )
     reasoning: str = ""
 
 
@@ -74,11 +80,24 @@ def _normalize_usage(usage: dict) -> dict:
     return out
 
 
-def _llm_retry_config() -> tuple[int, float]:
+def _llm_deadline_seconds() -> float:
+    # #13/as#615: the LLM deadline is declared once at this caller layer
+    # (FUSION_LLM_DEADLINE_S, default 120s) instead of hardcoded per call
+    # site — no callee may add a private wrapper timeout on top.
+    try:
+        return float(os.environ.get("FUSION_LLM_DEADLINE_S", "120"))
+    except ValueError:
+        return 120.0
+
+
+def _llm_retry_config() -> RetryPolicy:
     # #649: transient 5xx / connection resets used to kill pipeline nodes
     # on a single 503 even though the backend recovered seconds later.
-    # FUSION_LLM_RETRY_MAX = total attempts (default 3), FUSION_LLM_RETRY_BACKOFF
-    # = base seconds (default 2.0); delay = base * 4**attempt (2s/8s/32s).
+    # Kernel-owned RetryPolicy (#13): FUSION_LLM_RETRY_MAX = total attempts
+    # (default 3), FUSION_LLM_RETRY_BACKOFF = base seconds (default 2.0);
+    # delay = base * multiplier**attempt (2s/8s/32s), capped at max_backoff.
+    # The classifier stays local (httpx types are not stdlib — kernel
+    # accepts a custom retryable callable by design).
     try:
         attempts = int(os.environ.get("FUSION_LLM_RETRY_MAX", "3"))
     except ValueError:
@@ -87,7 +106,12 @@ def _llm_retry_config() -> tuple[int, float]:
         base = float(os.environ.get("FUSION_LLM_RETRY_BACKOFF", "2.0"))
     except ValueError:
         base = 2.0
-    return max(1, attempts), max(0.0, base)
+    return RetryPolicy(
+        attempts=max(1, attempts),
+        base_backoff=max(0.0, base),
+        multiplier=4.0,
+        max_backoff=32.0,
+    )
 
 
 def _is_retryable_llm_error(exc: Exception) -> bool:
@@ -133,7 +157,7 @@ class FusionMLXClient:
             f"http://localhost:{os.environ.get('FUSION_MLX_PORT', '11432')}/v1",
         ),
         api_key: str | None = None,
-        timeout: float = 120.0,
+        timeout: float | None = None,
     ):
         if not base_url.rstrip("/").endswith("/v1"):
             base_url = base_url.rstrip("/") + "/v1"
@@ -144,7 +168,8 @@ class FusionMLXClient:
         if api_key is None:
             api_key = client_key() or "local"
         self.api_key = api_key
-        self.timeout = timeout
+        # #13: deadline declared once — default from FUSION_LLM_DEADLINE_S
+        self.timeout = timeout if timeout is not None else _llm_deadline_seconds()
         self._client: httpx.AsyncClient | None = None
 
     @property
@@ -198,26 +223,37 @@ class FusionMLXClient:
         payload.update(kwargs)
 
         # #649: retry transient 5xx / transport errors with exponential
-        # backoff; 4xx fails fast. Every retry is logged with attempt
-        # count + upstream so failures stay diagnosable.
-        attempts, backoff = _llm_retry_config()
-        for attempt in range(attempts):
+        # backoff; 4xx fails fast. Policy type owned by the kernel (#13) —
+        # the loop is async-local because the harness executor is sync.
+        # Every retry is logged with attempt count + upstream so failures
+        # stay diagnosable.
+        policy = _llm_retry_config()
+        for attempt in range(policy.attempts):
             try:
                 resp = await self.client.post("/chat/completions", json=payload)
                 resp.raise_for_status()
                 break
             except Exception as e:
-                if not _is_retryable_llm_error(e) or attempt == attempts - 1:
+                if not _is_retryable_llm_error(e) or attempt == policy.attempts - 1:
                     if attempt > 0:
                         logger.error(
                             "LLM call failed after %d attempts upstream=%s err=%s",
-                            attempt + 1, self.base_url, e,
+                            attempt + 1,
+                            self.base_url,
+                            e,
                         )
                     raise
-                delay = backoff * (4 ** attempt)
+                delay = min(
+                    policy.base_backoff * (policy.multiplier**attempt),
+                    policy.max_backoff,
+                )
                 logger.warning(
                     "LLM call retry attempt=%d/%d upstream=%s err=%s next_in=%.1fs",
-                    attempt + 1, attempts, self.base_url, e, delay,
+                    attempt + 1,
+                    policy.attempts,
+                    self.base_url,
+                    e,
+                    delay,
                 )
                 await asyncio.sleep(delay)
         data = resp.json()
@@ -337,58 +373,66 @@ class FusionMLXClient:
         payload.setdefault("stream_options", {"include_usage": True})
 
         # #649: retry the stream-open only (before the first chunk) —
-        # once tokens flow, a retry would duplicate output.
-        attempts, backoff = _llm_retry_config()
-        for attempt in range(attempts):
+        # once tokens flow, a retry would duplicate output. Kernel-owned
+        # policy type (#13).
+        policy = _llm_retry_config()
+        for attempt in range(policy.attempts):
             try:
-                stream_cm = self.client.stream(
-                    "POST", "/chat/completions", json=payload
-                )
+                stream_cm = self.client.stream("POST", "/chat/completions", json=payload)
                 response = await stream_cm.__aenter__()
                 response.raise_for_status()
                 break
             except Exception as e:
-                if not _is_retryable_llm_error(e) or attempt == attempts - 1:
+                if not _is_retryable_llm_error(e) or attempt == policy.attempts - 1:
                     if attempt > 0:
                         logger.error(
                             "LLM stream open failed after %d attempts upstream=%s err=%s",
-                            attempt + 1, self.base_url, e,
+                            attempt + 1,
+                            self.base_url,
+                            e,
                         )
                     raise
-                delay = backoff * (4 ** attempt)
+                delay = min(
+                    policy.base_backoff * (policy.multiplier**attempt),
+                    policy.max_backoff,
+                )
                 logger.warning(
                     "LLM stream open retry attempt=%d/%d upstream=%s err=%s next_in=%.1fs",
-                    attempt + 1, attempts, self.base_url, e, delay,
+                    attempt + 1,
+                    policy.attempts,
+                    self.base_url,
+                    e,
+                    delay,
                 )
                 await asyncio.sleep(delay)
 
         try:
             async for line in response.aiter_lines():
-                    if not line.startswith("data: "):
-                        continue
-                    data_str = line[6:]
-                    if data_str.strip() == "[DONE]":
-                        break
-                    try:
-                        data = json.loads(data_str)
-                    except json.JSONDecodeError:
-                        logger.warning("Failed to parse SSE chunk: %s", data_str[:100])
-                        continue
+                if not line.startswith("data: "):
+                    continue
+                data_str = line[6:]
+                if data_str.strip() == "[DONE]":
+                    break
+                try:
+                    data = json.loads(data_str)
+                except json.JSONDecodeError:
+                    logger.warning("Failed to parse SSE chunk: %s", data_str[:100])
+                    continue
 
-                    choices = data.get("choices") or [{}]
-                    choice = choices[0]
-                    delta = choice.get("delta") or {}
-                    finish_reason = choice.get("finish_reason")
-                    usage = data.get("usage")
+                choices = data.get("choices") or [{}]
+                choice = choices[0]
+                delta = choice.get("delta") or {}
+                finish_reason = choice.get("finish_reason")
+                usage = data.get("usage")
 
-                    chunk = StreamChunk(
-                        delta_content=delta.get("content") or "",
-                        delta_tool_calls=delta.get("tool_calls") or [],
-                        finish_reason=finish_reason,
-                        usage=_normalize_usage(usage or {}),
-                        delta_reasoning=_reasoning_delta(delta),
-                    )
-                    yield chunk
+                chunk = StreamChunk(
+                    delta_content=delta.get("content") or "",
+                    delta_tool_calls=delta.get("tool_calls") or [],
+                    finish_reason=finish_reason,
+                    usage=_normalize_usage(usage or {}),
+                    delta_reasoning=_reasoning_delta(delta),
+                )
+                yield chunk
         finally:
             await stream_cm.__aexit__(None, None, None)
 
@@ -452,11 +496,13 @@ class FusionMLXClient:
         tools = []
         tool_list = data if isinstance(data, list) else data.get("tools", [])
         for t in tool_list:
-            tools.append(MCPTool(
-                name=t.get("name", ""),
-                description=t.get("description", ""),
-                input_schema=t.get("input_schema", t.get("parameters", {})),
-            ))
+            tools.append(
+                MCPTool(
+                    name=t.get("name", ""),
+                    description=t.get("description", ""),
+                    input_schema=t.get("input_schema", t.get("parameters", {})),
+                )
+            )
         return tools
 
     async def mcp_call_tool(
@@ -522,17 +568,17 @@ class FusionMLXClient:
         resources = []
         res_list = data if isinstance(data, list) else data.get("resources", [])
         for r in res_list:
-            resources.append(MCPResource(
-                uri=r.get("uri", ""),
-                name=r.get("name", ""),
-                description=r.get("description", ""),
-                mime_type=r.get("mime_type", ""),
-            ))
+            resources.append(
+                MCPResource(
+                    uri=r.get("uri", ""),
+                    name=r.get("name", ""),
+                    description=r.get("description", ""),
+                    mime_type=r.get("mime_type", ""),
+                )
+            )
         return resources
 
-    async def mcp_read_resource(
-        self, uri: str, server_name: str = ""
-    ) -> dict[str, Any]:
+    async def mcp_read_resource(self, uri: str, server_name: str = "") -> dict[str, Any]:
         """Read an MCP resource through fusion-mlx.
 
         Args:
