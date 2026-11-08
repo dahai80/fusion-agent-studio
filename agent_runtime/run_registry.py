@@ -31,6 +31,36 @@ class ManagedRun:
         self.cancelled = False
         self.done = False
         self.created_at = time.time()
+        # #646: parked state — quota/budget exhaustion parks the run for
+        # auto-resume instead of ending it failed. resume_request carries
+        # what the api layer needs to re-launch (graph_id/input/thinking).
+        self.parked = False
+        self.parked_at: float = 0.0
+        self.parked_until: float = 0.0
+        self.park_reason: str = ""
+        self.resume_request: dict | None = None
+
+    def park(self, reset_at: float, reason: str, resume_request: dict | None = None):
+        import logging as _logging
+
+        _logging.getLogger(__name__).info(
+            "run parked id=%s until=%.0f reason=%s", self.run_id, reset_at, reason
+        )
+        self.parked = True
+        self.parked_at = time.time()
+        self.parked_until = float(reset_at)
+        self.park_reason = reason
+        self.resume_request = resume_request or {}
+        self.done = False
+
+    def park_status(self) -> dict:
+        return {
+            "parked": self.parked,
+            "parked_at": self.parked_at,
+            "parked_until": self.parked_until,
+            "park_reason": self.park_reason,
+            "resumes_at": self.parked_until if self.parked else 0,
+        }
 
     def publish(self, frame: dict):
         # monotonic seq — survives buffer trimming, keeps resume semantics sane
@@ -84,3 +114,8 @@ class RunRegistry:
             run.task.cancel()
             logger.info("managed run canceled %s", run_id)
         return True
+
+    def all_runs(self) -> list[ManagedRun]:
+        # #646: recovery worker iterates every known run (parked filter is
+        # the worker's job).
+        return list(self._runs.values())

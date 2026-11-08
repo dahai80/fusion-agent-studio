@@ -2522,6 +2522,38 @@ async def v1_execute_graph_stream(
 
             registry = RunRegistry()
             app.state.run_registry = registry
+        # #646: parked-run recovery — one background worker per process;
+        # resume rebuilds the graph from the store and re-pumps the SAME
+        # ManagedRun so SSE resume (seq replay) keeps working.
+        if getattr(app.state, "parked_recovery", None) is None:
+            from agent_runtime.parked_runs import ParkedRunRecovery
+
+            def _resume_parked(parked_run):
+                req = parked_run.resume_request or {}
+                g = _get_store().load_graph(req.get("graph_id") or parked_run.graph_id)
+                if g is None:
+                    logger.error(
+                        "parked resume graph missing run=%s graph=%s",
+                        parked_run.run_id,
+                        req.get("graph_id"),
+                    )
+                    parked_run.publish({"type": "error", "message": "resume graph missing"})
+                    parked_run.done = True
+                    return
+                d = _daemon
+                parked_run.task = asyncio.create_task(
+                    _execute_managed_run(
+                        parked_run, rt, g, req.get("input", ""),
+                        budget=d.token_budget_ref if d is not None else None,
+                        sem=d.graph_semaphore if d is not None else None,
+                        thinking=bool(req.get("thinking", True)),
+                        daemon=d,
+                    )
+                )
+
+            recovery = ParkedRunRecovery(registry, _resume_parked)
+            recovery.start()
+            app.state.parked_recovery = recovery
         run = registry.create(graph_id)
         run.task = asyncio.create_task(
             _execute_managed_run(
@@ -2599,6 +2631,11 @@ async def _execute_managed_run(
                         event.to_dict() if hasattr(event, "to_dict") else {"type": str(event)}
                     )
                     run.publish(ev_dict)
+                    if ev_dict.get("type") == "token_budget_exceeded":
+                        # #646: budget exhaustion is a parkable usage_limit
+                        # stop, not a content failure — the finally block
+                        # parks the run for auto-resume instead of failing.
+                        run.publish({"type": "usage_limit", "message": "token budget exhausted"})
                     if (
                         stop_after
                         and ev_dict.get("node_id") == stop_after
@@ -2626,6 +2663,32 @@ async def _execute_managed_run(
     finally:
         if _unreg is not None:
             _unreg()
+        if any(f.get("type") == "usage_limit" for f in run.buffer):
+            # #646: park — persist reset window + resume request, surface
+            # "parked — resumes at <ts>" instead of a generic failure.
+            from agent_runtime.parked_runs import ParkedRunStore, compute_reset_at
+
+            reset_at = compute_reset_at(budget, time.time())
+            run.park(reset_at, "usage_limit", {"graph_id": graph.id, "input": input, "thinking": thinking})
+            ParkedRunStore().upsert(
+                {
+                    "run_id": run.run_id,
+                    "graph_id": graph.id,
+                    "parked_at": run.parked_at,
+                    "parked_until": run.parked_until,
+                    "park_reason": run.park_reason,
+                }
+            )
+            run.publish(
+                {
+                    "type": "parked",
+                    "park_reason": "usage_limit",
+                    "resumes_at": reset_at,
+                    "message": f"parked — resumes at {reset_at:.0f}",
+                }
+            )
+            logger.info("managed run parked run=%s resumes_at=%.0f", run.run_id, reset_at)
+            return
         run.done = True
         if not run.buffer or run.buffer[-1].get("type") != "done":
             run.publish({"type": "done"})
@@ -2662,6 +2725,31 @@ async def v1_cancel_graph_stream(graph_id: str, run_id: str):
     registry.cancel(run_id)
     logger.info("SSE run cancel requested run=%s graph=%s", run_id, graph_id)
     return {"ok": True, "run_id": run_id, "cancelled": True}
+
+
+@app.get(
+    "/v1/graphs/{graph_id}/execute/stream/{run_id}/status",
+    dependencies=[Depends(_require_auth_qs_or_raise)],
+)
+async def v1_graph_stream_run_status(graph_id: str, run_id: str):
+    # #646: managed-run status — parked runs surface "parked — resumes at
+    # <ts>" instead of a generic failure; recovery state is machine-readable.
+    registry = getattr(app.state, "run_registry", None)
+    run = registry.get(run_id) if registry is not None else None
+    if run is None or run.graph_id != graph_id:
+        raise_api_error(ErrorCode.AGENT_NOT_FOUND, param="run_id")
+    status = "parked" if run.parked else ("done" if run.done else "running")
+    if run.cancelled:
+        status = "cancelled"
+    return {
+        "run_id": run.run_id,
+        "graph_id": run.graph_id,
+        "status": status,
+        "done": run.done,
+        "park_reason": run.park_reason if run.parked else "",
+        "resumes_at": run.parked_until if run.parked else 0,
+        "last_seq": run._next_seq - 1,
+    }
 
 
 @app.get(
