@@ -157,7 +157,10 @@ class FlowDispatcher:
     def _builtin_templates(self) -> list[dict]:
         from agent_runtime.templates import TemplateManager, register_plan_templates
 
-        if TemplateManager.count() == 0:
+        # Seed on the plan-template sentinel, not count()==0: other paths
+        # (e.g. register_default_templates) may have already populated the
+        # global manager, and skipping then left the #558 set missing.
+        if not TemplateManager.has("basic-llm-prompt"):
             register_plan_templates()
         return TemplateManager.list()
 
@@ -218,7 +221,7 @@ class FlowDispatcher:
                 return {"error": "name or flow_id required"}
             from agent_runtime.templates import TemplateManager, register_plan_templates
 
-            if TemplateManager.count() == 0:
+            if not TemplateManager.has("basic-llm-prompt"):
                 register_plan_templates()
             try:
                 graph = TemplateManager.get(name)
