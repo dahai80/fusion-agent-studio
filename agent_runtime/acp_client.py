@@ -189,8 +189,14 @@ async def run_acp_prompt(
             new = await asyncio.wait_for(conn.new_session(cwd=workdir), timeout)
             session_id = new.session_id
             logger.info("acp session opened: %s", session_id)
+            # acp package versions disagree on the helper (CI resolved a
+            # release without text_block) — fall back to the raw block shape.
+            if hasattr(acp, "text_block"):
+                block = acp.text_block(prompt)
+            else:
+                block = {"type": "text", "text": prompt}
             resp = await asyncio.wait_for(
-                conn.prompt(session_id, [acp.text_block(prompt)]), timeout
+                conn.prompt(session_id, [block]), timeout
             )
             try:
                 await asyncio.wait_for(conn.close_session(session_id), timeout=10.0)
