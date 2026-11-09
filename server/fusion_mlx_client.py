@@ -11,6 +11,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 from dataclasses import dataclass, field
 from typing import Any, AsyncIterator
 
@@ -124,6 +125,35 @@ def _is_retryable_llm_error(exc: Exception) -> bool:
     return False
 
 
+_SECRET_RE = re.compile(
+    r"(sk-[A-Za-z0-9_-]{8,}|Bearer\s+[A-Za-z0-9._-]{8,}"
+    r"|(?i:(api[_-]?key|authorization|access[_-]?token)[\"']?\s*[:=]\s*[\"']?[^\"',\s}]+))"
+)
+
+
+def _mask_secrets(text: str) -> str:
+    # #657: log bodies must never carry credential-looking substrings.
+    return _SECRET_RE.sub("<masked>", text)
+
+
+def _llm_err_detail(exc: Exception) -> str:
+    # #657: err= empty string made failures undiagnosable (F4 fake-honesty).
+    # str(TimeoutError()) and some httpx timeouts are "" — always fall back
+    # to repr, then <unknown>. HTTP errors carry status + body head so the
+    # gateway auth_error body ("Missing API key") lands in the log.
+    if isinstance(exc, httpx.HTTPStatusError):
+        body = ""
+        try:
+            body = exc.response.text[:200]
+        except Exception:
+            body = "<body unreadable>"
+        detail = f"HTTP {exc.response.status_code} body={body}"
+    else:
+        detail = str(exc) or repr(exc)
+    detail = _mask_secrets(detail).replace("\n", " ").strip()
+    return detail or "<unknown>"
+
+
 @dataclass
 class MCPTool:
     """An MCP tool definition discovered from a server."""
@@ -235,13 +265,14 @@ class FusionMLXClient:
                 break
             except Exception as e:
                 if not _is_retryable_llm_error(e) or attempt == policy.attempts - 1:
-                    if attempt > 0:
-                        logger.error(
-                            "LLM call failed after %d attempts upstream=%s err=%s",
-                            attempt + 1,
-                            self.base_url,
-                            e,
-                        )
+                    # #657: log on every final failure (4xx fail-fast too) —
+                    # a silent raise hid the gateway auth_error body.
+                    logger.error(
+                        "LLM call failed after %d attempts upstream=%s err=%s",
+                        attempt + 1,
+                        self.base_url,
+                        _llm_err_detail(e),
+                    )
                     raise
                 delay = min(
                     policy.base_backoff * (policy.multiplier**attempt),
@@ -252,7 +283,7 @@ class FusionMLXClient:
                     attempt + 1,
                     policy.attempts,
                     self.base_url,
-                    e,
+                    _llm_err_detail(e),
                     delay,
                 )
                 await asyncio.sleep(delay)
@@ -384,13 +415,12 @@ class FusionMLXClient:
                 break
             except Exception as e:
                 if not _is_retryable_llm_error(e) or attempt == policy.attempts - 1:
-                    if attempt > 0:
-                        logger.error(
-                            "LLM stream open failed after %d attempts upstream=%s err=%s",
-                            attempt + 1,
-                            self.base_url,
-                            e,
-                        )
+                    logger.error(
+                        "LLM stream open failed after %d attempts upstream=%s err=%s",
+                        attempt + 1,
+                        self.base_url,
+                        _llm_err_detail(e),
+                    )
                     raise
                 delay = min(
                     policy.base_backoff * (policy.multiplier**attempt),
@@ -401,7 +431,7 @@ class FusionMLXClient:
                     attempt + 1,
                     policy.attempts,
                     self.base_url,
-                    e,
+                    _llm_err_detail(e),
                     delay,
                 )
                 await asyncio.sleep(delay)
