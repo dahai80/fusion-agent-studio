@@ -207,6 +207,10 @@ start() {
         source "${HOME}/.fusion-agent-studio/env.local"
         set +a
     fi
+    #664: seat agents generating long documents on ~20 tok/s local models
+    # need multi-minute LLM calls; keep a persistent home for the per-call
+    # timeout so supervisor auto-recovery respawns (clean env) keep it.
+    export FUSION_LLM_TIMEOUT="${FUSION_LLM_TIMEOUT:-900}"
     nohup python3 -m agent_runtime.daemon_server >> "$STDOUT_LOG" 2>> "$STDERR_LOG" &
     local pid=$!
     echo "$pid" > "$PID_FILE"

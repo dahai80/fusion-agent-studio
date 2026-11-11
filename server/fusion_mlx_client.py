@@ -83,12 +83,21 @@ def _normalize_usage(usage: dict) -> dict:
 
 def _llm_deadline_seconds() -> float:
     # #13/as#615: the LLM deadline is declared once at this caller layer
-    # (FUSION_LLM_DEADLINE_S, default 120s) instead of hardcoded per call
-    # site — no callee may add a private wrapper timeout on top.
-    try:
-        return float(os.environ.get("FUSION_LLM_DEADLINE_S", "120"))
-    except ValueError:
-        return 120.0
+    # (FUSION_LLM_DEADLINE_S) instead of hardcoded per call site — no callee
+    # may add a private wrapper timeout on top. #664: fallback order is
+    # FUSION_LLM_DEADLINE_S > FUSION_LLM_TIMEOUT > 900s — the inner HTTP
+    # deadline must never undercut the outer per-call wait (previously 120s
+    # default killed seat-agent long-document calls before the 600s env
+    # override on the outer wait could take effect).
+    for name in ("FUSION_LLM_DEADLINE_S", "FUSION_LLM_TIMEOUT"):
+        raw = os.environ.get(name, "").strip()
+        if not raw:
+            continue
+        try:
+            return float(raw)
+        except ValueError:
+            logger.warning("invalid %s=%r, ignoring", name, raw)
+    return 900.0
 
 
 def _llm_retry_config() -> RetryPolicy:
