@@ -201,11 +201,21 @@ def authenticate_rpc(
     return True, claims, None
 
 
-def auth_login(params: dict[str, Any], base_dir: str | Path) -> dict[str, Any]:
+def auth_login(
+    params: dict[str, Any],
+    base_dir: str | Path,
+    apikey_dir: str | Path | None = None,
+) -> dict[str, Any]:
     """auth.login handler: exchange a daemon API key for a local JWT.
 
     Identity mode refuses — clients log in through fusion-identity and inject
     that jwt directly; this endpoint is the local-mode bootstrap only.
+
+    #661: keys issued by apikey.loopback_create live in the canonical
+    apikeys/ subdir (the daemon's _get_apikey_manager base), not the root
+    index this function used to read — pass apikey_dir to validate against
+    the same store. base_dir stays the fallback (legacy root keys) and owns
+    the JWT secret either way.
     """
     from .identity_integration import is_identity_enabled
 
@@ -226,8 +236,13 @@ def auth_login(params: dict[str, Any], base_dir: str | Path) -> dict[str, Any]:
     else:
         from .apikey_manager import ApiKeyManager
 
-        mgr = ApiKeyManager(base_dir)
-        result = mgr.validate(apikey)
+        result: dict[str, Any] = {}
+        if apikey_dir is not None:
+            # #661: canonical store first (same dir loopback_create writes).
+            result = ApiKeyManager(apikey_dir).validate(apikey)
+        if not result.get("valid"):
+            # Fallback: legacy root index (pre-subdir keys, existing tests).
+            result = ApiKeyManager(base_dir).validate(apikey)
         if not result.get("valid"):
             raise RpcAuthError(f"invalid apikey: {result.get('reason', 'rejected')}")
         key_id = str(result.get("key_id", "apikey"))
