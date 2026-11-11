@@ -38,7 +38,7 @@ class TestFusionMLXClient:
         client = mod.FusionMLXClient()
         assert client.base_url == "http://localhost:11432/v1"
         assert client.api_key == "local"
-        assert client.timeout == 120.0
+        assert client.timeout == 900.0
 
     def test_init_custom(self):
         client = FusionMLXClient(

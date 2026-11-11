@@ -112,12 +112,13 @@ def test_deadline_default_from_env(monkeypatch):
     monkeypatch.setenv("FUSION_LLM_DEADLINE_S", "45")
     assert _llm_deadline_seconds() == 45.0
     monkeypatch.setenv("FUSION_LLM_DEADLINE_S", "bogus")
-    assert _llm_deadline_seconds() == 120.0
+    monkeypatch.delenv("FUSION_LLM_TIMEOUT", raising=False)
+    assert _llm_deadline_seconds() == 900.0
     # explicit constructor arg still wins over env
     c = FusionMLXClient(timeout=7.0)
     assert c.timeout == 7.0
     c2 = FusionMLXClient(api_key="")
-    assert c2.timeout == 120.0
+    assert c2.timeout == 900.0
 
 
 def test_4xx_not_retryable():

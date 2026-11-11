@@ -35,12 +35,15 @@ def _llm_call_timeout() -> float:
     # seat agents generating long documents on a local ~20 tok/s model.
     # FUSION_LLM_TIMEOUT (seconds) overrides; the gateway's own stream
     # timeout (default 300s) still bounds the underlying HTTP call.
+    # #664: default raised 120 -> 900 — supervisor/launchd respawns drop the
+    # env override, and 120s made long-document seat agents structurally
+    # unable to finish without a persistent env home.
     raw = os.environ.get("FUSION_LLM_TIMEOUT", "").strip()
     try:
-        return float(raw) if raw else 120.0
+        return float(raw) if raw else 900.0
     except ValueError:
-        logger.warning("invalid FUSION_LLM_TIMEOUT=%r, using 120.0", raw)
-        return 120.0
+        logger.warning("invalid FUSION_LLM_TIMEOUT=%r, using 900.0", raw)
+        return 900.0
 
 
 class _NodeExecutorsMixin:

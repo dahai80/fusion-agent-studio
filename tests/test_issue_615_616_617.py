@@ -120,10 +120,10 @@ def test_workspace_root_default_under_home(monkeypatch):
     assert root.name == "workspaces"
 
 
-# #617: configurable LLM call timeout
-def test_llm_timeout_default_120(monkeypatch):
+# #617: configurable LLM call timeout; #664: default raised 120 -> 900
+def test_llm_timeout_default_900(monkeypatch):
     monkeypatch.delenv("FUSION_LLM_TIMEOUT", raising=False)
-    assert _llm_call_timeout() == 120.0
+    assert _llm_call_timeout() == 900.0
 
 
 def test_llm_timeout_env_override(monkeypatch):
@@ -133,7 +133,7 @@ def test_llm_timeout_env_override(monkeypatch):
 
 def test_llm_timeout_invalid_env_falls_back(monkeypatch):
     monkeypatch.setenv("FUSION_LLM_TIMEOUT", "abc")
-    assert _llm_call_timeout() == 120.0
+    assert _llm_call_timeout() == 900.0
 
 
 def test_llm_timeout_error_message_renders_seconds():
@@ -142,4 +142,4 @@ def test_llm_timeout_error_message_renders_seconds():
     err = asyncio.TimeoutError()
     assert str(err) == ""
     msg = f"LLM call failed: timeout after {_llm_call_timeout():.0f}s (asyncio.TimeoutError)"
-    assert "timeout after 120s" in msg
+    assert "timeout after 900s" in msg
