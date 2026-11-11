@@ -1559,7 +1559,9 @@ class DaemonServer:
         # a bad key still rejects 401 via the RpcAuthError mapping.
         from .rpc_auth import auth_login
 
-        return auth_login(params, self._auth_dir)
+        # #661: validate against the same key store loopback_create writes
+        # (apikeys/ subdir); _auth_dir stays the JWT-secret root.
+        return auth_login(params, self._auth_dir, apikey_dir=self._get_apikey_manager().base_path)
 
     async def _handle_daemon_ping(self, params: dict) -> dict:
         return {"pong": True, "timestamp": time.time(), "daemon": True}
