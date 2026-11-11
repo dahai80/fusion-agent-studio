@@ -312,6 +312,10 @@ class DaemonServer:
         self._code_tasks_max = _envint("FUSION_CODE_TASK_MAX", 1000)
         self._server: asyncio.Server | None = None
         self._running = False
+        # #665: why the daemon stopped — signal:15 / requested_stop /
+        # internal_error / unknown. Logged in stop() so silent graceful
+        # exits under the supervisor are attributable.
+        self.stop_reason = ""
         # #214: graph.execute 并发节流 opt-in. env FUSION_GRAPH_CONCURRENCY=N
         # 限制同时执行 graph 数 (GPU 任务建议 N=1). 空/0 = 不限流 (向后兼容).
         # 超限请求排队等待, 不拒. Semaphore 在 start() 的 event loop 内创建.
@@ -1104,7 +1108,7 @@ class DaemonServer:
         if self._ws_server:
             self._ws_server.close()
             await self._ws_server.wait_closed()
-        if self._cluster_task and not self._cluster_task.done():
+        if getattr(self, "_cluster_task", None) and not self._cluster_task.done():
             self._cluster_task.cancel()
         if getattr(self, "_shell_registry_task", None) and not self._shell_registry_task.done():
             self._shell_registry_task.cancel()
@@ -1139,7 +1143,9 @@ class DaemonServer:
         if os.path.exists(self.socket_path):
             os.unlink(self.socket_path)
         self.store.close()
-        logger.info("Daemon stopped")
+        # #665: every graceful exit must be attributable — a silent stop
+        # looked like 502 roulette to callers under supervisor auto-restart.
+        logger.info("Daemon stopped (stop_reason=%s)", self.stop_reason or "unknown")
 
     def register_execution(self, scope: str, key_id: str):
         # 审计 P2-5/A-9: _active_executions 原 2/6 路径 (仅 graph.execute/resume).
@@ -1189,11 +1195,15 @@ class DaemonServer:
         loop = asyncio.get_event_loop()
         stop_event = asyncio.Event()
 
-        def _signal_handler():
+        def _signal_handler(sig_name: str):
+            # #665: name the signal in the log — unattributed graceful exits
+            # made every long pipeline run a 502 lottery.
+            logger.info("received %s, initiating shutdown", sig_name)
+            self.stop_reason = f"signal:{sig_name}"
             stop_event.set()
 
-        for sig in (signal.SIGINT, signal.SIGTERM):
-            loop.add_signal_handler(sig, _signal_handler)
+        for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
+            loop.add_signal_handler(sig, lambda s=sig: _signal_handler(s.name))
 
         # #633: thread-based stall watchdog — if this loop stops servicing
         # beats (any sync call blocking it), dump thread + task stacks to
@@ -1207,7 +1217,14 @@ class DaemonServer:
 
         try:
             await stop_event.wait()
-            await self.stop()
+            try:
+                await self.stop()
+            except Exception:
+                # #665: a crash during teardown must not look like a clean
+                # stop — supervisor restart cap then kills healthy boots.
+                self.stop_reason = "internal_error"
+                logger.exception("daemon stop() raised during shutdown")
+                raise
         finally:
             if watchdog is not None:
                 watchdog.stop()
@@ -1601,6 +1618,7 @@ class DaemonServer:
 
     async def _handle_daemon_shutdown(self, params: dict) -> dict:
         logger.info("daemon.shutdown requested via RPC")
+        self.stop_reason = "requested_stop"
         self._running = False
         return {"status": "shutting_down"}
 
