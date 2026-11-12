@@ -124,16 +124,15 @@ def _resolve_socket_path(default: str = SOCKET_PATH) -> str:
 
 
 def _ws_enabled() -> bool:
-    # 审计 D-1: WS TCP 默认关闭. 原 WS 无鉴权不校验 peer-UID, 任意本机
-    # 进程可经 chat.stream 接管完整 agent 循环 (RCE). 默认关, 显式 env
-    # FUSION_ENABLE_WS=1 才起. 起时必须同时设 FUSION_WS_TOKEN 共享密钥,
-    # 客户端首帧须携带 Sec-WebSocket-Protocol 头带 token, 否则握手拒.
+    # 审计 D-1: WS 曾默认关 (无鉴权 RCE 面). E7: 事件流是控制室地基, 默认
+    # 改为开 — 但 D-1 鉴权不放松: 起时必须同时设 FUSION_WS_TOKEN 共享密钥
+    # (客户端首帧 Sec-WebSocket-Protocol 携带 token), 未设 token 时 start()
+    # 降级回关 + 告警, 不阻断 daemon. 显式 FUSION_ENABLE_WS=0 保持关闭.
     # #327: 端口 11433 (registry); 11435=fm-server, 11437=cowork-sync, 均避开.
-    return os.environ.get("FUSION_ENABLE_WS", "").strip().lower() in (
-        "1",
-        "true",
-        "yes",
-    )
+    raw = os.environ.get("FUSION_ENABLE_WS", "").strip().lower()
+    if raw in ("0", "false", "off", "no"):
+        return False
+    return True
 
 
 def _ws_token() -> str:
@@ -729,6 +728,19 @@ class DaemonServer:
             return str(obj)
 
     async def start(self) -> None:
+        # E7: validate on every start path (run_forever also calls it; the
+        # WS default-on degrade must apply when embedders call start() directly).
+        self._validate_config()
+        # E7: WS default-on (D-1 token auth NOT relaxed) — no FUSION_WS_TOKEN
+        # degrades to off with a warning, daemon still starts. Resolved once
+        # here into instance state so daemon.status reflects the real surface.
+        _ws_on = _ws_enabled()
+        if _ws_on and not _ws_token():
+            logger.warning(
+                "WS default-on but FUSION_WS_TOKEN unset; degrading to WS off "
+                "(D-1 auth requires a token). Set FUSION_WS_TOKEN or FUSION_ENABLE_WS=0 to silence."
+            )
+        self._ws_active = _ws_on and bool(_ws_token())
         if os.path.exists(self.socket_path):
             os.unlink(self.socket_path)
 
@@ -758,17 +770,11 @@ class DaemonServer:
         os.chmod(self.socket_path, 0o600)
 
         self._ws_server = None
-        if self.ws_port and _ws_enabled():
-            if not _ws_token():
-                logger.warning(
-                    "WS enabled (FUSION_ENABLE_WS=1) but FUSION_WS_TOKEN unset; "
-                    "skipping WS server start — token required for D-1 auth"
-                )
-            else:
-                self._ws_server = await asyncio.start_server(
-                    self._handle_ws_client, "127.0.0.1", self.ws_port
-                )
-                logger.info("WS server started on 127.0.0.1:%d (token-gated)", self.ws_port)
+        if self.ws_port and self._ws_active:
+            self._ws_server = await asyncio.start_server(
+                self._handle_ws_client, "127.0.0.1", self.ws_port
+            )
+            logger.info("WS server started on 127.0.0.1:%d (token-gated)", self.ws_port)
 
         self._cluster_task: asyncio.Task | None = None
         if self.cluster_port:
@@ -1175,11 +1181,9 @@ class DaemonServer:
 
     def _validate_config(self) -> None:
         # 审计 P2-23: 启动前校验 FUSION_* 互斥/依赖组合, 配置矛盾则 fail-loud 不起.
+        # E7: WS 默认开但 token 未设的降级在 start() 里做 (实例态 _ws_active,
+        # 不改 env — env 改动会泄漏到进程其他读者且被测试 monkeypatch 还原).
         errors: list[str] = []
-        if _ws_enabled() and not _ws_token():
-            errors.append(
-                "FUSION_ENABLE_WS=1 requires FUSION_WS_TOKEN (D-1 WS auth); set token or disable WS"
-            )
         safety_level = os.environ.get("FUSION_SAFETY_LEVEL", "L1").upper()
         if safety_level not in ("L0", "L1", "L2", "L3"):
             errors.append(f"FUSION_SAFETY_LEVEL={safety_level!r} invalid (expected L0-L3)")
@@ -1590,7 +1594,8 @@ class DaemonServer:
             "running": self._running,
             "socket_path": self.socket_path,
             "ws_port": self.ws_port,
-            "ws_enabled": _ws_enabled(),
+            # E7: degrade-aware — default-on only counts when D-1 token present.
+            "ws_enabled": _ws_enabled() and bool(_ws_token()),
             "ws_token": _ws_token(),
             "cluster_port": self.cluster_port,
             "http_port": self.http_port,
@@ -1614,7 +1619,7 @@ class DaemonServer:
                 .lower()
                 not in ("0", "false", "no"),
                 "runtime_review": _runtime_review_enabled(),
-                "ws": _ws_enabled(),
+                "ws": _ws_enabled() and bool(_ws_token()),
             },
         }
 

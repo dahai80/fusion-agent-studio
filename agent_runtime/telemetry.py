@@ -38,6 +38,117 @@ def _tel_max_latencies() -> int:
         return 1000
 
 
+# E3: GenAI semantic-conventions mapping (internal span name -> OTel GenAI
+# span name + attribute renames). OTLP export emits semconv names so traces
+# line up with the cross-vendor GenAI conventions (agent run / LLM inference
+# / tool execution).
+SEMCONV_SPAN_NAMES = {
+    "graph.execute": "invoke_agent",
+    "llm.call": "chat",
+    "tool.call": "execute_tool",
+}
+
+
+def semconv_span(span_dict: dict) -> dict:
+    # Returns the span dict with semconv name + gen_ai.* attributes derived
+    # from internal attributes. Non-mapped names pass through unchanged.
+    name = span_dict.get("name", "")
+    attrs = dict(span_dict.get("attributes") or {})
+    if name == "graph.execute":
+        out_name = f"invoke_agent {attrs.get('graph_name', '')}".strip()
+        attrs["gen_ai.agent.name"] = attrs.get("graph_name", "")
+    elif name == "llm.call":
+        out_name = "chat"
+        if attrs.get("model"):
+            attrs["gen_ai.request.model"] = attrs["model"]
+        if attrs.get("prompt_tokens"):
+            attrs["gen_ai.usage.input_tokens"] = attrs["prompt_tokens"]
+        if attrs.get("completion_tokens"):
+            attrs["gen_ai.usage.output_tokens"] = attrs["completion_tokens"]
+    elif name == "tool.call":
+        out_name = f"execute_tool {attrs.get('tool', '')}".strip()
+        attrs["gen_ai.tool.name"] = attrs.get("tool", "")
+    else:
+        out_name = name
+    out = dict(span_dict)
+    out["name"] = out_name
+    out["attributes"] = attrs
+    return out
+
+
+def parse_traceparent(traceparent: str) -> tuple[str, str] | None:
+    # W3C traceparent: "00-<32 hex trace id>-<16 hex span id>-<2 hex flags>".
+    # Returns (trace_id, span_id) or None on malformed input.
+    if not traceparent:
+        return None
+    parts = traceparent.strip().split("-")
+    if len(parts) != 4:
+        return None
+    version, trace_id, span_id, _flags = parts
+    if len(version) != 2 or len(trace_id) != 32 or len(span_id) != 16:
+        return None
+    if any(x == "0" * len(x) for x in (trace_id, span_id)):
+        return None
+    try:
+        int(version, 16)
+        int(trace_id, 16)
+        int(span_id, 16)
+        int(_flags, 16)
+    except ValueError:
+        return None
+    return trace_id, span_id
+
+
+def format_traceparent(trace_id: str, span_id: str) -> str:
+    return f"00-{trace_id}-{span_id}-01"
+
+
+class _OtelSdkBridge:
+    # E3: optional opentelemetry-sdk export bridge. When the SDK is
+    # installed, each completed internal span is re-emitted as a real SDK
+    # span (same name/attrs/duration) and the SDK pipeline (batch processor
+    # + OTLP exporter) owns transport. In-memory ring buffers stay the
+    # local-UI source of truth regardless. Import failure degrades to the
+    # hand-written OTLP/HTTP JSON push.
+    def __init__(self):
+        self.available = False
+        self._tracer = None
+        try:
+            from opentelemetry import trace
+            from opentelemetry.sdk.resources import Resource
+            from opentelemetry.sdk.trace import TracerProvider
+
+            provider = trace.get_tracer_provider()
+            if not isinstance(provider, trace.TracerProvider):
+                provider = TracerProvider(resource=Resource.create({"service.name": "fusion-agent-studio"}))
+                trace.set_tracer_provider(provider)
+            self._tracer = provider.get_tracer("fusion-agent-studio")
+            self._trace_mod = trace
+            self.available = True
+            logger.info("opentelemetry-sdk bridge armed (in-memory buffers unchanged)")
+        except ImportError as e:
+            logger.info("opentelemetry-sdk not installed, OTLP JSON push stays: %s", e)
+        except Exception as e:
+            logger.warning("opentelemetry-sdk bridge init failed, OTLP JSON push stays: %s", e)
+
+    def export_span(self, span_dict: dict) -> None:
+        if not self.available or self._tracer is None:
+            return
+        try:
+            sem = semconv_span(span_dict)
+            start_ns = int(span_dict.get("start_time", 0.0) * 1e9)
+            end_ns = int(span_dict.get("end_time", 0.0) * 1e9)
+            span = self._tracer.start_span(
+                sem["name"],
+                attributes=sem.get("attributes") or {},
+                start_time=start_ns,
+            )
+            span.end(end_time=end_ns)
+            logger.debug("sdk bridge exported span %s", sem["name"])
+        except Exception as e:
+            logger.debug("sdk bridge export failed (non-fatal): %s", e)
+
+
 @dataclass
 class Span:
     trace_id: str = ""
@@ -143,6 +254,13 @@ class TelemetryEngine:
         # #486: point-in-time gauges (approval noise etc.) — refreshed by
         # callers from live engine state, exposed via metrics().
         self._gauges: dict[str, float] = {}
+        # E3: optional opentelemetry-sdk bridge — armed when importable and
+        # FUSION_OTEL_SDK != 0. In-memory buffers stay authoritative locally.
+        self.sdk_bridge: _OtelSdkBridge | None = (
+            None
+            if os.environ.get("FUSION_OTEL_SDK", "1").strip().lower() in ("0", "off", "false")
+            else _OtelSdkBridge()
+        )
         logger.info("TelemetryEngine initialized")
 
     def _prune_spans(self) -> None:
@@ -268,7 +386,34 @@ class TelemetryEngine:
             (span.end_time - span.start_time) * 1000,
             status,
         )
+        # E3: SDK bridge fan-out (non-fatal; in-memory record already done).
+        if self.sdk_bridge is not None and self.sdk_bridge.available:
+            try:
+                self.sdk_bridge.export_span(span.to_dict())
+            except Exception as e:
+                logger.debug("sdk bridge export error: %s", e)
         return span
+
+    def span_from_traceparent(
+        self,
+        name: str,
+        traceparent: str,
+        attributes: dict | None = None,
+    ) -> Span | None:
+        # E3: continue an inbound W3C trace — internal trace_id = first 16
+        # hex of the upstream trace id, parent_id = upstream span id, so the
+        # local chain visually joins the upstream trace in any receiver.
+        parsed = parse_traceparent(traceparent)
+        if parsed is None:
+            logger.warning("invalid traceparent, span started unlinked: %s", traceparent[:60])
+            return None
+        ext_trace, ext_span = parsed
+        attrs = dict(attributes or {})
+        attrs["w3c.traceparent"] = traceparent.strip()
+        attrs["otel.trace_id"] = ext_trace
+        return self.start_span(
+            name, trace_id=ext_trace[:16], parent_id=ext_span, attributes=attrs
+        )
 
     def get_trace(self, trace_id: str) -> dict | None:
         span_ids = self._traces.get(trace_id)
@@ -304,7 +449,9 @@ class TelemetryEngine:
                 for sid in span_ids:
                     span = self._spans.get(sid)
                     if span:
-                        scope_spans.append(span.to_dict())
+                        # E3: GenAI semconv names + gen_ai.* attributes on
+                        # the wire so Jaeger/Tempo line up cross-vendor.
+                        scope_spans.append(semconv_span(span.to_dict()))
                 resource_spans.append(
                     {
                         "resource": {
