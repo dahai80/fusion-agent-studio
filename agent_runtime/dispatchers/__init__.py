@@ -8,7 +8,6 @@ from .chat import ChatDispatcher
 from .commodity import CommodityDispatcher
 from .deploy import DeployDispatcher
 from .eval import EvalDispatcher
-from .playground import PlaygroundDispatcher
 from .flow import FlowDispatcher
 from .history import HistoryDispatcher
 from .infra import InfraDispatcher
@@ -17,6 +16,7 @@ from .marketplace import MarketplaceDispatcher
 from .mcp import McpDispatcher
 from .memory import MemoryDispatcher
 from .planner import PlannerDispatcher
+from .playground import PlaygroundDispatcher
 from .plugin import PluginDispatcher
 from .reviewer import ReviewerDispatcher
 from .safety import SafetyDispatcher
