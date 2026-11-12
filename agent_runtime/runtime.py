@@ -15,6 +15,7 @@ import time
 import uuid
 from typing import TYPE_CHECKING, Any, AsyncIterator
 
+from .budget_engine import RunBudget, RunBudgetTracker
 from .compactor import Compactor
 from .context import AgentContext, AgentEvent, AgentEventType
 from .debugger import StepDebugger
@@ -371,6 +372,7 @@ class AgentRuntime(_SafetyApprovalMixin, _CheckpointMixin, _DynamicToolsMixin, _
         context: AgentContext | None = None,
         token_budget: TokenBudget | None = None,
         max_iterations: int | None = None,
+        run_budget: "RunBudget | dict | None" = None,
     ) -> AsyncIterator[AgentEvent]:
         # 审计 P1-18: max_iterations 调用点覆盖 (per-agent). None=用 runtime 默认.
         async for event in self._run_with_trajectory(
@@ -380,6 +382,7 @@ class AgentRuntime(_SafetyApprovalMixin, _CheckpointMixin, _DynamicToolsMixin, _
             token_budget,
             stream=False,
             max_iterations=max_iterations,
+            run_budget=run_budget,
         ):
             yield event
 
@@ -438,6 +441,7 @@ class AgentRuntime(_SafetyApprovalMixin, _CheckpointMixin, _DynamicToolsMixin, _
         token_budget: TokenBudget | None = None,
         max_iterations: int | None = None,
         show_thinking: bool | None = None,
+        run_budget: "RunBudget | dict | None" = None,
     ) -> AsyncIterator[AgentEvent]:
         async for event in self._run_with_trajectory(
             graph,
@@ -447,6 +451,7 @@ class AgentRuntime(_SafetyApprovalMixin, _CheckpointMixin, _DynamicToolsMixin, _
             stream=True,
             max_iterations=max_iterations,
             show_thinking=show_thinking,
+            run_budget=run_budget,
         ):
             yield event
 
@@ -492,6 +497,7 @@ class AgentRuntime(_SafetyApprovalMixin, _CheckpointMixin, _DynamicToolsMixin, _
         stream: bool = False,
         max_iterations: int | None = None,
         show_thinking: bool | None = None,
+        run_budget: "RunBudget | dict | None" = None,
     ) -> AsyncIterator[AgentEvent]:
         # 审计 P0-3: 调用点未传 token_budget 时回退 runtime 实例默认预算.
         # 单点根治 dead-wire, 覆盖全部调用点 (daemon/api/orchestrator/sub-graph).
@@ -501,7 +507,24 @@ class AgentRuntime(_SafetyApprovalMixin, _CheckpointMixin, _DynamicToolsMixin, _
         if token_budget is not None:
             self.tool_funnel.set_budget_ref(token_budget)
             self.llm_funnel.set_budget_ref(token_budget)
+        # E1: session-level run budget (tokens/cost/wall) — first-class run
+        # object. Tracker anchors wall-clock at run start; enforcement point
+        # is the post-llm-node check below (mirrors TokenBudget stop path).
+        _rb = run_budget if isinstance(run_budget, RunBudget) else RunBudget.from_dict(
+            run_budget if isinstance(run_budget, dict) else None
+        )
+        run_tracker = RunBudgetTracker(_rb) if _rb.active() else None
         ctx = context or AgentContext()
+        # E1: tracker rides the ctx (not a signature kwarg on
+        # _execute_graph_inner) so internal monkeypatch seams in tests and
+        # sub-graph callers keep their signatures.
+        ctx.run_tracker = run_tracker
+        if run_tracker is not None:
+            logger.info(
+                "run budget armed graph=%s %s",
+                graph.name,
+                _rb.to_dict(),
+            )
         # N8 #391: expose graph identity so funnel metering can charge the
         # graph-level budget cap. Explicit caller graph_id wins.
         if not getattr(ctx, "graph_id", ""):
@@ -898,6 +921,30 @@ class AgentRuntime(_SafetyApprovalMixin, _CheckpointMixin, _DynamicToolsMixin, _
 
                     if self.auto_checkpoint:
                         await self._save_checkpoint(ctx, graph)
+
+                    # E1: run-level budget check after each llm node — stop
+                    # reason budget_reached, parkable via usage_limit frame
+                    # in the managed-run pump.
+                    if getattr(ctx, "run_tracker", None) is not None:
+                        rb_status = ctx.run_tracker.check(ctx.token_usage(), model=model)
+                        if rb_status.exceeded:
+                            logger.warning(
+                                "Run budget exceeded graph=%s dims=%s %s",
+                                graph.name,
+                                ",".join(rb_status.dims),
+                                rb_status.to_dict(),
+                            )
+                            yield AgentEvent(
+                                type=AgentEventType.BUDGET_REACHED,
+                                content=(
+                                    "Run budget exceeded: "
+                                    + ", ".join(rb_status.dims)
+                                ),
+                                metadata=rb_status.to_dict(),
+                            )
+                            ctx.stop_reason = "budget_reached"
+                            ctx.finished_at = time.time()
+                            return
 
                     if token_budget:
                         usage = ctx.token_usage()

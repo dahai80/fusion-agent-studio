@@ -2466,6 +2466,7 @@ async def v1_execute_graph_stream(
     only_node: str = "",
     resume_run_id: str = "",
     last_seq: int = 0,
+    run_budget: str = "",
 ):
     """Server-Sent Events stream — pushes per-token TOKEN events as they arrive.
 
@@ -2474,6 +2475,17 @@ async def v1_execute_graph_stream(
     Client connects with EventSource; no buffering at the boundary.
     """
     from agent_runtime.graph import AgentGraph, NodeConfig
+
+    # E1: session-level run budget — JSON object in the run_budget query
+    # param ({max_tokens, max_cost_usd, max_wall_s}); invalid JSON 400s.
+    rb = None
+    if run_budget:
+        try:
+            rb = json.loads(run_budget)
+            if not isinstance(rb, dict):
+                raise ValueError("run_budget must be a JSON object")
+        except (ValueError, TypeError) as e:
+            raise_api_error(ErrorCode.PARAM_FORMAT_ERROR, param="run_budget", detail=str(e))
 
     graph = _get_store().load_graph(graph_id)
     if graph is None:
@@ -2548,6 +2560,7 @@ async def v1_execute_graph_stream(
                         sem=d.graph_semaphore if d is not None else None,
                         thinking=bool(req.get("thinking", True)),
                         daemon=d,
+                        run_budget=req.get("run_budget"),
                     )
                 )
 
@@ -2559,6 +2572,7 @@ async def v1_execute_graph_stream(
             _execute_managed_run(
                 run, rt, graph, input, budget=budget, sem=sem,
                 thinking=thinking, stop_after=stop_after, daemon=daemon,
+                run_budget=rb,
             )
         )
 
@@ -2609,7 +2623,8 @@ async def v1_execute_graph_stream(
 
 
 async def _execute_managed_run(
-    run, rt, graph, input, budget=None, sem=None, thinking=True, stop_after="", daemon=None
+    run, rt, graph, input, budget=None, sem=None, thinking=True, stop_after="", daemon=None,
+    run_budget=None,
 ):
     """#553: background pump — publishes every event to the run buffer/queue."""
     _unreg = None
@@ -2619,7 +2634,8 @@ async def _execute_managed_run(
 
         async def _pump():
             agen = rt.execute_graph_stream(
-                graph, input, token_budget=budget, show_thinking=thinking
+                graph, input, token_budget=budget, show_thinking=thinking,
+                run_budget=run_budget,
             )
             stop_types = {"result", "tool_result", "end", "error", "verify"}
             try:
@@ -2636,6 +2652,29 @@ async def _execute_managed_run(
                         # stop, not a content failure — the finally block
                         # parks the run for auto-resume instead of failing.
                         run.publish({"type": "usage_limit", "message": "token budget exhausted"})
+                    if ev_dict.get("type") == "budget_reached":
+                        # E1: session-level run budget (tokens/cost/wall) —
+                        # same parkable usage_limit class; the finally block
+                        # parks identically. Webhook fires best-effort here.
+                        run.publish({"type": "usage_limit", "message": "run budget reached"})
+                        try:
+                            from agent_runtime.agent_platform.webhooks import (
+                                get_webhook_registry,
+                            )
+
+                            await get_webhook_registry().fire(
+                                "run.budget_reached",
+                                {
+                                    "run_id": run.run_id,
+                                    "graph_id": graph.id,
+                                    **(ev_dict.get("metadata") or {}),
+                                },
+                            )
+                        except Exception as e:
+                            logger.warning(
+                                "run.budget_reached webhook fire failed run=%s: %s",
+                                run.run_id, e,
+                            )
                     if (
                         stop_after
                         and ev_dict.get("node_id") == stop_after
@@ -2669,7 +2708,7 @@ async def _execute_managed_run(
             from agent_runtime.parked_runs import ParkedRunStore, compute_reset_at
 
             reset_at = compute_reset_at(budget, time.time())
-            run.park(reset_at, "usage_limit", {"graph_id": graph.id, "input": input, "thinking": thinking})
+            run.park(reset_at, "usage_limit", {"graph_id": graph.id, "input": input, "thinking": thinking, "run_budget": run_budget})
             ParkedRunStore().upsert(
                 {
                     "run_id": run.run_id,

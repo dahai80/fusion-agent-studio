@@ -49,6 +49,9 @@ class AgentEventType(str, Enum):
     CHECKPOINT = "checkpoint"
     VERIFY = "verify"
     TOKEN_BUDGET_EXCEEDED = "token_budget_exceeded"
+    # E1: session-level run budget (tokens/cost/wall) exceeded — parkable
+    # usage_limit-class stop, fires run.budget_reached webhook.
+    BUDGET_REACHED = "budget_reached"
     RETRY = "retry"
     RETRY_SUCCESS = "retry_success"
     # C6 plan-as-mode: emitted when exit_plan_mode transitions read-only
