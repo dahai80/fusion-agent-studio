@@ -58,7 +58,13 @@ def prove_eval_runner() -> int:
     ds = _dataset()
     r1 = asyncio.run(runner.run(ds))
     r2 = asyncio.run(runner.run(ds))
-    if r1.to_dict() != r2.to_dict():
+    # Reproducibility = verdicts identical; wall-clock duration_s is timing,
+    # not verdict state, so exclude it from the comparison.
+    d1 = r1.to_dict()
+    d2 = r2.to_dict()
+    d1.pop("duration_s", None)
+    d2.pop("duration_s", None)
+    if d1 != d2:
         logger.error("eval not reproducible: run1 != run2")
         return 1
     if r1.pass_rate != 1.0:
