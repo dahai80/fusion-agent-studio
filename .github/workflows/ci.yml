@@ -166,6 +166,10 @@ jobs:
       - name: Proof 8 — approval noise (baseline vs armed, >= 70%)
         run: python tests/proof/prove_approval_noise.py
 
+      # E1: session-level run budget — truncation point within 1 round of cap.
+      - name: Proof 9 — budget enforcement (truncation <= 1 round)
+        run: python tests/proof/prove_budget_enforcement.py
+
   # #327: web UI — typecheck + build the union-web shell module. Self-contained:
   # @fusion/web-ui and @fusion/web-sdk are vendored in web/vendor/@fusion (no
   # registry/network fetch beyond bun + vite themselves).
