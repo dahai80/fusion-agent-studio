@@ -99,11 +99,20 @@ def test_compact_pipeline_reduces_tokens():
         {"role": "user", "content": "U2" * 200},
         {"role": "assistant", "content": "final"},
     ]
-    before = c.estimate_tokens(msgs)
+    # fusion-harness 0.7.0 survival contract (P1-3): the first user message
+    # is the task goal and is re-pinned as a system segment even after hard
+    # compaction, so total token count may grow on tiny inputs. The contract
+    # to assert: old rounds are dropped, the last message survives, and the
+    # goal is re-pinned.
     out = c.compact(msgs, level="error")
-    after = c.estimate_tokens(out)
-    assert after < before
     assert out[-1]["content"] == "final"
+    assert not any(
+        m.get("role") == "assistant" and m.get("content") == "A" * 200 for m in out
+    )
+    assert any(
+        m.get("role") == "system" and "[Pinned task goal]" in str(m.get("content"))
+        for m in out
+    )
 
 
 def test_reactive_strip_drops_oldest():
