@@ -1,15 +1,63 @@
 name: CI
 
+# #670: CI efficiency retrofit (dahai80/fusion#2 checklist).
+# - concurrency: repeated pushes to the same ref cancel the older run
+# - pip cache on every setup-python job
+# - path filters: docs-only changes skip the suites (jobs report skipped,
+#   which satisfies required checks)
+# - tiered gate: PR = lint + sharded unit tests (no coverage); nightly
+#   schedule runs the authoritative coverage gate (--cov-fail-under)
+
 on:
   push:
     branches: [main]
   pull_request:
     branches: [main]
+  schedule:
+    # 18:00 UTC = 02:00 CST nightly — authoritative coverage run.
+    - cron: "0 18 * * *"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
+  changes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      python: ${{ steps.filter.outputs.python }}
+      web: ${{ steps.filter.outputs.web }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 2
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            python:
+              - 'agent_runtime/**'
+              - 'tools/**'
+              - 'server/**'
+              - 'tests/**'
+              - 'pyproject.toml'
+              - 'setup.cfg'
+              - 'start.sh'
+              - '.github/workflows/ci.yml'
+            web:
+              - 'web/**'
+              - '.github/workflows/ci.yml'
+
   test:
+    needs: changes
+    if: needs.changes.outputs.python == 'true'
     runs-on: macos-15
     timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2]
     steps:
       - uses: actions/checkout@v5
 
@@ -17,6 +65,8 @@ jobs:
         uses: actions/setup-python@v6
         with:
           python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
 
       - name: Install fusion-core (in-tree dependency, not on PyPI)
         run: pip install git+https://github.com/dahai80/fusion-core.git@v0.8.0
@@ -27,7 +77,38 @@ jobs:
           pip install -e ".[test,rag]"
 
       - name: Lint (ruff)
+        if: matrix.shard == 0
         run: ruff check agent_runtime tools server tests
+
+      # #670: PR gate runs the unit suite sharded 3-way (round-robin on test
+      # files, no coverage). Coverage is enforced by the nightly `coverage`
+      # job so the gate stays fast. tests/e2e runs in its own job; tests/proof
+      # scripts are the `proof` job.
+      - name: Sharded unit tests
+        run: pytest $(ls tests/test_*.py | awk -v s=${{ matrix.shard }} 'NR % 3 == s') -q --timeout=120
+
+  coverage:
+    # #670: authoritative coverage gate — nightly, full suite, --cov-fail-under.
+    if: github.event_name == 'schedule'
+    runs-on: macos-15
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Install fusion-core (in-tree dependency, not on PyPI)
+        run: pip install git+https://github.com/dahai80/fusion-core.git@v0.8.0
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[test,rag]"
 
       - name: Test with coverage
         run: pytest tests/ -q --cov=agent_runtime --cov=tools --cov=server --cov-report=term-missing --cov-fail-under=60 --timeout=120
@@ -35,6 +116,8 @@ jobs:
   # M1-7 (#306): proof scripts — concurrent dequeue safety, crash-recovery
   # reconcile, publish idempotency. M1 exit gate.
   proof:
+    needs: changes
+    if: needs.changes.outputs.python == 'true'
     runs-on: macos-15
     timeout-minutes: 15
     steps:
@@ -44,6 +127,8 @@ jobs:
         uses: actions/setup-python@v6
         with:
           python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
 
       - name: Install fusion-core (in-tree dependency, not on PyPI)
         run: pip install git+https://github.com/dahai80/fusion-core.git@v0.8.0
@@ -85,6 +170,8 @@ jobs:
   # @fusion/web-ui and @fusion/web-sdk are vendored in web/vendor/@fusion (no
   # registry/network fetch beyond bun + vite themselves).
   web:
+    needs: changes
+    if: needs.changes.outputs.web == 'true'
     runs-on: macos-15
     timeout-minutes: 15
     steps:
@@ -133,6 +220,8 @@ jobs:
   # against the built web dist. The suite self-skips when playwright or the
   # dist is missing, so this job stays green even if setup regresses.
   e2e:
+    needs: changes
+    if: needs.changes.outputs.python == 'true' || needs.changes.outputs.web == 'true'
     runs-on: macos-15
     timeout-minutes: 25
     steps:
@@ -142,6 +231,8 @@ jobs:
         uses: actions/setup-python@v6
         with:
           python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
 
       - name: Set up Bun
         uses: oven-sh/setup-bun@v2
@@ -173,6 +264,8 @@ jobs:
   # Informational: survivors are reported but never fail the build; the pilot
   # exists to surface weak-test spots, not to gate merges.
   mutation:
+    needs: changes
+    if: needs.changes.outputs.python == 'true'
     runs-on: macos-15
     timeout-minutes: 25
     continue-on-error: true
@@ -183,6 +276,8 @@ jobs:
         uses: actions/setup-python@v6
         with:
           python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
 
       - name: Install fusion-core (in-tree dependency, not on PyPI)
         run: pip install git+https://github.com/dahai80/fusion-core.git@v0.8.0
@@ -205,4 +300,3 @@ jobs:
         with:
           name: mutation-report
           path: mutation-report.xml
-
