@@ -19,107 +19,128 @@
     {
       "route": "/",
       "title": "工作流",
-      "title_en": "Workflows"
+      "title_en": "Workflows",
+      "layer": "dev"
     },
     {
       "route": "/runs",
       "title": "运行记录",
-      "title_en": "Runs"
+      "title_en": "Runs",
+      "layer": "dev"
     },
     {
       "route": "/canvas",
       "title": "画布",
-      "title_en": "Canvas"
+      "title_en": "Canvas",
+      "layer": "dev"
     },
     {
       "route": "/aiagent",
       "title": "AI 助手",
-      "title_en": "Composer"
+      "title_en": "Composer",
+      "layer": "dev"
     },
     {
       "route": "/agents",
       "title": "智能体",
-      "title_en": "Agents"
+      "title_en": "Agents",
+      "layer": "dev"
     },
     {
       "route": "/dashboard",
       "title": "仪表盘",
-      "title_en": "Dashboard"
+      "title_en": "Dashboard",
+      "layer": "prod"
     },
     {
       "route": "/chat",
       "title": "对话",
-      "title_en": "Chat"
+      "title_en": "Chat",
+      "layer": "dev"
     },
     {
       "route": "/team",
       "title": "团队",
-      "title_en": "Team"
+      "title_en": "Team",
+      "layer": "dev"
     },
     {
       "route": "/memory",
       "title": "记忆",
-      "title_en": "Memory"
+      "title_en": "Memory",
+      "layer": "dev"
     },
     {
       "route": "/safety",
       "title": "安全",
-      "title_en": "Safety"
+      "title_en": "Safety",
+      "layer": "prod"
     },
     {
       "route": "/governance",
       "title": "治理",
-      "title_en": "Governance"
+      "title_en": "Governance",
+      "layer": "prod"
     },
     {
       "route": "/connectors",
       "title": "连接器",
-      "title_en": "Connectors"
+      "title_en": "Connectors",
+      "layer": "dev"
     },
     {
       "route": "/apikeys",
       "title": "API 密钥",
-      "title_en": "API Keys"
+      "title_en": "API Keys",
+      "layer": "prod"
     },
     {
       "route": "/cron",
       "title": "定时任务",
-      "title_en": "Cron"
+      "title_en": "Cron",
+      "layer": "dev"
     },
     {
       "route": "/hooks",
       "title": "钩子",
-      "title_en": "Hooks"
+      "title_en": "Hooks",
+      "layer": "dev"
     },
     {
       "route": "/tools",
       "title": "工具",
-      "title_en": "Tools"
+      "title_en": "Tools",
+      "layer": "dev"
     },
     {
       "route": "/skills",
       "title": "技能",
-      "title_en": "Skills"
+      "title_en": "Skills",
+      "layer": "dev"
     },
     {
       "route": "/marketplace",
       "title": "市场",
-      "title_en": "Marketplace"
+      "title_en": "Marketplace",
+      "layer": "prod"
     },
     {
       "route": "/review",
       "title": "评审包",
-      "title_en": "Review"
+      "title_en": "Review",
+      "layer": "prod"
     },
     {
       "route": "/evals",
       "title": "评测",
-      "title_en": "Evals"
+      "title_en": "Evals",
+      "layer": "dev"
     },
     {
       "route": "/playground",
       "title": "试验场",
-      "title_en": "Playground"
+      "title_en": "Playground",
+      "layer": "dev"
     }
   ],
   "searchProviders": [
