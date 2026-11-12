@@ -1458,6 +1458,7 @@ class DaemonServer:
             ChatDispatcher,
             CommodityDispatcher,
             DeployDispatcher,
+            EvalDispatcher,
             FlowDispatcher,
             HistoryDispatcher,
             InfraDispatcher,
@@ -1491,6 +1492,7 @@ class DaemonServer:
             # Workflow stub 影子覆盖. 前置 ArtifactDispatcher 让真实现优先.
             ArtifactDispatcher(self),
             WorkflowDispatcher(self),
+            EvalDispatcher(self),
             SafetyDispatcher(self),
             PlannerDispatcher(self),
             MemoryDispatcher(self),
