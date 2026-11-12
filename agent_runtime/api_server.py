@@ -2566,6 +2566,10 @@ async def v1_execute_graph_stream(
 
             registry = RunRegistry()
             app.state.run_registry = registry
+        # E4: Inspector RPCs (runs.tool_stats / runs.thread_lanes) read the
+        # managed-run replay buffer through this daemon-side reference.
+        if _daemon is not None:
+            _daemon._managed_run_registry = registry
         # #646: parked-run recovery — one background worker per process;
         # resume rebuilds the graph from the store and re-pumps the SAME
         # ManagedRun so SSE resume (seq replay) keeps working.
