@@ -174,6 +174,15 @@ jobs:
       - name: Proof 10 — eval runner (reproducible + replay)
         run: python tests/proof/prove_eval_runner.py
 
+      # E5: offline reviewer — 3 injected overreach flagged, benign baseline
+      # zero false positives, findings land in audit log.
+      - name: Proof 11 — offline reviewer (overreach hit + zero FP baseline)
+        run: python tests/proof/prove_offline_reviewer.py
+
+      # E9: worker pool — 4 workers x 20 sessions, zero cross-talk, parked resume.
+      - name: Proof 12 — worker pool (isolation + parked resume)
+        run: python tests/proof/prove_worker_pool.py
+
   # #327: web UI — typecheck + build the union-web shell module. Self-contained:
   # @fusion/web-ui and @fusion/web-sdk are vendored in web/vendor/@fusion (no
   # registry/network fetch beyond bun + vite themselves).
