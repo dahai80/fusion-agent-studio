@@ -8,6 +8,7 @@ from .chat import ChatDispatcher
 from .commodity import CommodityDispatcher
 from .deploy import DeployDispatcher
 from .eval import EvalDispatcher
+from .playground import PlaygroundDispatcher
 from .flow import FlowDispatcher
 from .history import HistoryDispatcher
 from .infra import InfraDispatcher
@@ -44,6 +45,7 @@ __all__ = [
     "ArtifactDispatcher",
     "TrainerDispatcher",
     "EvalDispatcher",
+    "PlaygroundDispatcher",
     "FlowDispatcher",
 "HistoryDispatcher",
     "ReviewerDispatcher",
