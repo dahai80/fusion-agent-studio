@@ -110,6 +110,16 @@
       "route": "/review",
       "title": "评审包",
       "title_en": "Review"
+    },
+    {
+      "route": "/evals",
+      "title": "评测",
+      "title_en": "Evals"
+    },
+    {
+      "route": "/playground",
+      "title": "试验场",
+      "title_en": "Playground"
     }
   ],
   "searchProviders": [

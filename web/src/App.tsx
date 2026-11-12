@@ -16,11 +16,13 @@ import { ClusterPage } from './pages/studio/ClusterPage';
 import { ConnectorsPage } from './pages/studio/ConnectorsPage';
 import { CronPage } from './pages/studio/CronPage';
 import { DashboardPage } from './pages/studio/DashboardPage';
+import { EvalsPage } from './pages/studio/EvalsPage';
 import { GovernancePage } from './pages/studio/GovernancePage';
 import { HooksPage } from './pages/studio/HooksPage';
 import { MarketplacePage } from './pages/studio/MarketplacePage';
 import { MemoryPage } from './pages/studio/MemoryPage';
 import { ObservabilityPage } from './pages/studio/ObservabilityPage';
+import { PlaygroundPage } from './pages/studio/PlaygroundPage';
 import { ReviewPage } from './pages/studio/ReviewPage';
 import { SafetyPage } from './pages/studio/SafetyPage';
 import { SkillsPage } from './pages/studio/SkillsPage';
@@ -54,7 +56,9 @@ type StudioRoute =
     | 'canvas'
     | 'governance'
     | 'cluster'
-    | 'observability';
+    | 'observability'
+    | 'evals'
+    | 'playground';
 
 type Route =
     | { name: 'workflows' }
@@ -85,6 +89,8 @@ const STUDIO_ROUTES: ReadonlySet<string> = new Set<StudioRoute>([
     'governance',
     'cluster',
     'observability',
+    'evals',
+    'playground',
 ]);
 
 export function parseHash(): Route {
@@ -150,6 +156,10 @@ function StudioPage(props: { tab: StudioRoute }) {
             return <ClusterPage />;
         case 'observability':
             return <ObservabilityPage />;
+        case 'evals':
+            return <EvalsPage />;
+        case 'playground':
+            return <PlaygroundPage />;
         case 'aiagent':
             return <AiAgentPage />;
         default:
