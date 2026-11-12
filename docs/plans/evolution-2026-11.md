@@ -1,3 +1,19 @@
+---
+doc_id: fusion-agent-studio/plan/evolution-2026-11
+product: fusion-agent-studio
+class: core
+entry: developer
+doc_type: architecture
+title: {zh: 能力补齐与超越计划（2026-11）, en: Capability Catch-up and Surpass Plan (2026-11)}
+audience: maintainer
+status: stable
+version: 1.0
+updated: 2026-11-12
+owner: "@dahai"
+source_of_truth:
+  - docs/plans/evolution-2026-11.md
+---
+
 # fusion-agent-studio 能力补齐与超越计划（2026-11）
 
 > 输入：`~/fusion/insight/fusion-agent-studio-evolution-2026-11.md`（业界洞察 × 现状盘点）。
@@ -52,7 +68,7 @@
 - 验收：pytest（span 命名 semconv 合规、traceparent 透传）+ 本地 Tempo 实测一条完整链（mlx → gateway → agent-studio）。
 - 工作量：~2 周。
 
-### 3.4 阶段一里程碑
+### 3.4 阶段一交付节点
 
 | 版本 | 内容 | 出口标准 |
 |---|---|---|
