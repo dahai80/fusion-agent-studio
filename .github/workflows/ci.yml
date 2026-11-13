@@ -170,6 +170,10 @@ jobs:
       - name: Proof 9 — budget enforcement (truncation <= 1 round)
         run: python tests/proof/prove_budget_enforcement.py
 
+      # E2: eval runner — 20-case dataset reproducible across runs + trace replay.
+      - name: Proof 10 — eval runner (reproducible + replay)
+        run: python tests/proof/prove_eval_runner.py
+
   # #327: web UI — typecheck + build the union-web shell module. Self-contained:
   # @fusion/web-ui and @fusion/web-sdk are vendored in web/vendor/@fusion (no
   # registry/network fetch beyond bun + vite themselves).
