@@ -144,6 +144,24 @@ the dedicated `GET /v1/agents/{agent_id}/execute/stream` SSE endpoint (#331)
 that reuses the ad-hoc agent graph builder and accepts `?api_key=` or Bearer
 (EventSource GET constraint).
 
+## Dev / prod layer split (E8)
+
+`manifest.json` tags every page with a `layer` field so the union-web host
+can deliver the two surfaces the evolution plan (E8) calls for:
+
+- **dev layer** (`"layer": "dev"` — `/`, `/runs`, `/canvas`, `/aiagent`,
+  `/agents`, `/evals`, `/playground`, …): graph building, debugging, evals,
+  prompt playground. Local daemon direct-connect, sample-scale.
+- **prod layer** (`"layer": "prod"` — `/dashboard`, `/governance`,
+  `/safety`, `/apikeys`, `/marketplace`, `/review`, `/cluster`):
+  approvals / budgets / audit / marketplace / governance. Intended to be
+  mounted by fusion-web-shell behind unified gateway login + RBAC
+  (fusion-identity), same-origin iframe.
+
+The field is additive metadata — the standalone module ignores it and serves
+all pages, so local dev behavior does not regress. Shell-side mounting is
+tracked upstream in fusion-web-shell.
+
 ## Vendored dependencies
 
 `@fusion/web-ui` and `@fusion/web-sdk` are vendored source packages pinned from

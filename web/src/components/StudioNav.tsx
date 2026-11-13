@@ -17,6 +17,8 @@ export const STUDIO_TABS: Array<{ key: string; label: string; labelEn: string; h
     { key: 'governance', label: '治理', labelEn: 'Governance', href: '#/governance' },
     { key: 'cluster', label: '集群', labelEn: 'Cluster', href: '#/cluster' },
     { key: 'observability', label: '可观测', labelEn: 'Observability', href: '#/observability' },
+    { key: 'evals', label: '评测', labelEn: 'Evals', href: '#/evals' },
+    { key: 'playground', label: '试验场', labelEn: 'Playground', href: '#/playground' },
     { key: 'dashboard', label: '仪表盘', labelEn: 'Dashboard', href: '#/dashboard' },
     { key: 'team', label: '团队', labelEn: 'Team', href: '#/team' },
     { key: 'memory', label: '记忆', labelEn: 'Memory', href: '#/memory' },

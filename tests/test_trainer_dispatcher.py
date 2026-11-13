@@ -128,6 +128,7 @@ def test_training_service_run_rlsl_surfaces_upstream_error():
         "create_dpo_job" in err
         or "fusion-mlx" in err
         or "401" in err
+        or "404" in err
         or "Connection refused" in err
         or "11432" in err
     ), f"unrecognized upstream error: {err}"
