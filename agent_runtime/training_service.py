@@ -14,6 +14,22 @@ logger = logging.getLogger(__name__)
 
 _DATASET_DIR = Path.home() / ".fusion" / "trainer" / "datasets"
 _RUNS: dict[str, dict[str, Any]] = {}
+# fusion-trainer engines deliberately return {"status": "interrupted"/"failed",
+# ...} instead of raising (engine-restart detection, never a zombie failure).
+# A run only counts as completed when the upstream result says so.
+_OK_STATUSES = ("completed", "succeeded", "ok")
+
+
+def _apply_run_result(run_id: str, res: dict[str, Any]) -> None:
+    status = res.get("status", "completed")
+    run = _RUNS[run_id]
+    if status in _OK_STATUSES:
+        run.update({**res, "status": "completed"})
+        logger.info("run %s completed", run_id)
+        return
+    err = res.get("error") or f"upstream run ended with status: {status}"
+    run.update({**res, "status": "error", "error": err})
+    logger.error("run %s failed: %s", run_id, err)
 
 
 def _export_sft_dataset(trace_ids: list[str] | None = None) -> tuple[str, int]:
@@ -65,8 +81,10 @@ async def _run_sft(dataset: str, model: str, preset: str | None) -> dict[str, An
         cfg.sft.batch_size = p.get("batch_size", cfg.sft.batch_size)
         logger.info("applied preset %s to sft config", preset)
     trainer = SFTTrainer(cfg)
-    await asyncio.to_thread(trainer.train)
-    return {"method": "sft", "output_dir": str(cfg.sft.output_dir)}
+    res = await asyncio.to_thread(trainer.train)
+    # SFTTrainer.train returns a status dict (may be "failed"/"interrupted"
+    # without raising) — surface it instead of fabricating success.
+    return {"method": "sft", "output_dir": str(cfg.sft.output_dir), **res}
 
 
 async def _run_rlsl(
@@ -85,8 +103,10 @@ async def _run_rlsl(
         cfg.rlsl.learning_rate = p.get("learning_rate", cfg.rlsl.learning_rate)
         logger.info("applied preset %s to rlsl config", preset)
     engine = RLSLEngine(cfg)
-    await asyncio.to_thread(engine.run)
-    return {"method": method, "output_dir": str(cfg.rlsl.output_dir)}
+    res = await asyncio.to_thread(engine.run)
+    # engine.run returns a status dict (may be "interrupted" without raising) —
+    # surface it instead of fabricating success.
+    return {"method": method, "output_dir": str(cfg.rlsl.output_dir), **res}
 
 
 class TrainingService:
@@ -123,8 +143,7 @@ class TrainingService:
         async def _task() -> None:
             try:
                 res = await _run_sft(ds, model, preset)
-                _RUNS[run_id].update({"status": "completed", **res})
-                logger.info("run_sft completed run_id=%s", run_id)
+                _apply_run_result(run_id, res)
             except Exception as e:
                 _RUNS[run_id].update({"status": "error", "error": str(e)})
                 logger.exception("run_sft failed run_id=%s: %s", run_id, e)
@@ -158,8 +177,7 @@ class TrainingService:
         async def _task() -> None:
             try:
                 res = await _run_rlsl(ds, model, method, preset)
-                _RUNS[run_id].update({"status": "completed", **res})
-                logger.info("run_rlsl completed run_id=%s", run_id)
+                _apply_run_result(run_id, res)
             except Exception as e:
                 _RUNS[run_id].update({"status": "error", "error": str(e)})
                 logger.exception("run_rlsl failed run_id=%s: %s", run_id, e)
