@@ -317,6 +317,9 @@ class CapabilityDoor:
                 rec = self.approvals.create(
                     capability_id, agent_id, version, publisher, params,
                     requester=f"agent:{agent_id}")
+                # E5: approval.requested — complements approval.decided so
+                # consumers see both ends of the approval lifecycle.
+                await self._notify_requested(rec)
                 data = {"approval_id": rec["id"],
                         "status": "pending_approval"}
                 outcome = "approval_requested"
@@ -498,13 +501,34 @@ class CapabilityDoor:
             raise DoorError(403, f"approval assigned to '{assigned}', "
                                  f"not '{decided_by}'")
 
+    async def _notify_requested(self, rec: dict) -> None:
+        """E5: fire approval.requested webhook — best-effort like the
+        decision notification; never raises into the mutation path."""
+        try:
+            from .webhooks import get_webhook_registry
+
+            await get_webhook_registry().fire("approval.requested", {
+                "approval_id": rec.get("id"),
+                "kind": rec.get("kind") or "mutation",
+                "capability_id": rec.get("capability_id"),
+                "agent_id": rec.get("agent_id"),
+                "title": rec.get("title") or "",
+                "status": rec.get("status"),
+                "requester": rec.get("requester"),
+                "assigned_to": rec.get("assigned_to"),
+                "created_at": rec.get("created_at"),
+                "params": rec.get("params") or {},
+            })
+        except Exception as e:
+            logger.warning("approval.requested webhook failed: %s", e)
+
     async def _notify_decision(self, rec: dict, reason: str = "") -> None:
         """#446: fire approval.decided webhooks — best-effort, never
         raises into the decision path."""
         try:
             from .webhooks import get_webhook_registry
 
-            await get_webhook_registry().fire("approval.decided", {
+            payload = {
                 "approval_id": rec.get("id"),
                 "kind": rec.get("kind") or "mutation",
                 "capability_id": rec.get("capability_id"),
@@ -520,7 +544,12 @@ class CapabilityDoor:
                 "params": rec.get("params") or {},
                 "result": (rec.get("result") or "")[:2000],
                 "reason": reason,
-            })
+            }
+            registry = get_webhook_registry()
+            await registry.fire("approval.decided", payload)
+            # E5: lifecycle alias — resolved pairs with requested so
+            # consumers can subscribe to the full approval lifecycle.
+            await registry.fire("approval.resolved", payload)
         except Exception as e:
             logger.warning("approval webhook notify failed: %s", e)
 

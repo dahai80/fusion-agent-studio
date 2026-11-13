@@ -246,6 +246,24 @@ def register_agents_platform(
             return JSONResponse(status_code=status_code,
                                 content={"error": getattr(e, "detail",
                                                           str(e))})
+        # E5: external approval tasks fire approval.requested too.
+        try:
+            from agent_runtime.agent_platform.webhooks import get_webhook_registry
+
+            await get_webhook_registry().fire("approval.requested", {
+                "approval_id": rec.get("id"),
+                "kind": "external",
+                "capability_id": rec.get("capability_id"),
+                "agent_id": rec.get("agent_id"),
+                "title": rec.get("title") or "",
+                "status": rec.get("status"),
+                "requester": rec.get("requester"),
+                "assigned_to": rec.get("assigned_to"),
+                "created_at": rec.get("created_at"),
+                "params": rec.get("params") or {},
+            })
+        except Exception as we:
+            logger.warning("approval.requested webhook failed: %s", we)
         return {"approval_id": rec["id"], "status": rec["status"],
                 "kind": rec.get("kind"),
                 "assigned_to": rec.get("assigned_to"),
