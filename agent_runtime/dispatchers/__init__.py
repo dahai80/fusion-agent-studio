@@ -7,6 +7,7 @@ from .bundle import BundleDispatcher
 from .chat import ChatDispatcher
 from .commodity import CommodityDispatcher
 from .deploy import DeployDispatcher
+from .eval import EvalDispatcher
 from .flow import FlowDispatcher
 from .history import HistoryDispatcher
 from .infra import InfraDispatcher
@@ -42,6 +43,7 @@ __all__ = [
     "PluginDispatcher",
     "ArtifactDispatcher",
     "TrainerDispatcher",
+    "EvalDispatcher",
     "FlowDispatcher",
 "HistoryDispatcher",
     "ReviewerDispatcher",
