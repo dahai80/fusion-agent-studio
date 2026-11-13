@@ -1,3 +1,19 @@
+---
+doc_id: fusion-agent-studio/plan/evolution-2026-11-verification
+product: fusion-agent-studio
+class: core
+entry: developer
+doc_type: architecture
+title: {zh: 演进计划 2026-11 落地验证, en: Evolution Plan 2026-11 Landing Verification}
+audience: maintainer
+status: stable
+version: 1.0
+updated: 2026-11-13
+owner: "@dahai"
+source_of_truth:
+  - docs/plans/evolution-2026-11-verification.md
+---
+
 # Evolution Plan 2026-11 — 100% Landing Verification
 
 > Companion to `docs/plans/evolution-2026-11.md`. Maps every plan item to its
