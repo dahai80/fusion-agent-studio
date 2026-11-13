@@ -38,6 +38,13 @@ fusion-mcp = "agent_runtime.mcp_server:main"
 identity = [
     "fusion-identity>=0.1.0",
 ]
+# E3: optional opentelemetry-sdk export bridge — when installed, completed
+# internal spans are re-emitted through the SDK pipeline (BatchSpanProcessor
+# + OTLP exporter); absent = hand-written OTLP/HTTP JSON push (unchanged).
+otel = [
+    "opentelemetry-sdk>=1.20.0",
+    "opentelemetry-exporter-otlp-proto-http>=1.20.0",
+]
 test = [
     "pytest>=8.0.0",
     "pytest-asyncio>=0.23.0",
