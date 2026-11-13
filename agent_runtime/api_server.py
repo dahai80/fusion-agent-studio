@@ -84,6 +84,38 @@ app.add_middleware(
     allow_headers=["x-api-key", "content-type", "authorization"],
 )
 
+# E3: W3C traceparent continuation — an inbound request carrying a valid
+# traceparent opens an http.request span linked to the upstream trace
+# (internal trace id = upstream trace id prefix, parent = upstream span id).
+@app.middleware("http")
+async def _traceparent_middleware(request, call_next):
+    tp = request.headers.get("traceparent", "")
+    if not tp:
+        return await call_next(request)
+    from agent_runtime.telemetry import parse_traceparent
+
+    if parse_traceparent(tp) is None:
+        return await call_next(request)
+    eng = getattr(_daemon, "_get_telemetry_engine", None)
+    engine = eng() if callable(eng) else None
+    if engine is None:
+        return await call_next(request)
+    span = engine.span_from_traceparent(
+        "http.request",
+        tp,
+        attributes={
+            "http.method": request.method,
+            "http.path": request.url.path,
+        },
+    )
+    try:
+        response = await call_next(request)
+    finally:
+        if span is not None:
+            engine.end_span(span.span_id)
+    return response
+
+
 # #271: env-gated multi-tenant identity. FUSION_IDENTITY_ENABLED=1 installs the
 # fusion-core TenantMiddleware (X-Tenant-Id header + bearer JWT verify via
 # fusion-identity:11470). Unset = current local ApiKeyManager behavior unchanged.
@@ -2534,6 +2566,10 @@ async def v1_execute_graph_stream(
 
             registry = RunRegistry()
             app.state.run_registry = registry
+        # E4: Inspector RPCs (runs.tool_stats / runs.thread_lanes) read the
+        # managed-run replay buffer through this daemon-side reference.
+        if _daemon is not None:
+            _daemon._managed_run_registry = registry
         # #646: parked-run recovery — one background worker per process;
         # resume rebuilds the graph from the store and re-pumps the SAME
         # ManagedRun so SSE resume (seq replay) keeps working.

@@ -215,6 +215,85 @@ export const api = {
         ),
 };
 
+// E4: Inspector data-plane aggregations (runs.tool_stats / runs.thread_lanes).
+export interface ToolStat {
+    tool: string;
+    calls: number;
+    failures: number;
+    failure_rate: number;
+    median_ms: number;
+    p95_ms: number;
+}
+
+export interface LaneEvent {
+    event_id: string;
+    parent_id: string;
+    type: string;
+    name: string;
+    node_id: string;
+    timestamp: number;
+    depth: number;
+}
+
+export interface ThreadLane {
+    lane_id: string;
+    root_type: string;
+    root_name: string;
+    label: string;
+    events: LaneEvent[];
+    event_count: number;
+    max_depth: number;
+    t_start: number;
+    t_end: number;
+}
+
+export interface ThreadLanesResult {
+    lanes: ThreadLane[];
+    lane_count: number;
+    run_id?: string;
+    status?: string;
+    message?: string;
+}
+
+export interface ToolStatsResult {
+    tools: ToolStat[];
+    run_id?: string;
+    status?: string;
+    message?: string;
+}
+
+// E4/E5/E6: allowlisted RPC surface (runs.* / eval.* / playground.*).
+export const inspectorApi = {
+    toolStats: (runId: string) => rpc<ToolStatsResult>('runs.tool_stats', { run_id: runId }),
+    threadLanes: (runId: string) => rpc<ThreadLanesResult>('runs.thread_lanes', { run_id: runId }),
+    evalList: () => rpc<{ datasets: Array<Record<string, unknown>> }>('eval.listDatasets'),
+    evalRun: (params: {
+        dataset_path?: string;
+        dataset?: unknown;
+        graph_id: string;
+        limit?: number;
+    }) => rpc<Record<string, unknown>>('eval.run', params),
+    playgroundReplay: (params: {
+        messages: Array<{ role: string; content: string }>;
+        system?: string;
+        params?: Record<string, unknown>;
+    }) => rpc<{ output: string; duration_ms: number }>('playground.replay', params),
+    playgroundFromTrace: (params: {
+        trace_id: string;
+        system?: string;
+        prompt?: string;
+        params?: Record<string, unknown>;
+    }) =>
+        rpc<{
+            output: string;
+            duration_ms?: number;
+            baseline_output?: string;
+            diff?: { changed: boolean; unified: string };
+        }>('playground.fromTrace', params),
+    assetList: (params: { kind?: string; name?: string }) =>
+        rpc<{ assets: Array<Record<string, unknown>> }>('asset.list', params),
+};
+
 // Map task/run status strings to the four-color StatusKind vocabulary
 // (spec S2: success / running / warning / error / offline).
 export function statusKind(

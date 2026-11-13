@@ -10,17 +10,40 @@ import {
 } from '@fusion/web-ui';
 import { formatRelativeTime } from '@fusion/web-ui/format';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { type RunDetail, type RunEvents, type RunResult, api, apiPost, statusKind } from '../api';
+import {
+    type LaneEvent,
+    type RunDetail,
+    type RunEvents,
+    type RunResult,
+    type ThreadLane,
+    type ToolStat,
+    api,
+    apiPost,
+    inspectorApi,
+    statusKind,
+} from '../api';
 import { PageHeader } from '../components/PageHeader';
 import { RunWaterfall } from '../components/RunWaterfall';
 import { StreamPanel } from '../components/StreamPanel';
 import { useT } from '../i18n';
+import { hashQuery } from '../lib/routeQuery';
 import { sdk } from '../sdk';
 
 // Run detail: TaskProgress (spec §7.2) + hasActiveTask tab declaration
 // (spec S: sdk.tab.setActiveTask while running), result KVPanel, cancel
 // with ConfirmDialog, optional live SSE test when a graph is bound.
 const ACTIVE_STATUSES = new Set(['pending', 'submitted', 'running']);
+
+// E4: Inspector tabs — Summary / Events / Tools / Threads / Resources.
+type DetailTab = 'summary' | 'events' | 'tools' | 'threads' | 'resources';
+
+const DETAIL_TABS: Array<{ key: DetailTab; label: string; labelEn: string }> = [
+    { key: 'summary', label: '概览', labelEn: 'Summary' },
+    { key: 'events', label: '事件', labelEn: 'Events' },
+    { key: 'tools', label: '工具', labelEn: 'Tools' },
+    { key: 'threads', label: '线程', labelEn: 'Threads' },
+    { key: 'resources', label: '资源', labelEn: 'Resources' },
+];
 
 export function RunDetailPage({ runId }: { runId: string }) {
     const t = useT();
@@ -34,6 +57,13 @@ export function RunDetailPage({ runId }: { runId: string }) {
     // re-run to one node (only_node, #398).
     const [spans, setSpans] = useState<RunEvents | null>(null);
     const [rerunNode, setRerunNode] = useState('');
+    // E4: active tab; a `?event=<id>` deep link opens straight onto the
+    // Threads lane that carries the event.
+    const [tab, setTab] = useState<DetailTab>(() =>
+        hashQuery().get('event') ? 'threads' : 'summary'
+    );
+    // E4: Tools-row drill-down — the picked tool name filters the Threads lane.
+    const [inspectTool, setInspectTool] = useState('');
     const runRef = useRef<RunDetail | null>(null);
     runRef.current = run;
 
@@ -169,55 +199,109 @@ export function RunDetailPage({ runId }: { runId: string }) {
                 }
             />
             <div className="flex flex-col gap-3 px-4">
-                <TaskProgress
-                    stage={statusLabel}
-                    current={active ? 0 : 1}
-                    total={1}
-                    startedAt={run.created_at ? run.created_at * 1000 : undefined}
-                    errorLog={run.error || undefined}
-                />
-                <KVPanel
-                    title={t('运行信息', 'Run info')}
-                    object={{
-                        run_id: run.run_id,
-                        graph_id: run.graph_id || '-',
-                        agent_id: run.agent_id || '-',
-                        created_at: run.created_at
-                            ? formatRelativeTime(run.created_at * 1000)
-                            : '-',
-                        updated_at: run.updated_at
-                            ? formatRelativeTime(run.updated_at * 1000)
-                            : '-',
-                        events,
-                        retry_count: run.progress?.retry_count ?? 0,
-                        artifacts: (run.progress?.artifact_ids ?? []).join(', ') || '-',
-                    }}
-                />
-                {result ? (
-                    <KVPanel
-                        title={t('结果', 'Result')}
-                        object={{
-                            status: result.status,
-                            session_id: result.steps?.[0]?.session_id ?? '-',
-                            last_error: result.last_error || '-',
+                <div
+                    data-testid="run-detail-tabs"
+                    className="flex flex-wrap items-center gap-1 border-b border-border pb-2"
+                >
+                    {DETAIL_TABS.map((d) => (
+                        <button
+                            key={d.key}
+                            type="button"
+                            data-testid={`tab-${d.key}`}
+                            onClick={() => setTab(d.key)}
+                            className={`rounded-md px-3 py-1.5 text-xs ${
+                                tab === d.key
+                                    ? 'bg-bg-muted font-medium text-text-primary'
+                                    : 'text-text-secondary hover:bg-bg-muted/60'
+                            }`}
+                        >
+                            {t(d.label, d.labelEn)}
+                        </button>
+                    ))}
+                </div>
+                {tab === 'summary' ? (
+                    <>
+                        <TaskProgress
+                            stage={statusLabel}
+                            current={active ? 0 : 1}
+                            total={1}
+                            startedAt={run.created_at ? run.created_at * 1000 : undefined}
+                            errorLog={run.error || undefined}
+                        />
+                        <KVPanel
+                            title={t('运行信息', 'Run info')}
+                            object={{
+                                run_id: run.run_id,
+                                graph_id: run.graph_id || '-',
+                                agent_id: run.agent_id || '-',
+                                created_at: run.created_at
+                                    ? formatRelativeTime(run.created_at * 1000)
+                                    : '-',
+                                updated_at: run.updated_at
+                                    ? formatRelativeTime(run.updated_at * 1000)
+                                    : '-',
+                                events,
+                                retry_count: run.progress?.retry_count ?? 0,
+                                artifacts: (run.progress?.artifact_ids ?? []).join(', ') || '-',
+                            }}
+                        />
+                        {result ? (
+                            <KVPanel
+                                title={t('结果', 'Result')}
+                                object={{
+                                    status: result.status,
+                                    session_id: result.steps?.[0]?.session_id ?? '-',
+                                    last_error: result.last_error || '-',
+                                }}
+                            />
+                        ) : null}
+                        {result?.steps?.[0]?.session_id ? (
+                            <SessionOps sessionId={result.steps[0].session_id} />
+                        ) : null}
+                        <RunWaterfall
+                            events={spans}
+                            onRerunNode={
+                                run.graph_id
+                                    ? (nodeId) => {
+                                          setRerunNode(nodeId);
+                                          setStreaming(true);
+                                      }
+                                    : undefined
+                            }
+                        />
+                    </>
+                ) : null}
+                {tab === 'events' && run.graph_id ? (
+                    <EventsTab
+                        spans={spans}
+                        onRerunNode={
+                            run.graph_id
+                                ? (nodeId) => {
+                                      setRerunNode(nodeId);
+                                      setStreaming(true);
+                                  }
+                                : undefined
+                        }
+                    />
+                ) : null}
+                {tab === 'tools' ? (
+                    <ToolsTab
+                        runId={runId}
+                        onInspect={(tool) => {
+                            setTab('threads');
+                            setInspectTool(tool);
                         }}
                     />
                 ) : null}
-                {result?.steps?.[0]?.session_id ? (
-                    <SessionOps sessionId={result.steps[0].session_id} />
+                {tab === 'threads' ? (
+                    <ThreadsTab
+                        runId={runId}
+                        focusTool={inspectTool}
+                        deepLinkEvent={hashQuery().get('event') || ''}
+                    />
                 ) : null}
-                <RunWaterfall
-                    events={spans}
-                    onRerunNode={
-                        run.graph_id
-                            ? (nodeId) => {
-                                  setRerunNode(nodeId);
-                                  setStreaming(true);
-                              }
-                            : undefined
-                    }
-                />
-                {run.graph_id ? (
+                {tab === 'resources' ? <ResourcesTab run={run} result={result} /> : null}
+                {tab === 'summary' && run.graph_id ? (
                     <div className="flex flex-col gap-2">
                         <div className="flex items-center justify-between gap-2">
                             <span className="text-sm text-text-primary">
@@ -283,6 +367,270 @@ export function RunDetailPage({ runId }: { runId: string }) {
                 onConfirm={doCancel}
                 onCancel={() => setCancelOpen(false)}
             />
+        </div>
+    );
+}
+
+// E4 Events tab: per-node span table with drill-down rerun (same contract
+// as the waterfall, laid out as rows for scanning).
+function EventsTab({
+    spans,
+    onRerunNode,
+}: {
+    spans: RunEvents | null;
+    onRerunNode?: (nodeId: string) => void;
+}) {
+    const t = useT();
+    const nodes = spans?.nodes ?? [];
+    if (!nodes.length) {
+        return <div className="text-xs text-text-secondary">{t('暂无事件', 'no events yet')}</div>;
+    }
+    return (
+        <div data-testid="events-tab" className="overflow-x-auto">
+            <table className="w-full text-left text-xs">
+                <thead className="text-text-secondary">
+                    <tr>
+                        <th className="py-1.5 pr-3">{t('节点', 'Node')}</th>
+                        <th className="py-1.5 pr-3">{t('状态', 'Status')}</th>
+                        <th className="py-1.5 pr-3">{t('工具调用', 'Tool calls')}</th>
+                        <th className="py-1.5 pr-3">{t('Token', 'Tokens')}</th>
+                        <th className="py-1.5 pr-3">{t('错误', 'Error')}</th>
+                        <th className="py-1.5" />
+                    </tr>
+                </thead>
+                <tbody>
+                    {nodes.map((n, i) => (
+                        <tr key={`${n.node_id}-${i}`} className="border-t border-border/60">
+                            <td className="py-1.5 pr-3 font-mono text-text-primary">{n.node_id}</td>
+                            <td className="py-1.5 pr-3">
+                                <StatusBadge status={statusKind(n.status)} label={n.status} />
+                            </td>
+                            <td className="py-1.5 pr-3">{n.tool_calls}</td>
+                            <td className="py-1.5 pr-3">{n.tokens ?? '-'}</td>
+                            <td className="py-1.5 pr-3 text-error">{n.error || '-'}</td>
+                            <td className="py-1.5">
+                                {onRerunNode ? (
+                                    <button
+                                        type="button"
+                                        onClick={() => onRerunNode(n.node_id)}
+                                        className="rounded-md border border-border px-2 py-0.5 text-text-secondary hover:bg-bg-muted"
+                                    >
+                                        {t('重跑', 'rerun')}
+                                    </button>
+                                ) : null}
+                            </td>
+                        </tr>
+                    ))}
+                </tbody>
+            </table>
+        </div>
+    );
+}
+
+// E4 Tools tab: runs.tool_stats — calls / failure rate / median duration;
+// a row click drills into the Threads lane filtered by that tool.
+function ToolsTab({
+    runId,
+    onInspect,
+}: {
+    runId: string;
+    onInspect: (tool: string) => void;
+}) {
+    const t = useT();
+    const [stats, setStats] = useState<ToolStat[]>([]);
+    const [error, setError] = useState('');
+    const [loading, setLoading] = useState(true);
+
+    useEffect(() => {
+        let alive = true;
+        inspectorApi
+            .toolStats(runId)
+            .then((r) => {
+                if (alive) setStats(r.tools ?? []);
+            })
+            .catch((e) => {
+                if (alive) setError((e as Error).message || 'load failed');
+            })
+            .finally(() => {
+                if (alive) setLoading(false);
+            });
+        return () => {
+            alive = false;
+        };
+    }, [runId]);
+
+    if (loading) return <SkeletonLines rows={3} />;
+    if (error) return <div className="text-xs text-error">{error}</div>;
+    if (!stats.length) {
+        return (
+            <div className="text-xs text-text-secondary">
+                {t('该运行没有工具调用', 'no tool calls in this run')}
+            </div>
+        );
+    }
+    return (
+        <div data-testid="tools-tab" className="overflow-x-auto">
+            <table className="w-full text-left text-xs">
+                <thead className="text-text-secondary">
+                    <tr>
+                        <th className="py-1.5 pr-3">{t('工具', 'Tool')}</th>
+                        <th className="py-1.5 pr-3">{t('调用', 'Calls')}</th>
+                        <th className="py-1.5 pr-3">{t('失败', 'Failures')}</th>
+                        <th className="py-1.5 pr-3">{t('失败率', 'Failure rate')}</th>
+                        <th className="py-1.5 pr-3">{t('中位时长', 'Median')}</th>
+                        <th className="py-1.5">{t('P95', 'P95')}</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {stats.map((s) => (
+                        <tr
+                            key={s.tool}
+                            data-testid={`tool-row-${s.tool}`}
+                            onClick={() => onInspect(s.tool)}
+                            onKeyDown={(e) => {
+                                if (e.key === 'Enter' || e.key === ' ') onInspect(s.tool);
+                            }}
+                            role="button"
+                            tabIndex={0}
+                            className="cursor-pointer border-t border-border/60 hover:bg-bg-muted/50"
+                        >
+                            <td className="py-1.5 pr-3 font-mono text-text-primary">{s.tool}</td>
+                            <td className="py-1.5 pr-3">{s.calls}</td>
+                            <td className="py-1.5 pr-3">{s.failures}</td>
+                            <td className="py-1.5 pr-3">{(s.failure_rate * 100).toFixed(1)}%</td>
+                            <td className="py-1.5 pr-3">{s.median_ms.toFixed(0)}ms</td>
+                            <td className="py-1.5">{s.p95_ms.toFixed(0)}ms</td>
+                        </tr>
+                    ))}
+                </tbody>
+            </table>
+        </div>
+    );
+}
+
+// E4 Threads tab: runs.thread_lanes — per-lane timeline (root event chains,
+// subagent spans nested), minimap span bar, ?event= deep-link highlight.
+function ThreadsTab({
+    runId,
+    focusTool,
+    deepLinkEvent,
+}: {
+    runId: string;
+    focusTool: string;
+    deepLinkEvent: string;
+}) {
+    const t = useT();
+    const [lanes, setLanes] = useState<ThreadLane[]>([]);
+    const [error, setError] = useState('');
+    const [loading, setLoading] = useState(true);
+
+    useEffect(() => {
+        let alive = true;
+        inspectorApi
+            .threadLanes(runId)
+            .then((r) => {
+                if (alive) setLanes(r.lanes ?? []);
+            })
+            .catch((e) => {
+                if (alive) setError((e as Error).message || 'load failed');
+            })
+            .finally(() => {
+                if (alive) setLoading(false);
+            });
+        return () => {
+            alive = false;
+        };
+    }, [runId]);
+
+    if (loading) return <SkeletonLines rows={3} />;
+    if (error) return <div className="text-xs text-error">{error}</div>;
+    if (!lanes.length) {
+        return (
+            <div className="text-xs text-text-secondary">
+                {t('该运行没有事件线程', 'no event threads in this run')}
+            </div>
+        );
+    }
+    const tMin = Math.min(...lanes.map((l) => l.t_start || Number.POSITIVE_INFINITY));
+    const tMax = Math.max(...lanes.map((l) => l.t_end || 0));
+    const span = Math.max(tMax - tMin, 1e-9);
+    return (
+        <div data-testid="threads-tab" className="flex flex-col gap-3">
+            {lanes.map((lane) => {
+                const visible = lane.events.filter((e) => !focusTool || e.name === focusTool);
+                return (
+                    <div key={lane.lane_id} className="rounded-lg border border-border/70 p-2">
+                        <div className="flex items-center justify-between text-xs">
+                            <span className="font-mono text-text-primary">{lane.label}</span>
+                            <span className="text-text-secondary">
+                                {lane.event_count} {t('事件', 'events')} · {t('深度', 'depth')}{' '}
+                                {lane.max_depth}
+                            </span>
+                        </div>
+                        <div className="mt-1.5 h-1.5 w-full rounded bg-bg-muted">
+                            <div
+                                className="h-1.5 rounded bg-[var(--color-accent,#6366f1)]"
+                                style={{
+                                    marginLeft: `${(((lane.t_start || tMin) - tMin) / span) * 100}%`,
+                                    width: `${Math.max(2, ((lane.t_end - lane.t_start) / span) * 100)}%`,
+                                }}
+                            />
+                        </div>
+                        <div className="mt-2 flex flex-col gap-0.5">
+                            {visible.map((e: LaneEvent, i: number) => (
+                                <div
+                                    key={e.event_id || i}
+                                    data-testid={
+                                        e.event_id ? `lane-event-${e.event_id}` : undefined
+                                    }
+                                    className={`flex items-center gap-2 text-[11px] ${
+                                        deepLinkEvent && e.event_id === deepLinkEvent
+                                            ? 'rounded bg-warning/15 px-1 py-0.5'
+                                            : ''
+                                    }`}
+                                    style={{ paddingLeft: `${e.depth * 12}px` }}
+                                >
+                                    <span className="text-text-secondary">{e.type}</span>
+                                    {e.name ? (
+                                        <span className="font-mono text-text-primary">
+                                            {e.name}
+                                        </span>
+                                    ) : null}
+                                    {e.node_id ? (
+                                        <span className="text-text-secondary">@{e.node_id}</span>
+                                    ) : null}
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                );
+            })}
+        </div>
+    );
+}
+
+// E4 Resources tab: artifacts + terminal result payload for this run.
+function ResourcesTab({ run, result }: { run: RunDetail; result: RunResult | null }) {
+    const t = useT();
+    const artifactIds = run.progress?.artifact_ids ?? [];
+    return (
+        <div data-testid="resources-tab" className="flex flex-col gap-2 text-xs">
+            <KVPanel
+                title={t('产物', 'Artifacts')}
+                object={{
+                    count: artifactIds.length,
+                    ids: artifactIds.join(', ') || '-',
+                }}
+            />
+            {result?.artifacts?.length ? (
+                <KVPanel
+                    title={t('结果产物', 'Result artifacts')}
+                    object={{ ids: result.artifacts.join(', ') }}
+                />
+            ) : null}
+            {result?.last_result && Object.keys(result.last_result).length ? (
+                <KVPanel title={t('最终输出', 'Final output')} object={result.last_result} />
+            ) : null}
         </div>
     );
 }

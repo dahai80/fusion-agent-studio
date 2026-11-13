@@ -16,6 +16,7 @@ from .marketplace import MarketplaceDispatcher
 from .mcp import McpDispatcher
 from .memory import MemoryDispatcher
 from .planner import PlannerDispatcher
+from .playground import PlaygroundDispatcher
 from .plugin import PluginDispatcher
 from .reviewer import ReviewerDispatcher
 from .safety import SafetyDispatcher
@@ -44,6 +45,7 @@ __all__ = [
     "ArtifactDispatcher",
     "TrainerDispatcher",
     "EvalDispatcher",
+    "PlaygroundDispatcher",
     "FlowDispatcher",
 "HistoryDispatcher",
     "ReviewerDispatcher",

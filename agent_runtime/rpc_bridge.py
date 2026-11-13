@@ -228,6 +228,18 @@ WEB_RPC_ALLOWLIST: frozenset[str] = frozenset(
         "run.history_list",
         "run.history_get",
         "run.diff",
+        # E4/E5/E6: Inspector aggregations + offline review + playground/assets
+        "runs.tool_stats",
+        "runs.thread_lanes",
+        "runs.offlineReview",
+        "eval.run",
+        "eval.listDatasets",
+        "eval.fromTrace",
+        "playground.replay",
+        "playground.fromTrace",
+        "asset.put",
+        "asset.list",
+        "asset.checkout",
         # flow store + template gallery (#555/#558)
         "flow.template_list",
         "flow.template_save",

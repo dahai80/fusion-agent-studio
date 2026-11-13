@@ -144,15 +144,16 @@ start() {
     log_info "safety: injection=${FUSION_SAFETY_INJECTION} level=${FUSION_SAFETY_LEVEL} plugins=${FUSION_PLUGINS_ENABLE}"
 
     # #327: daemon WS_PORT 默认 11433 (registry fusion-agent-studio-ws; 曾误用
-    # 11437 撞 fusion-cowork-sync, 2026-10-16 迁回 11433). WS 默认关
-    # (FUSION_ENABLE_WS=1 才起). 显式覆盖到 fm-server / cowork-sync 的口时
-    # 前向提示 (端口字面量经算术合成, 避免 check-ports 把提示文本误判为绑定).
+    # 11437 撞 fusion-cowork-sync, 2026-10-16 迁回 11433). E7: WS 默认开
+    # (FUSION_WS_TOKEN 未设时 daemon 降级回关). 显式覆盖到 fm-server /
+    # cowork-sync 的口时前向提示 (端口字面量经算术合成, 避免 check-ports
+    # 把提示文本误判为绑定).
     FM_PORT="$((114340+5))"
     CW_PORT="$((114360+7))"
-    if [[ "${FUSION_ENABLE_WS:-0}" == "1" && "${FUSION_WS_PORT:-11433}" == "$FM_PORT" ]]; then
+    if [[ "${FUSION_ENABLE_WS:-1}" != "0" && "${FUSION_WS_PORT:-11433}" == "$FM_PORT" ]]; then
         log_warn "FUSION_WS_PORT 与 fusion-memory fm-server 默认口同端口, 二者须改其一 (FUSION_WS_PORT / FUSION_MEMORY_HTTP_PORT)"
     fi
-    if [[ "${FUSION_ENABLE_WS:-0}" == "1" && "${FUSION_WS_PORT:-11433}" == "$CW_PORT" ]]; then
+    if [[ "${FUSION_ENABLE_WS:-1}" != "0" && "${FUSION_WS_PORT:-11433}" == "$CW_PORT" ]]; then
         log_warn "FUSION_WS_PORT 与 fusion-cowork sync 默认口同端口, 二者须改其一 (FUSION_WS_PORT / FUSION_COWORK_SYNC_PORT)"
     fi
 
