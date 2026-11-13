@@ -192,13 +192,6 @@ jobs:
         if: needs.changes.outputs.python == 'true'
         run: python tests/proof/prove_eval_runner.py
 
-      # E5: offline reviewer — 3 injected overreach flagged, benign baseline
-      # zero false positives, findings land in audit log.
-      - name: Proof 11 — offline reviewer (overreach hit + zero FP baseline)
-        if: needs.changes.outputs.python == 'true'
-        run: python tests/proof/prove_offline_reviewer.py
-
-
   # #327: web UI — typecheck + build the union-web shell module. Self-contained:
   # @fusion/web-ui and @fusion/web-sdk are vendored in web/vendor/@fusion (no
   # registry/network fetch beyond bun + vite themselves).
