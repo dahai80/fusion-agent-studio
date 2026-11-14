@@ -20,6 +20,7 @@ class SkillsDispatcher(SubDispatcher):
             "skills.commands": self._handle_commands,
             "skills.invoke": self._handle_invoke,
             "skills.match": self._handle_match,
+            "skills.sync_memory": self._handle_sync_memory,
         }
 
     def _store(self):
@@ -196,3 +197,24 @@ class SkillsDispatcher(SubDispatcher):
         self._plane().unregister("skill", name)
         logger.info("skills.delete name=%s", name)
         return {"status": "ok", "name": name}
+
+    async def _handle_sync_memory(self, params: dict) -> dict:
+        # Issue #681: pull fusion-memory v1.8.0 export_skills and install each
+        # SKILL.md into the skills store. target=project writes the project
+        # skills dir; the producer's redact gate already sanitized content.
+        from ..memory_skill_sync import sync_memory_skills
+
+        res = await sync_memory_skills(
+            limit=params.get("limit", 20),
+            namespace=str(params.get("namespace", "") or ""),
+            namespace_key=str(params.get("namespace_key", "") or ""),
+            target=str(params.get("target", "user") or "user"),
+            project_root=str(params.get("project_root", "") or ""),
+            base_url=str(params.get("base_url", "") or ""),
+            token=str(params.get("token", "") or ""),
+        )
+        if res.get("status") == "ok":
+            for row in res.get("synced", []):
+                self._plane().ensure("skill", row["name"], origin="fusion-memory")
+        logger.info("skills.sync_memory status=%s count=%s", res.get("status"), res.get("count"))
+        return res

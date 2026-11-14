@@ -79,7 +79,8 @@ class SafetyDispatcher(SubDispatcher):
         if not action_id:
             return {"status": "error", "message": "action_id parameter required"}
         guard = self._daemon._get_safety()
-        ok = guard.approve_action(action_id)
+        # #685: approver recorded on the persisted intervention record.
+        ok = guard.approve_action(action_id, approver=str(params.get("approver", "") or ""))
         return {"approved": ok}
 
     async def _handle_safety_reject_action(self, params: dict) -> dict:
@@ -87,7 +88,7 @@ class SafetyDispatcher(SubDispatcher):
         if not action_id:
             return {"status": "error", "message": "action_id parameter required"}
         guard = self._daemon._get_safety()
-        ok = guard.reject_action(action_id)
+        ok = guard.reject_action(action_id, approver=str(params.get("approver", "") or ""))
         return {"rejected": ok}
 
     async def _handle_safety_get_pending_actions(self, params: dict) -> dict:
