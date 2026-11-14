@@ -120,6 +120,29 @@ class PipelineScopedFunnel(PersonaScopedFunnel):
             approver=approver,
             admission_only=True,
         )
+        # #675: kernel SandboxPolicy gate after the pipeline allows — a tool
+        # mapped to the BLOCKED tier is denied outright; SANDBOX tier is
+        # logged (admission-only funnel, execution rerouting stays at the
+        # call sites). Scored with the kernel deterministic risk scorer.
+        policy = getattr(self, "sandbox_policy", None)
+        if out.allowed and policy is not None:
+            from fusion_harness.permissions import score_tool_risk
+            from fusion_harness.sandbox import ExecutionTier
+
+            decision = policy.decide(tool_name, args, score_tool_risk(tool_name, args))
+            logger.info(
+                "sandbox tier tool=%s tier=%s reason=%s",
+                tool_name,
+                decision.tier.value,
+                decision.reason,
+            )
+            if decision.tier is ExecutionTier.BLOCKED:
+                return FunnelOutcome(
+                    allowed=False,
+                    blocked_by="sandbox",
+                    reason=f"sandbox policy blocked tool '{tool_name}': {decision.reason}",
+                    args=args or {},
+                )
         return self._to_outcome(adapter, out, tool_name)
 
     def _to_outcome(
