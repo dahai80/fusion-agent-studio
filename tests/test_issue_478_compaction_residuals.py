@@ -127,7 +127,9 @@ class TestIssue478CompactAfterHook:
     async def test_compact_after_fires_on_failure(self, monkeypatch):
         comp, seen = self._compactor_with_recorder()
 
-        def boom(messages, summarize=None):
+        # fusion-harness 0.10 adds keep= to _smart_truncate (#682) — the stub
+        # must accept the kernel's evolving kwargs, not pin the old signature.
+        def boom(messages, summarize=None, **kwargs):
             raise RuntimeError("summarizer exploded")
 
         monkeypatch.setattr(comp, "_smart_truncate", boom)
