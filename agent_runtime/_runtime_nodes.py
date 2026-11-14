@@ -26,6 +26,12 @@ from ._runtime_helpers import (
 )
 from .context import AgentContext, AgentEvent, AgentEventType
 from .graph import AgentGraph, NodeConfig
+from .guardrails_client import (
+    REDACTION_NOTICE,
+    check_llm_input,
+    check_llm_output,
+    guardrails_enabled,
+)
 from .json_schema import JsonSchemaValidator
 from .variable_manager import VariableManager
 
@@ -342,6 +348,29 @@ class _NodeExecutorsMixin:
         capability = node.tool_params.get("capability", "")
         effort = node.effort or ""
 
+        # #683: fusion-security guardrails input filter — opt-in
+        # (FUSION_GUARDRAILS_ENABLED), fail-open on transport errors. Blocks
+        # only on an explicit action=block verdict from the service.
+        if guardrails_enabled():
+            last_user = next(
+                (m for m in reversed(messages) if m.get("role") == "user"), {}
+            )
+            gi = await check_llm_input(str(last_user.get("content", "") or ""))
+            if gi.get("action") == "block":
+                ctx.error = (
+                    f"Guardrails blocked user input: {gi.get('reason') or 'policy violation'}"
+                )
+                logger.warning(
+                    "guardrails input block node=%s category=%s", node.label, gi.get("category")
+                )
+                yield AgentEvent(
+                    type=AgentEventType.SAFETY_APPROVAL,
+                    content=ctx.error,
+                    metadata={"action": "blocked", "category": "guardrails_input"},
+                )
+                yield AgentEvent(type=AgentEventType.ERROR, content=ctx.error)
+                return
+
         # N0 LLMFunnel: single LLM admission (lifecycle llm_before ->
         # LLM_BEFORE hook -> compaction check). Blocked -> node error.
         proceed, block_reason, messages = await self.llm_funnel.pre_llm(
@@ -563,6 +592,19 @@ class _NodeExecutorsMixin:
                     model,
                     len(messages),
                 )
+
+        # #683: fusion-security guardrails output filter — secret leakage /
+        # tool-invocation text / exfil patterns. On block the model output is
+        # replaced with a redaction notice; the turn itself completes.
+        if guardrails_enabled() and content:
+            go = await check_llm_output(content)
+            if go.get("action") == "block":
+                logger.warning(
+                    "guardrails output block node=%s category=%s",
+                    node.label,
+                    go.get("category"),
+                )
+                content = REDACTION_NOTICE
 
         if schema_validator and content:
             extracted = schema_validator.extract_from_text(content)
