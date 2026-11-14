@@ -139,6 +139,25 @@ class TestSkillDraftStore:
         assert installed.is_file()
         assert "## Provenance" in installed.read_text(encoding="utf-8")
 
+    def test_review_approve_rejects_missing_frontmatter(self, drafts):
+        # Structure-validation failure must refuse to publish: no frontmatter
+        # means the draft never passes the agentskills.io gate.
+        cand = {"draft_name": "draft-66666666", "count": 2, "pattern": "p", "trace_ids": []}
+        drafts.save(cand, "just some prose, no frontmatter")
+        out = drafts.review("draft-66666666", "approve", reviewer="carol")
+        assert out["status"] == "error"
+        assert "missing YAML frontmatter" in out["message"]
+        assert drafts.get("draft-66666666")["status"] == "invalid"
+        assert drafts.list_drafts(status="published") == []
+
+    def test_review_approve_rejects_empty_body(self, drafts):
+        cand = {"draft_name": "draft-77777777", "count": 2, "pattern": "p", "trace_ids": []}
+        drafts.save(cand, "---\nname: draft-77777777\ndescription: hollow shell\n---\n\n")
+        out = drafts.review("draft-77777777", "approve", reviewer="carol")
+        assert out["status"] == "error"
+        assert "empty body" in out["message"]
+        assert drafts.get("draft-77777777")["status"] == "invalid"
+
     def test_review_unknown_and_bad_action(self, drafts):
         assert drafts.review("draft-nope", "approve")["status"] == "not_found"
         cand = {"draft_name": "draft-55555555", "count": 2, "pattern": "p", "trace_ids": []}

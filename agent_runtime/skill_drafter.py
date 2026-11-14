@@ -226,14 +226,31 @@ class SkillDraftStore:
         if action != "approve":
             return {"status": "error", "message": "action must be approve or reject"}
         # Validate against the agentskills.io structure before install.
+        # parse_skill_md is deliberately lenient (bad YAML degrades to a
+        # fallback name), so the structural gate here is explicit: drafted
+        # SKILL.md must carry frontmatter and a non-empty body.
         from .skills_store import parse_skill_md
 
+        raw = str(rec.get("content", "") or "")
+        rec["status"] = "invalid"
+        if not raw.lstrip().startswith("---"):
+            self._write(rec)
+            return {
+                "status": "error",
+                "message": "draft failed structure validation: missing YAML frontmatter",
+            }
         try:
-            meta, body = parse_skill_md(rec.get("content", ""), name)
+            meta, body = parse_skill_md(raw, name)
         except (ValueError, OSError) as e:
-            rec["status"] = "invalid"
             self._write(rec)
             return {"status": "error", "message": f"draft failed structure validation: {e}"}
+        if not body.strip():
+            self._write(rec)
+            return {
+                "status": "error",
+                "message": "draft failed structure validation: empty body",
+            }
+        rec["status"] = "draft"
         if not meta.name:
             return {"status": "error", "message": "draft missing skill name"}
         installed = self._skills_store().install_skill(name, rec.get("content", ""))
