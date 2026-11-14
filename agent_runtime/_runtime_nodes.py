@@ -179,9 +179,17 @@ class _NodeExecutorsMixin:
         allowlist = (node.tool_params or {}).get("tools_allowlist")
         if allowlist:
             want = set(allowlist)
-            tools_schema = [
-                t for t in (tools_schema or []) if t.get("function", {}).get("name") in want
-            ]
+            if os.environ.get("FUSION_TOOL_MASKING", "0") == "1":
+                # #702 cache discipline: availability expressed as an
+                # order/length-preserving mask (x-fusion-masked flag) so a
+                # narrowing transition never invalidates the KV prefix.
+                from fusion_harness.cache_discipline import mask_tools
+
+                tools_schema = mask_tools(tools_schema or [], want)
+            else:
+                tools_schema = [
+                    t for t in (tools_schema or []) if t.get("function", {}).get("name") in want
+                ]
 
         node_prompt = node.system_prompt or system_prompt
         if node_prompt:
