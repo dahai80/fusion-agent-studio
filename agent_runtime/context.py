@@ -153,6 +153,10 @@ class AgentContext:
     # runtime._resolve_persona_declarations 从 persona 层栈解析填充,
     # PersonaScopedFunnel 消费. per-ctx 审计 A-1 模式, 不落 singleton.
     persona_declarations: dict = field(default_factory=dict)
+    # #697 P9: hit provenance per run — which memory/skill assets fired
+    # during execution, so eval can attribute quality deltas to the asset
+    # that fired. Shape: {"memory_hits": [..], "skill_hits": [..]}.
+    hit_provenance: dict = field(default_factory=dict)
 
     def __post_init__(self):
         if not self.session_id:

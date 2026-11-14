@@ -42,6 +42,8 @@ class TrajectoryRecord:
     node_transitions: list[dict] = field(default_factory=list)
     error: str = ""
     token_usage: dict = field(default_factory=dict)
+    # #697: per-run asset hit provenance (memory/skill) for eval attribution.
+    hit_provenance: dict = field(default_factory=dict)
 
     def __post_init__(self):
         if not self.trace_id:
@@ -67,6 +69,7 @@ class TrajectoryRecord:
             "node_transitions": self.node_transitions,
             "error": self.error,
             "token_usage": self.token_usage,
+            "hit_provenance": self.hit_provenance,
             "duration_ms": (self.finished_at - self.started_at) * 1000
             if self.finished_at
             else 0,
@@ -182,6 +185,18 @@ class TrajectoryWriter:
         record = self._records.get(session_id)
         if record is not None:
             record.token_usage = usage
+
+    def record_hit_provenance(self, session_id: str, provenance: dict) -> None:
+        # #697: merge per-run asset hit provenance into the record so eval
+        # replay reproduces identical attribution.
+        record = self._records.get(session_id)
+        if record is None:
+            return
+        for key, hits in (provenance or {}).items():
+            if isinstance(hits, list):
+                record.hit_provenance.setdefault(key, []).extend(hits)
+            else:
+                record.hit_provenance[key] = hits
 
     def _write_record(self, record, status: str) -> str | None:
         # 审计 R-8/P2-17: 抽出落盘逻辑, flush + evict 共用 (evict 不再静默丢 trace).

@@ -730,6 +730,11 @@ class AgentRuntime(_SafetyApprovalMixin, _CheckpointMixin, _DynamicToolsMixin, _
                 usage = ctx_ref.token_usage() if hasattr(ctx_ref, "token_usage") else {}
                 if usage:
                     writer.record_token_usage(ctx_ref.session_id, usage)
+                # #697: persist hit provenance so eval replay reproduces
+                # identical attribution.
+                hp = getattr(ctx_ref, "hit_provenance", None)
+                if hp:
+                    writer.record_hit_provenance(ctx_ref.session_id, hp)
                 writer.flush(ctx_ref.session_id, status=status)
             except (OSError, ValueError, TypeError) as e:
                 logger.warning("trajectory flush failed: %s", e)
@@ -834,6 +839,15 @@ class AgentRuntime(_SafetyApprovalMixin, _CheckpointMixin, _DynamicToolsMixin, _
                     mem_ctx = mem_ctx[:inject_cap]
                     logger.info("memory injection truncated to %d chars (budget)", inject_cap)
                 ctx.add_message("system", f"[Relevant memory]: {mem_ctx}")
+                # #697: hit provenance — memory asset fired for this input.
+                hp = ctx.hit_provenance.setdefault("memory_hits", [])
+                hp.append(
+                    {
+                        "query": initial_input[:120],
+                        "chars": len(mem_ctx),
+                        "at": round(time.time(), 3),
+                    }
+                )
                 logger.info("Auto-loaded memory for input")
 
         start_node = graph.get_node(graph.start_node_id)
