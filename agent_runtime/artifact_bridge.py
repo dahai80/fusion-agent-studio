@@ -3,6 +3,10 @@
 Importers: daemon_server.py (_get_artifact_manager), dispatchers/artifact.py
 API: ArtifactBridge.create/load/patch/list_all/snapshot/context_budget/auto_compact
 Data schemas: delegates to ArtifactManager (local) or JSON-RPC 2.0 to artifacts-engine (remote)
+
+#714 part 2 annotation: record-RPC adaptation is studio-product behavior and
+stays local; the kernel worker-output channel (artifact_channel.py shim) is
+the ref-only mechanism for team/DAG member deliveries.
 """
 
 from __future__ import annotations

@@ -143,6 +143,12 @@ VALID_GENERATION_PHASES = {"skeleton", "filling", "completed"}
 
 
 class ArtifactManager:
+    # #714 part 2 annotation: this manager is studio-product capture behavior
+    # (records, policies, budget-aware context tiers, generation phases) and
+    # stays local. The worker full-output / ref-only mechanism is the kernel
+    # artifact channel (agent_runtime/artifact_channel.py shim over
+    # fusion_harness.artifact_channel) — teams.run_member deliveries use it;
+    # this manager does not.
     """Manage artifact CRUD with policy enforcement and context injection."""
 
     def __init__(self, artifacts_dir: str = ARTIFACTS_DIR):
