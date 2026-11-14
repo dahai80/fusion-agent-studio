@@ -174,6 +174,7 @@ class AgentStore:
             self._migration_v2_team_state,
             self._migration_v3_resource_leases,
             self._migration_v4_graph_versions,
+            self._migration_v5_tool_interventions,
         ]
         current = conn.execute("PRAGMA user_version").fetchone()[0]
         for idx, migrate in enumerate(migrations, start=1):
@@ -200,6 +201,124 @@ class AgentStore:
             conn.execute("ALTER TABLE checkpoints ADD COLUMN graph_id TEXT DEFAULT ''")
         if "state_json" not in cols:
             conn.execute("ALTER TABLE checkpoints ADD COLUMN state_json TEXT DEFAULT '{}'")
+
+    def _migration_v5_tool_interventions(self, conn) -> None:
+        # #685: tool-call approval state survives reloads — intervention
+        # records persisted alongside the in-memory pending map.
+        conn.executescript("""
+            CREATE TABLE IF NOT EXISTS tool_interventions (
+                action_id TEXT PRIMARY KEY,
+                intervention_type TEXT NOT NULL,
+                category TEXT DEFAULT '',
+                session_id TEXT DEFAULT '',
+                graph_id TEXT DEFAULT '',
+                request_json TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'pending',
+                approver TEXT DEFAULT '',
+                created_at REAL NOT NULL,
+                resolved_at REAL
+            );
+            CREATE INDEX IF NOT EXISTS idx_interventions_status
+                ON tool_interventions(status, created_at DESC);
+        """)
+
+    # ── #685 ToolIntervention persistence ──
+
+    def record_intervention(
+        self,
+        action_id: str,
+        intervention_type: str,
+        category: str = "",
+        session_id: str = "",
+        graph_id: str = "",
+        request: dict | None = None,
+        created_at: float | None = None,
+    ) -> None:
+        now = created_at if created_at is not None else time.time()
+        with self._cursor() as conn:
+            conn.execute(
+                """INSERT INTO tool_interventions
+                       (action_id, intervention_type, category, session_id, graph_id,
+                        request_json, status, approver, created_at, resolved_at)
+                   VALUES (?, ?, ?, ?, ?, ?, 'pending', '', ?, NULL)
+                   ON CONFLICT(action_id) DO UPDATE SET
+                       request_json=excluded.request_json""",
+                (
+                    action_id,
+                    intervention_type,
+                    category,
+                    session_id,
+                    graph_id,
+                    json.dumps(request or {}, ensure_ascii=False),
+                    now,
+                ),
+            )
+        logger.info(
+            "intervention recorded: action_id=%s type=%s category=%s",
+            action_id,
+            intervention_type,
+            category,
+        )
+
+    def resolve_intervention(self, action_id: str, status: str, approver: str = "") -> bool:
+        if status not in ("approved", "rejected"):
+            raise ValueError(f"invalid intervention status: {status}")
+        with self._cursor() as conn:
+            cur = conn.execute(
+                """UPDATE tool_interventions
+                   SET status=?, approver=?, resolved_at=?
+                   WHERE action_id=? AND status='pending'""",
+                (status, approver, time.time(), action_id),
+            )
+        if cur.rowcount > 0:
+            logger.info(
+                "intervention resolved: action_id=%s status=%s approver=%s",
+                action_id,
+                status,
+                approver,
+            )
+        return cur.rowcount > 0
+
+    def get_intervention(self, action_id: str) -> dict | None:
+        with self._cursor() as conn:
+            row = conn.execute(
+                "SELECT * FROM tool_interventions WHERE action_id=?",
+                (action_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        return self._intervention_row_to_dict(row)
+
+    def list_interventions(self, status: str = "", limit: int = 100) -> list[dict]:
+        sql = "SELECT * FROM tool_interventions"
+        params: tuple = ()
+        if status:
+            sql += " WHERE status=?"
+            params = (status,)
+        sql += " ORDER BY created_at DESC LIMIT ?"
+        params = params + (int(limit),)
+        with self._cursor() as conn:
+            rows = conn.execute(sql, params).fetchall()
+        return [self._intervention_row_to_dict(r) for r in rows]
+
+    @staticmethod
+    def _intervention_row_to_dict(row) -> dict:
+        try:
+            request = json.loads(row["request_json"] or "{}")
+        except (json.JSONDecodeError, TypeError):
+            request = {}
+        return {
+            "action_id": row["action_id"],
+            "intervention_type": row["intervention_type"],
+            "category": row["category"],
+            "session_id": row["session_id"],
+            "graph_id": row["graph_id"],
+            "request": request,
+            "status": row["status"],
+            "approver": row["approver"],
+            "created_at": row["created_at"],
+            "resolved_at": row["resolved_at"],
+        }
 
     # ── Graph CRUD ──
 

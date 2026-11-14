@@ -204,6 +204,9 @@ class SafetyGateway:
         self._pending_approvals: dict[str, asyncio.Future[bool]] = {}
         self._pending_action_approvals: dict[str, dict[str, Any]] = {}
         self._lock = threading.Lock()
+        # #685: optional InterventionStore (AgentStore) — approval state
+        # persists across reloads; pending interventions re-surface on resume.
+        self.intervention_store = None
 
         # #258: unified guard backend. local/guard/auto all route through
         # GuardSafetyBackend — guard-up -> guard verdict; guard-down (CI: no
@@ -344,6 +347,17 @@ class SafetyGateway:
                         "level": verdict.metadata.get("level", "L3"),
                         "status": "pending",
                     }
+                self._persist_intervention(
+                    action_id,
+                    intervention_type="safety_block",
+                    category=category,
+                    request={
+                        "content": content,
+                        "context": context,
+                        "level": verdict.metadata.get("level", "L3"),
+                        "reason": verdict.reason,
+                    },
+                )
 
         logger.info(
             "Guard verdict for category '%s': action=%s risk=%s action_id=%s",
@@ -395,13 +409,71 @@ class SafetyGateway:
                 "status": "pending",
                 "request": request,
             }
+        self._persist_intervention(
+            action_id,
+            intervention_type="diff_preview",
+            category=category,
+            request={
+                "original": original,
+                "proposed": proposed,
+                "diff": diff_text,
+            },
+        )
 
         logger.debug(
             "Generated diff preview for action_id=%s, category=%s", action_id, category
         )
         return request
 
-    def approve_action(self, action_id: str) -> bool:
+    def attach_intervention_store(self, store) -> int:
+        # #685: wire the persistence store and re-surface pending records —
+        # after a daemon restart the in-memory map is empty but pending
+        # interventions must still be listable and resolvable.
+        self.intervention_store = store
+        reloaded = 0
+        if store is None:
+            return 0
+        try:
+            for rec in store.list_interventions(status="pending", limit=500):
+                aid = rec["action_id"]
+                with self._lock:
+                    if aid in self._pending_action_approvals:
+                        continue
+                    self._pending_action_approvals[aid] = {
+                        "category": rec.get("category", ""),
+                        "content": (rec.get("request") or {}).get("content", ""),
+                        "level": (rec.get("request") or {}).get("level", "L3"),
+                        "status": "pending",
+                    }
+                reloaded += 1
+        except Exception as e:
+            logger.warning("intervention store reload failed: %s", e)
+            return 0
+        if reloaded:
+            logger.info(
+                "intervention store attached: %d pending re-surfaced", reloaded
+            )
+        return reloaded
+
+    def _persist_intervention(
+        self, action_id: str, intervention_type: str, category: str, request: dict
+    ) -> None:
+        # Persistence must never break the approval loop itself.
+        if self.intervention_store is None:
+            return
+        try:
+            self.intervention_store.record_intervention(
+                action_id=action_id,
+                intervention_type=intervention_type,
+                category=category,
+                request=request,
+            )
+        except Exception as e:
+            logger.warning(
+                "intervention persist failed action_id=%s: %s", action_id, e
+            )
+
+    def approve_action(self, action_id: str, approver: str = "") -> bool:
         # #252 guard mode: delegate confirm to guard before resolving local future.
         if self._guard_backend is not None:
             if not self._guard_backend.confirm(action_id, True):
@@ -425,6 +497,8 @@ class SafetyGateway:
                 return False
             pending["status"] = "approved"
 
+        self._resolve_intervention_record(action_id, "approved", approver)
+
         if action_id in self._pending_approvals:
             future = self._pending_approvals[action_id]
             if not future.done():
@@ -433,7 +507,7 @@ class SafetyGateway:
         logger.info("Action approved: action_id=%s", action_id)
         return True
 
-    def reject_action(self, action_id: str) -> bool:
+    def reject_action(self, action_id: str, approver: str = "") -> bool:
         # #252 guard mode: delegate confirm(rejected) to guard.
         if self._guard_backend is not None:
             if not self._guard_backend.confirm(action_id, False):
@@ -455,6 +529,8 @@ class SafetyGateway:
                 return False
             pending["status"] = "rejected"
 
+        self._resolve_intervention_record(action_id, "rejected", approver)
+
         if action_id in self._pending_approvals:
             future = self._pending_approvals[action_id]
             if not future.done():
@@ -462,6 +538,19 @@ class SafetyGateway:
 
         logger.info("Action rejected: action_id=%s", action_id)
         return True
+
+    def _resolve_intervention_record(self, action_id: str, status: str, approver: str) -> None:
+        if self.intervention_store is None:
+            return
+        try:
+            self.intervention_store.resolve_intervention(action_id, status, approver)
+        except Exception as e:
+            logger.warning(
+                "intervention resolve failed action_id=%s status=%s: %s",
+                action_id,
+                status,
+                e,
+            )
 
     def get_pending_actions(self) -> list[dict[str, Any]]:
         from .permission_cards import build_card

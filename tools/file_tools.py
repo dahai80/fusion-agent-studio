@@ -59,11 +59,16 @@ def _is_write_blocked(filepath: Path) -> str | None:
     # 返回拦截原因 str, None=放行.
     roots_env = os.environ.get("FUSION_FILE_ROOTS", "").strip()
     if roots_env:
-        allowed_roots = [Path(r).expanduser().resolve() for r in roots_env.split(":") if r.strip()]
-        if allowed_roots and not any(
-            str(filepath) == str(r) or str(filepath).startswith(str(r) + os.sep) for r in allowed_roots
-        ):
-            return f"path outside FUSION_FILE_ROOTS allowlist: {filepath}"
+        # #685: allowlist via the shared PathScope primitive — bare roots +
+        # `**` globs, `..` traversal rejected, symlinks resolved before match.
+        from agent_runtime.path_scope import PathScope, PathScopeError
+
+        roots = [r for r in roots_env.split(":") if r.strip()]
+        scope = PathScope(allowed=roots, label="FUSION_FILE_ROOTS")
+        try:
+            scope.check(str(filepath))
+        except PathScopeError as e:
+            return f"path outside FUSION_FILE_ROOTS allowlist: {filepath} ({e.reason})"
     allow_system = os.environ.get("FUSION_FILE_ALLOW_SYSTEM", "").strip().lower() in ("1", "true", "yes")
     if allow_system:
         return None
