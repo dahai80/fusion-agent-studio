@@ -44,6 +44,97 @@ class SubAgentDispatcher(SubDispatcher):
             rt.subagent_runner = runner
         return runner
 
+    def _kernel_orchestrator(self) -> dict | None:
+        # #701: prefer the fusion-harness kernel orchestrator when wired
+        # (#675); in-tree runner stays as fail-open fallback.
+        rt = self._daemon._get_runtime() if hasattr(self._daemon, "_get_runtime") else None
+        orch = (getattr(rt, "kernel", None) or {}).get("orchestrator")
+        return orch if isinstance(orch, dict) and orch.get("runner") is not None else None
+
+    @staticmethod
+    def _spawn_brief(spec, brief_raw: dict | None):
+        # #701: SpawnBrief contract (fusion-harness #26). Caller-supplied
+        # brief must be complete (brief_from_event raises SpawnBriefError on
+        # missing fields); otherwise derive defaults from the spec, then
+        # validate — malformed briefs never reach a worker.
+        from fusion_harness.spawn_protocol import (
+            SpawnBrief,
+            SpawnBriefError,
+            brief_from_event,
+            validate_brief,
+        )
+
+        if brief_raw:
+            brief = brief_from_event(dict(brief_raw))
+        else:
+            brief = SpawnBrief(
+                objective=str(spec.task or ""),
+                output_format="report",
+                tool_guidance=(
+                    "allowlisted tools: " + ", ".join(spec.tools) if spec.tools else "no tools"
+                ),
+                boundaries="stay within the allowlisted tools and the stated task scope; no destructive actions",
+                token_budget=int(spec.budget_tokens or 20000),
+                concurrency=1,
+                depth=1,
+                metadata={"name": spec.name, "permission_mode": spec.permission_mode or ""},
+            )
+        errors = validate_brief(brief)
+        if errors:
+            raise SpawnBriefError("invalid spawn brief: " + "; ".join(errors))
+        return brief
+
+    async def _run_via_kernel(self, orch: dict, spec, params: dict) -> dict:
+        from fusion_harness.spawn_protocol import SpawnBriefError
+        from fusion_harness.subagent import SubagentSpec as KernelSubagentSpec
+
+        try:
+            brief = self._spawn_brief(spec, params.get("brief"))
+        except SpawnBriefError as e:
+            logger.warning("subagent.run brief rejected name=%s: %s", spec.name, e)
+            return {"status": "error", "message": str(e)}
+        hspec = KernelSubagentSpec(
+            name=spec.name,
+            prompt=str(spec.task or ""),
+            tool_allowlist=list(spec.tools),
+            permission_mode=str(spec.permission_mode or "default"),
+            budget_tokens=int(spec.budget_tokens or 20000),
+            max_turns=int(spec.max_turns or 8),
+            metadata={"brief": {
+                "objective": brief.objective,
+                "output_format": brief.output_format,
+                "tool_guidance": brief.tool_guidance,
+                "boundaries": brief.boundaries,
+                "token_budget": brief.token_budget,
+                "concurrency": brief.concurrency,
+                "depth": brief.depth,
+            }},
+        )
+        result = await orch["runner"].run(
+            hspec,
+            orch["agent_fn"],
+            parent_tools=list(spec.tools),
+            parent_mode=str(spec.permission_mode or "default"),
+        )
+        logger.info(
+            "subagent.run via kernel orchestrator name=%s status=%s turns=%s tokens=%s",
+            spec.name, result.status, result.turns, result.tokens_spent,
+        )
+        return {
+            "status": "ok",
+            "report": {
+                "ok": result.status != "failed",
+                "agent_id": result.subagent_id,
+                "name": result.name,
+                "report": result.summary,
+                "turns": result.turns,
+                "tokens_used": result.tokens_spent,
+                "partial": result.status == "capped",
+                "error": result.error,
+                "via": "kernel-orchestrator",
+            },
+        }
+
     def _get_registry(self):
         rt = self._daemon._get_runtime() if hasattr(self._daemon, "_get_runtime") else None
         return getattr(rt, "subagent_registry", None)
@@ -63,6 +154,11 @@ class SubAgentDispatcher(SubDispatcher):
             spec = SubAgentSpec.from_dict(params.get("spec") or params)
         except (TypeError, ValueError) as e:
             return {"status": "error", "message": f"invalid spec: {e}"}
+        # #701: route through the kernel orchestrator when wired (SpawnBrief
+        # contract enforced at the spawn site); fail-open to in-tree runner.
+        orch = self._kernel_orchestrator()
+        if orch is not None:
+            return await self._run_via_kernel(orch, spec, params)
         report = await runner.run(spec)
         logger.info(
             "subagent.run name=%s ok=%s turns=%s tokens=%s",

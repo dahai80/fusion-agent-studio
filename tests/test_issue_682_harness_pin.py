@@ -1,8 +1,9 @@
-"""#682: fusion-harness pin must admit the 0.10.x kernel surface.
+"""#682/#701/#702: fusion-harness pin must admit the 0.11 discipline surface.
 
-fusion-harness 0.10 adds subagent/checkpoint/orchestrator primitives additively;
-the old <0.8 pin forced pip check conflicts in the shared monorepo venv
-(fusion-cowork#467). Range after the fix: >=0.7.0,<0.11.
+fusion-harness 0.10 added kernel primitives additively; 0.11.0 shipped
+spawn_protocol (brief contract, #701) and artifact_channel / playbook /
+cache_discipline (#702), which agent-studio consumes directly. Range after
+this bump: >=0.11.0,<0.12.
 """
 
 from __future__ import annotations
@@ -22,14 +23,14 @@ def _harness_pin() -> str:
     return deps[0].split("fusion-harness", 1)[1].strip()
 
 
-def test_pin_admits_installed_0_10_surface():
+def test_pin_admits_installed_discipline_surface():
     spec = SpecifierSet(_harness_pin())
-    assert Version("0.10.1") in spec
-    assert Version("0.7.0") in spec
+    assert Version("0.11.0") in spec
 
 
-def test_pin_still_bounds_major():
+def test_pin_still_bounds_minor_and_major():
     spec = SpecifierSet(_harness_pin())
-    assert Version("0.11.0") not in spec
+    assert Version("0.10.1") not in spec
+    assert Version("0.12.0") not in spec
     assert Version("1.0.0") not in spec
     assert Version("0.6.9") not in spec
