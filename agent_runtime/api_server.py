@@ -1354,7 +1354,26 @@ async def v1_submit_run(request: Request):
                 {"graph_id": graph_id, "input": goal, "task_id": run_id},
             )
         except Exception as exc:
-            logger.exception("/v1/runs graph.execute_async for %s failed (task still queued): %s", run_id, exc)
+            logger.exception("/v1/runs graph.execute_async for %s failed: %s", run_id, exc)
+            # #674: graph-bound runs are pre-claimed (owner_agent="api") so the
+            # task executor never picks them up — a failed inline kick must
+            # mark the task failed here or it pends forever (e.g. unknown
+            # graph_id raises "Graph not found: <id>").
+            try:
+                await _rpc(
+                    "task.status",
+                    {
+                        "task_id": run_id,
+                        "status": "failed",
+                        "last_error": f"graph dispatch failed: {exc}",
+                    },
+                )
+            except Exception as mark_exc:
+                logger.warning(
+                    "/v1/runs failed to mark task %s failed after dispatch error: %s",
+                    run_id,
+                    mark_exc,
+                )
     return {"run_id": run_id, "status": task.get("status", "pending"), "deduped": res.get("deduped", False)}
 
 
