@@ -21,7 +21,61 @@ class SkillsDispatcher(SubDispatcher):
             "skills.invoke": self._handle_invoke,
             "skills.match": self._handle_match,
             "skills.sync_memory": self._handle_sync_memory,
+            # Issue #696: trajectory-mined skill drafts (review-gated).
+            "skills.mine_drafts": self._handle_mine_drafts,
+            "skills.list_drafts": self._handle_list_drafts,
+            "skills.review_draft": self._handle_review_draft,
         }
+
+    def _draft_store(self):
+        from ..skill_drafter import SkillDraftStore
+
+        cached = getattr(self._daemon, "_skill_draft_store", None)
+        if cached is None:
+            cached = SkillDraftStore()
+            self._daemon._skill_draft_store = cached
+        return cached
+
+    async def _handle_mine_drafts(self, params: dict) -> dict:
+        # Issue #696: mining pass over recorded failure trajectories.
+        from ..skill_drafter import TrajectoryMiner, draft_skill_md
+
+        try:
+            min_count = int(params.get("min_count", 2))
+            limit = int(params.get("limit", 200))
+        except (TypeError, ValueError):
+            return {"status": "error", "message": "min_count and limit must be integers"}
+        store = self._draft_store()
+        miner = TrajectoryMiner(min_count=max(2, min_count), limit=max(1, limit))
+        saved = []
+        for candidate in miner.mine():
+            content = draft_skill_md(candidate)
+            saved.append(store.save(candidate, content))
+        logger.info("skills.mine_drafts drafts=%d", len(saved))
+        return {"status": "ok", "drafts": saved, "count": len(saved)}
+
+    async def _handle_list_drafts(self, params: dict) -> dict:
+        status = str(params.get("status", "") or "")
+        drafts = self._draft_store().list_drafts(status=status)
+        logger.info("skills.list_drafts status=%s count=%d", status or "all", len(drafts))
+        return {"status": "ok", "drafts": drafts, "count": len(drafts)}
+
+    async def _handle_review_draft(self, params: dict) -> dict:
+        # Issue #696: approve validates the agentskills.io structure and
+        # installs into the skills store; reject archives. Drafts stay
+        # untrusted until a reviewer acts.
+        name = str(params.get("name", "") or "")
+        action = str(params.get("action", "") or "")
+        reviewer = str(params.get("reviewer", "") or "")
+        if not name or not action:
+            return {"status": "error", "message": "name and action required"}
+        out = self._draft_store().review(name, action, reviewer=reviewer)
+        if out.get("status") == "published":
+            self._plane().ensure("skill", name, origin="skill-drafter")
+        if out.get("status") in ("not_found", "error"):
+            return {"status": "error", "message": out.get("message", out.get("status")), "name": name}
+        logger.info("skills.review_draft name=%s action=%s out=%s", name, action, out.get("status"))
+        return {"status": "ok", **out}
 
     def _store(self):
         from ..skills_store import SkillsStore
