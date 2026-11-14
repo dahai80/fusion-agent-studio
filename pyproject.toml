@@ -8,7 +8,7 @@ dependencies = [
     # tiers) is absent from the v0.2.1 wheel. Upper bound: harness 0.7.0
     # changed the compaction contract (survival-contract goal re-pinning);
     # bump deliberately after reviewing each minor release.
-    "fusion-harness>=0.7.0,<0.8",
+    "fusion-harness>=0.7.0,<0.11",
     # #509: single-point key resolution (config Phase 2.2, fusion-core#31).
     # NOT on PyPI — CI installs it via git+https, local via the workspace venv.
     "fusion-core>=0.8.0",
