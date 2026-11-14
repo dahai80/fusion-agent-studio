@@ -293,6 +293,11 @@ class DaemonServer:
         # + cron 同时触发) 都过 already_running 检查后各自 Popen, 端口冲突/
         # 双进程. 用锁串行化 start/stop/restart 生命周期操作.
         self._mlx_start_lock = asyncio.Lock()
+        # #694: background re-attach worker — the startup attach is gated on
+        # a single health check with no retry; if the daemon comes up while
+        # fusion-mlx is down, the gateway stays without a default client and
+        # every LLM call returns "No available model" until a manual restart.
+        self._mlx_reattach_task: asyncio.Task | None = None
         self._active_executions: dict[str, asyncio.Task] = {}
         self._active_chains: dict[str, asyncio.Task] = {}
         self._code_tasks: dict[str, dict] = {}
@@ -867,6 +872,14 @@ class DaemonServer:
         if await self._check_mlx_health():
             self._attach_mlx_client()
             logger.info("Auto-attached to running fusion-mlx on port %d", MLX_PORT)
+        else:
+            # #694: single-shot health check is not a verdict — schedule the
+            # background re-attach worker (also triggered lazily on first
+            # RPC while the gateway has no default client).
+            logger.warning(
+                "MLX client not attached (mlx unreachable at startup), will retry"
+            )
+            self._schedule_mlx_reattach("startup-unreachable")
 
         self._log_startup_selfcheck()
         self._reconcile_team_launch_phases()
@@ -1356,6 +1369,10 @@ class DaemonServer:
                 params.pop("_auth", None)
 
         try:
+            # #694: lazily (re)attach the MLX client before executing — a
+            # daemon started while fusion-mlx was down would otherwise fail
+            # every LLM-bearing call with "No available model" until restart.
+            await self._ensure_mlx_attached()
             result = await handler(params)
             return self._success_response(msg_id, result)
         except RpcAuthError as e:
@@ -4549,6 +4566,52 @@ class DaemonServer:
             self._ws_subscriptions.pop(id(d), None)
 
     # ── MLX helpers ──
+
+    def _gateway_attached(self) -> bool:
+        gw = self._gateway
+        return bool(getattr(gw, "_default_client", None) is not None and getattr(gw, "_default_model", ""))
+
+    async def _ensure_mlx_attached(self) -> bool:
+        # #694: lazy attach on first use — when the gateway has no default
+        # client/model, probe once and attach if mlx is reachable; otherwise
+        # make sure the background retry worker is running. Cheap early-out
+        # on the normal (attached) path.
+        if self._gateway_attached():
+            return True
+        if await self._check_mlx_health():
+            self._attach_mlx_client()
+            logger.info("#694: lazily attached MLX client on first use")
+            return True
+        self._schedule_mlx_reattach("lazy-miss")
+        return False
+
+    def _schedule_mlx_reattach(self, reason: str) -> None:
+        # #694: idempotent worker spawn — one background task retries the
+        # health check + attach with backoff until the gateway is attached.
+        task = self._mlx_reattach_task
+        if task is not None and not task.done():
+            return
+        self._mlx_reattach_task = asyncio.create_task(self._mlx_reattach_worker())
+        logger.info("#694: MLX re-attach worker scheduled (reason=%s)", reason)
+
+    async def _mlx_reattach_worker(self) -> None:
+        delay = 5.0
+        rounds = 0
+        while True:
+            if self._gateway_attached():
+                return
+            rounds += 1
+            if await self._check_mlx_health():
+                try:
+                    self._attach_mlx_client()
+                    logger.info(
+                        "#694: MLX client attached after retry (rounds=%d)", rounds
+                    )
+                    return
+                except Exception as e:
+                    logger.warning("#694: attach attempt failed: %s", e)
+            await asyncio.sleep(delay)
+            delay = min(delay * 2, 60.0)
 
     async def _check_mlx_health(self) -> bool:
         try:
