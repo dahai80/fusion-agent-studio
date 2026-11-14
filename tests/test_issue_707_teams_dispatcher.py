@@ -453,3 +453,30 @@ class TestLeadTools:
         assert gate.skill_allowed("terminal_hardening") is False
         open_gate = member_persona_gate(TeamMember(name="w2", role="r"))
         assert open_gate.skill_allowed("anything") is True
+
+
+class TestLiveDispatchPath:
+    # Issue #710: daemon _dispatch awaits handler(params) unconditionally —
+    # sync teams handlers returned dicts and exploded with -32000 "object
+    # dict can't be used in 'await' expression" on the live daemon.
+    def test_all_teams_handlers_async(self):
+        import asyncio
+
+        from agent_runtime.dispatchers.teams import TeamsDispatcher
+
+        d = TeamsDispatcher(None)
+        for name, handler in d.get_handlers().items():
+            assert asyncio.iscoroutinefunction(handler), f"{name} must be async def"
+
+    async def test_dispatch_end_to_end(self, daemon, monkeypatch):
+        monkeypatch.setenv("FUSION_AUTH_ENFORCE", "0")
+        rt, _client = _runtime()
+        daemon._get_runtime = lambda: rt
+        msg = {"jsonrpc": "2.0", "id": 7, "method": "teams.register", "params": {"definition": _definition()}}
+        resp = await daemon._dispatch(msg)
+        assert resp["id"] == 7
+        assert resp["result"]["status"] == "ok"
+        resp = await daemon._dispatch(
+            {"jsonrpc": "2.0", "id": 8, "method": "teams.list", "params": {}}
+        )
+        assert [t["name"] for t in resp["result"]["teams"]] == ["pair"]
