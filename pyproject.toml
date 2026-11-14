@@ -6,9 +6,11 @@ requires-python = ">=3.11"
 dependencies = [
     # #499/#500: >=0.2.2 — FunnelOutcome.confirmation (confirmation-policy
     # tiers) is absent from the v0.2.1 wheel. #707: >=0.12.0 for the team
-    # kernel (TeamDefinition/TeamRuntime/TeamTaskBoard, harness issue #31);
-    # bump deliberately after reviewing each minor release.
-    "fusion-harness>=0.12.0,<0.13",
+    # kernel (TeamDefinition/TeamRuntime/TeamTaskBoard, harness issue #31).
+    # #714 part 1: >=0.13.0 for checkpoint_binding (NodeStateBinder +
+    # OutboxStore, harness K2 #35); bump deliberately after reviewing each
+    # minor release.
+    "fusion-harness>=0.13.0,<0.14",
     # #509: single-point key resolution (config Phase 2.2, fusion-core#31).
     # NOT on PyPI — CI installs it via git+https, local via the workspace venv.
     "fusion-core>=0.8.0",

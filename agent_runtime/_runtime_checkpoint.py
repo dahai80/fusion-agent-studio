@@ -74,6 +74,39 @@ class _CheckpointMixin:
                         "iteration_count": ctx.iteration_count,
                     },
                 )
+                # #714 part 1: per-node state through the kernel-canonical
+                # binding API (fusion_harness.checkpoint_binding, harness K2
+                # #35) — same CheckpointStore, distinct "session:node" keys,
+                # so the old session-keyed rows stay byte-compatible. The
+                # node_effect_outbox (harness OutboxStore) is wired here for
+                # the binder; mark_emitted receipts for tool-call dedupe land
+                # with the tool-executor integration (follow-up, keeps this
+                # diff confined to the #714-listed files).
+                try:
+                    from .paths import studio_home
+
+                    outbox = getattr(self, "node_effect_outbox", None)
+                    if outbox is None:
+                        from fusion_harness.outbox import OutboxStore
+
+                        outbox = OutboxStore(str(studio_home() / "node_effects.db"))
+                        self.node_effect_outbox = outbox
+                    from fusion_harness.checkpoint_binding import bind_node_state
+
+                    binder = bind_node_state(kcp.store, outbox, ctx.session_id)
+                    binder.save(
+                        ctx.current_node_id or "run",
+                        {
+                            "graph_id": graph.name,
+                            "iteration_count": ctx.iteration_count,
+                            "variables": ctx.variables.to_dict(),
+                            "pending_tool_calls": pending,
+                        },
+                    )
+                except Exception as bind_err:
+                    logger.warning(
+                        "node state binding failed session=%s: %s", ctx.session_id, bind_err
+                    )
             logger.debug(
                 "Checkpoint saved: graph=%s node=%s pending_tools=%d",
                 graph.name, ctx.current_node_id, len(pending),
@@ -146,6 +179,36 @@ class _CheckpointMixin:
         # runtime 续跑时若 current_node_id 是被中断的 tool 节点会重发; 标记让
         # 上层感知. 此处仅记日志 + 标记, 不自动删消息 (保留 LLM 上下文).
         pending_tools = state.get("pending_tool_calls", [])
+        # #714 part 1: prefer the node-state binding (checkpoint_binding
+        # "session:node" key) when it holds fresher state for the checkpointed
+        # node than the legacy session row; old checkpoints without binding
+        # rows behave exactly as before.
+        kcp = getattr(self, "kernel_checkpoints", None)
+        bound_node_id = checkpoint.current_node_id or graph.start_node_id
+        if kcp is not None:
+            try:
+                from fusion_harness.checkpoint_binding import bind_node_state
+
+                from .paths import studio_home
+
+                outbox = getattr(self, "node_effect_outbox", None)
+                if outbox is None:
+                    from fusion_harness.outbox import OutboxStore
+
+                    outbox = OutboxStore(str(studio_home() / "node_effects.db"))
+                    self.node_effect_outbox = outbox
+                binder = bind_node_state(kcp.store, outbox, session_id)
+                bound = binder.load(bound_node_id)
+                if isinstance(bound, dict):
+                    if not ctx.messages and bound.get("pending_tool_calls"):
+                        pending_tools = list(bound["pending_tool_calls"])
+                    logger.info(
+                        "node binding state loaded node=%s keys=%s",
+                        bound_node_id,
+                        sorted(bound),
+                    )
+            except Exception as bind_err:
+                logger.warning("node binding load failed session=%s: %s", session_id, bind_err)
         if pending_tools:
             ctx.metadata["pending_tool_calls"] = pending_tools
             logger.warning(
