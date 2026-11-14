@@ -5,10 +5,10 @@ description = "Fusion-MLX Agent Studio — Local Agent Development Platform for 
 requires-python = ">=3.11"
 dependencies = [
     # #499/#500: >=0.2.2 — FunnelOutcome.confirmation (confirmation-policy
-    # tiers) is absent from the v0.2.1 wheel. #701/#702: >=0.11.0 for the
-    # spawn_protocol brief contract + artifact_channel/playbook/cache_discipline
-    # discipline modules; bump deliberately after reviewing each minor release.
-    "fusion-harness>=0.11.0,<0.12",
+    # tiers) is absent from the v0.2.1 wheel. #707: >=0.12.0 for the team
+    # kernel (TeamDefinition/TeamRuntime/TeamTaskBoard, harness issue #31);
+    # bump deliberately after reviewing each minor release.
+    "fusion-harness>=0.12.0,<0.13",
     # #509: single-point key resolution (config Phase 2.2, fusion-core#31).
     # NOT on PyPI — CI installs it via git+https, local via the workspace venv.
     "fusion-core>=0.8.0",

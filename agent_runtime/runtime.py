@@ -269,6 +269,9 @@ class AgentRuntime(_SafetyApprovalMixin, _CheckpointMixin, _DynamicToolsMixin, _
         # runtimes and subagent registries keep exact tool-set isolation.
         self.subagent_runner = None
         self.subagent_registry = None
+        # #707: kernel TeamRuntime instances keyed by team name (teams.*
+        # dispatcher + lead tools share this registry).
+        self.teams_registry = {}
         self._subagent_tools_enabled = os.environ.get(
             "FUSION_SUBAGENT_TOOLS", "1"
         ).strip().lower() not in ("0", "false", "no")
@@ -1410,6 +1413,38 @@ class AgentRuntime(_SafetyApprovalMixin, _CheckpointMixin, _DynamicToolsMixin, _
             logger.info("subagent tools registered (#487 default-on)")
         except Exception as e:
             logger.warning("subagent tools init failed: %s", e)
+
+    def _register_team_lead_tools(self) -> None:
+        # #707: consumer-side lead judgment loop — team_board / team_assign /
+        # team_dispatch / team_message against kernel TeamRuntimes held in
+        # self.teams_registry. Same registration rule as subagent tools:
+        # top-level LLM surfaces only. Opt-out: FUSION_TEAM_TOOLS=0/false/no.
+        if os.environ.get("FUSION_TEAM_TOOLS", "1").strip().lower() in ("0", "false", "no"):
+            return
+        if self.tools is None or self.tools.has("team_board"):
+            return
+        try:
+            from tools.team_lead_tools import (
+                TeamAssignTool,
+                TeamBoardTool,
+                TeamDispatchTool,
+                TeamMessageTool,
+            )
+
+            reg_provider = lambda: getattr(self, "teams_registry", None)  # noqa: E731
+            self.tools.register(TeamBoardTool(reg_provider))
+            self.tools.register(TeamAssignTool(reg_provider))
+            self.tools.register(TeamDispatchTool(reg_provider, self._team_agent_fn))
+            self.tools.register(TeamMessageTool(reg_provider))
+            logger.info("team lead tools registered (#707 default-on)")
+        except Exception as e:
+            logger.warning("team lead tools init failed: %s", e)
+
+    def _team_agent_fn(self):
+        # Kernel agent bridge for team member runs (shared with #701 wiring).
+        from .kernel_wiring import make_studio_agent_fn
+
+        return make_studio_agent_fn(self)
 
     def _register_skill_tools(self) -> None:
         # #498: LLM-facing SKILL.md surface — skill_search (trigger match +

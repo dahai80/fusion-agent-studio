@@ -247,7 +247,9 @@ def attach_kernel_checkpointer(runtime) -> KernelCheckpointer | None:
 
 # ---------------- 5. orchestrator ----------------
 
-def build_kernel_orchestrator(runtime) -> dict:
+def make_studio_agent_fn(runtime):
+    # Bridge a kernel SubagentSpec to a real studio subagent run. Shared by
+    # the kernel orchestrator (#701) and the teams dispatcher (#707).
     from .subagent import SubAgentRunner as StudioSubAgentRunner
     from .subagent import SubAgentSpec as StudioSubAgentSpec
 
@@ -269,18 +271,22 @@ def build_kernel_orchestrator(runtime) -> dict:
         if not getattr(report, "ok", True) and getattr(report, "error", None):
             text = text or f"subagent failed: {report.error}"
         logger.info(
-            "kernel orchestrator subagent done name=%s ok=%s turns=%s",
+            "kernel agent_fn subagent done name=%s ok=%s turns=%s",
             spec.name,
             getattr(report, "ok", None),
             getattr(report, "turns", None),
         )
         return text
 
+    return agent_fn
+
+
+def build_kernel_orchestrator(runtime) -> dict:
     runner = SubagentRunner(bus=getattr(runtime, "lifecycle_bus", None))
     pool = BackgroundPool(runner)
     team = ParallelTeam(runner)
     logger.info("kernel orchestrator wired: subagent_runner+background_pool+parallel_team")
-    return {"runner": runner, "pool": pool, "team": team, "agent_fn": agent_fn}
+    return {"runner": runner, "pool": pool, "team": team, "agent_fn": make_studio_agent_fn(runtime)}
 
 
 # ---------------- entry point ----------------

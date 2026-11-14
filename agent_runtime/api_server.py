@@ -222,6 +222,8 @@ def _get_runtime() -> AgentRuntime:
         _runtime._register_toolsearch()
         # #487: subagent_spawn ON by default — same rule, top-level surface only.
         _runtime._register_subagent_tools()
+        # #707: lead judgment loop tools (team_board/assign/dispatch/message).
+        _runtime._register_team_lead_tools()
     return _runtime
 
 

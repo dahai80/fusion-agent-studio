@@ -24,6 +24,7 @@ from .session import SessionDispatcher
 from .skills import SkillsDispatcher
 from .subagent import SubAgentDispatcher
 from .team import TeamDispatcher
+from .teams import TeamsDispatcher
 from .trainer import TrainerDispatcher
 from .workflow import WorkflowDispatcher
 
@@ -36,6 +37,7 @@ __all__ = [
     "AgentDispatcher",
     "ChatDispatcher",
     "TeamDispatcher",
+    "TeamsDispatcher",
     "InfraDispatcher",
     "WorkflowDispatcher",
     "SafetyDispatcher",

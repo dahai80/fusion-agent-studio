@@ -1,0 +1,31 @@
+{
+  "name": "research-pair",
+  "namespace_key": "team:research-pair",
+  "lead_budget_tokens": 200000,
+  "playbook": false,
+  "max_depth": 1,
+  "metadata": {
+    "owner": "agent-studio",
+    "team_budget": 100000
+  },
+  "members": [
+    {
+      "name": "researcher",
+      "role": "gathers and summarizes sources",
+      "skills": ["web-research", "summarize"],
+      "tool_allowlist": ["file_read", "file_write", "web_fetch"],
+      "permission_mode": "default",
+      "budget_tokens": 50000,
+      "max_concurrency": 1
+    },
+    {
+      "name": "writer",
+      "role": "drafts the deliverable from researcher notes",
+      "skills": ["writing"],
+      "tool_allowlist": ["file_read", "file_write"],
+      "permission_mode": "default",
+      "budget_tokens": 40000,
+      "max_concurrency": 1
+    }
+  ]
+}
