@@ -112,6 +112,12 @@ class SubAgentSpec:
         )
 
 
+def _worker_artifacts_enabled() -> bool:
+    import os
+
+    return os.environ.get("FUSION_WORKER_ARTIFACTS", "1") != "0"
+
+
 @dataclass
 class SubAgentReport:
     name: str
@@ -128,6 +134,9 @@ class SubAgentReport:
     # substantive report was produced) so operators can distinguish
     # graceful completion from true failure.
     warning: str = ""
+    # #702: artifact ref when the full report was persisted via the worker
+    # delivery channel (artifact_channel.ArtifactStore).
+    artifact_ref: str = ""
 
     def to_dict(self) -> dict:
         return {
@@ -142,6 +151,7 @@ class SubAgentReport:
             "agent_id": self.agent_id,
             "partial": self.partial,
             "warning": self.warning,
+            "artifact_ref": self.artifact_ref,
         }
 
     @classmethod
@@ -158,6 +168,7 @@ class SubAgentReport:
             agent_id=str(data.get("agent_id", "") or ""),
             partial=bool(data.get("partial", False)),
             warning=str(data.get("warning", "") or ""),
+            artifact_ref=str(data.get("artifact_ref", "") or ""),
         )
 
 
@@ -565,6 +576,29 @@ class SubAgentRunner:
                 "tokens_used": report.tokens_used,
             },
         )
+        # #702: worker delivery discipline — full report lands on disk via
+        # ArtifactStore; the parent context only receives a summary + artifact
+        # ref, injected front-of-context (idempotent). Fail-open.
+        if (
+            report.ok
+            and str(report.report or "").strip()
+            and _worker_artifacts_enabled()
+        ):
+            try:
+                from .delivery_channel import WorkerDeliveryChannel
+
+                channel = WorkerDeliveryChannel()
+                run_id = getattr(parent_ctx, "session_id", "") or agent_id
+                delivery = channel.deliver(run_id, spec.name, str(report.report))
+                if parent_ctx is not None:
+                    # inject_front returns a new list — write it back.
+                    parent_ctx.messages = channel.inject_front(parent_ctx.messages, [delivery])
+                report.artifact_ref = delivery.artifact_ref
+                logger.info(
+                    "worker report delivered name=%s artifact=%s", spec.name, delivery.artifact_ref
+                )
+            except Exception as e:
+                logger.warning("worker delivery channel failed name=%s: %s", spec.name, e)
         return report
 
     async def _run_inner(
