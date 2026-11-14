@@ -280,6 +280,30 @@ def mine_and_draft(min_count: int = 2, limit: int = 200) -> list[dict]:
     saved = []
     for candidate in miner.mine():
         content = draft_skill_md(candidate)
-        saved.append(store.save(candidate, content))
+        rec = store.save(candidate, content)
+        _record_playbook_lesson(candidate, rec)
+        saved.append(rec)
     logger.info("mine_and_draft: %d draft(s) queued for review", len(saved))
     return saved
+
+
+def _record_playbook_lesson(candidate: dict, record: dict) -> None:
+    # #702: distilled lessons append through the harness playbook (mandatory
+    # provenance via episodes = source trace ids), not ad-hoc prose.
+    try:
+        from .playbook_store import PlaybookStore, playbook_enabled
+
+        if not playbook_enabled():
+            return
+
+        eps = [t for t in (candidate.get("trace_ids") or []) if t]
+        if not eps:
+            return
+        PlaybookStore().append_lesson(
+            "skill-drafts",
+            f"recurring failure pattern mined from trajectories; draft "
+            f"{record.get('name', '')} queued for review",
+            episodes=eps,
+        )
+    except Exception as e:
+        logger.warning("playbook lesson append failed draft=%s: %s", record.get("name", ""), e)
