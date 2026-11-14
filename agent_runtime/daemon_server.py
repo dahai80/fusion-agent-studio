@@ -469,6 +469,8 @@ class DaemonServer:
             self._runtime._register_toolsearch()
             # #487: subagent_spawn ON by default — same rule, top-level surface only.
             self._runtime._register_subagent_tools()
+            # #707: lead judgment loop tools (team_board/assign/dispatch/message).
+            self._runtime._register_team_lead_tools()
             # #485: production LifecycleBus consumer — mirrors lifecycle
             # events into the WS event ring (governance stream) and the
             # sessions.lifecycle feed.
@@ -1496,6 +1498,7 @@ class DaemonServer:
             SkillsDispatcher,
             SubAgentDispatcher,
             TeamDispatcher,
+            TeamsDispatcher,
             TrainerDispatcher,
             WorkflowDispatcher,
         )
@@ -1507,6 +1510,7 @@ class DaemonServer:
             AgentDispatcher(self),
             ChatDispatcher(self),
             TeamDispatcher(self),
+            TeamsDispatcher(self),
             InfraDispatcher(self),
             # 审计 P1-15: ArtifactDispatcher 须在 WorkflowDispatcher 之前注册.
             # 两者都声明 artifact.create RPC (Workflow 的是 stub), _get_handler
