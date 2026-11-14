@@ -279,6 +279,13 @@ class AgentRuntime(_SafetyApprovalMixin, _CheckpointMixin, _DynamicToolsMixin, _
             self.permission_engine.rules_count(),
         )
 
+        # #675: fuse the harness kernel surfaces (token counter, sandbox
+        # policy, skill registry + derived permissions, checkpoint mirror,
+        # orchestrator) — each env-gated, fail-open, logged on wire.
+        from .kernel_wiring import wire_kernel_surfaces
+
+        self.kernel = wire_kernel_surfaces(self)
+
         logger.info(
             "AgentRuntime init, mlx_client=%s, llm_gateway=%s",
             "provided" if mlx_client else "none",
