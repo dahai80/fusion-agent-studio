@@ -113,7 +113,7 @@ class TeamsDispatcher(SubDispatcher):
 
     # ---------- registration ----------
 
-    def _handle_register(self, params: dict) -> dict:
+    async def _handle_register(self, params: dict) -> dict:
         from fusion_harness.team import TeamDefinition, TeamMember
         from fusion_harness.team_runtime import TeamRuntime
 
@@ -197,7 +197,7 @@ class TeamsDispatcher(SubDispatcher):
 
     # ---------- task board ----------
 
-    def _handle_add_task(self, params: dict) -> dict:
+    async def _handle_add_task(self, params: dict) -> dict:
         from fusion_harness.team_runtime import TeamTask
 
         try:
@@ -218,7 +218,7 @@ class TeamsDispatcher(SubDispatcher):
         logger.info("teams.add_task team=%s task=%s", team_rt.definition.name, task_id)
         return {"status": "ok", "task_id": task_id}
 
-    def _handle_transition(self, params: dict) -> dict:
+    async def _handle_transition(self, params: dict) -> dict:
         try:
             team_rt = self._require_team(params)
             team_rt.transition_task(
@@ -230,7 +230,7 @@ class TeamsDispatcher(SubDispatcher):
             return self._error(e)
         return {"status": "ok"}
 
-    def _handle_claim_task(self, params: dict) -> dict:
+    async def _handle_claim_task(self, params: dict) -> dict:
         try:
             team_rt = self._require_team(params)
             won = team_rt.claim_task(
@@ -285,7 +285,7 @@ class TeamsDispatcher(SubDispatcher):
 
     # ---------- mailbox ----------
 
-    def _handle_send(self, params: dict) -> dict:
+    async def _handle_send(self, params: dict) -> dict:
         from fusion_harness.team_runtime import TeamMessage
 
         try:
@@ -310,7 +310,7 @@ class TeamsDispatcher(SubDispatcher):
         )
         return {"status": "ok", "delivered": True}
 
-    def _handle_broadcast(self, params: dict) -> dict:
+    async def _handle_broadcast(self, params: dict) -> dict:
         try:
             team_rt = self._require_team(params)
             delivered = team_rt.broadcast(
@@ -323,7 +323,7 @@ class TeamsDispatcher(SubDispatcher):
         logger.info("teams.broadcast team=%s delivered=%d", team_rt.definition.name, delivered)
         return {"status": "ok", "delivered": delivered}
 
-    def _handle_inbox(self, params: dict) -> dict:
+    async def _handle_inbox(self, params: dict) -> dict:
         try:
             team_rt = self._require_team(params)
             msgs = team_rt.inbox(str(params.get("member", "") or ""))
@@ -333,7 +333,7 @@ class TeamsDispatcher(SubDispatcher):
 
     # ---------- lifecycle + status ----------
 
-    def _handle_status(self, params: dict) -> dict:
+    async def _handle_status(self, params: dict) -> dict:
         try:
             team_rt = self._require_team(params)
         except Exception as e:
@@ -373,7 +373,7 @@ class TeamsDispatcher(SubDispatcher):
             "inbox_counts": {name: len(v) for name, v in team_rt._inboxes.items()},
         }
 
-    def _handle_pause(self, params: dict) -> dict:
+    async def _handle_pause(self, params: dict) -> dict:
         try:
             team_rt = self._require_team(params)
             team_rt.pause()
@@ -381,7 +381,7 @@ class TeamsDispatcher(SubDispatcher):
             return self._error(e)
         return {"status": "ok", "lifecycle": team_rt.lifecycle}
 
-    def _handle_resume(self, params: dict) -> dict:
+    async def _handle_resume(self, params: dict) -> dict:
         try:
             team_rt = self._require_team(params)
             team_rt.resume()
@@ -389,7 +389,7 @@ class TeamsDispatcher(SubDispatcher):
             return self._error(e)
         return {"status": "ok", "lifecycle": team_rt.lifecycle}
 
-    def _handle_disband(self, params: dict) -> dict:
+    async def _handle_disband(self, params: dict) -> dict:
         try:
             team_rt = self._require_team(params)
             team_rt.disband(cleanup_inboxes=bool(params.get("cleanup_inboxes", True)))
@@ -399,7 +399,7 @@ class TeamsDispatcher(SubDispatcher):
         logger.info("teams.disband team=%s", team_rt.definition.name)
         return {"status": "ok", "lifecycle": team_rt.lifecycle}
 
-    def _handle_list(self, params: dict) -> dict:
+    async def _handle_list(self, params: dict) -> dict:
         return {
             "status": "ok",
             "teams": [
@@ -410,7 +410,7 @@ class TeamsDispatcher(SubDispatcher):
 
     # ---------- team memory (namespace-scoped) ----------
 
-    def _handle_memory_write(self, params: dict) -> dict:
+    async def _handle_memory_write(self, params: dict) -> dict:
         try:
             team_rt = self._require_team(params)
             from ..memory_engine import MemoryEngine
@@ -431,7 +431,7 @@ class TeamsDispatcher(SubDispatcher):
         )
         return {"status": "ok", "entry_id": entry_id}
 
-    def _handle_memory_read(self, params: dict) -> dict:
+    async def _handle_memory_read(self, params: dict) -> dict:
         try:
             team_rt = self._require_team(params)
             from ..memory_engine import MemoryEngine
