@@ -58,6 +58,22 @@ class _CheckpointMixin:
                     "pending_tool_calls": pending,
                 },
             )
+            # #675: mirror the checkpoint into the kernel CheckpointStore
+            # (session-keyed, CheckpointState shape) for kernel-side
+            # resume/audit. Best-effort — save failures are logged inside.
+            kcp = getattr(self, "kernel_checkpoints", None)
+            if kcp is not None:
+                kcp.save(
+                    ctx.session_id,
+                    ctx.messages,
+                    budget_spent_tokens=int(getattr(ctx, "tokens_used", 0) or 0),
+                    permission_mode=str(getattr(ctx, "permission_mode", "") or ""),
+                    metadata={
+                        "graph_id": graph.name,
+                        "node_id": ctx.current_node_id or "",
+                        "iteration_count": ctx.iteration_count,
+                    },
+                )
             logger.debug(
                 "Checkpoint saved: graph=%s node=%s pending_tools=%d",
                 graph.name, ctx.current_node_id, len(pending),
