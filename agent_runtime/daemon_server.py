@@ -3656,6 +3656,14 @@ class DaemonServer:
             self._safety = SafetyGateway(
                 level=level, enable_injection=enable_injection, backend=backend
             )
+            # #685: approval state persists — pending interventions re-surface
+            # after a daemon restart and remain resolvable via the RPCs.
+            reloaded = self._safety.attach_intervention_store(self.store)
+            if reloaded:
+                logger.info(
+                    "SafetyGateway intervention store attached (%d pending re-surfaced)",
+                    reloaded,
+                )
             logger.info(
                 "SafetyGateway created (level=%s, injection=%s, backend=%s)",
                 level.value,
