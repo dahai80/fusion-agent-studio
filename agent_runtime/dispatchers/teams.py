@@ -83,6 +83,9 @@ class TeamsDispatcher(SubDispatcher):
             "teams.memory_write": self._handle_memory_write,
             "teams.memory_read": self._handle_memory_read,
             "teams.list": self._handle_list,
+            "teams.lead_start": self._handle_lead_start,
+            "teams.lead_stop": self._handle_lead_stop,
+            "teams.lead_status": self._handle_lead_status,
         }
 
     def _registry(self) -> dict:
@@ -406,6 +409,103 @@ class TeamsDispatcher(SubDispatcher):
                 {"name": k, "lifecycle": v.lifecycle, "members": [m.name for m in v.definition.members]}
                 for k, v in sorted(self._registry().items())
             ],
+        }
+
+    # ---------- lead orchestration loop (#712) ----------
+
+    def _lead_entry(self, name: str):
+        return self._registry().get(("lead", str(name or "")))
+
+    def _lead_client(self):
+        daemon = self._daemon
+        client = getattr(daemon, "mlx_client", None)
+        if client is None:
+            raise RuntimeError("no LLM client wired on the daemon (mlx_client missing)")
+        return client
+
+    async def _handle_lead_start(self, params: dict) -> dict:
+        import asyncio
+
+        from ..team_lead import LeadAlreadyRunningError, TeamLead
+
+        try:
+            team_rt = self._require_team(params)
+            entry = self._lead_entry(team_rt.definition.name)
+            if entry is not None and entry.get("task") is not None and not entry["task"].done():
+                raise LeadAlreadyRunningError(
+                    f"lead already running on team {team_rt.definition.name}: {entry.get('lead_id')}"
+                )
+            from ..playbook_store import PlaybookStore, playbook_enabled
+
+            lead = TeamLead(
+                team_rt,
+                self._lead_client(),
+                self._agent_fn(),
+                playbook_store=PlaybookStore() if playbook_enabled() else None,
+            )
+            goal = str(params.get("goal", "") or "")
+            if not goal:
+                raise ValueError("goal required")
+
+            async def _run():
+                try:
+                    payload = await lead.run(
+                        goal,
+                        max_rounds=int(params.get("max_rounds", 0) or 30),
+                        max_stalls=int(params.get("max_stalls", 0) or 3),
+                        team_budget=params.get("team_budget"),
+                    )
+                    logger.info("teams.lead finished team=%s lead=%s", team_rt.definition.name, lead.lead_id)
+                    return payload
+                finally:
+                    entry["running"] = False
+
+            entry = {"lead": lead, "lead_id": lead.lead_id, "running": True, "task": None}
+            self._registry()[("lead", team_rt.definition.name)] = entry
+            entry["task"] = asyncio.create_task(_run())
+        except Exception as e:
+            return self._error(e)
+        logger.info("teams.lead_start team=%s lead=%s", team_rt.definition.name, lead.lead_id)
+        return {"status": "ok", "lead_id": lead.lead_id}
+
+    async def _handle_lead_stop(self, params: dict) -> dict:
+        try:
+            team_rt = self._require_team(params)
+            entry = self._lead_entry(team_rt.definition.name)
+            if entry is None or entry.get("lead") is None:
+                raise KeyError(f"no lead for team: {team_rt.definition.name}")
+            entry["lead"].stop_requested = True
+            round_ = entry["lead"].round
+        except Exception as e:
+            return self._error(e)
+        logger.info("teams.lead_stop team=%s round=%d", team_rt.definition.name, round_)
+        return {"status": "ok", "stopped": True, "round": round_}
+
+    async def _handle_lead_status(self, params: dict) -> dict:
+        try:
+            team_rt = self._require_team(params)
+            entry = self._lead_entry(team_rt.definition.name)
+        except Exception as e:
+            return self._error(e)
+        if entry is None or entry.get("lead") is None:
+            return {"status": "ok", "running": False}
+        lead = entry["lead"]
+        running = entry.get("running", False) and not (
+            entry.get("task") is not None and entry["task"].done()
+        )
+        return {
+            "status": "ok",
+            "running": bool(running),
+            "lead_id": lead.lead_id,
+            "round": lead.round,
+            "n_stalls": lead.n_stalls,
+            "replan_count": lead.replan_count,
+            "last_verdict": lead.last_verdict,
+            "verdict_log": lead.vlog.tail(20),
+            "tasks": {
+                tid: {"status": t.status, "assignee": t.assignee}
+                for tid, t in team_rt._tasks.items()
+            },
         }
 
     # ---------- team memory (namespace-scoped) ----------
