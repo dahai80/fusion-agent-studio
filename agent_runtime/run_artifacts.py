@@ -1,5 +1,8 @@
 # N9 (#348): run artifact versioned triple — graph definition + environment
 # snapshot + conversation archive. Deterministic, local-only (no LLM calls).
+# #714 part 2 annotation: versioned run records are studio-product behavior
+# (stays local). The kernel worker-output channel with ref-only semantics
+# across team/DAG boundaries lives in artifact_channel.py (K3 shim).
 from __future__ import annotations
 
 import json

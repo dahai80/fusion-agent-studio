@@ -263,6 +263,24 @@ class TeamsDispatcher(SubDispatcher):
             result = await team_rt.run_member(member, str(params.get("task_id", "") or ""), brief, self._agent_fn())
         except Exception as e:
             return self._error(e)
+        # #714 part 2: full worker output lands in the kernel artifact channel
+        # (ref-only boundary) — the RPC payload and the task-board metadata
+        # carry the ref + the kernel-truncated summary, never the full text.
+        artifact_ref = ""
+        try:
+            from ..artifact_channel import studio_artifact_channel
+
+            channel = studio_artifact_channel()
+            full_text = str(result.summary or result.error or "")
+            if full_text:
+                artifact_ref = channel.tools.capture(
+                    member.name,
+                    full_text,
+                    kind="text",
+                    run_id=str(params.get("task_id", "") or team_rt.definition.name),
+                )
+        except Exception as capture_err:
+            logger.warning("artifact channel capture failed: %s", capture_err)
         logger.info(
             "teams.run_member team=%s member=%s task=%s status=%s tokens=%s",
             team_rt.definition.name,
@@ -278,6 +296,7 @@ class TeamsDispatcher(SubDispatcher):
                 "member": result.name,
                 "status": result.status,
                 "summary": result.summary,
+                "artifact_ref": artifact_ref,
                 "turns": result.turns,
                 "tokens_spent": result.tokens_spent,
                 "error": result.error,
