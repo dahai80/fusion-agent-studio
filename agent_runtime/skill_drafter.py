@@ -75,9 +75,14 @@ class TrajectoryMiner:
                 continue
             path = self.writer.output_dir / meta["file"]
             try:
-                with open(path, "r", encoding="utf-8") as fh:
-                    out.append(json.load(fh))
-            except (OSError, json.JSONDecodeError, KeyError) as e:
+                # #714 part 3: read_run normalizes legacy .json and normative
+                # .jsonl trajectories into the same run-shaped dict.
+                from .trajectory_writer import read_run
+
+                data = read_run(path)
+                if data is not None:
+                    out.append(data)
+            except (OSError, KeyError) as e:
                 logger.debug("trajectory read failed: %s", e)
         return out
 

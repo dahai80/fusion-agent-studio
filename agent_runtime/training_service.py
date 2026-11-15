@@ -34,13 +34,19 @@ def _apply_run_result(run_id: str, res: dict[str, Any]) -> None:
 
 def _export_sft_dataset(trace_ids: list[str] | None = None) -> tuple[str, int]:
     _DATASET_DIR.mkdir(parents=True, exist_ok=True)
-    files = sorted(TRAJECTORY_DIR.glob("*.json"), reverse=True)
+    # #714 part 3: read_run normalizes legacy .json and normative .jsonl
+    # trajectories into the same run-shaped dict (messages survive both).
+    from .trajectory_writer import read_run
+
+    files = sorted(
+        list(TRAJECTORY_DIR.glob("*.json")) + list(TRAJECTORY_DIR.glob("*.jsonl")),
+        reverse=True,
+    )
     records: list[dict[str, Any]] = []
     for f in files:
-        try:
-            data = json.loads(f.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError) as e:
-            logger.warning("skip unreadable trajectory %s: %s", f.name, e)
+        data = read_run(f)
+        if data is None:
+            logger.warning("skip unreadable trajectory %s", f.name)
             continue
         tid = data.get("trace_id", "")
         if trace_ids and tid not in trace_ids:
