@@ -260,6 +260,16 @@ WEB_RPC_ALLOWLIST: frozenset[str] = frozenset(
         "workflow.cancel",
         "workflow.delete",
         "workflow.status",
+        # #726 (C3-enable): teams messaging + read surface for the
+        # @fusion/chat adapter (web-shell#157). Lifecycle/destructive and
+        # board-mutation methods stay off the bridge (deny-by-default):
+        # pause/resume/disband/lead_*/register/transition/add_task/
+        # claim_task/run_member/memory_* are NOT allowlisted.
+        "teams.send",
+        "teams.broadcast",
+        "teams.inbox",
+        "teams.status",
+        "teams.list",
     }
 )
 
