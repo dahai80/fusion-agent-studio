@@ -227,6 +227,7 @@ class MultiAgentOrchestrator:
                 result.errors.append(f"{r['agent']}: {r['error']}")
             result.results.append(r)
 
+        self._stamp_kernel_team(result, "parallel")
         result.total_duration = time.time() - start
         return result
 
@@ -628,8 +629,73 @@ class MultiAgentOrchestrator:
                 }
             )
 
+        self._stamp_kernel_team(result, "supervisor")
         result.total_duration = time.time() - start
         return result
+
+    def _stamp_kernel_team(self, result: OrchestrationResult, pattern: str) -> None:
+        # K4 (#715): coordination plane delegated to the kernel TeamRuntime —
+        # the pattern run registers a kernel team (definition + task board),
+        # every per-agent result becomes a board task driven through the
+        # kernel transition whitelist, and results carry via attribution.
+        # Per-agent event streams stay graph-executed: the observable event
+        # sequence is the compatibility contract (issue MUST-3), so the
+        # kernel replaces the coordination layer, not the event-producing
+        # execution. broadcast/master_worker inherit stamps through
+        # parallel(); sequential/handoff chains keep product semantics.
+        for r in result.results:
+            r.setdefault("via", "graph-local")
+        try:
+            from fusion_harness.team import TeamDefinition, TeamMember
+            from fusion_harness.team_runtime import TeamRuntime, TeamTask
+        except Exception as e:
+            logger.warning("kernel TeamRuntime unavailable, results stay graph-local: %s", e)
+            return
+        try:
+            from pathlib import Path as _Path
+
+            from .paths import studio_home
+
+            run_name = f"orch-{pattern}-{uuid.uuid4().hex[:8]}"
+            state_dir = _Path(studio_home()) / "orchestrator_teams" / run_name
+            state_dir.mkdir(parents=True, exist_ok=True)
+            seen = set()
+            members = []
+            for r in result.results:
+                agent = str(r.get("agent", ""))
+                if not agent or agent in seen:
+                    continue
+                seen.add(agent)
+                members.append(TeamMember(name=agent, role=pattern, budget_tokens=200000))
+            if not members:
+                return
+            team_rt = TeamRuntime(
+                TeamDefinition(name=run_name, namespace_key=run_name, members=members),
+                state_dir=str(state_dir),
+            )
+            team_rt.activate()
+            for r in result.results:
+                agent = str(r.get("agent", ""))
+                if not agent:
+                    continue
+                tid = team_rt.add_task(TeamTask(title=f"{pattern}:{agent}"))
+                team_rt.transition_task(tid, "in_progress")
+                if not r.get("error"):
+                    team_rt.transition_task(tid, "done")
+                # error: task stays in_progress — kernel blocked needs
+                # blocked_by task ids; an unfinished board row is the honest
+                # record for a failed agent run.
+                r["via"] = "kernel-team-runtime"
+                r["team"] = run_name
+            team_rt.save_state(str(state_dir / "state.json"))
+            logger.info(
+                "orchestrator kernel coordination pattern=%s team=%s members=%d",
+                pattern,
+                run_name,
+                len(members),
+            )
+        except Exception as e:
+            logger.warning("kernel team coordination failed pattern=%s: %s", pattern, e)
 
     def _format_handoff_history(self, chain: list[HandoffContext]) -> str:
         """Format the handoff chain history into a readable string."""
