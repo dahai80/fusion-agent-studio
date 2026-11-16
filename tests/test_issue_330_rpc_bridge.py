@@ -282,6 +282,47 @@ class TestGuiFeatureAllowlist:
 
         assert _is_mutating("human_input.respond")
 
+    def test_teams_messaging_read_methods_allowed(self):
+        # #726 (C3-enable): @fusion/chat teams adapter surface.
+        from agent_runtime.rpc_bridge import WEB_RPC_ALLOWLIST
+
+        for method in (
+            "teams.send",
+            "teams.broadcast",
+            "teams.inbox",
+            "teams.status",
+            "teams.list",
+        ):
+            assert method in WEB_RPC_ALLOWLIST, method
+
+    def test_teams_lifecycle_methods_stay_denied(self):
+        from agent_runtime.rpc_bridge import WEB_RPC_ALLOWLIST
+
+        for method in (
+            "teams.pause",
+            "teams.resume",
+            "teams.disband",
+            "teams.register",
+            "teams.transition",
+            "teams.add_task",
+            "teams.claim_task",
+            "teams.run_member",
+            "teams.memory_write",
+            "teams.memory_read",
+            "teams.lead_start",
+            "teams.lead_stop",
+            "teams.lead_status",
+        ):
+            assert method not in WEB_RPC_ALLOWLIST, method
+
+    def test_teams_send_broadcast_are_audited_mutations(self):
+        from agent_runtime.rpc_bridge import _is_mutating
+
+        assert _is_mutating("teams.send")
+        assert _is_mutating("teams.broadcast")
+        assert not _is_mutating("teams.inbox")
+        assert not _is_mutating("teams.status")
+
     def test_allowlisted_bridge_method_dispatches_end_to_end(self, static_key_env, stub_daemon):
         resp = _client().post(
             "/v1/rpc",

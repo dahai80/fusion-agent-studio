@@ -390,6 +390,17 @@ class TeamsDispatcher(SubDispatcher):
             }
             for tid, t in team_rt._tasks.items()
         }
+        # #726 (C3-enable): the kernel TeamRuntime has no per-member presence
+        # state (members are configuration; execution is per run_member), so
+        # presence is DERIVED deterministically from the team lifecycle —
+        # ACTIVE members render as available, PAUSED as paused, everything
+        # else (DEFINED/DISBANDED) as offline. The @fusion/chat adapter
+        # should gray out non-available members.
+        lifecycle_presence = {
+            "ACTIVE": "available",
+            "PAUSED": "paused",
+        }
+        presence = lifecycle_presence.get(team_rt.lifecycle, "offline")
         return {
             "status": "ok",
             "team": d.name,
@@ -404,6 +415,7 @@ class TeamsDispatcher(SubDispatcher):
                     "tool_allowlist": list(m.tool_allowlist),
                     "permission_mode": m.permission_mode,
                     "budget_tokens": m.budget_tokens,
+                    "presence": presence,
                 }
                 for m in d.members
             ],
