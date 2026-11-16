@@ -312,33 +312,49 @@ class TeamsDispatcher(SubDispatcher):
 
         try:
             team_rt = self._require_team(params)
+            # #716 (C2): full TeamMessage passthrough — msg_id/reply_to/
+            # mentions/attachments/audio_ref/transcript ride params straight
+            # into the kernel contract (reply_to must be msg_..., mentions/
+            # attachments validated against the member list / artifact refs).
             msg = TeamMessage(
                 type=str(params.get("type", "") or "text"),
                 sender=str(params.get("from", "") or ""),
                 recipient=str(params.get("to", "") or ""),
                 body=str(params.get("body", "") or ""),
+                msg_id=str(params.get("msg_id", "") or ""),
+                reply_to=str(params.get("reply_to", "") or ""),
+                mentions=tuple(str(m) for m in (params.get("mentions") or [])),
+                attachments=tuple(str(a) for a in (params.get("attachments") or [])),
+                audio_ref=str(params.get("audio_ref", "") or ""),
+                transcript=str(params.get("transcript", "") or ""),
             )
-            delivered = team_rt.send(msg)
+            outcome = team_rt.send(msg)
+            delivered = bool(outcome.get("delivered")) if isinstance(outcome, dict) else bool(outcome)
+            msg_id = outcome.get("msg_id", "") if isinstance(outcome, dict) else ""
         except Exception as e:
             return self._error(e)
         if not delivered:
             return {"status": "error", "message": "mailbox delivery failed (disk write)"}
         logger.info(
-            "teams.send team=%s from=%s to=%s type=%s",
+            "teams.send team=%s from=%s to=%s type=%s msg_id=%s",
             team_rt.definition.name,
             msg.sender,
             msg.recipient,
             msg.type,
+            msg_id,
         )
-        return {"status": "ok", "delivered": True}
+        return {"status": "ok", "delivered": True, "msg_id": msg_id}
 
     async def _handle_broadcast(self, params: dict) -> dict:
         try:
             team_rt = self._require_team(params)
+            # #716 (C2): mentions passthrough — kernel validates each against
+            # the member list before anything is queued.
             delivered = team_rt.broadcast(
                 str(params.get("from", "") or ""),
                 str(params.get("body", "") or ""),
                 type_=str(params.get("type", "") or "text"),
+                mentions=tuple(str(m) for m in (params.get("mentions") or [])),
             )
         except Exception as e:
             return self._error(e)
