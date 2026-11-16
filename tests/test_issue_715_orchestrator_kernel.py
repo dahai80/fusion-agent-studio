@@ -11,7 +11,6 @@ import json
 
 import pytest
 
-from agent_runtime.graph import AgentGraph
 from agent_runtime.orchestrator import (
     AgentConfig,
     MultiAgentOrchestrator,
