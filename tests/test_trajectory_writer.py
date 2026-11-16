@@ -2,7 +2,7 @@ import json
 from pathlib import Path
 
 from agent_runtime.context import AgentContext, AgentEvent, AgentEventType
-from agent_runtime.trajectory_writer import TrajectoryRecord, TrajectoryWriter
+from agent_runtime.trajectory_writer import TrajectoryRecord, TrajectoryWriter, read_run
 
 
 def test_trajectory_record_defaults():
@@ -37,22 +37,22 @@ def test_trajectory_writer_start_and_flush(tmp_path: Path):
     path = writer.flush("sess-1", status="completed")
     assert path is not None
     p = Path(path)
-    assert p.exists()
-    data = json.loads(p.read_text())
-    assert data["session_id"] == "sess-1"
-    assert data["graph_name"] == "Test Graph"
-    assert data["agent_id"] == "a1"
-    assert data["status"] == "completed"
-    assert data["iteration_count"] == 3
-    assert data["max_iterations"] == 10
-    assert len(data["events"]) == 1
-    assert data["events"][0]["type"] == "start"
-    assert len(data["node_transitions"]) == 1
-    assert data["node_transitions"][0]["node_id"] == "n1"
-    assert len(data["messages"]) == 2
-    assert data["messages"][0]["role"] == "user"
-    assert data["messages"][0]["content"] == "hello"
-    assert data["duration_ms"] >= 0
+    assert p.exists() and p.suffix == ".jsonl"
+    run = read_run(p)
+    assert run["session_id"] == "sess-1"
+    assert run["graph_name"] == "Test Graph"
+    assert run["agent_id"] == "a1"
+    assert run["status"] == "completed"
+    assert run["iteration_count"] == 3
+    assert run["max_iterations"] == 10
+    assert len(run["messages"]) == 2
+    assert run["messages"][0]["role"] == "user"
+    assert run["messages"][0]["content"] == "hello"
+    assert run["duration_ms"] >= 0
+    lines = [json.loads(l) for l in p.read_text().splitlines() if l.strip()]
+    assert lines[0]["event"] == "start"
+    assert lines[0]["run_id"] == trace_id
+    assert lines[-1]["event"] == "end"
 
 
 def test_trajectory_writer_tool_call_capture(tmp_path: Path):
@@ -65,12 +65,12 @@ def test_trajectory_writer_tool_call_capture(tmp_path: Path):
     )
     writer.record_event("s2", ev.to_dict())
     writer.flush("s2")
-    files = list(tmp_path.glob("*.json"))
+    files = list(tmp_path.glob("*.jsonl"))
     assert len(files) == 1
-    data = json.loads(files[0].read_text())
-    assert len(data["tool_calls"]) == 1
-    assert data["tool_calls"][0]["name"] == "calculator"
-    assert data["tool_calls"][0]["args"]["expr"] == "1+1"
+    run = read_run(files[0])
+    assert len(run["tool_calls"]) == 1
+    assert run["tool_calls"][0]["name"] == "calculator"
+    assert run["tool_calls"][0]["args"]["expr"] == "1+1"
 
 
 def test_trajectory_writer_error_status(tmp_path: Path):
@@ -79,10 +79,10 @@ def test_trajectory_writer_error_status(tmp_path: Path):
     err_ev = AgentEvent(type=AgentEventType.ERROR, content="boom")
     writer.record_event("s3", err_ev.to_dict())
     writer.flush("s3", status="completed")
-    files = list(tmp_path.glob("*.json"))
-    data = json.loads(files[0].read_text())
-    assert data["status"] == "error"
-    assert data["error"] == "boom"
+    files = list(tmp_path.glob("*.jsonl"))
+    run = read_run(files[0])
+    assert run["status"] == "error"
+    assert run["error"] == "boom"
 
 
 def test_trajectory_writer_list(tmp_path: Path):
@@ -133,9 +133,8 @@ def test_runtime_trajectory_integration(tmp_path: Path, monkeypatch):
 
     events = asyncio.run(collect())
     assert any(e.type == AgentEventType.END for e in events)
-    files = list(tmp_path.glob("*.json"))
+    files = list(tmp_path.glob("*.jsonl"))
     assert len(files) == 1
-    data = json.loads(files[0].read_text())
-    assert data["graph_name"] == "Integration Test"
-    assert len(data["events"]) >= 2
-    assert data["status"] in ("completed", "error")
+    run = read_run(files[0])
+    assert run["graph_name"] == "Integration Test"
+    assert run["status"] in ("completed", "error")

@@ -93,9 +93,9 @@ def test_trajectory_roundtrip_hit_provenance(tmp_path):
     )
     path = w.flush("s-hp", status="completed")
     assert path
-    import json
+    from agent_runtime.trajectory_writer import read_run
 
-    data = json.load(open(path))
+    data = read_run(path)
     assert data["hit_provenance"]["memory_hits"] == [{"query": "q", "chars": 50}]
     assert data["hit_provenance"]["skill_hits"] == ["skill_search"]
 
@@ -116,11 +116,12 @@ def test_from_trace_carries_provenance(tmp_path, monkeypatch):
     w.record_hit_provenance("s-rp", {"memory_hits": [{"query": "question", "chars": 9}]})
     w.flush("s-rp", status="completed")
 
-    import json
     from pathlib import Path
 
-    files = sorted(Path(tmp_path).glob("*.json"))
-    data = json.load(open(files[-1]))
+    from agent_runtime.trajectory_writer import read_run
+
+    files = sorted(Path(tmp_path).glob("*.jsonl"))
+    data = read_run(files[-1])
     runner = EvalRunner()
     case = runner.from_trace(data["trace_id"])
     assert case is not None
@@ -134,7 +135,6 @@ def test_hit_provenance_derives_skill_hits_from_tool_calls():
 
 
 def test_replay_provenance_identical_on_second_replay(tmp_path, monkeypatch):
-    import json
     from pathlib import Path
 
     import agent_runtime.trajectory_writer as tw
@@ -153,7 +153,9 @@ def test_replay_provenance_identical_on_second_replay(tmp_path, monkeypatch):
         "s-rr", {"memory_hits": [{"query": "q2", "chars": 2}], "skill_hits": ["skill_search"]}
     )
     w.flush("s-rr", status="completed")
-    data = json.load(open(sorted(Path(tmp_path).glob("*.json"))[-1]))
+    from agent_runtime.trajectory_writer import read_run
+
+    data = read_run(sorted(Path(tmp_path).glob("*.jsonl"))[-1])
 
     runner = EvalRunner()
     c1 = runner.from_trace(data["trace_id"])

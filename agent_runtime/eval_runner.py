@@ -15,7 +15,6 @@ level); fusion-bench owns model benchmarks.
 
 from __future__ import annotations
 
-import json
 import logging
 import time
 from dataclasses import dataclass, field
@@ -447,10 +446,16 @@ class EvalRunner:
                 continue
             path = writer.output_dir / meta["file"]
             try:
-                with open(path, "r", encoding="utf-8") as fh:
-                    data = json.load(fh)
-            except (OSError, json.JSONDecodeError) as e:
+                # #714 part 3: read_run normalizes legacy .json and normative
+                # .jsonl trajectories into the same run-shaped dict.
+                from .trajectory_writer import read_run
+
+                data = read_run(path)
+            except OSError as e:
                 logger.warning("trajectory load failed trace=%s: %s", trace_id, e)
+                return None
+            if data is None:
+                logger.warning("trajectory load failed trace=%s: unreadable", trace_id)
                 return None
             messages = data.get("messages") or []
             inp = next(

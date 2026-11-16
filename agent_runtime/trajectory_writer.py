@@ -1,14 +1,21 @@
-"""Trajectory writer — persists structured agent execution trajectories.
-
-D1 轨迹飞轮: writes each graph execution as a structured JSON trajectory
-to ~/.fusion/trajectories/agent-studio/, preserving iteration count, tool
-calls, node transitions, and branch structure (parent_id/children_ids)
-for fusion-trainer consumption.
-
-Importers: agent_runtime/runtime.py (execute_graph_inner)
-API: TrajectoryWriter.start/record_event/record_messages/flush
-Data schemas: TrajectoryRecord dataclass -> JSON file
-"""
+# Trajectory writer — persists structured agent execution trajectories.
+#
+# D1 轨迹飞轮. #714 part 3 (K3): the writer now emits ONLY the normative
+# fusion_harness.trajectory schema — one JSONL file per run
+# (<ms>_<trace>.jsonl), one TrajectoryRecord per line, written through the
+# kernel TrajectoryWriter. Studio event types map onto the normative event
+# set via the kernel's own legacy-event map (the same map the kernel's
+# reader-side studio adapter uses), and model_call_meta records are
+# sanitized against the kernel privacy rule (no prompt/completion content).
+#
+# Migration is gradual, no history rewrite: pre-#714 run-shaped .json files
+# stay on disk and stay readable. read_run() normalizes BOTH shapes into the
+# run-shaped dict consumers (eval_runner.from_trace, skill_drafter miner)
+# have always parsed; list_trajectories() lists both.
+#
+# Importers: agent_runtime/runtime.py (execute_graph_inner)
+# API: TrajectoryWriter.start/record_event/record_messages/flush
+#      read_run(path) / TrajectoryWriter.list_trajectories()
 
 from __future__ import annotations
 
@@ -19,13 +26,60 @@ import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from fusion_harness.trajectory import (
+    SCHEMA_VERSION as KERNEL_SCHEMA_VERSION,
+)
+from fusion_harness.trajectory import (
+    TrajectoryRecord as KernelTrajectoryRecord,
+)
+from fusion_harness.trajectory import (
+    TrajectorySchemaError,
+    _map_legacy_event,
+    normalize_record,
+)
+from fusion_harness.trajectory import (
+    TrajectoryWriter as KernelTrajectoryWriter,
+)
+
 logger = logging.getLogger(__name__)
 
 TRAJECTORY_DIR = Path.home() / ".fusion" / "trajectories" / "agent-studio"
 
+RUN_SCHEMA = "harness_trajectory.v%d" % KERNEL_SCHEMA_VERSION
+
+# Kernel privacy rule (trajectory.py __post_init__): model_call_meta payload
+# must not carry prompt/completion content. Mirrored here so the writer
+# sanitizes BEFORE construction instead of failing the graph run.
+_MC_META_BANNED = ("prompt", "completion", "messages", "content", "text")
+
+
+def _to_ms(ts) -> int:
+    # studio events carry time.time() float seconds; kernel records carry ms
+    try:
+        v = float(ts or 0)
+    except (TypeError, ValueError):
+        return 0
+    if v <= 0:
+        return 0
+    return int(v * 1000) if v < 10**12 else int(v)
+
+
+def _sanitize_mc_meta(payload: dict) -> dict:
+    leaked = [k for k in payload if str(k).lower() in _MC_META_BANNED]
+    if not leaked:
+        return payload
+    logger.warning(
+        "trajectory model_call_meta payload carried prompt/completion content "
+        "(keys=%s) — stripped per harness privacy rule",
+        leaked,
+    )
+    return {k: v for k, v in payload.items() if str(k).lower() not in _MC_META_BANNED}
+
 
 @dataclass
 class TrajectoryRecord:
+    # In-memory accumulator only — NOT the on-disk schema. On flush the
+    # accumulated events/messages are re-shaped into normative kernel records.
     trace_id: str = ""
     session_id: str = ""
     graph_id: str = ""
@@ -51,29 +105,139 @@ class TrajectoryRecord:
         if not self.started_at:
             self.started_at = time.time()
 
-    def to_dict(self) -> dict:
-        return {
-            "trace_id": self.trace_id,
-            "session_id": self.session_id,
-            "graph_id": self.graph_id,
-            "graph_name": self.graph_name,
-            "agent_id": self.agent_id,
-            "started_at": self.started_at,
-            "finished_at": self.finished_at,
-            "status": self.status,
-            "iteration_count": self.iteration_count,
-            "max_iterations": self.max_iterations,
-            "events": self.events,
-            "messages": self.messages,
-            "tool_calls": self.tool_calls,
-            "node_transitions": self.node_transitions,
-            "error": self.error,
-            "token_usage": self.token_usage,
-            "hit_provenance": self.hit_provenance,
-            "duration_ms": (self.finished_at - self.started_at) * 1000
-            if self.finished_at
-            else 0,
-        }
+
+def _event_records(record: TrajectoryRecord) -> list[KernelTrajectoryRecord]:
+    # Studio event dicts -> normative kernel records. Mirrors the kernel's
+    # own _adapt_studio flattening: same event map, same node_id fallback
+    # chain, same per-record status rule.
+    run_id = record.trace_id
+    member = record.agent_id
+    out = []
+    for ev in record.events:
+        if not isinstance(ev, dict):
+            continue
+        payload = {k: v for k, v in ev.items() if k not in ("type", "timestamp")}
+        raw_event = str(ev.get("type") or "")
+        event = _map_legacy_event(raw_event, payload)
+        if event == "model_call_meta":
+            payload = _sanitize_mc_meta(payload)
+        node_id = str(
+            ev.get("node_id")
+            or record.graph_id
+            or record.session_id
+            or run_id
+            or "run"
+        )
+        try:
+            out.append(
+                KernelTrajectoryRecord(
+                    run_id=run_id,
+                    node_id=node_id,
+                    member=member,
+                    ts=_to_ms(ev.get("timestamp")),
+                    event=event,
+                    payload=payload,
+                    status="error" if raw_event == "error" else "",
+                )
+            )
+        except TrajectorySchemaError as e:
+            logger.warning("trajectory event skipped (schema): %s", e)
+    return out
+
+
+def _end_record(record: TrajectoryRecord, status: str) -> KernelTrajectoryRecord:
+    # Run summary rides the normative "end" record payload: every legacy
+    # top-level key stays reachable through read_run() so eval replay and
+    # skill mining keep working unchanged.
+    payload = {
+        "schema": RUN_SCHEMA,
+        "session_id": record.session_id,
+        "graph_id": record.graph_id,
+        "graph_name": record.graph_name,
+        "agent_id": record.agent_id,
+        "iteration_count": record.iteration_count,
+        "max_iterations": record.max_iterations,
+        "error": record.error,
+        "token_usage": record.token_usage,
+        "hit_provenance": record.hit_provenance,
+        "messages": record.messages,
+        "tool_calls": record.tool_calls,
+        "node_transitions": record.node_transitions,
+    }
+    node_id = record.graph_id or record.session_id or record.trace_id or "run"
+    return KernelTrajectoryRecord(
+        run_id=record.trace_id,
+        node_id=node_id,
+        member=record.agent_id,
+        event="end",
+        payload=payload,
+        duration_ms=int((record.finished_at - record.started_at) * 1000)
+        if record.finished_at
+        else 0,
+        status=status,
+    )
+
+
+def read_run(path) -> dict | None:
+    # Normalized run-shaped view over one trajectory file. Legacy .json
+    # (pre-#714 run shape) passes through as-is; normative .jsonl is
+    # rebuilt from the end record's payload so consumers see the same keys.
+    p = Path(path)
+    try:
+        if p.suffix == ".jsonl":
+            recs = [
+                json.loads(line)
+                for line in p.read_text(encoding="utf-8").splitlines()
+                if line.strip()
+            ]
+            if not recs:
+                return None
+            end = next(
+                (r for r in reversed(recs) if r.get("event") == "end"), recs[-1]
+            )
+            run = dict(end.get("payload") or {})
+            run["trace_id"] = end.get("run_id", run.get("trace_id", ""))
+            run["status"] = end.get("status") or run.get("status", "")
+            run["duration_ms"] = end.get("duration_ms", 0)
+            return run
+        data = json.loads(p.read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else None
+    except (OSError, json.JSONDecodeError) as e:
+        logger.warning("trajectory read failed path=%s: %s", p, e)
+        return None
+
+
+def validate_jsonl(path) -> tuple[int, int]:
+    # Validate every line of a .jsonl trajectory against the normative
+    # schema (kernel TrajectoryRecord construction). Returns (valid, total).
+    p = Path(path)
+    total = valid = 0
+    for line in p.read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        total += 1
+        try:
+            data = json.loads(line)
+            KernelTrajectoryRecord(
+                run_id=data.get("run_id", ""),
+                node_id=data.get("node_id", ""),
+                member=data.get("member", ""),
+                ts=data.get("ts", 0),
+                event=data.get("event", ""),
+                payload=data.get("payload") or {},
+                duration_ms=data.get("duration_ms", 0),
+                status=data.get("status", ""),
+            )
+            valid += 1
+        except (ValueError, TypeError, TrajectorySchemaError) as e:
+            logger.warning("trajectory line invalid path=%s: %s", p, e)
+    return valid, total
+
+
+def normalize_any(data: dict):
+    # Reader-side adapter straight from the kernel: legacy cowork/studio
+    # shapes and normative lines all normalize; unknown shapes raise loudly.
+    return normalize_record(data)
 
 
 class TrajectoryWriter:
@@ -199,18 +363,24 @@ class TrajectoryWriter:
                 record.hit_provenance[key] = hits
 
     def _write_record(self, record, status: str) -> str | None:
-        # 审计 R-8/P2-17: 抽出落盘逻辑, flush + evict 共用 (evict 不再静默丢 trace).
+        # Flush = emit ONLY the normative schema: per-event records + one end
+        # summary record, JSONL through the kernel TrajectoryWriter.
         record.finished_at = time.time()
         if record.status != "error":
             record.status = status
-        fname = f"{int(record.started_at * 1000)}_{record.trace_id}.json"
+        final_status = record.status
+        fname = f"{int(record.started_at * 1000)}_{record.trace_id}.jsonl"
         fpath = self.output_dir / fname
         try:
-            with open(fpath, "w", encoding="utf-8") as f:
-                json.dump(record.to_dict(), f, indent=2, ensure_ascii=False)
+            kwriter = KernelTrajectoryWriter(str(fpath))
+            written = 0
+            for rec in _event_records(record):
+                kwriter.write(rec)
+                written += 1
+            kwriter.write(_end_record(record, final_status))
             logger.info(
-                "Trajectory flushed: %s (%d events, %d tool_calls, status=%s)",
-                fpath.name, len(record.events), len(record.tool_calls), record.status,
+                "Trajectory flushed: %s (%d event records, %d tool_calls, status=%s)",
+                fpath.name, written, len(record.tool_calls), final_status,
             )
             # 审计 P1-13/3M-1: flush 后按文件数轮转. 原每会话写一个 JSON 永不删,
             # 长跑积累 GB 级轨迹. 超 max (默认 1000, FUSION_TRAJECTORY_MAX_FILES
@@ -228,7 +398,7 @@ class TrajectoryWriter:
         return self._write_record(record, status)
 
     def _rotate_files(self) -> None:
-        # 审计 P1-13/3M-1: 轨迹文件按数轮转, 删最旧.
+        # 审计 P1-13/3M-1: 轨迹文件按数轮转, 删最旧 (legacy .json + normative .jsonl).
         import os as _os
 
         try:
@@ -238,7 +408,10 @@ class TrajectoryWriter:
         if max_files <= 0:
             return
         try:
-            files = sorted(self.output_dir.glob("*.json"), key=lambda p: p.stat().st_mtime)
+            files = sorted(
+                list(self.output_dir.glob("*.json")) + list(self.output_dir.glob("*.jsonl")),
+                key=lambda p: p.stat().st_mtime,
+            )
         except OSError:
             return
         overflow = len(files) - max_files
@@ -252,24 +425,54 @@ class TrajectoryWriter:
         logger.info("Trajectory rotated: removed %d old files (max=%d)", overflow, max_files)
 
     def list_trajectories(self, limit: int = 50) -> list[dict]:
-        files = sorted(self.output_dir.glob("*.json"), reverse=True)
+        try:
+            files = sorted(
+                list(self.output_dir.glob("*.json")) + list(self.output_dir.glob("*.jsonl")),
+                key=lambda p: p.name,
+                reverse=True,
+            )
+        except OSError:
+            return []
         results = []
         for f in files[:limit]:
-            try:
-                with open(f) as fh:
-                    data = json.load(fh)
+            run = read_run(f)
+            if run is None:
+                continue
+            if f.suffix == ".jsonl":
+                try:
+                    n_events = sum(
+                        1
+                        for line in f.read_text(encoding="utf-8").splitlines()
+                        if line.strip()
+                    )
+                    started_at = 0
+                    for line in f.read_text(encoding="utf-8").splitlines():
+                        if line.strip():
+                            started_at = json.loads(line).get("ts", 0) / 1000
+                            break
+                except (OSError, json.JSONDecodeError):
+                    n_events, started_at = 0, 0
                 results.append({
-                    "trace_id": data.get("trace_id", ""),
-                    "session_id": data.get("session_id", ""),
-                    "graph_name": data.get("graph_name", ""),
-                    "status": data.get("status", ""),
-                    "started_at": data.get("started_at", 0),
-                    "duration_ms": data.get("duration_ms", 0),
-                    "events": len(data.get("events", [])),
+                    "trace_id": run.get("trace_id", ""),
+                    "session_id": run.get("session_id", ""),
+                    "graph_name": run.get("graph_name", ""),
+                    "status": run.get("status", ""),
+                    "started_at": started_at,
+                    "duration_ms": run.get("duration_ms", 0),
+                    "events": n_events,
                     "file": f.name,
                 })
-            except (OSError, json.JSONDecodeError):
-                continue
+            else:
+                results.append({
+                    "trace_id": run.get("trace_id", ""),
+                    "session_id": run.get("session_id", ""),
+                    "graph_name": run.get("graph_name", ""),
+                    "status": run.get("status", ""),
+                    "started_at": run.get("started_at", 0),
+                    "duration_ms": run.get("duration_ms", 0),
+                    "events": len(run.get("events", [])),
+                    "file": f.name,
+                })
         return results
 
 
