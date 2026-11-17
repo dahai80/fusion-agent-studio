@@ -12,7 +12,9 @@ dependencies = [
     # extension (msg_id/reply_to/mentions/attachments/audio_ref+transcript)
     # and send() returning {"delivered", "msg_id"}; bump deliberately after
     # reviewing each minor release.
-    "fusion-harness>=0.14.0,<0.15",
+    # 0.15.0/0.16.0 reviewed 2026-11-17: both purely additive (HumanGate hook,
+    # file_segment read tool) — no change to existing team-kernel surfaces.
+    "fusion-harness>=0.14.0,<0.17",
     # #509: single-point key resolution (config Phase 2.2, fusion-core#31).
     # NOT on PyPI — CI installs it via git+https, local via the workspace venv.
     "fusion-core>=0.8.0",
