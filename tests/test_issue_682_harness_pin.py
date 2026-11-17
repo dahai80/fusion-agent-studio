@@ -9,7 +9,10 @@ trajectory (harness K1-K3, issues #34/#35/#36) — checkpoint binding is the
 #714 part-1 re-point target. 0.14.0 shipped the C1 TeamMessage extension
 (msg_id/reply_to/mentions/attachments/audio_ref+transcript, harness issue
 #38) and dag_node lenient coercion (#39) — the teams.* chat passthrough
-(#716) targets it. Range after this bump: >=0.14.0,<0.15.
+(#716) targets it. 0.15.0/0.16.0 reviewed 2026-11-17: both purely additive
+(0.15.0 HumanGate async approval hook + sink, harness #44; 0.16.0
+file.read_segment contract + budget funnel, harness #46) — no change to any
+team-kernel surface this repo consumes. Range after this bump: >=0.14.0,<0.17.
 """
 
 from __future__ import annotations
@@ -32,12 +35,14 @@ def _harness_pin() -> str:
 def test_pin_admits_installed_kernel_surface():
     spec = SpecifierSet(_harness_pin())
     assert Version("0.14.0") in spec
+    assert Version("0.15.0") in spec
+    assert Version("0.16.0") in spec
 
 
 def test_pin_still_bounds_minor_and_major():
     spec = SpecifierSet(_harness_pin())
     assert Version("0.11.0") not in spec
     assert Version("0.13.0") not in spec
-    assert Version("0.15.0") not in spec
+    assert Version("0.17.0") not in spec
     assert Version("1.0.0") not in spec
     assert Version("0.6.9") not in spec
