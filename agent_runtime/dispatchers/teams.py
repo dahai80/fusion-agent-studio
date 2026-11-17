@@ -86,6 +86,8 @@ class TeamsDispatcher(SubDispatcher):
             "teams.lead_start": self._handle_lead_start,
             "teams.lead_stop": self._handle_lead_stop,
             "teams.lead_status": self._handle_lead_status,
+            "teams.playbook_render": self._handle_teams_playbook_render,
+            "teams.playbook_trace": self._handle_teams_playbook_trace,
         }
 
     def _registry(self) -> dict:
@@ -456,6 +458,67 @@ class TeamsDispatcher(SubDispatcher):
                 {"name": k, "lifecycle": v.lifecycle, "members": [m.name for m in v.definition.members]}
                 for k, v in sorted(self._registry().items())
             ],
+        }
+
+    # ---------- playbook read surface (#733) ----------
+
+    def _require_playbook_store(self, team_rt):
+        # #733: read-only over the kernel — the store layout is the shared
+        # ops.jsonl the lead loop writes (#712); team gating is the
+        # TeamDefinition.playbook flag. fusion_harness/ diff stays empty.
+        from ..playbook_store import PlaybookStore
+
+        if not getattr(team_rt.definition, "playbook", False):
+            raise LookupError(
+                f"playbook disabled on team {team_rt.definition.name} (definition.playbook=false)"
+            )
+        store = PlaybookStore()
+        if not store.ops_path.is_file():
+            raise FileNotFoundError(
+                f"no playbook store exists yet (ops log missing under {store.dir})"
+            )
+        return store
+
+    async def _handle_teams_playbook_render(self, params: dict) -> dict:
+        try:
+            team_rt = self._require_team(params)
+            store = self._require_playbook_store(team_rt)
+        except (KeyError, LookupError, FileNotFoundError) as e:
+            return self._error(e)
+        entries = store.entries()
+        logger.info("teams.playbook_render team=%s entries=%d", team_rt.definition.name, len(entries))
+        return {
+            "status": "ok",
+            "team": team_rt.definition.name,
+            "rendered": store.book.render(),
+            "entries": entries,
+        }
+
+    async def _handle_teams_playbook_trace(self, params: dict) -> dict:
+        entry_id = str(params.get("entry_id", "") or "")
+        try:
+            team_rt = self._require_team(params)
+            if not entry_id:
+                raise ValueError("entry_id required")
+            store = self._require_playbook_store(team_rt)
+        except (KeyError, LookupError, FileNotFoundError, ValueError) as e:
+            return self._error(e)
+        episodes = store.book.trace(entry_id)
+        if not episodes:
+            return self._error(
+                LookupError(f"playbook entry not found or has no provenance: {entry_id}")
+            )
+        logger.info(
+            "teams.playbook_trace team=%s entry=%s episodes=%d",
+            team_rt.definition.name,
+            entry_id,
+            len(episodes),
+        )
+        return {
+            "status": "ok",
+            "team": team_rt.definition.name,
+            "entry_id": entry_id,
+            "episodes": episodes,
         }
 
     # ---------- lead orchestration loop (#712) ----------
