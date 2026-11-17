@@ -49,6 +49,9 @@ git clone https://github.com/dahai80/fusion-agent-studio.git
 cd fusion-agent-studio
 
 # Install
+# From PyPI (published automatically on each GitHub release):
+pip install fusion-agent-studio
+# From source (repo checkout):
 pip install -e .
 
 # With local vector search (sqlite-vec + FTS5 + RRF hybrid)
@@ -867,6 +870,18 @@ cd web && bun install && bun run dev
 - **94%+ statement coverage**
 - **Python 3.11+** compatible
 - **16 business scenario integration tests** covering: agent lifecycle (create→configure→execute→delete), skill management, soul management, marketplace (publish→search→install), memory (store→recall→delete), safety (check→evaluate→policy), planner, deploy export/import, templates, graph CRUD, agent filtering, env health, RAG, ping
+
+---
+
+## Release & PyPI Publishing
+
+Patch releases ride the release-PR flow (bump → PR → CI green → squash merge → tag → GitHub release). Publishing to PyPI is automatic: `.github/workflows/publish.yml` fires on `release: published`, builds the sdist/wheel, sanity-installs the wheel, and uploads via PyPI trusted publishing (OIDC, no stored token; `environment: pypi`).
+
+One-time PyPI setup (pending publisher): on pypi.org register project `fusion-agent-studio` with a pending trusted publisher — owner `dahai80`, repo `fusion-agent-studio`, workflow `publish.yml`, environment `pypi`.
+
+A `workflow_dispatch` dry-run (build only, no upload) is available for checking packaging without shipping.
+
+The wheel ships the Python service (daemon RPC + REST API + CLI `fusion-agent` / `fusion-mcp`); the React web UI is served separately via fusion-web-shell (`web/dist` degrades gracefully when absent).
 
 ---
 
