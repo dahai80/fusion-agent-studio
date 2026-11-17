@@ -270,6 +270,17 @@ WEB_RPC_ALLOWLIST: frozenset[str] = frozenset(
         "teams.inbox",
         "teams.status",
         "teams.list",
+        # #731: web review module (web-shell#163) round-trip. Read surface +
+        # comments-aware approve only: planner.create_plan/reject_plan/
+        # execute_step/execute_plan/cancel_plan stay off the bridge
+        # (deny-by-default). Structured feedback rides approve_plan.review.
+        "human_input.list_pending",
+        "planner.get_plan",
+        "planner.list_plans",
+        "planner.approve_plan",
+        # #730: guided triage — one LLM call chapter-sorts the pending review
+        # set; read-only surface (returns a manifest, mutates nothing).
+        "review.triage",
     }
 )
 
@@ -299,6 +310,7 @@ _MUTATING_VERBS = frozenset(
         "store",
         "apply",
         "approve",
+        "approve_plan",
         "reject",
         "set",
         "add",

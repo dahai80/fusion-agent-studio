@@ -218,6 +218,30 @@ class PlannerEngine:
         logger.info("Plan %s rejected: %s", plan_id, reason or "no reason given")
         return True
 
+    def attach_review(self, plan_id: str, review: dict[str, Any]) -> bool:
+        # #731: persist structured web review feedback ({comments: [...],
+        # verdict, source}) on the plan record so the revising agent reads
+        # which spans were addressed on its next turn (planner.get_plan
+        # returns plan.metadata verbatim).
+        plan = self._plans.get(plan_id)
+        if not plan:
+            logger.warning("attach_review: plan %s not found", plan_id)
+            return False
+        comments = review.get("comments")
+        plan.metadata["review"] = {
+            "comments": comments if isinstance(comments, list) else [],
+            "verdict": str(review.get("verdict", "")),
+            "reviewed_at": time.time(),
+            "source": str(review.get("source", "web")),
+        }
+        logger.info(
+            "Plan %s review attached: verdict=%s comments=%d",
+            plan_id,
+            review.get("verdict", ""),
+            len(comments) if isinstance(comments, list) else 0,
+        )
+        return True
+
     def execute_step(self, plan_id: str, step_id: str) -> PlanStep:
         plan = self._plans.get(plan_id)
         if not plan:
