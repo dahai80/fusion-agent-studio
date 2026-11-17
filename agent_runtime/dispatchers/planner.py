@@ -23,7 +23,30 @@ class PlannerDispatcher(SubDispatcher):
             "planner.cancel_plan": self._handle_planner_cancel_plan,
             "verify.verify": self._handle_verify_verify,
             "verify.adversarial_verify": self._handle_verify_adversarial_verify,
+            "review.triage": self._handle_review_triage,
         }
+
+    async def _handle_review_triage(self, params: dict) -> dict:
+        # #730: guided triage — one LLM call sorts the pending artifact set
+        # into ordered chapters; deterministic fallback when LLM is absent
+        # or fails. Pure read surface: no plan/run state is mutated.
+        items = params.get("items")
+        if not isinstance(items, list) or not items:
+            return {"status": "error", "message": "items must be a non-empty list"}
+        from agent_runtime.review_triage import ReviewTriageEngine
+
+        engine = ReviewTriageEngine(gateway=self._daemon._gateway)
+        try:
+            manifest = await engine.triage(items)
+        except ValueError as e:
+            return {"status": "error", "message": str(e)}
+        logger.info(
+            "review.triage: items=%d sorted=%s chapters=%d",
+            manifest["item_count"],
+            manifest["sorted"],
+            len(manifest["chapters"]),
+        )
+        return {"manifest": manifest}
 
     async def _handle_planner_create_plan(self, params: dict) -> dict:
         task = params.get("task", "")
@@ -54,7 +77,47 @@ class PlannerDispatcher(SubDispatcher):
     async def _handle_planner_approve_plan(self, params: dict) -> dict:
         plan_id = params.get("plan_id", "")
         planner = self._daemon._get_planner()
+        # #731: comments-aware web review round-trip. review (optional) is
+        # {comments: [{anchor?, comment, verdict?}], verdict, source} — the
+        # web review module's structured feedback shape. Non-approve verdicts
+        # persist the review and leave the plan pending so the revising agent
+        # reads the anchored comments via planner.get_plan on its next turn.
+        review = params.get("review")
+        if review is not None:
+            if not isinstance(review, dict):
+                return {"status": "error", "message": "review must be an object"}
+            comments = review.get("comments", [])
+            if not isinstance(comments, list) or not all(
+                isinstance(c, dict) and isinstance(c.get("comment", ""), str)
+                for c in comments
+            ):
+                return {
+                    "status": "error",
+                    "message": "review.comments must be a list of objects with a comment field",
+                }
+            verdict = str(review.get("verdict", "approve"))
+            if verdict not in ("approve", "request_changes", "question"):
+                return {
+                    "status": "error",
+                    "message": "review.verdict must be approve|request_changes|question",
+                }
+            review = dict(review, verdict=verdict)
+        if review is not None and review["verdict"] != "approve":
+            attached = planner.attach_review(plan_id, review)
+            logger.info(
+                "planner.approve_plan: plan_id=%s verdict=%s attached=%s",
+                plan_id,
+                review["verdict"],
+                attached,
+            )
+            return {
+                "approved": False,
+                "review_attached": attached,
+                "status": "changes_requested" if attached else "error",
+            }
         ok = planner.approve_plan(plan_id)
+        if ok and review is not None:
+            planner.attach_review(plan_id, review)
         # C6: also resolve any in-graph approval future (planner node blocking).
         rt = self._daemon._get_runtime()
         if hasattr(rt, "approve_plan_in_graph"):

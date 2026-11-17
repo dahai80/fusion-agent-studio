@@ -323,6 +323,40 @@ class TestGuiFeatureAllowlist:
         assert not _is_mutating("teams.inbox")
         assert not _is_mutating("teams.status")
 
+    def test_review_module_methods_allowed(self):
+        # #731: web review module (web-shell#163) surface.
+        from agent_runtime.rpc_bridge import WEB_RPC_ALLOWLIST
+
+        for method in (
+            "human_input.list_pending",
+            "planner.get_plan",
+            "planner.list_plans",
+            "planner.approve_plan",
+            "review.triage",
+        ):
+            assert method in WEB_RPC_ALLOWLIST, method
+
+    def test_review_module_mutation_paths_stay_denied(self):
+        from agent_runtime.rpc_bridge import WEB_RPC_ALLOWLIST
+
+        for method in (
+            "planner.create_plan",
+            "planner.reject_plan",
+            "planner.execute_step",
+            "planner.execute_plan",
+            "planner.cancel_plan",
+        ):
+            assert method not in WEB_RPC_ALLOWLIST, method
+
+    def test_review_module_audited_verbs(self):
+        from agent_runtime.rpc_bridge import _is_mutating
+
+        assert _is_mutating("planner.approve_plan")
+        assert not _is_mutating("planner.get_plan")
+        assert not _is_mutating("planner.list_plans")
+        assert not _is_mutating("human_input.list_pending")
+        assert not _is_mutating("review.triage")
+
     def test_allowlisted_bridge_method_dispatches_end_to_end(self, static_key_env, stub_daemon):
         resp = _client().post(
             "/v1/rpc",
