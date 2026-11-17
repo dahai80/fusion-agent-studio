@@ -1,0 +1,58 @@
+name: publish
+
+# Publish the fusion-agent-studio package to PyPI. Fires when a GitHub
+# release is published (the release step already gates on a green CI run of
+# the release PR, so this reuses that signal instead of re-running tests).
+# Auth: PyPI trusted publishing (OIDC) — no token secret stored. One-time
+# setup on pypi.org (pending publisher): project "fusion-agent-studio",
+# owner dahai80, repo fusion-agent-studio, workflow publish.yml,
+# environment "pypi".
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Build only, skip the PyPI upload"
+        default: true
+        type: boolean
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Build sdist and wheel
+        run: |
+          python -m pip install --upgrade build
+          python -m build --wheel --sdist -o dist/
+      - name: Sanity-check the wheel
+        run: |
+          python -m pip install --index-url https://pypi.org/simple/ dist/*.whl
+          python -c "from agent_runtime.api_server import _app_version; print('wheel ok', _app_version())"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  publish:
+    needs: build
+    if: github.event_name == 'release' || inputs.dry_run == false
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      # Trusted publishing requires id-token: write
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
