@@ -59,9 +59,8 @@ pip install -e ".[rag]"
 pip install -e ".[plugins]"
 
 # With the shared harness kernel (fusion-harness: funnels/hooks/permissions/compactor)
-# NOTE: fusion-harness is not on PyPI — install from the fusion monorepo (`pip install -e fusion-harness`)
-# Without it, in-tree kernel fallbacks are used automatically (#357)
-pip install -e ".[harness]"
+# fusion-harness is a base dependency, resolved from PyPI (pin >=0.14.0,<0.17)
+# — nothing extra to install
 
 # Run tests
 pip install -e ".[test]"
@@ -586,7 +585,7 @@ Audit `audit/fusion-agent-studio-vs-langflow-audit-1020.md` closed end-to-end; s
 - ✅ **end-to-end** (verified against a live daemon pair): AS daemon log `peer notify url=http://127.0.0.1:11461/api/team/notify status=200` after `team.mailbox_send`, cowork log `POST /api/team/notify 200 OK`.
 
 ### Single-Point Key Resolution — #509
-- ✅ **fusion_core.config adoption** — MLX client key, gateway client/admin key, and daemon-side key attach all resolve through `fusion_core.config` single points (`client_key()` / `gateway_admin_key()` / `admin_key()` / `resolve_api_key()`): `FUSION_CLIENT_KEY`, `FUSION_GATEWAY_API_KEY`, and `FUSION_ADMIN_KEY` are the standard env names; legacy aliases (`FUSION_MLX_API_KEY`, `MLX_API_KEY`) still work with a one-time deprecation warning; dev profile falls back to anonymous or `~/.fusion-mlx/settings.json` (`auth.api_key` / `shell.gateway_admin_key`), and `FUSION_PROFILE=prod` fails fast (RuntimeError) on a missing key. `fusion-core>=0.8.0` is now a hard dependency (CI installs it via `git+https` — not on PyPI).
+- ✅ **fusion_core.config adoption** — MLX client key, gateway client/admin key, and daemon-side key attach all resolve through `fusion_core.config` single points (`client_key()` / `gateway_admin_key()` / `admin_key()` / `resolve_api_key()`): `FUSION_CLIENT_KEY`, `FUSION_GATEWAY_API_KEY`, and `FUSION_ADMIN_KEY` are the standard env names; legacy aliases (`FUSION_MLX_API_KEY`, `MLX_API_KEY`) still work with a one-time deprecation warning; dev profile falls back to anonymous or `~/.fusion-mlx/settings.json` (`auth.api_key` / `shell.gateway_admin_key`), and `FUSION_PROFILE=prod` fails fast (RuntimeError) on a missing key. `fusion-core>=0.8.0` is now a hard dependency (on PyPI since 0.12.1 — plain pip resolution).
 - Tests: `tests/test_issue_509_config_adoption.py`.
 
 ### Marketplace Robustness + Connector Grant Gate (v0.13.6) — #536 / #537
