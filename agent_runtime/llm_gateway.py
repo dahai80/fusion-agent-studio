@@ -5,6 +5,13 @@ fallback chain with per-model circuit breaker and load-aware routing.
 Pure-offline mode works with only local models; cloud endpoints are optional.
 LiteLLM-style embedded proxy: transparent routing layer that normalizes
 OpenAI-compatible APIs across local (fusion-mlx) and cloud providers.
+
+Layering (#753): this gateway is a ROUTING layer, not a second HTTP client.
+It owns model selection, the fallback chain, the per-model circuit breaker,
+usage stats, the LLM concurrency semaphore and reactive compaction — none of
+which duplicate transport logic. Every HTTP call is delegated to
+server.fusion_mlx_client.FusionMLXClient (single client implementation),
+which owns deadline, transient retry, streaming and secret masking.
 """
 
 from __future__ import annotations
@@ -20,11 +27,18 @@ from typing import Any, AsyncIterator
 
 logger = logging.getLogger(__name__)
 
-# NetLayer 方案B: 默认经 fusion-gateway :11432 (变量名 GATEWAY 与默认值名副其实)。
-# 保留 FUSION_GATEWAY_URL / FUSION_MLX_PORT 显式覆盖 (可回退直连 11434)。
-DEFAULT_LOCAL_BASE_URL = os.environ.get(
-    "FUSION_GATEWAY_URL", f"http://localhost:{os.environ.get('FUSION_MLX_PORT', '11432')}/v1"
-)
+# #753: single source for the default endpoint lives in server.fusion_mlx_client
+# (default_base_url). Kept as a re-export for backward compatibility. The
+# except-branch fallback covers import-starved environments (fusion-core or
+# fusion-harness missing); it mirrors the same env contract.
+try:
+    from server.fusion_mlx_client import default_base_url as _default_base_url
+
+    DEFAULT_LOCAL_BASE_URL = _default_base_url()
+except ImportError:
+    DEFAULT_LOCAL_BASE_URL = os.environ.get(
+        "FUSION_GATEWAY_URL", f"http://localhost:{os.environ.get('FUSION_MLX_PORT', '11432')}/v1"
+    )
 CIRCUIT_THRESHOLD = 3
 CIRCUIT_RESET_TIME = 30.0
 
@@ -202,7 +216,23 @@ class LLMGateway:
         self._compact_generation = 0
         self._llm_concurrency_limit = self._parse_llm_concurrency()
         self._llm_semaphore: asyncio.Semaphore | None = None
+        # #753: cached transports keyed by (base_url, api_key). One shared
+        # FusionMLXClient per remote endpoint instead of a fresh client (and
+        # fresh connection pool) on every call. Bounded by the model registry.
+        self._transports: dict[tuple[str, str], Any] = {}
         logger.info("LLMGateway initialized (default_model=%s)", default_model)
+
+    def _get_transport(self, base_url: str, api_key: str) -> Any:
+        """Return a shared FusionMLXClient for (base_url, api_key) — #753."""
+        key = (base_url, api_key)
+        client = self._transports.get(key)
+        if client is None:
+            from server.fusion_mlx_client import FusionMLXClient
+
+            client = FusionMLXClient(base_url=base_url, api_key=api_key or None)
+            self._transports[key] = client
+            logger.debug("Created shared transport for %s", base_url)
+        return client
 
     @staticmethod
     def _parse_llm_concurrency() -> int | None:
@@ -379,13 +409,6 @@ class LLMGateway:
         **kwargs,
     ) -> GatewayResponse:
         """Primary LLM call interface — drop-in replacement for FusionMLXClient.chat().
-        # DEBUG: capture the ACTUAL request reaching the gateway (agent tool
-        # contract investigation — remove once the knowledge tool round-trips)
-        import logging as _lg
-        _lg.getLogger(__name__).info(
-            "gateway.chat model=%s tools=%s n_msgs=%s sys0=%r",
-            model, len(tools or []), len(messages),
-            str(messages[0].get("content", ""))[:120] if messages else "")
 
         Routes through the gateway with automatic fallback.
         Returns GatewayResponse (compatible with LLMResponse).
@@ -515,37 +538,41 @@ class LLMGateway:
         tools: list[dict] | None = None,
         **kwargs,
     ) -> dict[str, Any]:
-        """Synchronous compatibility wrapper — returns dict (old API)."""
-        if model and model in self._models:
-            target = self._models[model]
-        else:
-            target = self.route(capability=capability)
-        if not target:
-            return {"error": "No available model", "model": None}
-        start = time.time()
+        """Synchronous compatibility wrapper — returns dict (old API).
+
+        #753: this used to be a fully separate sync code path with its own
+        routing + error handling (and a latent bug: the async client.chat
+        coroutine was never awaited, so every real call raised AttributeError
+        and degraded to the caller's stub fallback). It is now a thin bridge
+        onto chat() — one client code path, no duplicated routing/retry.
+        """
         try:
-            result = self._call_model(target, messages, tools=tools, **kwargs)
-            latency = time.time() - start
-            self._record_success(target.name, latency)
-            return result
+            asyncio.get_running_loop()
+        except RuntimeError:
+            pass
+        else:
+            logger.error(
+                "execute() called from a running event loop; use await chat() instead"
+            )
+            return {"error": "event loop running; use chat()", "model": model}
+        try:
+            resp = asyncio.run(
+                self.chat(messages, model=model, capability=capability, tools=tools, **kwargs)
+            )
         except Exception as exc:
-            latency = time.time() - start
-            self._record_failure(target.name, latency)
-            logger.error("Model %s failed: %s", target.name, exc)
-            for fallback in self.get_fallback_chain(capability=capability):
-                if fallback.name == target.name:
-                    continue
-                try:
-                    fb_start = time.time()
-                    result = self._call_model(fallback, messages, tools=tools, **kwargs)
-                    fb_latency = time.time() - fb_start
-                    self._record_success(fallback.name, fb_latency)
-                    result["fallback_from"] = target.name
-                    return result
-                except Exception as fb_exc:
-                    self._record_failure(fallback.name, time.time() - fb_start)
-                    logger.warning("Fallback model %s also failed: %s", fallback.name, fb_exc)
-            return {"error": str(exc), "model": target.name}
+            logger.error("execute() chat failed: %s: %r", type(exc).__name__, exc)
+            return {"error": str(exc), "model": model}
+        if resp.finish_reason == "error":
+            err = resp.usage.get("error", "LLM call failed") if isinstance(resp.usage, dict) else "LLM call failed"
+            return {"error": err, "model": resp.model}
+        return {
+            "model": resp.model,
+            "content": resp.content,
+            "tool_calls": resp.tool_calls,
+            "usage": resp.usage,
+            "finish_reason": resp.finish_reason,
+            "fallback_from": resp.fallback_from,
+        }
 
     def embed(self, text: str, model: str = "") -> list[float]:
         import asyncio
@@ -679,11 +706,8 @@ class LLMGateway:
         if target_config:
             resolved_model = target_config.name
             if target_config.provider != "local" or not client:
-                from server.fusion_mlx_client import FusionMLXClient
-
-                client = FusionMLXClient(
-                    base_url=target_config.base_url,
-                    api_key=target_config.api_key or None,
+                client = self._get_transport(
+                    target_config.base_url, target_config.api_key or ""
                 )
 
         if not client:
@@ -849,9 +873,7 @@ class LLMGateway:
                 raise
 
         try:
-            from server.fusion_mlx_client import FusionMLXClient
-
-            client = FusionMLXClient(base_url=config.base_url, api_key=config.api_key or None)
+            client = self._get_transport(config.base_url, config.api_key or "")
             response = await client.chat(
                 messages=messages,
                 model=config.name,
@@ -927,40 +949,6 @@ class LLMGateway:
         finally:
             if sem is not None:
                 sem.release()
-
-    def _call_model(
-        self,
-        config: ModelConfig,
-        messages: list[dict],
-        tools: list[dict] | None = None,
-        **kwargs,
-    ) -> dict[str, Any]:
-        logger.info("Calling model %s at %s", config.name, config.base_url)
-        try:
-            from server.fusion_mlx_client import FusionMLXClient
-
-            client = FusionMLXClient(base_url=config.base_url, api_key=config.api_key or None)
-            response = client.chat(
-                messages=messages,
-                model=config.name,
-                tools=tools,
-                max_tokens=kwargs.get("max_tokens", config.max_tokens),
-                temperature=kwargs.get("temperature", config.temperature),
-            )
-            return {
-                "model": config.name,
-                "content": response.content if response else "",
-                "tool_calls": response.tool_calls if response else [],
-                "usage": response.usage if response else {},
-            }
-        except ImportError:
-            logger.warning("FusionMLXClient not available, returning stub response")
-            return {
-                "model": config.name,
-                "content": f"[stub response from {config.name}]",
-                "tool_calls": [],
-                "usage": {},
-            }
 
     def _record_success(self, model_name: str, latency: float) -> None:
         self._cb.record_success(model_name)

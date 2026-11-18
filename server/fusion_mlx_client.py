@@ -3,6 +3,13 @@
 This module is the sole bridge between Agent Studio and fusion-mlx.
 It communicates exclusively through HTTP — no direct imports of
 fusion-mlx's engine, pool, or MLX code.
+
+Layering (#753): this client owns ALL transport concerns — HTTP deadline,
+transient-error retry, SSE streaming, secret masking. The routing layer
+(agent_runtime/llm_gateway.LLMGateway) owns model routing — fallback chain,
+circuit breaker, stats, concurrency semaphore — and delegates every HTTP
+call to FusionMLXClient. There is exactly one HTTP client implementation;
+LLMGateway is a routing wrapper, not a second client.
 """
 
 from __future__ import annotations
@@ -25,6 +32,14 @@ from fusion_core.config import client_key
 from fusion_harness import RetryPolicy
 
 logger = logging.getLogger(__name__)
+
+
+def default_base_url() -> str:
+    # #753: single source for the default local LLM endpoint. Read at call
+    # time (not import time) so env hot-swaps are honored on re-attach.
+    return os.environ.get(
+        "FUSION_GATEWAY_URL", f"http://localhost:{os.environ.get('FUSION_MLX_PORT', '11432')}/v1"
+    )
 
 
 @dataclass
@@ -191,13 +206,14 @@ class FusionMLXClient:
 
     def __init__(
         self,
-        base_url: str = os.environ.get(
-            "FUSION_GATEWAY_URL",
-            f"http://localhost:{os.environ.get('FUSION_MLX_PORT', '11432')}/v1",
-        ),
+        base_url: str = "",
         api_key: str | None = None,
         timeout: float | None = None,
     ):
+        # #753: default endpoint resolved via default_base_url() at call time
+        # (single source, import-time freeze removed).
+        if not base_url:
+            base_url = default_base_url()
         if not base_url.rstrip("/").endswith("/v1"):
             base_url = base_url.rstrip("/") + "/v1"
         self.base_url = base_url.rstrip("/")
