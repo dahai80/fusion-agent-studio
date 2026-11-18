@@ -457,6 +457,20 @@ class TeamsDispatcher(SubDispatcher):
                 "artifact_refs": list(t.artifact_refs),
                 "episodes": list(t.episodes),
                 "results": list((t.metadata or {}).get("results", [])),
+                # #761: read-only console metadata. Armed (not-yet-fired)
+                # wakeup rules mirror the kernel's _armed_wakeups filter;
+                # expired rules are pruned by the kernel itself, so nothing
+                # extra to filter here. Steer counter is derived from the
+                # durable supplement receipts for the current run attempt —
+                # same number _steer_counts tracks in memory, but it survives
+                # daemon restarts and stays consistent across operators.
+                "wakeups": self._armed_wakeup_views(t),
+                "steers_used": sum(
+                    1
+                    for r in (t.metadata or {}).get("supplements", [])
+                    if r.get("attempt") == self._current_attempt(team_rt, tid)
+                ),
+                "steer_cap": self.STEER_CAP_PER_RUN,
             }
             for tid, t in team_rt._tasks.items()
         }
@@ -492,6 +506,22 @@ class TeamsDispatcher(SubDispatcher):
             "tasks": tasks,
             "inbox_counts": {name: len(v) for name, v in team_rt._inboxes.items()},
         }
+
+    @staticmethod
+    def _armed_wakeup_views(task) -> list:
+        # #761: console-facing projection of a task's armed wakeup rules
+        # (kind at|every + their scheduling fields). Fired rules are excluded
+        # — they mirror the kernel's _armed_wakeups semantics.
+        views = []
+        for rule in (task.metadata or {}).get("wakeups", []):
+            if rule.get("fired"):
+                continue
+            view = {"wake_id": rule.get("wake_id"), "kind": rule.get("kind")}
+            for key in ("at", "every", "on_timeout", "expires_at"):
+                if rule.get(key) is not None:
+                    view[key] = rule[key]
+            views.append(view)
+        return views
 
     async def _handle_pause(self, params: dict) -> dict:
         try:
