@@ -31,11 +31,13 @@ class TestFusionMLXClient:
         monkeypatch.delenv("FUSION_MLX_PORT", raising=False)
         monkeypatch.delenv("FUSION_MLX_API_KEY", raising=False)
         monkeypatch.delenv("FUSION_CLIENT_KEY", raising=False)
-        import importlib
+        # No importlib.reload here: default_base_url() reads env at call time
+        # since #753, and reloading rebinds FusionMLXClient to a new class
+        # object, breaking isinstance checks in test files imported earlier
+        # (pytest-randomly shuffles order — issue #760 suite run hit this).
+        from server.fusion_mlx_client import FusionMLXClient as _Client
 
-        import server.fusion_mlx_client as mod
-        importlib.reload(mod)
-        client = mod.FusionMLXClient()
+        client = _Client()
         assert client.base_url == "http://localhost:11432/v1"
         assert client.api_key == "local"
         assert client.timeout == 900.0
