@@ -24,10 +24,13 @@ logger = logging.getLogger(__name__)
 
 _MAX_JSON_RETRIES = 3
 _RESULT_SUMMARY_CHARS = 200
+_SPEC_CHARS = 4000
 
 TASK_LEDGER_PROMPT = (
     "You are the lead of a small agent team. Produce a task ledger.\n"
     "Team goal:\n{goal}\n\n"
+    "Team SPEC (shared conventions and role boundaries — consult it before "
+    "dividing new tasks and respect the role/interface sections):\n{spec}\n\n"
     "Current task board:\n{board}\n\n"
     "{previous}"
     "Reply with EXACTLY one JSON object, no prose:\n"
@@ -110,6 +113,24 @@ def _board_snapshot(team_rt) -> str:
             + (f" | last_result: {last}" if last else "")
         )
     return "\n".join(lines) or "(empty board)"
+
+
+def _spec_block(team_rt) -> str:
+    # #745: inject the team's SPEC.md so the lead consults shared conventions
+    # before dividing new tasks. Read-only here — leader write-back
+    # (spec_update verdict field) is phase 2. Missing file degrades to a
+    # placeholder line so the ledger call never blocks on an absent spec.
+    from .dispatchers.teams import team_spec_path
+
+    try:
+        with open(team_spec_path(team_rt), "r", encoding="utf-8") as fh:
+            text = fh.read().strip()
+    except OSError as e:
+        logger.info("lead spec consult skipped: %s", e)
+        return "(no SPEC.md yet)"
+    if len(text) > _SPEC_CHARS:
+        text = text[:_SPEC_CHARS] + "\n... (truncated)"
+    return text
 
 
 class VerdictLog:
@@ -196,7 +217,9 @@ class TeamLead:
             prev = "Previous ledger (re-plan — keep what still holds, fix what does not):\n" + json.dumps(
                 previous, ensure_ascii=False
             ) + "\n\n"
-        prompt = TASK_LEDGER_PROMPT.format(goal=goal, board=_board_snapshot(self.team_rt), previous=prev)
+        prompt = TASK_LEDGER_PROMPT.format(
+            goal=goal, spec=_spec_block(self.team_rt), board=_board_snapshot(self.team_rt), previous=prev
+        )
         last_err = None
         for _ in range(_MAX_JSON_RETRIES):
             content = await self._call(prompt, "task_ledger", self.round)
