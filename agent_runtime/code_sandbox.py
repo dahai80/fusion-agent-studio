@@ -8,7 +8,9 @@ for preview before applying changes.
 from __future__ import annotations
 
 import ast
+import asyncio
 import difflib
+import json
 import logging
 import subprocess
 import sys
@@ -276,14 +278,10 @@ class DiffPreview:
         )
         diff_text = "".join(diff_lines)
         additions = sum(
-            1
-            for line in diff_lines
-            if line.startswith("+") and not line.startswith("+++")
+            1 for line in diff_lines if line.startswith("+") and not line.startswith("+++")
         )
         deletions = sum(
-            1
-            for line in diff_lines
-            if line.startswith("-") and not line.startswith("---")
+            1 for line in diff_lines if line.startswith("-") and not line.startswith("---")
         )
         has_changes = bool(diff_text)
 
@@ -298,9 +296,7 @@ class DiffPreview:
             has_changes=has_changes,
         )
 
-    def diff_files(
-        self, original_path: str | Path, modified_path: str | Path
-    ) -> DiffResult:
+    def diff_files(self, original_path: str | Path, modified_path: str | Path) -> DiffResult:
         orig = Path(original_path).read_text(encoding="utf-8", errors="replace")
         mod = Path(modified_path).read_text(encoding="utf-8", errors="replace")
         return self.diff(orig, mod, file_path=Path(original_path).name)
@@ -357,9 +353,7 @@ class CodeSandbox:
         if language == "python":
             analysis = self._ast_checker.analyze(code)
             if not analysis.safe:
-                logger.warning(
-                    "Code safety check FAILED for exec %s: %s", exec_id, analysis.issues
-                )
+                logger.warning("Code safety check FAILED for exec %s: %s", exec_id, analysis.issues)
                 return SandboxResult(
                     success=False,
                     exit_code=-1,
@@ -370,7 +364,11 @@ class CodeSandbox:
         with tempfile.TemporaryDirectory(prefix=f"sandbox_{exec_id}_") as tmpdir:
             if language in ("cpp", "c"):
                 return self._execute_compiled(code, tmpdir, exec_id, spec["ext"])
-            if self.use_sandbox and self._backend == "docker" and language in self._container_languages:
+            if (
+                self.use_sandbox
+                and self._backend == "docker"
+                and language in self._container_languages
+            ):
                 return self._execute_in_container(code, tmpdir, exec_id, language)
             return self._execute_interpreted(code, tmpdir, exec_id, language, spec)
 
@@ -387,9 +385,7 @@ class CodeSandbox:
         script_path = Path(work_dir) / f"script.{ext}"
         script_path.write_text(code, encoding="utf-8")
         inner = container_inner_argv(language, f"/workspace/script.{ext}")
-        logger.info(
-            "container sandbox exec %s: lang=%s inner=%s", exec_id, language, inner
-        )
+        logger.info("container sandbox exec %s: lang=%s inner=%s", exec_id, language, inner)
         return run_in_container(inner, work_dir, self.timeout, exec_id=exec_id)
 
     def _execute_interpreted(
@@ -410,9 +406,7 @@ class CodeSandbox:
 
         return self._run_proc(cmd, work_dir, exec_id)
 
-    def _execute_compiled(
-        self, code: str, work_dir: str, exec_id: str, ext: str
-    ) -> SandboxResult:
+    def _execute_compiled(self, code: str, work_dir: str, exec_id: str, ext: str) -> SandboxResult:
         src_path = Path(work_dir) / f"script.{ext}"
         src_path.write_text(code, encoding="utf-8")
         bin_path = Path(work_dir) / "script.out"
@@ -438,9 +432,7 @@ class CodeSandbox:
             run_cmd = ["sandbox-exec", "-f", str(profile_path), str(bin_path)]
         return self._run_proc(run_cmd, work_dir, exec_id)
 
-    def _run_proc(
-        self, cmd: list[str], work_dir: str, exec_id: str
-    ) -> SandboxResult:
+    def _run_proc(self, cmd: list[str], work_dir: str, exec_id: str) -> SandboxResult:
         logger.info("Sandbox exec %s: cmd=%s", exec_id, cmd)
         try:
             proc = subprocess.run(
@@ -451,9 +443,7 @@ class CodeSandbox:
                 cwd=work_dir,
             )
             success = proc.returncode == 0
-            logger.info(
-                "Sandbox exec %s: exit=%d success=%s", exec_id, proc.returncode, success
-            )
+            logger.info("Sandbox exec %s: exit=%d success=%s", exec_id, proc.returncode, success)
             return SandboxResult(
                 success=success,
                 exit_code=proc.returncode,
@@ -476,3 +466,55 @@ class CodeSandbox:
                 execution_id=exec_id,
             )
 
+    async def run_sandboxed(self, tool_name: str, args: dict[str, Any]) -> Any:
+        logger.info("SandboxRunner route: tool=%s arg_keys=%s", tool_name, sorted(args))
+        code = args.get("code")
+        if code is not None:
+            result = await asyncio.to_thread(self.execute, code, args.get("language", "python"))
+            return result.to_dict()
+        cmd = args.get("cmd") or args.get("command")
+        if cmd:
+            result = await asyncio.to_thread(self.execute, cmd, "shell")
+            return result.to_dict()
+        logger.warning(
+            "SandboxRunner fail-closed: tool=%s has no code/cmd payload, denying", tool_name
+        )
+        return {
+            "success": False,
+            "stderr": "tool not sandboxable via code_sandbox: no code/cmd payload",
+            "blocked": True,
+        }
+
+
+class CodeSandboxExecutor:
+    """CodeExecutor backend (fusion_harness.code_mode protocol) backed by
+    CodeSandbox. Runs the script in a fresh sandboxed subprocess; namespace
+    is injected as globals via a JSON preamble. Execution failures raise so
+    the CodeModeTurn self-repair loop can feed the traceback back."""
+
+    def __init__(self, sandbox: CodeSandbox | None = None, language: str = "python"):
+        self.sandbox = sandbox or CodeSandbox()
+        self.language = language
+
+    def execute(self, script: str, namespace: dict[str, Any]) -> Any:
+        preamble = (
+            "import json as _json\n"
+            f"_namespace = _json.loads({json.dumps(namespace, default=str)!r})\n"
+            "globals().update(_namespace)\n"
+        )
+        logger.info(
+            "CodeSandboxExecutor exec: lang=%s ns_keys=%s script_len=%d",
+            self.language,
+            sorted(namespace),
+            len(script),
+        )
+        result = self.sandbox.execute(preamble + script, self.language)
+        if result.timed_out:
+            raise RuntimeError("code-mode execution timed out")
+        if not result.success:
+            raise RuntimeError(result.stderr or f"exit code {result.exit_code}")
+        stdout = result.stdout.strip()
+        try:
+            return json.loads(stdout)
+        except (ValueError, TypeError):
+            return stdout
