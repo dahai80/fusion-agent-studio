@@ -155,8 +155,21 @@ class TeamsDispatcher(SubDispatcher):
 
     @staticmethod
     def _error(e: Exception) -> dict:
-        logger.warning("teams.* rejected: %s: %s", type(e).__name__, e)
-        return {"status": "error", "message": str(e)}
+        # #747: structured dispatch errors — stable reason_code + operator
+        # hint. Studio-home paths are operator-owned (local-first daemon) and
+        # get shortened to ~; any other machine path collapses to
+        # invocation_not_allowed with the full detail kept server-side only.
+        from ..paths import studio_home
+        from ..reason_codes import classify_error, error_payload, leaks_machine_detail
+
+        detail = f"{type(e).__name__}: {e}"
+        message = str(e or "").replace(str(studio_home()), "~")
+        if leaks_machine_detail(message):
+            logger.warning("teams.* rejected (detail withheld): %s", detail)
+            return error_payload("invocation_not_allowed", "operation rejected: internal detail withheld")
+        code = classify_error(e)
+        logger.warning("teams.* rejected (%s): %s", code, detail)
+        return error_payload(code, message)
 
     # ---------- registration ----------
 
@@ -530,8 +543,13 @@ class TeamsDispatcher(SubDispatcher):
             with open(path, "r", encoding="utf-8") as fh:
                 text = fh.read()
         except FileNotFoundError:
+            # #747: route through _error so the payload carries
+            # reason_code=spec_unavailable (message text unchanged for #745
+            # clients).
             logger.warning("teams.spec_read team=%s missing spec path=%s", team_rt.definition.name, path)
-            return {"status": "error", "message": f"no SPEC.md exists yet for team {team_rt.definition.name}"}
+            return self._error(
+                FileNotFoundError(f"no SPEC.md exists yet for team {team_rt.definition.name}")
+            )
         except OSError as e:
             return self._error(e)
         logger.info("teams.spec_read team=%s bytes=%d", team_rt.definition.name, len(text))
