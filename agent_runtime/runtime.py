@@ -146,10 +146,12 @@ class AgentRuntime(_SafetyApprovalMixin, _CheckpointMixin, _DynamicToolsMixin, _
         # nodes awaiting approval (mirrors _safety_futures pattern).
         self.plan_mode: bool = False
         self._plan_futures: dict[str, asyncio.Future[bool]] = {}
-        # #557 human_input HiTL: input_id -> Future[dict] for same-process
-        # non-blocking approve/reject/edit-input; across restart the
-        # checkpoint + resume(human_inputs=...) path takes over.
-        self._human_input_futures: dict[str, asyncio.Future[dict]] = {}
+        # #557/#756 human_input HiTL: queue mechanics run on
+        # fusion_harness.HumanGate (persistent JSON queue under studio home,
+        # single-winner resolve, lazy expiry). Materialized lazily — see
+        # _get_human_gate(); across restart the checkpoint +
+        # resume(human_inputs=...) path still takes over.
+        self._human_gate: Any = None
         # N6/#343 ToolSearch: lazy tool schema loading. ON by default (#488):
         # schemas beyond TOOLSEARCH_INLINE_LIMIT are deferred out of the
         # prompt; the LLM finds them via the tool_search tool at need.
@@ -1367,6 +1369,22 @@ class AgentRuntime(_SafetyApprovalMixin, _CheckpointMixin, _DynamicToolsMixin, _
 
             self._skills_store = SkillsStore.with_project_dirs()
         return self._skills_store
+
+    def _get_human_gate(self):
+        # #756: lazy HumanGate for human_input node queue mechanics. Never
+        # materialized eagerly — constructing it creates the state dir under
+        # studio home (no-eager-mkdir rule, #591) and restores prior queue
+        # entries, so it must only happen when a human_input node asks or a
+        # consumer resolves/lists.
+        if self._human_gate is None:
+            from fusion_harness.human_gate import HumanGate
+
+            from .paths import studio_home
+
+            state_dir = str(studio_home() / "human_gate")
+            self._human_gate = HumanGate(state_dir)
+            logger.info("human gate ready state_dir=%s", state_dir)
+        return self._human_gate
 
     def _register_toolsearch(self) -> None:
         # N6/#343/#488: lazy tool-schema loading — tool_search registered on
