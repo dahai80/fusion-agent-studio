@@ -130,6 +130,9 @@ class TeamsDispatcher(SubDispatcher):
             "teams.playbook_trace": self._handle_teams_playbook_trace,
             "teams.spec_read": self._handle_spec_read,
             "teams.spec_write": self._handle_spec_write,
+            "teams.runs_list": self._handle_runs_list,
+            "teams.run_messages": self._handle_run_messages,
+            "teams.run_usage": self._handle_run_usage,
         }
 
     def _registry(self) -> dict:
@@ -772,3 +775,121 @@ class TeamsDispatcher(SubDispatcher):
                 for e in entries
             ],
         }
+
+    # ---------- run replay surface (#750, harness #63 streams) ----------
+
+    @staticmethod
+    def _runs_dir(team_rt) -> str:
+        # One JSONL per run at <state_dir>/runs/<task_id>/<attempt>.jsonl
+        # (fusion-harness #63 convention); read-only here.
+        import os
+
+        return os.path.join(team_rt.state_dir, "runs")
+
+    def _load_run_stream(self, team_rt, task_id: str, attempt: int):
+        import os
+
+        from fusion_harness.session_log import SessionEventLog
+
+        path = os.path.join(self._runs_dir(team_rt), str(task_id), f"{attempt}.jsonl")
+        if not os.path.isfile(path):
+            raise ValueError(f"no run attempt {attempt} for task {task_id}")
+        return SessionEventLog.load(path)
+
+    async def _handle_runs_list(self, params: dict) -> dict:
+        import os
+
+        try:
+            team_rt = self._require_team(params)
+            task_id = str(params.get("task_id", "") or "")
+            team_rt.task(task_id)
+            runs_dir = os.path.join(self._runs_dir(team_rt), task_id)
+            attempts = []
+            if os.path.isdir(runs_dir):
+                for name in sorted(os.listdir(runs_dir)):
+                    if not (name.endswith(".jsonl") and name[:-6].isdigit()):
+                        continue
+                    attempt = int(name[:-6])
+                    log = self._load_run_stream(team_rt, task_id, attempt)
+                    events = log.events()
+                    member = ""
+                    last_status = ""
+                    finished = {}
+                    for ev in events:
+                        payload = ev.to_dict().get("payload") or {}
+                        member = member or str(payload.get("member", "") or "")
+                        if ev.type == "run_finished":
+                            finished = payload.get("usage") or {}
+                            last_status = str(payload.get("status", "") or "")
+                    attempts.append(
+                        {
+                            "attempt": attempt,
+                            "member": member,
+                            "events": len(events),
+                            "status": last_status,
+                            "usage": finished,
+                        }
+                    )
+        except Exception as e:
+            return self._error(e)
+        logger.info("teams.runs_list team=%s task=%s runs=%d", team_rt.definition.name, task_id, len(attempts))
+        return {"status": "ok", "team": team_rt.definition.name, "task_id": task_id, "runs": attempts}
+
+    async def _handle_run_messages(self, params: dict) -> dict:
+        try:
+            team_rt = self._require_team(params)
+            task_id = str(params.get("task_id", "") or "")
+            team_rt.task(task_id)
+            attempt = int(params.get("attempt", 0) or 0)
+            if attempt <= 0:
+                raise ValueError("attempt required (positive integer)")
+            log = self._load_run_stream(team_rt, task_id, attempt)
+            messages = [
+                {"seq": ev.seq, "ts": ev.ts, "type": ev.type, "payload": ev.to_dict().get("payload") or {}}
+                for ev in log.events()
+            ]
+        except Exception as e:
+            return self._error(e)
+        logger.info(
+            "teams.run_messages team=%s task=%s attempt=%d events=%d",
+            team_rt.definition.name,
+            task_id,
+            attempt,
+            len(messages),
+        )
+        return {
+            "status": "ok",
+            "team": team_rt.definition.name,
+            "task_id": task_id,
+            "attempt": attempt,
+            "messages": messages,
+        }
+
+    async def _handle_run_usage(self, params: dict) -> dict:
+        try:
+            team_rt = self._require_team(params)
+            task_id = str(params.get("task_id", "") or "")
+            team_rt.task(task_id)
+            import os
+
+            runs_dir = os.path.join(self._runs_dir(team_rt), task_id)
+            rows = []
+            if os.path.isdir(runs_dir):
+                for name in sorted(os.listdir(runs_dir)):
+                    if not (name.endswith(".jsonl") and name[:-6].isdigit()):
+                        continue
+                    attempt = int(name[:-6])
+                    log = self._load_run_stream(team_rt, task_id, attempt)
+                    usage = {}
+                    status = ""
+                    for ev in log.events():
+                        if ev.type != "run_finished":
+                            continue
+                        payload = ev.to_dict().get("payload") or {}
+                        usage = payload.get("usage") or {}
+                        status = str(payload.get("status", "") or "")
+                    rows.append({"attempt": attempt, "status": status, "usage": usage})
+        except Exception as e:
+            return self._error(e)
+        logger.info("teams.run_usage team=%s task=%s rows=%d", team_rt.definition.name, task_id, len(rows))
+        return {"status": "ok", "team": team_rt.definition.name, "task_id": task_id, "usage": rows}
