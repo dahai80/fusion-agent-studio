@@ -65,6 +65,46 @@ def teams_state_root() -> str:
     return str(studio_home() / "teams")
 
 
+SPEC_FILENAME = "SPEC.md"
+
+_SPEC_SKELETON = """# SPEC — {name}
+
+Single source of truth for team conventions and role boundaries. The lead
+consults this file before dividing new tasks; members receive the relevant
+sections through their brief injection (harness side).
+
+## Roles
+
+## Conventions
+
+## Interfaces
+
+## Current split
+"""
+
+
+def team_spec_path(team_rt) -> str:
+    return str(team_rt.state_dir) + "/" + SPEC_FILENAME
+
+
+def _init_spec_file(state_dir: str, team_name: str, initial_text: str):
+    # #745: teams.register seeds SPEC.md exactly once — a pre-existing file
+    # (e.g. from a re-register or manual edit) is never clobbered.
+    path = state_dir + "/" + SPEC_FILENAME
+    if os.path.exists(path):
+        logger.info("teams.register spec exists, leaving untouched path=%s", path)
+        return None
+    try:
+        text = initial_text.strip() or _SPEC_SKELETON.format(name=team_name)
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write(text if text.endswith("\n") else text + "\n")
+    except OSError as e:
+        logger.warning("teams.register spec init failed path=%s err=%s", path, e)
+        return e
+    logger.info("teams.register spec seeded path=%s", path)
+    return None
+
+
 class TeamsDispatcher(SubDispatcher):
     def get_handlers(self) -> dict:
         return {
@@ -88,6 +128,8 @@ class TeamsDispatcher(SubDispatcher):
             "teams.lead_status": self._handle_lead_status,
             "teams.playbook_render": self._handle_teams_playbook_render,
             "teams.playbook_trace": self._handle_teams_playbook_trace,
+            "teams.spec_read": self._handle_spec_read,
+            "teams.spec_write": self._handle_spec_write,
         }
 
     def _registry(self) -> dict:
@@ -161,6 +203,11 @@ class TeamsDispatcher(SubDispatcher):
             os.makedirs(team_rt.state_dir, exist_ok=True)
         except OSError as e:
             return self._error(e)
+        spec_error = _init_spec_file(
+            team_rt.state_dir, definition.name, str(params.get("spec", "") or params.get("spec_text", "") or "")
+        )
+        if spec_error is not None:
+            return self._error(spec_error)
         try:
             team_rt.activate()
         except Exception as e:
@@ -459,6 +506,51 @@ class TeamsDispatcher(SubDispatcher):
                 for k, v in sorted(self._registry().items())
             ],
         }
+
+    # ---------- team SPEC.md (#745) ----------
+
+    def _require_writable_team(self, team_rt):
+        # #745: SPEC writes are console/human-driven in v1 and are refused on
+        # teams that are not actively running — paused/disbanded teams must
+        # not have their source of truth mutated underneath a frozen state.
+        lifecycle = str(getattr(team_rt, "lifecycle", "") or "")
+        if lifecycle != "ACTIVE":
+            raise ValueError(
+                f"team {team_rt.definition.name} is {lifecycle or 'in an unknown lifecycle state'}; "
+                "spec_write is only allowed on ACTIVE teams"
+            )
+
+    async def _handle_spec_read(self, params: dict) -> dict:
+        try:
+            team_rt = self._require_team(params)
+        except Exception as e:
+            return self._error(e)
+        path = team_spec_path(team_rt)
+        try:
+            with open(path, "r", encoding="utf-8") as fh:
+                text = fh.read()
+        except FileNotFoundError:
+            logger.warning("teams.spec_read team=%s missing spec path=%s", team_rt.definition.name, path)
+            return {"status": "error", "message": f"no SPEC.md exists yet for team {team_rt.definition.name}"}
+        except OSError as e:
+            return self._error(e)
+        logger.info("teams.spec_read team=%s bytes=%d", team_rt.definition.name, len(text))
+        return {"status": "ok", "team": team_rt.definition.name, "path": path, "spec": text}
+
+    async def _handle_spec_write(self, params: dict) -> dict:
+        try:
+            team_rt = self._require_team(params)
+            text = str(params.get("text", "") or "")
+            if not text.strip():
+                raise ValueError("text required (non-empty SPEC.md body)")
+            self._require_writable_team(team_rt)
+            path = team_spec_path(team_rt)
+            with open(path, "w", encoding="utf-8") as fh:
+                fh.write(text if text.endswith("\n") else text + "\n")
+        except Exception as e:
+            return self._error(e)
+        logger.info("teams.spec_write team=%s bytes=%d", team_rt.definition.name, len(text))
+        return {"status": "ok", "team": team_rt.definition.name, "path": path, "bytes": len(text)}
 
     # ---------- playbook read surface (#733) ----------
 
