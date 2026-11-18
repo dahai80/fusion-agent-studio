@@ -12,7 +12,6 @@ import asyncio
 import json
 import os
 import re
-import uuid
 from typing import Any, AsyncIterator
 
 from tools.plan_tools import EXIT_PLAN_MODE_SENTINEL
@@ -2141,15 +2140,18 @@ class _NodeExecutorsMixin:
     async def _execute_human_input_node(
         self, ctx: AgentContext, node: NodeConfig, graph: AgentGraph
     ) -> AsyncIterator[AgentEvent]:
-        """#557: pause the run for a human decision.
+        """#557/#756: pause the run for a human decision.
 
-        Same process: emit a SAFETY_APPROVAL request (kind=human_input) and
-        await the future resolved via resolve_human_input() (approve with
-        value / reject with reason). Across a backend restart: the
-        checkpoint saved before pausing + resume_from_checkpoint(
-        human_inputs={...}) re-executes this node, which sees the seeded
-        input variable and continues. Rejection terminates the branch
-        visibly (ERROR event with the reason).
+        Queue mechanics run on fusion_harness.HumanGate (persistent JSON
+        queue, single-winner resolve, lazy expiry). Same process: emit a
+        SAFETY_APPROVAL request (kind=human_input) and await the gate
+        question resolved via resolve_human_input() (approve with value /
+        reject with reason). Across a backend restart: the checkpoint saved
+        before pausing + resume_from_checkpoint(human_inputs={...})
+        re-executes this node, which sees the seeded input variable and
+        continues; the gate question itself persists and expires lazily.
+        Rejection terminates the branch visibly (ERROR event with the
+        reason).
         """
         self._seed_ctx_variables(ctx)
         params = node.tool_params or {}
@@ -2176,17 +2178,27 @@ class _NodeExecutorsMixin:
             )
             return
 
-        input_id = "hi-" + uuid.uuid4().hex[:12]
         # persist FIRST — the checkpoint survives a backend restart
         await self._save_checkpoint(ctx, graph)
+        gate = self._get_human_gate()
+        question = gate.ask(
+            session_id=ctx.session_id,
+            question=prompt,
+            payload={"input_var": input_var, "fields": fields, "node": node.label},
+            reply_schema={
+                "required": ["approved"],
+                "properties": {"approved": "bool", "value": "str", "reason": "str"},
+            },
+            policy="block",
+            requester="agent-runtime",
+            ttl_s=timeout,
+        )
+        input_id = question.id
         logger.info(
             "human_input pause node=%s input_id=%s input_var=%s", node.label, input_id, input_var
         )
-        # register the future BEFORE emitting the request — a consumer that
+        # the question is queued BEFORE emitting the request — a consumer that
         # sees the SAFETY_APPROVAL event must be able to resolve immediately
-        loop = asyncio.get_running_loop()
-        future: asyncio.Future = loop.create_future()
-        self._human_input_futures[input_id] = future
         yield AgentEvent(
             type=AgentEventType.SAFETY_APPROVAL,
             content=prompt,
@@ -2201,9 +2213,8 @@ class _NodeExecutorsMixin:
             },
         )
         try:
-            decision = await asyncio.wait_for(future, timeout=timeout)
+            decision = await asyncio.wait_for(gate.wait(input_id), timeout=timeout)
         except asyncio.TimeoutError:
-            self._human_input_futures.pop(input_id, None)
             # pause-and-persist: the stream ends here; resume via checkpoint
             logger.info(
                 "human_input timeout — paused node=%s input_id=%s", node.label, input_id
@@ -2222,8 +2233,6 @@ class _NodeExecutorsMixin:
                 },
             )
             return
-        finally:
-            self._human_input_futures.pop(input_id, None)
 
         if not isinstance(decision, dict):
             decision = {"approved": bool(decision), "value": ""}
@@ -2256,20 +2265,46 @@ class _NodeExecutorsMixin:
         )
 
     def resolve_human_input(self, input_id: str, decision: dict) -> bool:
-        """#557: resolve a pending human_input future (approve/reject/edit)."""
-        future = self._human_input_futures.get(input_id)
-        if future is None or future.done():
+        """#557/#756: resolve a pending human_input question via HumanGate.
+
+        Single-winner: a second resolve (or unknown/expired id) returns
+        False instead of raising — the gate reports {"resolved": False,
+        "reason": ...} and the rejection is logged."""
+        try:
+            gate = self._get_human_gate()
+        except Exception as exc:
+            logger.error("human gate unavailable for resolve: %s", exc)
             return False
-        future.set_result(decision)
+        result = gate.resolve(input_id, decision)
+        if not result.get("resolved"):
+            logger.info(
+                "human_input resolve rejected input_id=%s reason=%s",
+                input_id,
+                result.get("reason"),
+            )
+            return False
         logger.info("human_input resolved input_id=%s approved=%s",
                     input_id, decision.get("approved"))
         return True
 
     def pending_human_inputs(self) -> list[dict]:
-        """#557: list input_ids awaiting a decision (for RPC polling)."""
+        """#557/#756: pending human_input questions from the HumanGate
+        queue (for RPC polling). done is always False for pending rows;
+        answered/expired/cancelled questions never appear."""
+        try:
+            gate = self._get_human_gate()
+        except Exception as exc:
+            logger.error("human gate unavailable for listing: %s", exc)
+            return []
         return [
-            {"input_id": iid, "done": f.done()}
-            for iid, f in self._human_input_futures.items()
+            {
+                "input_id": q.id,
+                "done": False,
+                "question": q.question,
+                "input_var": (q.payload or {}).get("input_var", ""),
+                "session_id": q.session_id,
+            }
+            for q in gate.list_questions(status="pending")
         ]
 
     async def _execute_sub_flow_node(
