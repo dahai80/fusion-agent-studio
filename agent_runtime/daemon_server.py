@@ -4642,8 +4642,13 @@ class DaemonServer:
         # tasks to the lead's pick pool (blocked -> queued); on_timeout=end
         # cancels the task instead with cancel_reason=wakeup_timeout. Rules
         # live in task.metadata["wakeups"] (harness #65), so daemon restarts
-        # keep them effective.
-        rt = self._get_runtime()
+        # keep them effective. Lazy guard: never materialize the AgentRuntime
+        # from this loop — _get_runtime() wires memory_engine=self._get_memory()
+        # and would cache the legacy SQLite backend before an operator env
+        # (FUSION_MEMORY_API_KEY) is honored (#246).
+        if self._runtime is None:
+            return 0
+        rt = self._runtime
         registry = getattr(rt, "teams_registry", None) or {}
         now = time.time()
         fired = 0

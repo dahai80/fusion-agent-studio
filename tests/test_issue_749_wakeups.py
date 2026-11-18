@@ -191,6 +191,16 @@ async def test_wakeup_eval_skips_future_rules_and_other_states(daemon, tmp_path)
     assert team_rt.task(task_id).status == "in_progress"
 
 
+async def test_wakeup_eval_never_materializes_runtime(daemon):
+    # Regression: the eval loop must not call _get_runtime() on idle daemons —
+    # runtime construction wires memory_engine=self._get_memory() and would
+    # cache the legacy SQLite backend before FUSION_MEMORY_API_KEY is honored
+    # (issue #246 backend swap).
+    assert daemon._runtime is None
+    assert daemon._evaluate_team_wakeups() == 0
+    assert daemon._runtime is None
+
+
 async def test_wakeup_timeout_code_in_enum():
     from agent_runtime.reason_codes import HINTS, REASON_CODES
 
