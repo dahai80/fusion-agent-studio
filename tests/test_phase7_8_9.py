@@ -281,7 +281,11 @@ class TestLLMGateway:
         result = gw.execute([{"role": "user", "content": "hi"}])
         assert "error" in result
 
-    def test_execute_stub(self):
+    def test_execute_stub(self, monkeypatch):
+        # #753: execute() now routes through chat() — with no default client
+        # the registered model hits the real transport (1 attempt to keep the
+        # test fast); failure still carries the model name in the error dict.
+        monkeypatch.setenv("FUSION_LLM_RETRY_MAX", "1")
         gw = LLMGateway()
         gw.register_model(ModelConfig(name="stub-model"))
         result = gw.execute([{"role": "user", "content": "hi"}], model="stub-model")
