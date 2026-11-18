@@ -39,8 +39,8 @@ fusion-mcp = "agent_runtime.mcp_server:main"
 
 [project.optional-dependencies]
 # #271: multi-tenant identity (env-gated via FUSION_IDENTITY_ENABLED).
-# fusion-identity is a local in-tree package (not on PyPI); #509 moved
-# fusion-core into the hard dependency list above.
+# fusion-identity is on PyPI (0.2.35, 2026-11-17); #509 moved fusion-core
+# into the hard dependency list above.
 identity = [
     "fusion-identity>=0.1.0",
 ]
