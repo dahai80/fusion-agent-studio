@@ -58,7 +58,7 @@ pip install -e .
 pip install -e ".[rag]"
 
 # With fusion-plugins-ecosystem bridge (PluginManifest/MCP/Claude gateway)
-# NOTE: fusion-plugins-ecosystem is not on PyPI — install from the fusion monorepo
+# fusion-plugins-ecosystem resolves from PyPI (>=0.3.0)
 pip install -e ".[plugins]"
 
 # With the shared harness kernel (fusion-harness: funnels/hooks/permissions/compactor)
