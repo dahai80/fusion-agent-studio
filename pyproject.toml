@@ -14,7 +14,7 @@ dependencies = [
     # reviewing each minor release.
     # 0.15.0/0.16.0 reviewed 2026-11-17: both purely additive (HumanGate hook,
     # file_segment read tool) — no change to existing team-kernel surfaces.
-    "fusion-harness>=0.14.0,<0.17",
+    "fusion-harness>=0.20.0,<0.21",
     # #509: single-point key resolution (config Phase 2.2, fusion-core#31).
     # On PyPI since 0.12.1 (2026-11-17) — plain pip resolution works.
     "fusion-core>=0.8.0",
