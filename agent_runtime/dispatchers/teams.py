@@ -133,6 +133,7 @@ class TeamsDispatcher(SubDispatcher):
             "teams.runs_list": self._handle_runs_list,
             "teams.run_messages": self._handle_run_messages,
             "teams.run_usage": self._handle_run_usage,
+            "teams.supplement": self._handle_supplement,
         }
 
     def _registry(self) -> dict:
@@ -893,3 +894,105 @@ class TeamsDispatcher(SubDispatcher):
             return self._error(e)
         logger.info("teams.run_usage team=%s task=%s rows=%d", team_rt.definition.name, task_id, len(rows))
         return {"status": "ok", "team": team_rt.definition.name, "task_id": task_id, "usage": rows}
+
+    # ---------- mid-run steering (#748, harness #64 queue) ----------
+
+    STEER_CAP_PER_RUN = 3
+
+    def _current_attempt(self, team_rt, task_id: str) -> int:
+        import os
+
+        runs_dir = os.path.join(self._runs_dir(team_rt), task_id)
+        try:
+            names = os.listdir(runs_dir)
+        except OSError:
+            return 0
+        attempts = [int(n[:-6]) for n in names if n.endswith(".jsonl") and n[:-6].isdigit()]
+        return max(attempts) if attempts else 0
+
+    async def _handle_supplement(self, params: dict) -> dict:
+        import time
+
+        from fusion_harness.team_runtime import TeamMessage
+
+        try:
+            team_rt = self._require_team(params)
+            task_id = str(params.get("task_id", "") or "")
+            task = team_rt.task(task_id)
+            content = str(params.get("content", "") or "")
+            if not content.strip():
+                raise ValueError("content required (non-empty supplement body)")
+            origin = str(params.get("origin", "") or "operator")
+            if origin not in ("operator", "lead"):
+                raise ValueError("origin must be 'operator' or 'lead'")
+            attempt = self._current_attempt(team_rt, task_id)
+            if not hasattr(self, "_steer_counts"):
+                self._steer_counts = {}
+            key = (team_rt.definition.namespace_key, task_id, attempt)
+            used = self._steer_counts.get(key, 0)
+            if used >= self.STEER_CAP_PER_RUN:
+                raise ValueError(
+                    f"supplement cap reached: {self.STEER_CAP_PER_RUN} steers per run "
+                    f"(task={task_id} attempt={attempt})"
+                )
+            seq = int(task.metadata.get("supplement_seq", 0) or 0) + 1
+            task.metadata["supplement_seq"] = seq
+            supplement_id = f"sp_{seq}"
+            queued = team_rt.steer_member(task_id, content, origin=origin)
+            if queued:
+                status = "delivered"
+            else:
+                # No active run: degrade to the assignee's inbox (visible
+                # next round) instead of dropping the note on the floor.
+                recipient = str(task.assignee or "")
+                if not recipient:
+                    raise ValueError(
+                        f"no active run for task {task_id} and task has no assignee for inbox downgrade"
+                    )
+                outcome = team_rt.send(
+                    TeamMessage(
+                        type="text",
+                        # Mailbox contract (#31) requires a member sender;
+                        # the assignee self-notes with the origin preserved
+                        # in the body.
+                        sender=recipient,
+                        recipient=recipient,
+                        body=f"[steer-late] {origin} note: {content.strip()}",
+                    )
+                )
+                delivered = bool(outcome.get("delivered")) if isinstance(outcome, dict) else bool(outcome)
+                if not delivered:
+                    raise ValueError("mailbox delivery failed for supplement downgrade")
+                status = "delivered_as_inbox"
+            self._steer_counts[key] = used + 1
+            task.metadata.setdefault("supplements", []).append(
+                {
+                    "supplement_id": supplement_id,
+                    "origin": origin,
+                    "content": content.strip(),
+                    "status": status,
+                    "attempt": attempt,
+                    "created": time.time(),
+                }
+            )
+        except Exception as e:
+            return self._error(e)
+        logger.info(
+            "teams.supplement team=%s task=%s id=%s status=%s attempt=%d used=%d",
+            team_rt.definition.name,
+            task_id,
+            supplement_id,
+            status,
+            attempt,
+            self._steer_counts[key],
+        )
+        return {
+            "status": "ok",
+            "team": team_rt.definition.name,
+            "task_id": task_id,
+            "supplement_id": supplement_id,
+            "receipt": status,
+            "attempt": attempt,
+            "steers_used": self._steer_counts[key],
+            "steer_cap": self.STEER_CAP_PER_RUN,
+        }

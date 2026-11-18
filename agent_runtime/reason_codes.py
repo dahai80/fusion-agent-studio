@@ -24,6 +24,7 @@ REASON_CODES = (
     "depth_overflow",
     "task_not_found",
     "spec_unavailable",
+    "supplement_cap_reached",
 )
 
 HINTS = {
@@ -39,6 +40,7 @@ HINTS = {
     "depth_overflow": "reduce orchestration nesting depth",
     "task_not_found": "check the task id via teams.status",
     "spec_unavailable": "seed the team SPEC.md via teams.register or teams.spec_write",
+    "supplement_cap_reached": "steering is capped at 3 per run; wait for the run to finish or send an inbox message",
 }
 
 _TEAM_STATE_PATTERNS = (
@@ -68,6 +70,8 @@ def _message_patterns(text: str) -> str:
         return "member_unknown" if "member" in t else "permission_mode_unknown"
     if "exceeds member cap" in t or "budget exhausted" in t:
         return "budget_exhausted"
+    if "supplement cap" in t:
+        return "supplement_cap_reached"
     if "depth overflow" in t:
         return "depth_overflow"
     if "spec.md" in t or "spec unavailable" in t:
