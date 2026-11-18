@@ -62,7 +62,7 @@ def _message_patterns(text: str) -> str:
         return "lead_not_running"
     if "lead already running" in t:
         return "invocation_not_allowed"
-    if "unknown task" in t or "playbook entry not found" in t:
+    if "unknown task" in t or "playbook entry not found" in t or "no run attempt" in t:
         return "task_not_found"
     if "unknown member" in t or "unknown permission mode" in t:
         return "member_unknown" if "member" in t else "permission_mode_unknown"
