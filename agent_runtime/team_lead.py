@@ -40,7 +40,10 @@ TASK_LEDGER_PROMPT = (
     '"depends_on": [<step indices>]}}],\n'
     ' "replan_count": <int>}}\n'
     "Plan steps must be concrete and ordered; depends_on refers to step indices "
-    "(0-based) in this plan."
+    "(0-based) in this plan.\n"
+    "When a step waits on an external condition (human approval, CI result, a "
+    "scheduled retry), mark the task blocked and create a wakeup rule "
+    "(teams.wakeup_create, kind at|every) instead of polling in a loop."
 )
 
 PROGRESS_LEDGER_PROMPT = (
