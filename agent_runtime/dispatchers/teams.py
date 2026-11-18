@@ -193,6 +193,9 @@ class TeamsDispatcher(SubDispatcher):
                     permission_mode=str(m.get("permission_mode", "") or "default"),
                     budget_tokens=int(m.get("budget_tokens", 0) or 50000),
                     max_concurrency=int(m.get("max_concurrency", 0) or 1),
+                    # #760: resident per-member brief — pass through verbatim
+                    # so TeamRuntime.run_member can inject [member context].
+                    context=str(m.get("context", "") or ""),
                 )
                 for m in (raw.get("members") or [])
             ]
