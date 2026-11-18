@@ -1,3 +1,19 @@
+---
+doc_id: fusion-agent-studio/packaging/homebrew
+product: fusion-agent-studio
+class: platform
+entry: developer
+doc_type: guide
+title: Homebrew packaging
+audience: maintainers
+status: stable
+version: 0.18.5
+updated: 2026-11-18
+owner: "@dahai"
+source_of_truth:
+  - packaging/homebrew/README.md
+---
+
 # Homebrew packaging
 
 `fusion-agent-studio.rb` installs the PyPI package into a Homebrew-managed
