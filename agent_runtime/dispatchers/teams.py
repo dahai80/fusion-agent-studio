@@ -134,6 +134,7 @@ class TeamsDispatcher(SubDispatcher):
             "teams.run_messages": self._handle_run_messages,
             "teams.run_usage": self._handle_run_usage,
             "teams.supplement": self._handle_supplement,
+            "teams.wakeup_create": self._handle_wakeup_create,
         }
 
     def _registry(self) -> dict:
@@ -995,4 +996,32 @@ class TeamsDispatcher(SubDispatcher):
             "attempt": attempt,
             "steers_used": self._steer_counts[key],
             "steer_cap": self.STEER_CAP_PER_RUN,
+        }
+
+    # ---------- task wakeup rules (#749, harness #65 storage) ----------
+
+    async def _handle_wakeup_create(self, params: dict) -> dict:
+        try:
+            team_rt = self._require_team(params)
+            task_id = str(params.get("task_id", "") or "")
+            team_rt.task(task_id)
+            rule = dict(params.get("rule") or {})
+            for key in ("kind", "at", "every", "on_timeout", "expires_at", "on_event"):
+                if key in params and key not in rule:
+                    rule[key] = params[key]
+            stored = team_rt.add_wakeup(task_id, rule)
+        except Exception as e:
+            return self._error(e)
+        logger.info(
+            "teams.wakeup_create team=%s task=%s wake=%s kind=%s",
+            team_rt.definition.name,
+            task_id,
+            stored.get("wake_id"),
+            stored.get("kind"),
+        )
+        return {
+            "status": "ok",
+            "team": team_rt.definition.name,
+            "task_id": task_id,
+            "wakeup": stored,
         }

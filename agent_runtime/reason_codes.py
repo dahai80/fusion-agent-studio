@@ -25,6 +25,7 @@ REASON_CODES = (
     "task_not_found",
     "spec_unavailable",
     "supplement_cap_reached",
+    "wakeup_timeout",
 )
 
 HINTS = {
@@ -41,6 +42,7 @@ HINTS = {
     "task_not_found": "check the task id via teams.status",
     "spec_unavailable": "seed the team SPEC.md via teams.register or teams.spec_write",
     "supplement_cap_reached": "steering is capped at 3 per run; wait for the run to finish or send an inbox message",
+    "wakeup_timeout": "the task was cancelled because its wakeup expired with on_timeout=end",
 }
 
 _TEAM_STATE_PATTERNS = (

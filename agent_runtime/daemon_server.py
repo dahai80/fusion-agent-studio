@@ -50,6 +50,7 @@ from .runtime import AgentRuntime
 logger = logging.getLogger(__name__)
 
 SOCKET_PATH = "/tmp/fusion-studio.sock"
+WAKEUP_EVAL_INTERVAL = 15.0  # #749: seconds between team wakeup evaluation rounds
 WS_PORT = 11433  # #327: registry fusion-agent-studio-ws; 11435=fm-server, 11437=cowork-sync
 WS_MAGIC = "258EAFA5-E914-47DA-95CA-5AB5DC65B283"
 
@@ -833,6 +834,16 @@ class DaemonServer:
                 logger.info("Shell registry loop started (union-web module keepalive)")
         except Exception as e:
             logger.warning("Shell registry loop failed to start: %s", e)
+
+        # #749: periodic wakeup evaluation over registered teams — due 'at'
+        # rules and matured 'every' rules return blocked tasks to queued
+        # (on_timeout=end cancels them instead).
+        self._wakeup_eval_task: asyncio.Task | None = None
+        try:
+            self._wakeup_eval_task = asyncio.create_task(self._wakeup_eval_worker())
+            logger.info("Team wakeup eval loop started (interval=%ss)", WAKEUP_EVAL_INTERVAL)
+        except Exception as e:
+            logger.warning("Team wakeup eval loop failed to start: %s", e)
 
         self._running = True
         self._start_time = time.time()
@@ -4616,6 +4627,86 @@ class DaemonServer:
                     logger.warning("#694: attach attempt failed: %s", e)
             await asyncio.sleep(delay)
             delay = min(delay * 2, 60.0)
+
+    async def _wakeup_eval_worker(self) -> None:
+        # #749: periodic evaluation loop — see _evaluate_team_wakeups.
+        while True:
+            try:
+                self._evaluate_team_wakeups()
+            except Exception as e:
+                logger.warning("#749: wakeup eval round failed: %s", e)
+            await asyncio.sleep(WAKEUP_EVAL_INTERVAL)
+
+    def _evaluate_team_wakeups(self) -> int:
+        # #749: due 'at' wakeups and matured 'every' wakeups return blocked
+        # tasks to the lead's pick pool (blocked -> queued); on_timeout=end
+        # cancels the task instead with cancel_reason=wakeup_timeout. Rules
+        # live in task.metadata["wakeups"] (harness #65), so daemon restarts
+        # keep them effective.
+        rt = self._get_runtime()
+        registry = getattr(rt, "teams_registry", None) or {}
+        now = time.time()
+        fired = 0
+        for team_rt in registry.values():
+            if str(getattr(team_rt, "lifecycle", "") or "") != "ACTIVE":
+                continue
+            for task in list((getattr(team_rt, "_tasks", None) or {}).values()):
+                rules = task.metadata.get("wakeups")
+                if not rules:
+                    continue
+                for rule in rules:
+                    if not isinstance(rule, dict) or rule.get("fired"):
+                        continue
+                    if rule.get("expires_at") is not None and now >= float(rule["expires_at"]):
+                        continue  # harness _prune_expired_wakeups drops these
+                    kind = str(rule.get("kind", "") or "")
+                    if kind == "at":
+                        due = now >= float(rule.get("at", 0) or 0)
+                    elif kind == "every":
+                        anchor = rule.get("last_fired") or rule.get("created") or 0
+                        due = now >= float(anchor) + float(rule.get("every", 0) or 0)
+                    else:
+                        logger.warning("#749: unknown wakeup kind skipped task=%s kind=%r", task.id, kind)
+                        continue
+                    if not due:
+                        continue
+                    wake_id = str(rule.get("wake_id", "") or "")
+                    action = str(rule.get("on_timeout", "wake") or "wake")
+                    if action == "end":
+                        self._wakeup_cancel_task(team_rt, task, wake_id)
+                        rule["fired"] = True
+                    elif task.status == "blocked":
+                        team_rt.transition_task(task.id, "queued")
+                        rule["fired"] = kind == "at"
+                    else:
+                        # Task already moving; 'at' consumes, 'every' rearms.
+                        rule["fired"] = kind == "at"
+                    if kind == "every":
+                        rule["last_fired"] = now
+                    fired += 1
+                    logger.info(
+                        "#749: wakeup fired team=%s task=%s wake=%s action=%s kind=%s",
+                        team_rt.definition.name,
+                        task.id,
+                        wake_id,
+                        action,
+                        kind,
+                    )
+                    emit = getattr(team_rt, "_emit", None)
+                    if callable(emit):
+                        emit("team.wakeup.fired", {"task_id": task.id, "wake_id": wake_id, "action": action})
+        if fired:
+            logger.info("#749: wakeup eval round fired=%d", fired)
+        return fired
+
+    def _wakeup_cancel_task(self, team_rt, task, wake_id: str) -> None:
+        try:
+            team_rt.transition_task(task.id, "cancelled")
+        except Exception as e:
+            logger.warning("#749: wakeup cancel failed task=%s wake=%s err=%s", task.id, wake_id, e)
+            return
+        task.metadata["cancel_reason"] = "wakeup_timeout"
+        task.metadata["cancelled_by_wakeup"] = wake_id
 
     async def _check_mlx_health(self) -> bool:
         try:
