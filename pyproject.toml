@@ -17,7 +17,7 @@ dependencies = [
     # #756: >=0.21.0 for HumanGate generic queue surface (harness #66:
     # list_questions / single-winner resolve) — the human_input node queue
     # mechanics now run on the kernel gate.
-    "fusion-harness>=0.21.0,<0.22",
+    "fusion-harness>=0.22.0,<0.23",
     # #509: single-point key resolution (config Phase 2.2, fusion-core#31).
     # On PyPI since 0.12.1 (2026-11-17) — plain pip resolution works.
     "fusion-core>=0.8.0",

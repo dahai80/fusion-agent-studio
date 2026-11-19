@@ -17,11 +17,32 @@ from typing import Any
 import httpx
 
 from .artifact_tools import ArtifactManager
+from .paths import studio_home
 
 logger = logging.getLogger(__name__)
 
 _DEFAULT_REMOTE_URL = "http://127.0.0.1:11451"
 _RPC_TIMEOUT = 10.0
+
+_quarantine: Any = None
+
+
+def _get_quarantine() -> Any:
+    # #770: lazy ArtifactQuarantine under studio home — materialized on the
+    # first flagged load only (no-eager-mkdir, #591); clean loads never
+    # touch the filesystem beyond the artifact store itself.
+    global _quarantine
+    if _quarantine is None:
+        from fusion_harness.artifact_scan import ArtifactQuarantine
+
+        # First flagged load — the persistence write is imminent, so
+        # creating the studio home here is event-driven, not eager (#591).
+        home = studio_home()
+        home.mkdir(parents=True, exist_ok=True)
+        path = str(home / "artifact_quarantine.json")
+        _quarantine = ArtifactQuarantine(path=path)
+        logger.info("artifact quarantine ready path=%s", path)
+    return _quarantine
 
 
 class ArtifactBridge:
@@ -125,7 +146,7 @@ class ArtifactBridge:
                     params["section"] = section
                 result = await self._rpc("artifact.load", params)
                 logger.info("artifact.load via remote: id=%s", artifact_id)
-                return {"status": "ok", "source": "remote", **result}
+                return self._scan_loaded({"status": "ok", "source": "remote", **result}, artifact_id)
             except (httpx.HTTPError, RuntimeError, OSError) as e:
                 logger.warning("artifact.load remote failed, fallback local: %s", e)
         result = self.local.load_artifact(
@@ -135,6 +156,39 @@ class ArtifactBridge:
             max_tokens=max_tokens,
         )
         result["source"] = "local"
+        return self._scan_loaded(result, artifact_id)
+
+    def _scan_loaded(self, result: dict[str, Any], artifact_id: str) -> dict[str, Any]:
+        # #770: pre-load scan boundary — every artifact body entering a
+        # prompt passes scan_artifact (kernel regex sets: prompt injection
+        # + credential exfiltration). Flagged content is quarantined and
+        # returned STAMPED (quoted + origin marker) rather than dropped, so
+        # the caller sees both the content and its untrusted status; the
+        # scan report rides the result as artifact_scan metadata. Scan
+        # failure degrades to unscanned pass-through with a loud log —
+        # availability over silent loss, matching bridge fallback style.
+        if result.get("status") != "ok":
+            return result
+        content = result.get("content")
+        if not isinstance(content, str) or not content:
+            return result
+        try:
+            from fusion_harness.artifact_scan import scan_artifact, stamp_untrusted
+        except ImportError as e:
+            logger.error("artifact_scan unavailable, load unscanned: %s", e)
+            return result
+        report = scan_artifact(content, source=artifact_id, kind="artifact")
+        result["artifact_scan"] = {"clean": report.clean, "rules": report.rule_names()}
+        if report.clean:
+            return result
+        logger.warning(
+            "artifact load flagged id=%s rules=%s quarantined=true",
+            artifact_id,
+            ",".join(report.rule_names()),
+        )
+        entry = _get_quarantine().add(report, preview=content[:200])
+        result["artifact_scan"]["quarantine_id"] = entry["id"]
+        result["content"] = stamp_untrusted(content, artifact_id, report.rule_names())
         return result
 
     # ── AS-3: patch ───────────────────────────────────────────────

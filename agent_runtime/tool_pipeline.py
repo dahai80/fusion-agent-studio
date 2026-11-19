@@ -24,8 +24,10 @@
 from __future__ import annotations
 
 import logging
+import uuid
 
 from fusion_harness import PermissionDecision, ToolPipeline
+from fusion_harness.destructive_gate import ApprovalGate
 from fusion_harness.funnels import FunnelOutcome
 
 from .persona_gate import PersonaScopedFunnel
@@ -142,6 +144,72 @@ class PipelineScopedFunnel(PersonaScopedFunnel):
                     blocked_by="sandbox",
                     reason=f"sandbox policy blocked tool '{tool_name}': {decision.reason}",
                     args=args or {},
+                )
+        # #770: kernel destructive_gate stage after the pipeline allows — a
+        # call classified destructive (kernel table + name tokens) routes to
+        # the host approval flow over the HumanGate queue. Fail-closed per
+        # kernel semantics: denied / timeout / replay-rejected never
+        # execute; a pending ask on a non-interactive site (parallel
+        # fan-out, register/unregister — nobody can answer a question)
+        # denies outright. The question is queued BEFORE this coroutine
+        # parks, so a consumer holding the queue (human_input.respond RPC,
+        # approvals CLI, web inbox) can resolve it while decide() waits.
+        if out.allowed and ApprovalGate.classify(tool_name, args)[0]:
+            gate = self._runtime._get_approval_gate()
+            if gate is not None:
+                call_id = "dg_" + uuid.uuid4().hex[:12]
+                session_id = str(getattr(ctx, "session_id", "") or "")
+                decision = gate.request(call_id, tool_name, session_id, args=args)
+                logger.info(
+                    "destructive gate classify hit tool=%s call=%s outcome=%s",
+                    tool_name,
+                    call_id,
+                    decision.outcome,
+                )
+                if decision.outcome == "pending":
+                    if not interactive:
+                        decision = type(decision)(
+                            call_id=call_id,
+                            tool_name=tool_name,
+                            destructive=True,
+                            outcome="denied",
+                            reason="destructive call on non-interactive site",
+                        )
+                        logger.info(
+                            "destructive gate denied non-interactive tool=%s call=%s",
+                            tool_name,
+                            call_id,
+                        )
+                    else:
+                        decision = await gate.decide(call_id, timeout=gate.ttl_s)
+                if decision.outcome == "granted":
+                    redeem = gate.redeem(decision.token, call_id)
+                    if not redeem.get("redeemed"):
+                        decision = type(decision)(
+                            call_id=call_id,
+                            tool_name=tool_name,
+                            destructive=True,
+                            outcome="denied",
+                            reason="approval token replay rejected",
+                        )
+                if decision.outcome != "granted":
+                    logger.warning(
+                        "destructive gate blocked tool=%s outcome=%s reason=%s",
+                        tool_name,
+                        decision.outcome,
+                        decision.reason,
+                    )
+                    return FunnelOutcome(
+                        allowed=False,
+                        blocked_by="destructive_gate",
+                        reason=(
+                            f"destructive call '{tool_name}' not approved: "
+                            f"{decision.outcome} ({decision.reason})"
+                        ),
+                        args=args or {},
+                    )
+                logger.info(
+                    "destructive gate granted tool=%s call=%s", tool_name, call_id
                 )
         return self._to_outcome(adapter, out, tool_name)
 

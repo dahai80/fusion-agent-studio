@@ -152,6 +152,13 @@ class AgentRuntime(_SafetyApprovalMixin, _CheckpointMixin, _DynamicToolsMixin, _
         # _get_human_gate(); across restart the checkpoint +
         # resume(human_inputs=...) path still takes over.
         self._human_gate: Any = None
+        # #770 destructive-call HiTL: fusion_harness.ApprovalGate over the
+        # HumanGate queue (classify -> host question -> single-winner
+        # resolve -> single-redemption token). Materialized lazily on the
+        # first destructive classify so non-destructive runs never create
+        # the queue state dir (no-eager-mkdir, #591). Kill switch:
+        # FUSION_DESTRUCTIVE_GATE=0 disables the stage entirely.
+        self._approval_gate: Any = None
         # N6/#343 ToolSearch: lazy tool schema loading. ON by default (#488):
         # schemas beyond TOOLSEARCH_INLINE_LIMIT are deferred out of the
         # prompt; the LLM finds them via the tool_search tool at need.
@@ -1385,6 +1392,31 @@ class AgentRuntime(_SafetyApprovalMixin, _CheckpointMixin, _DynamicToolsMixin, _
             self._human_gate = HumanGate(state_dir)
             logger.info("human gate ready state_dir=%s", state_dir)
         return self._human_gate
+
+    def _get_approval_gate(self):
+        # #770: lazy ApprovalGate over the HumanGate queue. Returns None
+        # when FUSION_DESTRUCTIVE_GATE=0 (kill switch) so the funnel stage
+        # degrades to a plain pass-through for deployments that accept the
+        # risk; questions raised here are resolvable through the same
+        # human_input resolve surface (#557) because they share the queue.
+        if os.environ.get("FUSION_DESTRUCTIVE_GATE", "1").strip().lower() in (
+            "0",
+            "false",
+            "no",
+        ):
+            return None
+        if self._approval_gate is None:
+            from fusion_harness.destructive_gate import ApprovalGate
+
+            ttl = 600.0
+            raw_ttl = os.environ.get("FUSION_DESTRUCTIVE_TTL", "")
+            try:
+                ttl = float(raw_ttl) if raw_ttl else 600.0
+            except ValueError:
+                logger.warning("FUSION_DESTRUCTIVE_TTL invalid %r, default 600s", raw_ttl)
+            self._approval_gate = ApprovalGate(self._get_human_gate(), ttl_s=ttl)
+            logger.info("approval gate ready ttl_s=%.1f", ttl)
+        return self._approval_gate
 
     def _register_toolsearch(self) -> None:
         # N6/#343/#488: lazy tool-schema loading — tool_search registered on
