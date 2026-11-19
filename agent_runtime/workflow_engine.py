@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 import os
 import time
@@ -12,6 +11,7 @@ from types import SimpleNamespace
 
 from .context import AgentContext, AgentEventType
 from .funnels import LLMFunnel
+from .parse_repair import parse_model_json
 
 logger = logging.getLogger(__name__)
 
@@ -680,9 +680,9 @@ class WorkflowEngine:
         winner_idx = 0
         try:
             if isinstance(judge_output, str):
-                parsed = json.loads(judge_output)
+                parsed = parse_model_json(judge_output, context="workflow.judge")
                 winner_idx = parsed.get("winner", 0)
-        except (json.JSONDecodeError, TypeError):
+        except (ValueError, TypeError, AttributeError):
             logger.warning("Judge output not valid JSON, picking first approach")
 
         winner_idx = min(winner_idx, len(approaches) - 1)

@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 from .llm_gateway import LLMGateway
+from .parse_repair import parse_model_json
 
 if TYPE_CHECKING:
     pass
@@ -223,13 +224,8 @@ class VerificationEngine:
                 content = response.get("content", "")
 
             content = content.strip()
-            if content.startswith("```"):
-                lines = content.split("\n")
-                content = "\n".join(
-                    lines[1:-1] if lines[-1].strip() == "```" else lines[1:]
-                )
 
-            data = json.loads(content)
+            data = parse_model_json(content, context="verifier.result")
             return VerificationResult(
                 passed=bool(data.get("passed", False)),
                 score=float(data.get("score", 0.0)),
@@ -239,7 +235,7 @@ class VerificationEngine:
                 max_attempts=max_attempts,
                 metadata={"raw_response": content[:500]},
             )
-        except json.JSONDecodeError as e:
+        except ValueError as e:
             logger.error("Verification LLM returned invalid JSON: %s", e)
             return None
         except Exception as e:

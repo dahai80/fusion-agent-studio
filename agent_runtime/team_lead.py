@@ -204,13 +204,14 @@ class TeamLead:
 
     @staticmethod
     def _extract_json(content: str) -> dict:
-        # Tolerate fenced/leading-prose replies: take the outermost object.
-        text = str(content or "").strip()
-        start = text.find("{")
-        end = text.rfind("}")
-        if start < 0 or end <= start:
-            raise ValueError("no JSON object in model reply")
-        return json.loads(text[start : end + 1])
+        # #771: kernel repair ladder (fences, prose, quotes, truncation);
+        # raises JSONRepairError (a ValueError) when every rung fails.
+        from .parse_repair import parse_model_json
+
+        data = parse_model_json(str(content or ""), context="team_lead.ledger")
+        if not isinstance(data, dict):
+            raise ValueError("model reply is not a JSON object")
+        return data
 
     # ---------- ledgers ----------
 
