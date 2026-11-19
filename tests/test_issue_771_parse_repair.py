@@ -91,9 +91,10 @@ def test_repair_rung_logged(caplog, clean_stats):
 def test_planner_parse_llm_steps_repairs_fenced_output():
     from agent_runtime.planner import PlannerEngine
 
-    raw = "```json\n{'steps': [{'action': 'read', 'target': 'x'}],}\n```"
-    data = parse_model_json(raw, context="planner.steps")
-    assert data["steps"][0]["action"] == "read"
+    raw = "```json\n[{'action': 'create', 'description': 'd',\n 'target_files': ['x'], 'estimated_complexity': 'low', 'dependencies': []},]\n```"
+    steps = PlannerEngine()._parse_llm_steps(raw)
+    assert len(steps) == 1
+    assert steps[0].action == "create"
 
 
 def test_team_lead_extract_json_tolerates_prose_and_quotes():
