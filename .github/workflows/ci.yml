@@ -293,6 +293,25 @@ jobs:
   # #500: mutation pilot — agent_runtime/confirmation_policy.py (setup.cfg).
   # Informational: survivors are reported but never fail the build; the pilot
   # exists to surface weak-test spots, not to gate merges.
+  # #768: Homebrew formula drift gate — the in-repo formula must pin the
+  # current pyproject version and every pinned url/sha256 must match the
+  # PyPI JSON API. Cheap (stdlib + JSON API), so it runs unconditionally;
+  # failure means the formula missed a release (regenerate per
+  # packaging/homebrew/README.md).
+  formula:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Check formula freshness
+        run: python packaging/homebrew/check_formula.py
+
   mutation:
     needs: changes
     runs-on: macos-15

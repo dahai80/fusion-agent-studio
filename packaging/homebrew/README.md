@@ -7,8 +7,8 @@ doc_type: guide
 title: Homebrew packaging
 audience: maintainers
 status: stable
-version: 0.18.5
-updated: 2026-11-18
+version: 0.18.9
+updated: 2026-11-19
 owner: "@dahai"
 source_of_truth:
   - packaging/homebrew/README.md
@@ -61,11 +61,15 @@ The formula pins the exact PyPI release and its full dependency closure.
 After each release:
 
 1. Resolve the closure: `python3 -m venv /tmp/fs-brew-deps && /tmp/fs-brew-deps/bin/pip install fusion-agent-studio==<ver> && /tmp/fs-brew-deps/bin/pip freeze --all | grep -v '^pip==' > /tmp/fs-brew-deps.freeze`
-2. Regenerate resource blocks (PyPI JSON API → url + sha256; native wheels
-   for `pydantic_core`/`pyyaml`/`psutil` are split `on_arm`/`on_intel` at
-   `cp312`, everything else uses the `py3-none-any` wheel)
-3. Update the formula `url`/`sha256` to the new sdist and the test bump
+2. Regenerate the formula: `python3 packaging/homebrew/gen_formula.py <ver>`
+   (PyPI JSON API → url + sha256; native wheels for
+   `pydantic_core`/`pyyaml`/`psutil` are split `on_arm`/`on_intel` at
+   `cp312`, `setproctitle` uses the `universal2` wheel, everything else uses
+   the `py3-none-any` wheel)
+3. Verify: `python3 packaging/homebrew/check_formula.py` — fails when the
+   formula sdist version != pyproject version or any url/sha256 disagrees
+   with the PyPI JSON API
 
-(The generator script used for 0.18.5 lives in session history; step 2 is a
-~40-line stdlib script — rewrite from this description rather than keeping a
-versioned copy that drifts.)
+CI runs `check_formula.py` on every push/PR, so an unreleased formula (the
+0.18.5–0.18.9 drift this replaced) fails the build instead of passing
+silently.
