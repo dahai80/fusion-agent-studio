@@ -23,6 +23,7 @@ from .compactor import Compactor
 from .context import AgentContext, AgentEvent, AgentEventType
 from .graph import AgentGraph
 from .llm_gateway import LLMGateway
+from .parse_repair import parse_model_json
 
 if TYPE_CHECKING:
     from server.fusion_mlx_client import FusionMLXClient
@@ -777,10 +778,10 @@ class MultiAgentOrchestrator:
             if isinstance(msg, dict) and msg.get("role") == "assistant":
                 content = msg.get("content", "")
                 try:
-                    tasks = json.loads(content)
+                    tasks = parse_model_json(content, context="orchestrator.sub_tasks")
                     if isinstance(tasks, list):
                         return [str(t) for t in tasks[:expected_count]]
-                except (json.JSONDecodeError, TypeError):
+                except (ValueError, TypeError):
                     lines = [
                         line.strip() for line in content.split("\n") if line.strip()
                     ]

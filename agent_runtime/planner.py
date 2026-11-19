@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 import time
 import uuid
@@ -9,6 +8,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from .llm_gateway import LLMGateway
+from .parse_repair import parse_model_json
 
 if TYPE_CHECKING:
     pass
@@ -449,21 +449,12 @@ class PlannerEngine:
 
     def _parse_llm_steps(self, content: str) -> list[PlanStep]:
         content = content.strip()
-        if content.startswith("```"):
-            lines = content.split("\n")
-            json_lines = []
-            in_block = False
-            for line in lines:
-                if line.strip().startswith("```"):
-                    in_block = not in_block
-                    continue
-                if in_block:
-                    json_lines.append(line)
-            content = "\n".join(json_lines)
 
         try:
-            data = json.loads(content)
-        except json.JSONDecodeError:
+            # #771: kernel repair ladder handles fences/truncation/quotes —
+            # the manual fence-strip above is kept only as fast-path grooming.
+            data = parse_model_json(content, context="planner.steps")
+        except ValueError:
             logger.warning("Failed to parse LLM JSON output")
             return []
 
