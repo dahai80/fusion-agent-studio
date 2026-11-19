@@ -1,13 +1,13 @@
 # Fusion-MLX Agent Studio — local agent development platform for Apple Silicon.
-# Generated from PyPI 0.18.5 dependency resolution; regenerate on version bumps
-# (see packaging/homebrew/README.md).
+# Generated from PyPI 0.18.9 dependency resolution by gen_formula.py;
+# regenerate on version bumps (see packaging/homebrew/README.md).
 class FusionAgentStudio < Formula
   include Language::Python::Virtualenv
 
   desc "Local-first AI agent orchestration platform (daemon RPC + REST + CLI)"
   homepage "https://github.com/dahai80/fusion-agent-studio"
-  url "https://files.pythonhosted.org/packages/9d/80/3ccdd2efcbfa439291a1c47642e3bd26a18f7e2d5acf7a9379d753339b4c/fusion_agent_studio-0.18.5.tar.gz"
-  sha256 "8753fc7002963391f8855162b70eb64a46df5a2f1365511b59d0008556135200"
+  url "https://files.pythonhosted.org/packages/b7/65/b425baf402f3fa48b6e24205023f19971c5675f0c1881e23515ddc625406/fusion_agent_studio-0.18.9.tar.gz"
+  sha256 "228144244d7c8753ce7a3c1f69d97b0cc20d91120e4a16186e94a3deba7e96f0"
   license "Apache-2.0"
 
   depends_on "python@3.12"
@@ -33,8 +33,8 @@ class FusionAgentStudio < Formula
     sha256 "053243f8b92b990551949e63930a839ff0cf0b0ebbe0597b0f3fb19e1a0fe82e"
   end
   resource "annotated-doc" do
-    url "https://files.pythonhosted.org/packages/cd/f5/3dd85d583e55be76cd02b1fc9bbec771b12d63124b01661d9535ccf8721f/annotated_doc-0.0.6-py3-none-any.whl"
-    sha256 "361ca0950cc7082f53fa69e9328409f40a62c61e57e0a47e1825a08078a58a53"
+    url "https://files.pythonhosted.org/packages/5e/b1/9530d6bee606979d54501adcc767d958a38929827f11a524b0d93429d2ad/annotated_doc-0.0.7-py3-none-any.whl"
+    sha256 "6bc31bbbec6dfaaedc1676dbc11dbda96fe22a2b5c400e9ebad113fec44a9dc6"
   end
   resource "annotated-types" do
     url "https://files.pythonhosted.org/packages/99/91/8acff4f5e50511b911bbccb72b8628a49c68ce14148cd9f6431094859a90/annotated_types-0.8.0-py3-none-any.whl"
@@ -57,20 +57,20 @@ class FusionAgentStudio < Formula
     sha256 "8bb5376d2006950386f8c6427613334a2acadc5f559cb80e638d00b4df957e37"
   end
   resource "fastapi" do
-    url "https://files.pythonhosted.org/packages/20/b6/2424da1e40825d3fc54539621811f34e21472499677c9490e4967270e38e/fastapi-0.163.1-py3-none-any.whl"
-    sha256 "68f2d8050f5c3583121c0d203046cc7def5c16a7d6c43a0e7707a8ea610fe2d3"
+    url "https://files.pythonhosted.org/packages/c4/c1/3b74c030262a1b38b1fee180f80b4007bbc11c9ac12028cb18c7bcecaec9/fastapi-0.165.0-py3-none-any.whl"
+    sha256 "896f48462042bb4f162147eb8fac7e858753dc1f486765709baf105d70e4fc5b"
   end
   resource "frozenlist" do
     url "https://files.pythonhosted.org/packages/9a/9a/e35b4a917281c0b8419d4207f4334c8e8c5dbf4f3f5f9ada73958d937dcc/frozenlist-1.8.0-py3-none-any.whl"
     sha256 "0c18a16eab41e82c295618a77502e17b195883241c563b00f0aa5106fc4eaa0d"
   end
   resource "fusion-core" do
-    url "https://files.pythonhosted.org/packages/55/13/8e71cdf8aa367f00b9c2ccde432e190df5b0636ebe7fd4d388f0b6778874/fusion_core-0.12.1-py3-none-any.whl"
-    sha256 "547f1600fa57bf32d75482ae6364b9a8c60a48ac65684e80c7dc3c6e59ede034"
+    url "https://files.pythonhosted.org/packages/9a/ed/f82b4fbfa0618cfe3de0e27aa7d6048e5b1efe4b0052d0b9a4a677a233a9/fusion_core-0.13.0-py3-none-any.whl"
+    sha256 "b6e2985def4ae5502e65df727a3a5b11bbb7904b8ed8917d97a22a51a1f18db4"
   end
   resource "fusion-harness" do
-    url "https://files.pythonhosted.org/packages/aa/6d/492bd0f22cc28eb7ef7702a67787a988cd5b479050f1e4f19d0d767a8606/fusion_harness-0.16.1-py3-none-any.whl"
-    sha256 "2e22104ff2cb0b4a5516ccbcc288697a1a25beeb14c031d65af7d14de0b920c0"
+    url "https://files.pythonhosted.org/packages/e4/db/7e7ef79716a5b97d86b72d0c587004bdd66b1078d361e8900ed5765d7894/fusion_harness-0.21.0-py3-none-any.whl"
+    sha256 "9d09ee450f14b85bc99da50e2e944d2f0fced003b58f7a5ea5575a8c0b8594f2"
   end
   resource "h11" do
     url "https://files.pythonhosted.org/packages/04/4b/29cac41a4d98d144bf5f6d33995617b185d14b22401f75ca86f384e87ff1/h11-0.16.0-py3-none-any.whl"
@@ -112,13 +112,13 @@ class FusionAgentStudio < Formula
     url "https://files.pythonhosted.org/packages/88/2e/947cfe02def9371c07cd5bf5b6b61c829e9aecb9904db02a66cfafbc1eec/starlette-1.10.0-py3-none-any.whl"
     sha256 "478c0ab3b4ced6e82719849c118fa406f0278a3499c1a898cd15cd31bdc38ce4"
   end
-  resource "typing-inspection" do
-    url "https://files.pythonhosted.org/packages/de/0c/ea2544850a7c135e15033a5c7a8e7211136184b7ae63e2239d557c2b3019/typing_inspection-0.4.5-py3-none-any.whl"
-    sha256 "bc210535442b39e1bf2805e0c7a17dfd6a4ace760c84c7f7d16245d23a6b1c39"
-  end
   resource "typing_extensions" do
     url "https://files.pythonhosted.org/packages/49/d3/b8441a820a491ddfc024b0b0cf0393375b75ea13866d9c66727e54c2fc80/typing_extensions-4.16.0-py3-none-any.whl"
     sha256 "481caa481374e813c1b176ada14e97f1f67a4539ce9cfeb3f350d78d6370c2e8"
+  end
+  resource "typing-inspection" do
+    url "https://files.pythonhosted.org/packages/de/0c/ea2544850a7c135e15033a5c7a8e7211136184b7ae63e2239d557c2b3019/typing_inspection-0.4.5-py3-none-any.whl"
+    sha256 "bc210535442b39e1bf2805e0c7a17dfd6a4ace760c84c7f7d16245d23a6b1c39"
   end
   resource "uvicorn" do
     url "https://files.pythonhosted.org/packages/38/0c/b54a4fdd7f90a3af8b02ebc9ce6712c2c208b7926a2f7bad95c33ebbe943/uvicorn-0.54.0-py3-none-any.whl"
