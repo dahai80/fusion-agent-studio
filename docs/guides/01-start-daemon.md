@@ -111,8 +111,10 @@ cron 定时任务依赖 daemon 常驻——daemon 被关停后没人拉起，定
 | `FUSION_TASK_CONCURRENCY` | `5` | task 并发上限声明（对齐 fusion-event 背压） |
 | `FUSION_LOG_MAX_SIZE` | `10485760` | 单日志文件滚动阈值（字节，默认 10MB） |
 | `FUSION_LOG_KEEP_COUNT` | `5` | 保留归档日志份数 |
+| `FUSION_DESTRUCTIVE_GATE` | `1` | 破坏性调用审批门（`0` 关闭）。命中 kernel 破坏性分类的工具调用（`file_delete`、名称含 delete/remove/drop/purge/destroy/force_push 等）会入 HumanGate 队列等待人工批准；批准发放一次性 token，拒绝/超时/重放一律 fail-closed 不执行 |
+| `FUSION_DESTRUCTIVE_TTL` | `600` | 破坏性审批等待秒数，超时按拒绝处理 |
 
-socket 默认 `/tmp/fusion-studio.sock`。`start.sh` 与 daemon 端读同一套 env，**调用方与 daemon 须用相同 socket 路径**，否则连不上。
+破坏性审批问题与 human_input 共用 HumanGate 队列——`human_input.respond` RPC、approvals CLI、web 收件箱都能解析它。artifact 加载边界（`ArtifactBridge.load`）会经 kernel `scan_artifact` 扫提示注入/凭证外传模式：命中的内容进入 `<studio_home>/artifact_quarantine.json` 隔离区（默认 `~/.fusion-agent-studio/`），返回内容被盖上 `[untrusted-memory origin=…]` 标记，不会静默注入 prompt。
 
 ---
 

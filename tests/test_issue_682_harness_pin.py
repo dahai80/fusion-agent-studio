@@ -14,9 +14,13 @@ event streams, steer_member supplement queue, and task wakeup rules
 (add_wakeup) — consumed by the run replay RPCs (#750), mid-run steering
 (#748), and wakeup scheduling (#749). 0.21.0 ships HumanGate generic queue
 surface (harness #66: list_questions / single-winner resolve) consumed by
-the #557 human_input node queue mechanics (#756). Versions 0.17.0-0.20.0
-predate the steer/wakeup/gate-queue surfaces and are excluded. Range after
-this bump: >=0.21.0,<0.22.
+the #557 human_input node queue mechanics (#756). 0.22.0 ships the
+destructive_gate ApprovalGate (classify / request / decide / issue_token /
+redeem) wired into the funnel admission path (#770) and artifact_scan
+(scan_artifact / ArtifactQuarantine / stamp_untrusted) wired at the
+artifact_bridge load boundary (#770). Versions 0.17.0-0.21.x predate the
+destructive-gate and artifact-scan surfaces and are excluded. Range after
+this bump: >=0.22.0,<0.23.
 """
 
 from __future__ import annotations
@@ -38,7 +42,7 @@ def _harness_pin() -> str:
 
 def test_pin_admits_installed_kernel_surface():
     spec = SpecifierSet(_harness_pin())
-    assert Version("0.21.0") in spec
+    assert Version("0.22.0") in spec
 
 
 def test_pin_still_bounds_minor_and_major():
@@ -49,6 +53,7 @@ def test_pin_still_bounds_minor_and_major():
     assert Version("0.16.0") not in spec
     assert Version("0.19.0") not in spec
     assert Version("0.20.0") not in spec
-    assert Version("0.22.0") not in spec
+    assert Version("0.21.0") not in spec
+    assert Version("0.23.0") not in spec
     assert Version("1.0.0") not in spec
     assert Version("0.6.9") not in spec
