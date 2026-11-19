@@ -50,9 +50,22 @@ jobs:
       # Trusted publishing requires id-token: write
       id-token: write
     steps:
+      - uses: actions/checkout@v4
+      - name: Skip when version already on PyPI
+        id: check
+        run: |
+          VER=$(python -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
+          if curl -sf "https://pypi.org/pypi/fusion-agent-studio/$VER/json" > /dev/null; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+            echo "version $VER already on PyPI — skipping upload"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "version $VER not on PyPI — will publish"
+          fi
       - uses: actions/download-artifact@v4
         with:
           name: dist
           path: dist/
       - name: Publish to PyPI
+        if: steps.check.outputs.present != 'true'
         uses: pypa/gh-action-pypi-publish@release/v1

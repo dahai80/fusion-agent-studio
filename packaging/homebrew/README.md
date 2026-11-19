@@ -7,7 +7,7 @@ doc_type: guide
 title: Homebrew packaging
 audience: maintainers
 status: stable
-version: 0.18.9
+version: 0.18.10
 updated: 2026-11-19
 owner: "@dahai"
 source_of_truth:
