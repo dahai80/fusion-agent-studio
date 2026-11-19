@@ -17,6 +17,28 @@ class Compactor(_HarnessCompactor):
     # never fired for hook subscribers. Subclass fires it after compaction
     # settles (success and failure alike), mirroring the upstream
     # _fire_compact_before pattern (running-loop guard + ensure_future).
+    def should_compact(self, messages, **kwargs):
+        # #775/#122: threshold-triggered compaction policy. When the config
+        # opts into trigger_ratio, crossing the threshold forces a compaction
+        # pass even when the heuristic levels say none — every call site
+        # (LLMFunnel.pre_llm, runtime loop, artifact-aware pruning) consults
+        # this single method. trigger_ratio=None (default) keeps the heuristic
+        # behavior byte-for-byte.
+        level = super().should_compact(messages, **kwargs)
+        if level != "none":
+            return level
+        try:
+            if self.config.should_auto_compact(self.estimate_tokens(messages)):
+                logger.info(
+                    "threshold-triggered compaction ratio=%.2f tokens>=%d",
+                    self.config.trigger_ratio,
+                    self.config.trigger_threshold(),
+                )
+                return "warning"
+        except Exception as exc:
+            logger.warning("trigger_ratio consult failed, heuristic only: %s", exc)
+        return "none"
+
     def compact(self, messages, level="warning", summarize=None):
         try:
             msgs = super().compact(messages, level=level, summarize=summarize)

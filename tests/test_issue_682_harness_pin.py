@@ -18,9 +18,13 @@ the #557 human_input node queue mechanics (#756). 0.22.0 ships the
 destructive_gate ApprovalGate (classify / request / decide / issue_token /
 redeem) wired into the funnel admission path (#770) and artifact_scan
 (scan_artifact / ArtifactQuarantine / stamp_untrusted) wired at the
-artifact_bridge load boundary (#770). Versions 0.17.0-0.21.x predate the
-destructive-gate and artifact-scan surfaces and are excluded. Range after
-this bump: >=0.22.0,<0.23.
+artifact_bridge load boundary (#770). 0.26.0 ships the P-series compaction
+knobs — CompactionConfig.trigger_ratio / should_auto_compact (#122) and the
+post-compaction validator hook + compaction_validated event (#131) — wired
+through the AS Compactor.should_compact choke point and
+kernel_wiring.build_compaction_config (#775). Versions 0.17.0-0.25.x predate
+the validator surface and are excluded. Range after this bump:
+>=0.26.0,<0.27.
 """
 
 from __future__ import annotations
@@ -42,7 +46,7 @@ def _harness_pin() -> str:
 
 def test_pin_admits_installed_kernel_surface():
     spec = SpecifierSet(_harness_pin())
-    assert Version("0.22.0") in spec
+    assert Version("0.26.0") in spec
 
 
 def test_pin_still_bounds_minor_and_major():
@@ -53,7 +57,8 @@ def test_pin_still_bounds_minor_and_major():
     assert Version("0.16.0") not in spec
     assert Version("0.19.0") not in spec
     assert Version("0.20.0") not in spec
-    assert Version("0.21.0") not in spec
-    assert Version("0.23.0") not in spec
+    assert Version("0.22.0") not in spec
+    assert Version("0.25.0") not in spec
+    assert Version("0.27.0") not in spec
     assert Version("1.0.0") not in spec
     assert Version("0.6.9") not in spec

@@ -220,11 +220,8 @@ class AgentRuntime(_SafetyApprovalMixin, _CheckpointMixin, _DynamicToolsMixin, _
 
         # #478: wire the gateway so compaction-triggered summarize calls run
         # on the gateway LLM (default :11432) instead of degrading to the
-        # deterministic extractor.
-        self.compactor = Compactor(memory_engine=self.memory_engine, llm_gateway=self.llm_gateway)
-        if hasattr(self.llm_gateway, "set_compactor"):
-            self.llm_gateway.set_compactor(self.compactor)
-
+        # deterministic extractor. Constructed after lifecycle_bus (below) so
+        # the kernel can emit compaction_validated (#131) onto the bus.
         # N0 harness funnels (PRD 1016): single tool/LLM admission paths +
         # append-only lifecycle event source. Built after llm_gateway so the
         # LLMFunnel can carry the compactor; hooks wire late via the
@@ -242,6 +239,16 @@ class AgentRuntime(_SafetyApprovalMixin, _CheckpointMixin, _DynamicToolsMixin, _
         self.lifecycle_bus = LifecycleBus(
             jsonl_dir=os.environ.get("FUSION_LIFECYCLE_JSONL_DIR", "") or None
         )
+        # #478 + #775: compactor carries the lifecycle bus so kernel-side
+        # events (compaction_validated, #131) reach observers; set_compactor
+        # routes compaction summarize calls through the gateway LLM.
+        self.compactor = Compactor(
+            memory_engine=self.memory_engine,
+            llm_gateway=self.llm_gateway,
+            lifecycle_bus=self.lifecycle_bus,
+        )
+        if hasattr(self.llm_gateway, "set_compactor"):
+            self.llm_gateway.set_compactor(self.compactor)
         self.permission_engine = PermissionEngine(
             readonly_tools=_ro_names(),
             plan_readonly_tools=set(self._plan_readonly_tools),
