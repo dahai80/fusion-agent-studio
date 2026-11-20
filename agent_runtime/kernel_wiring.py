@@ -42,13 +42,77 @@ def _flag(name: str, default: str) -> bool:
 
 # ---------------- 1. token counter ----------------
 
+def build_compaction_validator():
+    # Issue #775/#131: post-compaction context-rot guard. Checks the
+    # compacted state still carries the system prompt and any live task
+    # checklist / key-decision markers. Observational only — the kernel
+    # logs the verdict and emits compaction_validated; it never gates or
+    # reverts the compaction. Deterministic, zero model calls.
+    def validate(msgs, before_tokens):
+        if not msgs:
+            return False, "compacted to empty message list"
+        roles = [str(m.get("role", "")) for m in msgs]
+        if "system" not in roles:
+            return False, "system prompt lost in compaction"
+        joined = " ".join(str(m.get("content", "")) for m in msgs)
+        if not joined.strip():
+            return False, "compacted content empty"
+        for marker in ("Task:", "Goal:", "Active tasks:"):
+            if marker in joined:
+                return True, "task checklist marker present (%s)" % marker
+        return True, "no checklist marker (informational)"
+
+    return validate
+
+
 def build_compaction_config() -> CompactionConfig | None:
+    # Issue #775/#122/#131: P-series compaction knobs. trigger_ratio makes
+    # compaction threshold-triggered (default 0.85 of the context window;
+    # "0"/"off" keeps the legacy consumer-invoked behavior). The validator
+    # is observational and on by default (FUSION_COMPACTION_VALIDATOR=0
+    # disables). Config is built when any knob is active; None = the
+    # runtime keeps its default kernel config untouched.
+    token_counter = None
     if _flag("FUSION_TOKEN_COUNTER", "0"):
-        counter = CJKAwareHeuristicTokenCounter()
+        token_counter = CJKAwareHeuristicTokenCounter()
         logger.info("kernel token counter wired: CJKAwareHeuristicTokenCounter")
-        return CompactionConfig(token_counter=counter)
-    logger.info("kernel token counter disabled (FUSION_TOKEN_COUNTER)")
-    return None
+
+    trigger_ratio = None
+    raw_ratio = os.environ.get("FUSION_COMPACTION_TRIGGER_RATIO", "0.85").strip()
+    if raw_ratio.lower() in ("", "0", "off", "none"):
+        logger.info("compaction trigger_ratio disabled (consumer-invoked only)")
+    else:
+        try:
+            trigger_ratio = float(raw_ratio)
+            if not 0.0 < trigger_ratio <= 1.0:
+                logger.warning(
+                    "FUSION_COMPACTION_TRIGGER_RATIO out of range %r — disabled", raw_ratio
+                )
+                trigger_ratio = None
+        except ValueError:
+            logger.warning("FUSION_COMPACTION_TRIGGER_RATIO invalid %r — disabled", raw_ratio)
+            trigger_ratio = None
+
+    validator = None
+    if _flag("FUSION_COMPACTION_VALIDATOR", "1"):
+        validator = build_compaction_validator()
+        logger.info("post-compaction validator wired (observational)")
+
+    if token_counter is None and trigger_ratio is None and validator is None:
+        logger.info("kernel compaction config: no knobs active")
+        return None
+    cfg = CompactionConfig(
+        token_counter=token_counter,
+        trigger_ratio=trigger_ratio,
+        validator=validator,
+    )
+    logger.info(
+        "kernel compaction config built: trigger_ratio=%s validator=%s counter=%s",
+        trigger_ratio,
+        validator is not None,
+        token_counter is not None,
+    )
+    return cfg
 
 
 # ---------------- 2. sandbox policy ----------------
@@ -298,9 +362,9 @@ def wire_kernel_surfaces(runtime) -> dict:
         if cfg is not None:
             if getattr(runtime, "compactor", None) is not None:
                 runtime.compactor.config = cfg
-            wired["token_counter"] = True
+            wired["compaction"] = True
     except Exception as e:
-        logger.warning("kernel token counter wiring failed: %s", e)
+        logger.warning("kernel compaction wiring failed: %s", e)
     try:
         policy = build_sandbox_policy()
         if policy is not None:

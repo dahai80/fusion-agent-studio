@@ -78,7 +78,11 @@ def test_compaction_config_token_counter_on(monkeypatch):
 
 
 def test_compaction_config_disabled(monkeypatch):
+    # #775: default trigger_ratio (0.85) + validator mean the config ships
+    # active; all knobs off is the only all-None path.
     monkeypatch.setenv("FUSION_TOKEN_COUNTER", "0")
+    monkeypatch.setenv("FUSION_COMPACTION_TRIGGER_RATIO", "0")
+    monkeypatch.setenv("FUSION_COMPACTION_VALIDATOR", "0")
     assert build_compaction_config() is None
 
 
@@ -86,7 +90,8 @@ def test_runtime_wires_token_counter(tmp_path, monkeypatch):
     rt = _runtime(tmp_path, monkeypatch, FUSION_TOKEN_COUNTER="1")
     assert rt.compactor.config is not None
     assert rt.compactor.config.token_counter is not None
-    assert "token_counter" in rt.kernel
+    # #775: compaction knob wiring reports under one key.
+    assert "compaction" in rt.kernel
 
 
 # ---------------- sandbox policy ----------------
