@@ -179,7 +179,13 @@ class TeamsDispatcher(SubDispatcher):
     # ---------- registration ----------
 
     async def _handle_register(self, params: dict) -> dict:
-        from fusion_harness.team import TeamDefinition, TeamMember
+        from fusion_harness.spawn_protocol import (
+            FANOUT_COMPLEX_MAX,
+            FANOUT_HARD_MAX,
+            FANOUT_SIMPLE_MAX,
+            TOKEN_MULTIPLIER_WARNING,
+        )
+        from fusion_harness.team import VALID_MODEL_TIERS, TeamDefinition, TeamMember
         from fusion_harness.team_runtime import TeamRuntime
 
         raw = dict(params.get("definition") or params)
@@ -193,12 +199,33 @@ class TeamsDispatcher(SubDispatcher):
                     permission_mode=str(m.get("permission_mode", "") or "default"),
                     budget_tokens=int(m.get("budget_tokens", 0) or 50000),
                     max_concurrency=int(m.get("max_concurrency", 0) or 1),
+                    # #778: optional per-member tier hint, validated against
+                    # the kernel vocabulary before any kernel call. Empty
+                    # string = no hint; TeamRuntime falls back to the
+                    # deterministic recommend_tier policy — AS never guesses.
+                    model_tier=str(m.get("model_tier", "") or ""),
                     # #760: resident per-member brief — pass through verbatim
                     # so TeamRuntime.run_member can inject [member context].
                     context=str(m.get("context", "") or ""),
                 )
                 for m in (raw.get("members") or [])
             ]
+            for m in members:
+                if m.model_tier not in VALID_MODEL_TIERS:
+                    raise ValueError(
+                        "unknown model tier %r for member %s (valid: cheap, strong, or empty)"
+                        % (m.model_tier, m.name)
+                    )
+            # #778: fan-out ladder pre-validation (#124 constants). The
+            # kernel hard-errors above the hard max inside TeamDefinition
+            # validation; anticipating it here gives the studio UI a typed
+            # reason code with the ladder band instead of a raw kernel error.
+            count = len(members)
+            if count > FANOUT_HARD_MAX:
+                raise ValueError(
+                    "fanout hard max exceeded: %d members exceeds FANOUT_HARD_MAX=%d"
+                    % (count, FANOUT_HARD_MAX)
+                )
             definition = TeamDefinition(
                 name=str(raw.get("name", "") or ""),
                 namespace_key=str(raw.get("namespace_key", "") or raw.get("name", "") or ""),
@@ -240,6 +267,16 @@ class TeamsDispatcher(SubDispatcher):
             len(definition.members),
             definition.namespace_key,
         )
+        # #778: ladder band always surfaced; TOKEN_MULTIPLIER_WARNING rides
+        # the reason payload for teams above the complex band (16-20) so the
+        # studio UI can show the ~15x token cost before any member runs.
+        fanout_band = (
+            "simple"
+            if count <= FANOUT_SIMPLE_MAX
+            else "complex"
+            if count <= FANOUT_COMPLEX_MAX
+            else "hard"
+        )
         return {
             "status": "ok",
             "name": definition.name,
@@ -247,6 +284,8 @@ class TeamsDispatcher(SubDispatcher):
             "memory_anchor": definition.memory_anchor,
             "members": [m.name for m in definition.members],
             "state_dir": team_rt.state_dir,
+            "fanout_band": fanout_band,
+            "warning": TOKEN_MULTIPLIER_WARNING if fanout_band == "hard" else "",
         }
 
     def _kernel_runner(self):
@@ -359,6 +398,20 @@ class TeamsDispatcher(SubDispatcher):
             result.status,
             result.tokens_spent,
         )
+        # #778: tier provenance surfaced in the dispatch payload so the
+        # studio UI can show why a member ran cheap/strong. Mirrors the
+        # kernel resolution order for AS-shaped briefs (brief_from_event
+        # carries no model_tier, so the "brief" source is unreachable here):
+        # explicit member hint wins, else the deterministic policy default.
+        if member.model_tier:
+            tier, tier_source = member.model_tier, "explicit"
+        else:
+            from fusion_harness.tier_policy import recommend_tier
+
+            tier, tier_source = recommend_tier("member_execution"), "policy"
+        logger.info(
+            "teams.run_member tier=%s source=%s member=%s", tier, tier_source, member.name
+        )
         return {
             "status": "ok",
             "result": {
@@ -372,6 +425,8 @@ class TeamsDispatcher(SubDispatcher):
                 "error": result.error,
                 "via": "kernel-team-runtime",
                 "partial": result.status == "capped",
+                "tier": tier,
+                "tier_source": tier_source,
             },
         }
 
