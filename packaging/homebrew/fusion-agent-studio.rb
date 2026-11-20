@@ -1,13 +1,13 @@
 # Fusion-MLX Agent Studio — local agent development platform for Apple Silicon.
-# Generated from PyPI 0.18.10 dependency resolution by gen_formula.py;
+# Generated from PyPI 0.18.11 dependency resolution by gen_formula.py;
 # regenerate on version bumps (see packaging/homebrew/README.md).
 class FusionAgentStudio < Formula
   include Language::Python::Virtualenv
 
   desc "Local-first AI agent orchestration platform (daemon RPC + REST + CLI)"
   homepage "https://github.com/dahai80/fusion-agent-studio"
-  url "https://files.pythonhosted.org/packages/a7/6f/f189c9632479efe4aa938d25aee1764c7973e2def775957762c9806b5d93/fusion_agent_studio-0.18.10.tar.gz"
-  sha256 "264c29e75118576b52584bf5d1c4965b6cab2695f7d045dcdb4f8f55da6fb039"
+  url "https://files.pythonhosted.org/packages/6e/64/a03f27fa31484bdd853fd746e4a6c795e33bef7ef7f18f8ed1dfc4251d2c/fusion_agent_studio-0.18.11.tar.gz"
+  sha256 "3f7e80eac5b026bc8d240b6ba4967ba7507cbc8d3ff577da0bb30ad1ba647eac"
   license "Apache-2.0"
 
   depends_on "python@3.12"
@@ -69,8 +69,8 @@ class FusionAgentStudio < Formula
     sha256 "1bc481ee218b009aaacde8c7dda57a40e33050efc84acf6cf9df0ba07c9bb33f"
   end
   resource "fusion-harness" do
-    url "https://files.pythonhosted.org/packages/83/cc/6406a82544f7eb0f16770419f24751cb981af9cc8be3ae356ef4c358d467/fusion_harness-0.22.0-py3-none-any.whl"
-    sha256 "13019892a1c940c3422a3dff6646ded50fb0f7e250a1b92428dd979dd5235fbb"
+    url "https://files.pythonhosted.org/packages/9a/d8/bd6125a5c7ad7a77fe7158dc6c0b5060f06a6212d1addadc92528a9f9a64/fusion_harness-0.26.0-py3-none-any.whl"
+    sha256 "d88970eccb708289df5321cb58729f354fed066d14073b67ed0916e56a925638"
   end
   resource "h11" do
     url "https://files.pythonhosted.org/packages/04/4b/29cac41a4d98d144bf5f6d33995617b185d14b22401f75ca86f384e87ff1/h11-0.16.0-py3-none-any.whl"
@@ -101,8 +101,8 @@ class FusionAgentStudio < Formula
     sha256 "62c60aec739ed00124573cce1178138fd690c7676352d67a37328c1cf51d7468"
   end
   resource "pydantic" do
-    url "https://files.pythonhosted.org/packages/72/b8/b864503789ef5c58597d2a7b4adbee62c26440ab1e682581fc6838df8947/pydantic-2.14.3-py3-none-any.whl"
-    sha256 "3f7b347782ab7e4cf4c798496ae3a82787d9f21ec12676a9c564355eeef8daa8"
+    url "https://files.pythonhosted.org/packages/8a/8c/824a686c4ba815ddb0722f9e66272088bccd4e1ae1d2f7015375e4a4fc7f/pydantic-2.14.4-py3-none-any.whl"
+    sha256 "653a2ad9f6d8858529c77c72717d0ea991d6c6837fe683246b2f4b2bbfc3fadc"
   end
   resource "setproctitle" do
     url "https://files.pythonhosted.org/packages/b1/36/e7a4b93d7457ed12a1a2b49b042c25848a8847b15f7808159f2ccce91fdd/setproctitle-1.3.8-cp312-cp312-macosx_10_13_universal2.whl"
@@ -135,8 +135,8 @@ class FusionAgentStudio < Formula
         sha256 "1a7b04c10f32cc88ab39cbf606e117fd74721c831c98a27dc04578deb0c16979"
       end
       resource "pydantic_core" do
-        url "https://files.pythonhosted.org/packages/c1/39/6618e541658d5a687a8d4962fc304350073a8f322bc4c62e8ed4c2d514d6/pydantic_core-2.50.4-cp312-cp312-macosx_11_0_arm64.whl"
-        sha256 "1e20cbde2b6deb33a51d08cd168454dd9044ec7d4474056f4d98d63f51578783"
+        url "https://files.pythonhosted.org/packages/9f/6f/4e172894c2a4ca3bacd6c5f823ea5576df25eafe7593ffeb3576895b92aa/pydantic_core-2.50.5-cp312-cp312-macosx_11_0_arm64.whl"
+        sha256 "a9bcf23628860d5a90cacdc188ee3b7d0547a38eb985214f03e7002a6ca0e558"
       end
       resource "pyyaml" do
         url "https://files.pythonhosted.org/packages/89/a0/6cf41a19a1f2f3feab0e9c0b74134aa2ce6849093d5517a0c550fe37a648/pyyaml-6.0.3-cp312-cp312-macosx_11_0_arm64.whl"
@@ -149,8 +149,8 @@ class FusionAgentStudio < Formula
         sha256 "ed0cace939114f62738d808fdcecd4c869222507e266e574799e9c0faa17d486"
       end
       resource "pydantic_core" do
-        url "https://files.pythonhosted.org/packages/10/bf/d1f6b81709538f831ebe1c42f50fb89db3dfda06f9e9b1ea24e90fc69209/pydantic_core-2.50.4-cp312-cp312-macosx_10_12_x86_64.whl"
-        sha256 "32a991aebd165f227b7c7c60bb9d66c2c7de9c24308552da264c9938fde0f8d6"
+        url "https://files.pythonhosted.org/packages/2e/ce/c79f87db419571137da902afa5cb16f7a981943bb9e0a520886fc4ed06e6/pydantic_core-2.50.5-cp312-cp312-macosx_10_12_x86_64.whl"
+        sha256 "24d23de96195ff9637e5940a7fbde3bea6a355b26fb5f491737dd803aa5d5a93"
       end
       resource "pyyaml" do
         url "https://files.pythonhosted.org/packages/d1/33/422b98d2195232ca1826284a76852ad5a86fe23e31b009c9886b2d0fb8b2/pyyaml-6.0.3-cp312-cp312-macosx_10_13_x86_64.whl"
