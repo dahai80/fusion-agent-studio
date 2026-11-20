@@ -26,6 +26,8 @@ REASON_CODES = (
     "spec_unavailable",
     "supplement_cap_reached",
     "wakeup_timeout",
+    "model_tier_unknown",
+    "fanout_over_limit",
 )
 
 HINTS = {
@@ -43,6 +45,8 @@ HINTS = {
     "spec_unavailable": "seed the team SPEC.md via teams.register or teams.spec_write",
     "supplement_cap_reached": "steering is capped at 3 per run; wait for the run to finish or send an inbox message",
     "wakeup_timeout": "the task was cancelled because its wakeup expired with on_timeout=end",
+    "model_tier_unknown": "member model_tier must be \"\", \"cheap\", or \"strong\" (kernel VALID_MODEL_TIERS)",
+    "fanout_over_limit": "split the team: the kernel hard-caps fan-out at 20 members per registration",
 }
 
 _TEAM_STATE_PATTERNS = (
@@ -68,6 +72,10 @@ def _message_patterns(text: str) -> str:
         return "invocation_not_allowed"
     if "unknown task" in t or "playbook entry not found" in t or "no run attempt" in t:
         return "task_not_found"
+    if "unknown model tier" in t:
+        return "model_tier_unknown"
+    if "fanout hard max" in t:
+        return "fanout_over_limit"
     if "unknown member" in t or "unknown permission mode" in t:
         return "member_unknown" if "member" in t else "permission_mode_unknown"
     if "exceeds member cap" in t or "budget exhausted" in t:
