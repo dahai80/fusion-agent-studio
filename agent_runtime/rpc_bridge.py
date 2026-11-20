@@ -270,6 +270,11 @@ WEB_RPC_ALLOWLIST: frozenset[str] = frozenset(
         "teams.inbox",
         "teams.status",
         "teams.list",
+        # #781: typed kernel inbox (web-shell#177 R3) — plan_approval /
+        # shutdown_request cards with approve/reject controls. inbox_respond
+        # mutates via the mailbox; the "respond" verb is already audited.
+        "teams.inbox_typed",
+        "teams.inbox_respond",
         # #731: web review module (web-shell#163) round-trip. Read surface +
         # comments-aware approve only: planner.create_plan/reject_plan/
         # execute_step/execute_plan/cancel_plan stay off the bridge

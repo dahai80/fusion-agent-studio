@@ -22,6 +22,10 @@ from .base import SubDispatcher
 
 logger = logging.getLogger(__name__)
 
+# #781: kernel message types that surface as actionable inbox cards
+# (web-shell#177 R3). shutdown_response is a reply type, not a card.
+TYPED_INBOX_TYPES = ("plan_approval", "shutdown_request")
+
 
 def validate_member_constraints(definition, member_name: str, brief_raw: dict):
     # Pre-flight (before any worker): brief completeness is enforced by
@@ -116,6 +120,8 @@ class TeamsDispatcher(SubDispatcher):
             "teams.send": self._handle_send,
             "teams.broadcast": self._handle_broadcast,
             "teams.inbox": self._handle_inbox,
+            "teams.inbox_typed": self._handle_inbox_typed,
+            "teams.inbox_respond": self._handle_inbox_respond,
             "teams.status": self._handle_status,
             "teams.pause": self._handle_pause,
             "teams.resume": self._handle_resume,
@@ -493,6 +499,129 @@ class TeamsDispatcher(SubDispatcher):
         except Exception as e:
             return self._error(e)
         return {"status": "ok", "messages": msgs}
+
+    # ---------- typed kernel inbox (#781) ----------
+
+    @staticmethod
+    def _typed_inbox_entries(team_rt, member: str, include_answered: bool) -> list:
+        # #781: kernel-typed messages (plan_approval / shutdown_request)
+        # surfaced as actionable inbox cards. A card is "answered" once a
+        # reply with reply_to == msg_id sits in the ORIGINAL SENDER's inbox
+        # (inbox_respond delivers the decision there — the kernel mailbox is
+        # per-recipient, so the member's own inbox never shows the reply).
+        out = []
+        for m in team_rt.inbox(member):
+            mtype = str(m.get("type", ""))
+            if mtype not in TYPED_INBOX_TYPES:
+                continue
+            msg_id = str(m.get("msg_id", ""))
+            sender = str(m.get("sender", ""))
+            answered = False
+            if msg_id and sender:
+                try:
+                    answered = any(
+                        str(r.get("reply_to", "")) == msg_id for r in team_rt.inbox(sender)
+                    )
+                except Exception:
+                    answered = False
+            if answered and not include_answered:
+                continue
+            entry = dict(m)
+            entry["answered"] = answered
+            entry["kind"] = mtype
+            out.append(entry)
+        return out
+
+    async def _handle_inbox_typed(self, params: dict) -> dict:
+        try:
+            team_rt = self._require_team(params)
+            member = str(params.get("member", "") or "")
+            team_rt.definition.member(member)  # typed member_unknown on miss
+            include_answered = bool(params.get("answered", False))
+            entries = self._typed_inbox_entries(team_rt, member, include_answered)
+        except Exception as e:
+            return self._error(e)
+        logger.info(
+            "teams.inbox_typed team=%s member=%s pending=%d",
+            team_rt.definition.name,
+            member,
+            len(entries),
+        )
+        return {"status": "ok", "messages": entries}
+
+    async def _handle_inbox_respond(self, params: dict) -> dict:
+        from fusion_harness.team_runtime import TeamMessage
+
+        try:
+            team_rt = self._require_team(params)
+            member = str(params.get("member", "") or "")
+            team_rt.definition.member(member)
+            message_id = str(params.get("message_id", "") or "")
+            decision_raw = str(params.get("decision", "") or "").strip().lower()
+            decision = {"approve": "approved", "accept": "approved", "reject": "rejected", "decline": "rejected"}.get(
+                decision_raw, ""
+            )
+            if not decision:
+                raise ValueError(
+                    "invalid decision %r (valid: approve/reject or accept/decline)" % decision_raw
+                )
+            if not message_id.startswith("msg_"):
+                raise ValueError("message_id must be a msg_id (msg_...): %r" % message_id)
+            inbox = team_rt.inbox(member)
+            target = next((m for m in inbox if str(m.get("msg_id", "")) == message_id), None)
+            if target is None:
+                raise ValueError("message not in member inbox: %s" % message_id)
+            mtype = str(target.get("type", ""))
+            if mtype not in TYPED_INBOX_TYPES:
+                raise ValueError(
+                    "message %s is type %r, not an actionable typed message (%s)"
+                    % (message_id, mtype, "/".join(sorted(TYPED_INBOX_TYPES)))
+                )
+            sender = str(target.get("sender", ""))
+            try:
+                already = any(
+                    str(m.get("reply_to", "")) == message_id for m in team_rt.inbox(sender)
+                )
+            except Exception:
+                already = False  # sender inbox unreadable; respond still idempotent-guarded by the card scan
+            if already:
+                raise ValueError("message already answered: %s" % message_id)
+            # Kernel reply-type mapping: shutdown_request answers with the
+            # typed shutdown_response; plan_approval has no typed response
+            # in kernel MSG_TYPES, so the decision rides a text reply with
+            # reply_to anchoring it to the original message. Body is the
+            # bare decision word — deterministic, machine-parseable.
+            reply_type = "shutdown_response" if mtype == "shutdown_request" else "text"
+            reply = TeamMessage(
+                type=reply_type,
+                sender=member,
+                recipient=str(target.get("sender", "")),
+                body=decision,
+                reply_to=message_id,
+            )
+            outcome = team_rt.send(reply)
+            delivered = bool(outcome.get("delivered")) if isinstance(outcome, dict) else bool(outcome)
+            reply_id = outcome.get("msg_id", "") if isinstance(outcome, dict) else ""
+            if not delivered:
+                raise RuntimeError("mailbox delivery failed for reply to %s" % message_id)
+        except Exception as e:
+            return self._error(e)
+        logger.info(
+            "teams.inbox_respond team=%s member=%s message=%s type=%s decision=%s reply=%s",
+            team_rt.definition.name,
+            member,
+            message_id,
+            mtype,
+            decision,
+            reply_id,
+        )
+        return {
+            "status": "ok",
+            "message_id": message_id,
+            "decision": decision,
+            "reply_type": reply_type,
+            "reply_msg_id": reply_id,
+        }
 
     # ---------- lifecycle + status ----------
 
