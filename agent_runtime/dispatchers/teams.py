@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 
 # #781: kernel message types that surface as actionable inbox cards
 # (web-shell#177 R3). shutdown_response is a reply type, not a card.
-TYPED_INBOX_TYPES = ("plan_approval", "shutdown_request")
+TYPED_INBOX_TYPES = ("plan_approval", "shutdown_request", "destructive_gate")
 
 
 def validate_member_constraints(definition, member_name: str, brief_raw: dict):
@@ -549,6 +549,58 @@ class TeamsDispatcher(SubDispatcher):
         )
         return {"status": "ok", "messages": entries}
 
+    def _resolve_destructive_gate(self, card: dict, decision: str) -> str:
+        # #785: a destructive_gate card body carries the host approval call
+        # id as a "gate_call_id=<id>" line. Resolve the pending
+        # ApprovalGate question over the shared HumanGate queue — the same
+        # queue the funnel's gate stage parks on (#770) and the
+        # human_input.resolve surface answers (#557). Missing or unknown
+        # call ids fail loudly: an approval that resolves nothing is worse
+        # than an error.
+        body = str(card.get("body", ""))
+        call_id = ""
+        for line in body.splitlines():
+            s = line.strip()
+            if s.startswith("gate_call_id="):
+                call_id = s.split("=", 1)[1].strip()
+                break
+        if not call_id:
+            raise ValueError(
+                "destructive_gate card %s missing gate_call_id line" % card.get("msg_id", "")
+            )
+        runtime = None
+        get_runtime = getattr(self._daemon, "_get_runtime", None)
+        if callable(get_runtime):
+            runtime = get_runtime()
+        if runtime is None:
+            runtime = getattr(self._daemon, "_runtime", None)
+        if runtime is None or not hasattr(runtime, "_get_human_gate"):
+            raise RuntimeError("no runtime with human gate support for destructive_gate response")
+        gate = runtime._get_human_gate()
+        question = None
+        try:
+            for q in gate.list_questions(status="pending"):
+                if str((q.payload or {}).get("call_id", "")) == call_id:
+                    question = q
+                    break
+        except Exception as exc:
+            raise RuntimeError("destructive gate queue lookup failed: %s" % exc)
+        if question is None:
+            raise ValueError("no pending destructive gate for call %s" % call_id)
+        outcome = gate.resolve(question.id, {"approved": decision == "approved"})
+        if not outcome.get("resolved"):
+            raise RuntimeError(
+                "destructive gate resolve failed for %s: %s"
+                % (question.id, outcome.get("reason", ""))
+            )
+        logger.info(
+            "destructive gate resolved via inbox card call=%s question=%s decision=%s",
+            call_id,
+            question.id,
+            decision,
+        )
+        return question.id
+
     async def _handle_inbox_respond(self, params: dict) -> dict:
         from fusion_harness.team_runtime import TeamMessage
 
@@ -586,6 +638,9 @@ class TeamsDispatcher(SubDispatcher):
                 already = False  # sender inbox unreadable; respond still idempotent-guarded by the card scan
             if already:
                 raise ValueError("message already answered: %s" % message_id)
+            gate_question_id = ""
+            if mtype == "destructive_gate":
+                gate_question_id = self._resolve_destructive_gate(target, decision)
             # Kernel reply-type mapping: shutdown_request answers with the
             # typed shutdown_response; plan_approval has no typed response
             # in kernel MSG_TYPES, so the decision rides a text reply with
@@ -621,6 +676,7 @@ class TeamsDispatcher(SubDispatcher):
             "decision": decision,
             "reply_type": reply_type,
             "reply_msg_id": reply_id,
+            "gate_question_id": gate_question_id,
         }
 
     # ---------- lifecycle + status ----------
