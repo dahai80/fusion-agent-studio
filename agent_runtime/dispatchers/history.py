@@ -21,6 +21,8 @@ class HistoryDispatcher(SubDispatcher):
             "runs.thread_lanes": self._handle_thread_lanes,
             # E5: offline permission reviewer over a run's event stream.
             "runs.offlineReview": self._handle_offline_review,
+            # #791: MAST failure-attribution postmortem over a run's events.
+            "runs.attribution": self._handle_attribution,
         }
 
     def _resolve_run_events(self, run_id: str) -> list[dict] | None:
@@ -70,6 +72,25 @@ class HistoryDispatcher(SubDispatcher):
         report = await reviewer.review_run(run_id, events)
         return {"report": report}
 
+    async def _handle_attribution(self, params: dict) -> dict:
+        # #791: postmortem surface — MAST-mode classification of a run's
+        # archived events (FUSION_MAST_ATTRIBUTION=1 gates the analysis;
+        # disabled responses keep the shape so clients can branch cleanly).
+        from ..failure_attribution import attribute_run, attribution_enabled
+
+        run_id = str(params.get("run_id", "") or "")
+        events = self._resolve_run_events(run_id)
+        if events is None:
+            return {"error": f"run '{run_id}' not found"}
+        if not attribution_enabled():
+            return {"run_id": run_id, "enabled": False, "attribution": None}
+        try:
+            out = attribute_run(run_id, events)
+        except Exception as e:
+            logger.warning("mast attribution failed run=%s err=%s", run_id, e)
+            return {"run_id": run_id, "enabled": True, "error": f"attribution failed: {e}"}
+        return {"run_id": run_id, "enabled": True, "attribution": out}
+
     def _store(self):
         store = getattr(self._daemon, "_run_history_store", None)
         if store is None:
@@ -91,6 +112,19 @@ class HistoryDispatcher(SubDispatcher):
         run = self._store().load_run(run_id)
         if run is None:
             return {"error": f"run '{run_id}' not found in history"}
+        # #791: failed runs carry a MAST attribution field in the postmortem
+        # output when enabled (nightly eval triage: agent failure vs task
+        # spec failure). Attribution failure never breaks the read.
+        if str(run.get("status", "")) == "failed":
+            from ..failure_attribution import attribute_run, attribution_enabled
+
+            if attribution_enabled():
+                try:
+                    out = attribute_run(run_id, run.get("events") or [])
+                    if out is not None:
+                        run["failure_attribution"] = out
+                except Exception as e:
+                    logger.warning("mast attribution skipped run=%s err=%s", run_id, e)
         return {"run": run}
 
     async def _handle_run_diff(self, params: dict) -> dict:

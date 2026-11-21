@@ -167,6 +167,16 @@ def build_sandbox_policy() -> SandboxPolicy | None:
         else:
             runner = SandboxExecRunner()
             logger.info("sandbox-exec runner wired")
+    # #790: route runner selection through the harness resolver
+    # (fusion-harness#151). "default" (FUSION_SANDBOX_BACKEND unset) returns
+    # the hand-built SandboxExecRunner above unchanged — behavior is
+    # byte-identical to the pre-#790 wiring. "fusion_executor" opts into the
+    # fusion-executor adapter (native sandbox + PTY + git rollback); a typed
+    # construction failure falls back to the default runner with a warning.
+    from fusion_harness.executor_backend import select_sandbox_runner
+
+    preferred = os.environ.get("FUSION_SANDBOX_BACKEND", "").strip() or "default"
+    runner, backend_name = select_sandbox_runner(preferred=preferred, default_runner=runner)
     blocked = [
         t.strip()
         for t in os.environ.get("FUSION_SANDBOX_BLOCKED_TOOLS", "").split(",")
@@ -174,7 +184,8 @@ def build_sandbox_policy() -> SandboxPolicy | None:
     ]
     policy = SandboxPolicy(runner=runner, tool_tiers={t: ExecutionTier.BLOCKED for t in blocked})
     logger.info(
-        "kernel sandbox policy wired: runner=%s blocked_tools=%d threshold=%s",
+        "kernel sandbox policy wired: backend=%s runner=%s blocked_tools=%d threshold=%s",
+        backend_name,
         "sandbox-exec" if runner else "none",
         len(blocked),
         policy.risk_threshold,

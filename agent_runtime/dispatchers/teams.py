@@ -375,6 +375,24 @@ class TeamsDispatcher(SubDispatcher):
                 raise ValueError("invalid spawn brief: " + "; ".join(errors))
             if not isinstance(brief, SpawnBrief):
                 raise ValueError("brief must be a SpawnBrief contract dict")
+            # #791: optional handoff verification (FUSION_HANDOFF_VERIFY=1).
+            # Replay the brief's permission ledger against its handoff claims
+            # before dispatch (harness handoff_verify, arXiv 2611.06545) — a
+            # hallucinated or unauthorized claim blocks the spawn with the
+            # typed handoff_verification_failed reason. Default off: brief
+            # flow unchanged when the flag is unset.
+            if os.environ.get("FUSION_HANDOFF_VERIFY", "0").strip() == "1":
+                from fusion_harness.handoff_verify import verify_spawn_brief
+
+                hv = verify_spawn_brief(brief)
+                if not hv.ok:
+                    detail = "; ".join(
+                        str(f.get("reason", "unverified")) + ": " + str(f.get("tool", ""))
+                        if f.get("tool")
+                        else str(f.get("reason", "unverified"))
+                        for f in hv.failures
+                    )
+                    raise ValueError("handoff verification failed: " + detail)
             result = await team_rt.run_member(member, str(params.get("task_id", "") or ""), brief, self._agent_fn())
         except Exception as e:
             return self._error(e)
