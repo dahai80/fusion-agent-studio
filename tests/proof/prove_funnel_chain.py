@@ -139,8 +139,14 @@ async def prove_budget_and_allow():
     assert (result, is_error) == ("all good", False)
     assert executed == [{"a": 1}]
     assert audit.entries == []
-    assert [e.event for e in bus.replay(session_id="proof-session")] == ["tool_before", "tool_after"]
-    logger.info("PASS budget deny + clean allow path (tool_before/tool_after)")
+    # harness #147 S2: run_tool scans the tool result as untrusted-origin
+    # content and emits tool_result_scan between tool_before and tool_after.
+    assert [e.event for e in bus.replay(session_id="proof-session")] == [
+        "tool_before",
+        "tool_result_scan",
+        "tool_after",
+    ]
+    logger.info("PASS budget deny + clean allow path (tool_before/tool_result_scan/tool_after)")
 
 
 async def prove_llm_funnel():
