@@ -1,13 +1,13 @@
 # Fusion-MLX Agent Studio — local agent development platform for Apple Silicon.
-# Generated from PyPI 0.18.14 dependency resolution by gen_formula.py;
+# Generated from PyPI 0.18.15 dependency resolution by gen_formula.py;
 # regenerate on version bumps (see packaging/homebrew/README.md).
 class FusionAgentStudio < Formula
   include Language::Python::Virtualenv
 
   desc "Local-first AI agent orchestration platform (daemon RPC + REST + CLI)"
   homepage "https://github.com/dahai80/fusion-agent-studio"
-  url "https://files.pythonhosted.org/packages/80/bc/a8f49c1643c0101422c6d56f32b871e5bbb6355ac5d1dffbdd261d32f43c/fusion_agent_studio-0.18.14.tar.gz"
-  sha256 "0959342b5a137f7c76ab99c482451a6e3b013fe8ea53547cb81a82f7d80f1a93"
+  url "https://files.pythonhosted.org/packages/2b/19/fb1aa805d67bfe0bb33e38f6ca787eb043a1307a6054977a2ba127277511/fusion_agent_studio-0.18.15.tar.gz"
+  sha256 "a21076696d551c48fdd62aa6b1674cb079e7bfbfa981417436001ac209928c0b"
   license "Apache-2.0"
 
   depends_on "python@3.12"
