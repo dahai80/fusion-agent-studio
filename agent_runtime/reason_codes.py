@@ -28,6 +28,7 @@ REASON_CODES = (
     "wakeup_timeout",
     "model_tier_unknown",
     "fanout_over_limit",
+    "handoff_verification_failed",
 )
 
 HINTS = {
@@ -47,6 +48,7 @@ HINTS = {
     "wakeup_timeout": "the task was cancelled because its wakeup expired with on_timeout=end",
     "model_tier_unknown": "member model_tier must be \"\", \"cheap\", or \"strong\" (kernel VALID_MODEL_TIERS)",
     "fanout_over_limit": "split the team: the kernel hard-caps fan-out at 20 members per registration",
+    "handoff_verification_failed": "the spawn brief's handoff claims do not match its permission ledger; send a brief whose claims are backed by ALLOW ledger entries (FUSION_HANDOFF_VERIFY)",
 }
 
 _TEAM_STATE_PATTERNS = (
@@ -76,6 +78,8 @@ def _message_patterns(text: str) -> str:
         return "model_tier_unknown"
     if "fanout hard max" in t:
         return "fanout_over_limit"
+    if "handoff verification failed" in t:
+        return "handoff_verification_failed"
     if "unknown member" in t or "unknown permission mode" in t:
         return "member_unknown" if "member" in t else "permission_mode_unknown"
     if "exceeds member cap" in t or "budget exhausted" in t:
