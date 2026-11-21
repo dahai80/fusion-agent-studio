@@ -42,6 +42,7 @@ Rules:
 - If the request is ambiguous, ask a clarifying question in "reply" with empty ops.
 """
 
+
 class FlowDispatcher:
     def __init__(self, daemon: Any):
         self._daemon = daemon
@@ -165,9 +166,7 @@ class FlowDispatcher:
         return TemplateManager.list()
 
     async def _handle_template_list(self, params: dict) -> dict:
-        builtins = [
-            {**t, "source": "builtin"} for t in self._builtin_templates()
-        ]
+        builtins = [{**t, "source": "builtin"} for t in self._builtin_templates()]
         tenant = resolve_tenant_id()
         saved = [
             {
@@ -239,7 +238,12 @@ class FlowDispatcher:
         graph.id = uuid.uuid4().hex[:16]
         graph.name = f"{tpl_name}-instance"
         logger.info("template instantiated tpl=%s graph=%s tenant=%s", tpl_name, graph.id, tenant)
-        return {"graph": graph.to_dict(), "graph_id": graph.id, "name": graph.name, "source": tpl_name}
+        return {
+            "graph": graph.to_dict(),
+            "graph_id": graph.id,
+            "name": graph.name,
+            "source": tpl_name,
+        }
 
     async def _handle_template_delete(self, params: dict) -> dict:
         flow_id = str(params.get("flow_id", "") or "")
@@ -262,16 +266,16 @@ class FlowDispatcher:
         if not prompt.strip():
             return {"error": "prompt required"}
         catalog = params.get("catalog") or []
-        allowed_types = {str(c.get("type", "")) for c in catalog if isinstance(c, dict) and c.get("type")}
+        allowed_types = {
+            str(c.get("type", "")) for c in catalog if isinstance(c, dict) and c.get("type")
+        }
         if not allowed_types:
             from agent_runtime.graph import AgentGraph
 
             allowed_types = set(AgentGraph._VALID_NODE_TYPES)
         templates = params.get("templates") or []
         template_names = {
-            str(t.get("name", ""))
-            for t in templates
-            if isinstance(t, dict) and t.get("name")
+            str(t.get("name", "")) for t in templates if isinstance(t, dict) and t.get("name")
         }
         graph_state = params.get("graph_json")
         default_model = str(params.get("default_model", "") or "")
@@ -355,9 +359,7 @@ class FlowDispatcher:
                 elif nid in existing:
                     errors.append(f"op[{i}]: node '{nid}' already exists — use set_config instead")
                 if ntype not in allowed_types:
-                    errors.append(
-                        f"op[{i}]: unknown node type '{ntype}' — allowed: {catalog_desc}"
-                    )
+                    errors.append(f"op[{i}]: unknown node type '{ntype}' — allowed: {catalog_desc}")
                 else:
                     existing.add(nid)
                     targets.add(nid)

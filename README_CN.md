@@ -64,6 +64,7 @@ from agent_runtime import AgentRuntime, AgentGraph, NodeConfig
 from tools import create_default_registry
 from server.fusion_mlx_client import FusionMLXClient
 
+
 async def main():
     # 1. 连接 fusion-mlx（需先启动）
     mlx = FusionMLXClient(base_url="http://localhost:11434/v1")
@@ -81,6 +82,7 @@ async def main():
     runtime = AgentRuntime(mlx, registry)
     async for event in runtime.execute_graph(graph, "你好！"):
         print(f"[{event.type.value}] {event.content[:100]}")
+
 
 asyncio.run(main())
 ```

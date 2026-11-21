@@ -80,7 +80,7 @@ def _detect_local_tz():
     except Exception as e:
         logger.warning("detect local tz failed (%s), fallback fixed-offset", e)
     offset = time.localtime().tm_gmtoff
-    return timezone(timedelta(seconds=offset)), f"UTC{offset/3600:+.0f}"
+    return timezone(timedelta(seconds=offset)), f"UTC{offset / 3600:+.0f}"
 
 
 def _tz_name(tzinfo):
@@ -309,8 +309,9 @@ class WebhookManager:
                 )
             except (TypeError, ValueError) as e:
                 logger.warning("webhook load skip id=%s: %s", wid, e)
-        logger.info("webhook manager loaded %d hooks from %s",
-                    len(self._webhooks), self._store_path)
+        logger.info(
+            "webhook manager loaded %d hooks from %s", len(self._webhooks), self._store_path
+        )
 
     def _save(self) -> None:
         if not self._store_path:
@@ -321,8 +322,7 @@ class WebhookManager:
 
             path = Path(self._store_path)
             path.parent.mkdir(parents=True, exist_ok=True)
-            payload = {w.id: w.to_dict(include_secret=True)
-                       for w in self._webhooks.values()}
+            payload = {w.id: w.to_dict(include_secret=True) for w in self._webhooks.values()}
             fd, tmp = tempfile.mkstemp(dir=str(path.parent), prefix=".webhooks-")
             with os.fdopen(fd, "w", encoding="utf-8") as f:
                 json.dump(payload, f, ensure_ascii=False, indent=2)
@@ -331,20 +331,29 @@ class WebhookManager:
         except OSError as e:
             logger.error("webhook save failed: %s", e)
 
-    def create(self, name: str, graph_id: str, secret: str = "",
-               enabled: bool = True, rate_limit_per_min: int = 30) -> Webhook:
+    def create(
+        self,
+        name: str,
+        graph_id: str,
+        secret: str = "",
+        enabled: bool = True,
+        rate_limit_per_min: int = 30,
+    ) -> Webhook:
         webhook_id = f"wh-{self._secrets_mod.token_hex(6)}"
         if not secret:
             secret = self._secrets_mod.token_hex(24)
         webhook = Webhook(
-            id=webhook_id, name=name, secret=secret, graph_id=graph_id,
-            enabled=enabled, created_at=time.time(),
+            id=webhook_id,
+            name=name,
+            secret=secret,
+            graph_id=graph_id,
+            enabled=enabled,
+            created_at=time.time(),
             rate_limit_per_min=max(1, int(rate_limit_per_min)),
         )
         self._webhooks[webhook_id] = webhook
         self._save()
-        logger.info("webhook created id=%s name=%s graph=%s",
-                    webhook_id, name, graph_id)
+        logger.info("webhook created id=%s name=%s graph=%s", webhook_id, name, graph_id)
         return webhook
 
     def delete(self, webhook_id: str) -> bool:
@@ -382,12 +391,10 @@ class WebhookManager:
     def list(self) -> list[dict]:
         return [w.to_dict() for w in self._webhooks.values()]
 
-    def verify_signature(self, webhook: Webhook, raw_body: bytes,
-                         signature: str) -> bool:
+    def verify_signature(self, webhook: Webhook, raw_body: bytes, signature: str) -> bool:
         if not webhook.secret or not signature:
             return False
-        expected = hmac.new(webhook.secret.encode(), raw_body,
-                            hashlib.sha256).hexdigest()
+        expected = hmac.new(webhook.secret.encode(), raw_body, hashlib.sha256).hexdigest()
         return hmac.compare_digest(expected, signature.strip().lower())
 
     def check_rate_limit(self, webhook: Webhook) -> bool:
@@ -403,8 +410,7 @@ class WebhookManager:
         tokens = min(float(rate), tokens + (now - last) * (rate / 60.0))
         if tokens < 1.0:
             bucket[0], bucket[1] = tokens, now
-            logger.warning("webhook rate limited id=%s rate=%d/min",
-                           webhook.id, rate)
+            logger.warning("webhook rate limited id=%s rate=%d/min", webhook.id, rate)
             return False
         bucket[0], bucket[1] = tokens - 1.0, now
         return True
@@ -421,8 +427,9 @@ class WebhookManager:
 
     def record_idempotency(self, key: str, run_id: str) -> None:
         now = time.time()
-        stale = [k for k, (_, ts) in self._idempotency.items()
-                 if now - ts > self.IDEMPOTENCY_WINDOW_S]
+        stale = [
+            k for k, (_, ts) in self._idempotency.items() if now - ts > self.IDEMPOTENCY_WINDOW_S
+        ]
         for k in stale:
             self._idempotency.pop(k, None)
         self._idempotency[key] = (run_id, now)
@@ -432,9 +439,7 @@ class WebhookManager:
         webhook.last_invoked_at = time.time()
         self._save()
 
-    async def handle(
-        self, webhook_id: str, payload: dict, headers: dict | None = None
-    ) -> dict:
+    async def handle(self, webhook_id: str, payload: dict, headers: dict | None = None) -> dict:
         webhook = self._webhooks.get(webhook_id)
         if not webhook or not webhook.enabled:
             return {"error": "Webhook not found or disabled"}
@@ -468,9 +473,7 @@ def get_webhook_manager() -> WebhookManager:
     # Persistent store survives daemon restarts.
     global _webhook_manager_instance
     if _webhook_manager_instance is None:
-        store_path = os.path.join(
-            str(studio_home()), "inbound_webhooks.json"
-        )
+        store_path = os.path.join(str(studio_home()), "inbound_webhooks.json")
         _webhook_manager_instance = WebhookManager(store_path=store_path)
     return _webhook_manager_instance
 
@@ -493,6 +496,7 @@ class CronManager:
         # 审计 A-6/R-7/3M-3: cron _save_job/_save_execution/_delete_job 跨线程(to_thread)+事件循环线程
         # 共享单连接无锁无 WAL. RLock 串行化所有 DB 操作; WAL 让读不堵写; busy_timeout 等锁.
         import threading
+
         self._write_lock = threading.RLock()
         self._default_handler: Callable | None = default_handler
         # #501: 失败告警回调 — 执行超时/异常时以 (job, execution) 调用, 回调自身保证不抛.
@@ -715,8 +719,9 @@ class CronManager:
             logger.warning("trigger_event: job %s missing or disabled", job_id)
             return False
         if job.loop_mode != "event_driven":
-            logger.warning("trigger_event: job %s loop_mode=%s, not event_driven",
-                           job_id, job.loop_mode)
+            logger.warning(
+                "trigger_event: job %s loop_mode=%s, not event_driven", job_id, job.loop_mode
+            )
             return False
         job.next_run = time.time()
         self._save_job(job)
@@ -745,8 +750,9 @@ class CronManager:
         if handler:
             self._handlers[job.id] = handler
         await asyncio.to_thread(self._save_job, job)
-        logger.info("Cron job registered (async): %s (%s, mode=%s)",
-                    job.id, job.expression, job.loop_mode)
+        logger.info(
+            "Cron job registered (async): %s (%s, mode=%s)", job.id, job.expression, job.loop_mode
+        )
 
     def _build_once_job(
         self,
@@ -787,9 +793,7 @@ class CronManager:
     ) -> CronJob:
         # #141 priority-3: 一次性定时任务 (run_at). 不走 cron 表达式, next_run=run_at,
         # one_shot=True 触发后 _run_loop 自动注销. run_at 已过期则立即排队下一 tick 触发.
-        job = self._build_once_job(
-            run_at, graph_id, input_data, job_id, name, handler
-        )
+        job = self._build_once_job(run_at, graph_id, input_data, job_id, name, handler)
         self._save_job(job)
         logger.info("One-shot cron job registered: %s run_at=%.0f", job.id, job.next_run)
         return job
@@ -804,9 +808,7 @@ class CronManager:
         handler: Callable | None = None,
     ) -> CronJob:
         # 审计 P2-13: 单次异步持久化 (不再委托 register_once 同步存).
-        job = self._build_once_job(
-            run_at, graph_id, input_data, job_id, name, handler
-        )
+        job = self._build_once_job(run_at, graph_id, input_data, job_id, name, handler)
         await asyncio.to_thread(self._save_job, job)
         logger.info("One-shot cron job registered (async): %s run_at=%.0f", job.id, job.next_run)
         return job
@@ -983,7 +985,9 @@ class CronManager:
             logger.info("Cron job %s retry %d/%d", job.id, job.retry_count, job.max_retries)
         else:
             job.enabled = False
-            logger.warning("Cron job %s disabled after exhausting %d retries", job.id, job.max_retries)
+            logger.warning(
+                "Cron job %s disabled after exhausting %d retries", job.id, job.max_retries
+            )
 
     def _notify_failure(self, job: CronJob, exe: CronExecution) -> None:
         # #501: 失败告警 — 单回调, 同步上下文内调用, 回调异常只记日志不外抛.
@@ -1014,16 +1018,12 @@ class CronManager:
                 iterations += 1
 
                 if not self._matches_field(month_spec, candidate.month, 1, 12):
-                    candidate = candidate.replace(day=1, hour=0, minute=0) + timedelta(
-                        days=32
-                    )
+                    candidate = candidate.replace(day=1, hour=0, minute=0) + timedelta(days=32)
                     candidate = candidate.replace(day=1, hour=0, minute=0)
                     continue
 
                 dom_match = self._matches_field(dom_spec, candidate.day, 1, 31)
-                dow_match = self._matches_field(
-                    dow_spec, candidate.isoweekday() % 7, 0, 6
-                )
+                dow_match = self._matches_field(dow_spec, candidate.isoweekday() % 7, 0, 6)
                 if dom_spec != "*" and dow_spec != "*":
                     day_ok = dom_match or dow_match
                 else:

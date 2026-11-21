@@ -7,6 +7,7 @@ key in the registration response which is persisted to
 the issued key, and inbound gateway→studio auth dual-accepts env static +
 issued keys during the migration grace window.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -55,9 +56,7 @@ class _FakeClient:
 
 
 async def _drive(client, manifest, rounds=0.08):
-    task = asyncio.create_task(
-        shell_registry._registry_loop_body(client, manifest, interval=0.01)
-    )
+    task = asyncio.create_task(shell_registry._registry_loop_body(client, manifest, interval=0.01))
     await asyncio.sleep(rounds)
     task.cancel()
     try:
@@ -67,7 +66,6 @@ async def _drive(client, manifest, rounds=0.08):
 
 
 class TestModuleKeyPersistence:
-
     def test_save_and_load_roundtrip(self, _key_path):
         assert load_module_key() == ""
         assert save_module_key("fm-fusion-agent-studio-abc123") is True
@@ -93,7 +91,6 @@ class TestModuleKeyPersistence:
 
 
 class TestExtractIssuedKey:
-
     def test_top_level_fields(self):
         assert _extract_issued_key({"api_key": "fm-1"}) == "fm-1"
         assert _extract_issued_key({"issued_key": "fm-2"}) == "fm-2"
@@ -106,8 +103,10 @@ class TestExtractIssuedKey:
         assert _extract_issued_key({"data": {"raw_key": "fm-gw-n"}}) == "fm-gw-n"
 
     def test_raw_key_wins_over_echoed_api_key(self):
-        assert _extract_issued_key(
-            {"api_key": "fk-static-echo", "raw_key": "fm-issued"}) == "fm-issued"
+        assert (
+            _extract_issued_key({"api_key": "fk-static-echo", "raw_key": "fm-issued"})
+            == "fm-issued"
+        )
 
     def test_nested_data(self):
         assert _extract_issued_key({"data": {"api_key": "fm-nested"}}) == "fm-nested"
@@ -122,7 +121,6 @@ class TestExtractIssuedKey:
 
 
 class TestRegistrationPayload:
-
     def test_static_override_kept_when_env_set(self, monkeypatch):
         monkeypatch.setenv("FUSION_AGENT_STUDIO_API_KEY", "fk-mod-static")
         payload = shell_registry.build_registration_payload({"id": "m", "upstream": "http://h:1"})
@@ -142,7 +140,6 @@ class TestRegistrationPayload:
 
 
 class TestRegistryLoop:
-
     async def test_registration_persists_issued_key(self, _key_path):
         client = _FakeClient([_response(200, {"api_key": "fm-issued-1"})])
         await _drive(client, {"id": "mod-x", "upstream": "http://h:1"})
@@ -163,10 +160,12 @@ class TestRegistryLoop:
 
     async def test_heartbeat_uses_issued_key(self, _key_path):
         save_module_key("fm-issued-hb")
-        client = _FakeClient([
-            _response(200, {"api_key": "fm-issued-hb"}),
-            _response(200, {}),
-        ])
+        client = _FakeClient(
+            [
+                _response(200, {"api_key": "fm-issued-hb"}),
+                _response(200, {}),
+            ]
+        )
         await _drive(client, {"id": "mod-x", "upstream": "http://h:1"})
         beats = [c for c in client.calls if c["url"].endswith("/heartbeat")]
         assert len(beats) >= 1
@@ -174,22 +173,26 @@ class TestRegistryLoop:
 
     async def test_heartbeat_falls_back_to_admin_key(self, _key_path, monkeypatch):
         monkeypatch.setenv("FUSION_ADMIN_KEY", "admin-k")
-        client = _FakeClient([
-            _response(200, {}),
-            _response(200, {}),
-        ])
+        client = _FakeClient(
+            [
+                _response(200, {}),
+                _response(200, {}),
+            ]
+        )
         await _drive(client, {"id": "mod-x", "upstream": "http://h:1"})
         beats = [c for c in client.calls if c["url"].endswith("/heartbeat")]
         assert beats[0]["headers"]["Authorization"] == "Bearer admin-k"
 
     async def test_heartbeat_401_with_issued_key_reregisters(self, _key_path, monkeypatch):
         monkeypatch.setenv("FUSION_ADMIN_KEY", "admin")
-        client = _FakeClient([
-            _response(200, {"api_key": "fm-stale"}),
-            _response(401, {}),
-            _response(200, {"api_key": "fm-fresh"}),
-            _response(200, {}),
-        ])
+        client = _FakeClient(
+            [
+                _response(200, {"api_key": "fm-stale"}),
+                _response(401, {}),
+                _response(200, {"api_key": "fm-fresh"}),
+                _response(200, {}),
+            ]
+        )
         await _drive(client, {"id": "mod-x", "upstream": "http://h:1"}, rounds=0.12)
         assert load_module_key() == "fm-fresh"
         registers = [c for c in client.calls if c["url"].endswith("/manifests")]
@@ -201,12 +204,14 @@ class TestRegistryLoop:
         # re-registration must drop api_key so the gateway issues an fm- key.
         monkeypatch.setenv("FUSION_ADMIN_KEY", "admin")
         monkeypatch.setenv("FUSION_AGENT_STUDIO_API_KEY", "fk-mod-stale")
-        client = _FakeClient([
-            _response(200, {}),
-            _response(403, {"detail": "heartbeat_forbidden"}),
-            _response(200, {"raw_key": "fm-fresh-403"}),
-            _response(200, {}),
-        ])
+        client = _FakeClient(
+            [
+                _response(200, {}),
+                _response(403, {"detail": "heartbeat_forbidden"}),
+                _response(200, {"raw_key": "fm-fresh-403"}),
+                _response(200, {}),
+            ]
+        )
         await _drive(client, {"id": "mod-x", "upstream": "http://h:1"}, rounds=0.12)
         assert load_module_key() == "fm-fresh-403"
         registers = [c for c in client.calls if c["url"].endswith("/manifests")]
@@ -218,12 +223,14 @@ class TestRegistryLoop:
     async def test_401_also_drops_api_key_on_reregister(self, _key_path, monkeypatch):
         monkeypatch.setenv("FUSION_ADMIN_KEY", "admin")
         monkeypatch.setenv("FUSION_AGENT_STUDIO_API_KEY", "fk-mod-stale")
-        client = _FakeClient([
-            _response(200, {}),
-            _response(401, {}),
-            _response(200, {"raw_key": "fm-rotated"}),
-            _response(200, {}),
-        ])
+        client = _FakeClient(
+            [
+                _response(200, {}),
+                _response(401, {}),
+                _response(200, {"raw_key": "fm-rotated"}),
+                _response(200, {}),
+            ]
+        )
         await _drive(client, {"id": "mod-x", "upstream": "http://h:1"}, rounds=0.12)
         registers = [c for c in client.calls if c["url"].endswith("/manifests")]
         assert "api_key" in registers[0]["json"]
@@ -241,7 +248,6 @@ class TestRegistryLoop:
 
 
 class TestDualAccept:
-
     def test_env_key_accepted_as_static_env(self, monkeypatch):
         monkeypatch.setenv("FUSION_AGENT_STUDIO_API_KEY", "fk-mod-env")
         keys = accepted_module_keys()

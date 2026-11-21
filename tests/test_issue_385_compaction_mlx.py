@@ -31,7 +31,9 @@ def _long_messages(rounds=40, size=2000) -> list[dict]:
 
 
 def _config() -> CompactionConfig:
-    return CompactionConfig(context_window=8000, warning_buffer=500, error_buffer=200, manual_buffer=100)
+    return CompactionConfig(
+        context_window=8000, warning_buffer=500, error_buffer=200, manual_buffer=100
+    )
 
 
 def test_chinese_retention_buckets():

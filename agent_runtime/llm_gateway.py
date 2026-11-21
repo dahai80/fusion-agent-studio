@@ -454,9 +454,7 @@ class LLMGateway:
                 # #478: retry only if pruning advanced the surface generation.
                 # A no-op strip means the doomed retry would resend the same
                 # oversized surface — the original error stays authoritative.
-                if self._surface_generation(retry_messages) == self._surface_generation(
-                    messages
-                ):
+                if self._surface_generation(retry_messages) == self._surface_generation(messages):
                     logger.warning(
                         "context-too-long on %s but reactive_strip did not advance "
                         "surface generation (%d msgs unchanged), surfacing original error",
@@ -551,9 +549,7 @@ class LLMGateway:
         except RuntimeError:
             pass
         else:
-            logger.error(
-                "execute() called from a running event loop; use await chat() instead"
-            )
+            logger.error("execute() called from a running event loop; use await chat() instead")
             return {"error": "event loop running; use chat()", "model": model}
         try:
             resp = asyncio.run(
@@ -563,7 +559,11 @@ class LLMGateway:
             logger.error("execute() chat failed: %s: %r", type(exc).__name__, exc)
             return {"error": str(exc), "model": model}
         if resp.finish_reason == "error":
-            err = resp.usage.get("error", "LLM call failed") if isinstance(resp.usage, dict) else "LLM call failed"
+            err = (
+                resp.usage.get("error", "LLM call failed")
+                if isinstance(resp.usage, dict)
+                else "LLM call failed"
+            )
             return {"error": err, "model": resp.model}
         return {
             "model": resp.model,
@@ -706,9 +706,7 @@ class LLMGateway:
         if target_config:
             resolved_model = target_config.name
             if target_config.provider != "local" or not client:
-                client = self._get_transport(
-                    target_config.base_url, target_config.api_key or ""
-                )
+                client = self._get_transport(target_config.base_url, target_config.api_key or "")
 
         if not client:
             yield {
@@ -937,9 +935,7 @@ class LLMGateway:
                 model=resolved_model,
             )
         except Exception as exc:
-            logger.error(
-                "Default client call failed: %s: %r", type(exc).__name__, exc
-            )
+            logger.error("Default client call failed: %s: %r", type(exc).__name__, exc)
             return GatewayResponse(
                 content="",
                 model=resolved_model,

@@ -30,7 +30,9 @@ def registry():
 
 
 def _req(server, method, params=None, req_id=1):
-    return asyncio.run(server._handle_request({"jsonrpc": "2.0", "id": req_id, "method": method, "params": params}))
+    return asyncio.run(
+        server._handle_request({"jsonrpc": "2.0", "id": req_id, "method": method, "params": params})
+    )
 
 
 def test_mcp_initialize(registry):
@@ -98,7 +100,9 @@ def test_marketplace_signature_roundtrip(tmp_path):
     entry = MarketEntry(id="e1", name="Demo", graph_data={"nodes": [{"id": "a"}]})
     mp.publish(entry)
     assert entry.sha256
-    expected = hashlib.sha256(json.dumps(entry.graph_data, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
+    expected = hashlib.sha256(
+        json.dumps(entry.graph_data, sort_keys=True, ensure_ascii=False).encode()
+    ).hexdigest()
     assert entry.sha256 == expected
     out = mp.install("e1", target_dir=tmp_path / "inst")
     assert out is not None

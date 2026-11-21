@@ -220,14 +220,13 @@ class SafetyGateway:
                 self._guard_backend.is_available(),
             )
         else:
-            logger.error(
-                "SafetyGateway guard backend init failed; fail-closed floor will apply"
-            )
+            logger.error("SafetyGateway guard backend init failed; fail-closed floor will apply")
 
     def _init_guard_backend(self, guard_client):
         # lazy import avoids circular (guard_client imports safety symbols).
         try:
             from .guard_client import GuardSafetyBackend
+
             return GuardSafetyBackend(client=guard_client) if guard_client else GuardSafetyBackend()
         except Exception as e:
             logger.warning("SafetyBackend guard init failed (%s)", e)
@@ -265,9 +264,7 @@ class SafetyGateway:
         # #258: unified guard delegation. Guard is the judgment SSOT; local
         # policy lookup is gone. If the backend failed to init, fail closed.
         if self._guard_backend is None:
-            logger.error(
-                "evaluate_action: no guard backend, fail-closed BLOCK for '%s'", category
-            )
+            logger.error("evaluate_action: no guard backend, fail-closed BLOCK for '%s'", category)
             return SafetyVerdict(
                 action=SafetyAction.BLOCK,
                 reason="Safety backend unavailable",
@@ -420,9 +417,7 @@ class SafetyGateway:
             },
         )
 
-        logger.debug(
-            "Generated diff preview for action_id=%s, category=%s", action_id, category
-        )
+        logger.debug("Generated diff preview for action_id=%s, category=%s", action_id, category)
         return request
 
     def attach_intervention_store(self, store) -> int:
@@ -450,9 +445,7 @@ class SafetyGateway:
             logger.warning("intervention store reload failed: %s", e)
             return 0
         if reloaded:
-            logger.info(
-                "intervention store attached: %d pending re-surfaced", reloaded
-            )
+            logger.info("intervention store attached: %d pending re-surfaced", reloaded)
         return reloaded
 
     def _persist_intervention(
@@ -469,24 +462,18 @@ class SafetyGateway:
                 request=request,
             )
         except Exception as e:
-            logger.warning(
-                "intervention persist failed action_id=%s: %s", action_id, e
-            )
+            logger.warning("intervention persist failed action_id=%s: %s", action_id, e)
 
     def approve_action(self, action_id: str, approver: str = "") -> bool:
         # #252 guard mode: delegate confirm to guard before resolving local future.
         if self._guard_backend is not None:
             if not self._guard_backend.confirm(action_id, True):
-                logger.warning(
-                    "approve_action: guard.confirm failed for action_id=%s", action_id
-                )
+                logger.warning("approve_action: guard.confirm failed for action_id=%s", action_id)
                 return False
         with self._lock:
             pending = self._pending_action_approvals.get(action_id)
             if pending is None:
-                logger.warning(
-                    "approve_action: no pending action with id=%s", action_id
-                )
+                logger.warning("approve_action: no pending action with id=%s", action_id)
                 return False
             if pending["status"] != "pending":
                 logger.warning(
@@ -511,9 +498,7 @@ class SafetyGateway:
         # #252 guard mode: delegate confirm(rejected) to guard.
         if self._guard_backend is not None:
             if not self._guard_backend.confirm(action_id, False):
-                logger.warning(
-                    "reject_action: guard.confirm failed for action_id=%s", action_id
-                )
+                logger.warning("reject_action: guard.confirm failed for action_id=%s", action_id)
                 return False
         with self._lock:
             pending = self._pending_action_approvals.get(action_id)
@@ -642,9 +627,7 @@ class SafetyGateway:
                 self.approver(action_id, description),
                 timeout=timeout,
             )
-            logger.info(
-                "Approval %s for %s", "granted" if approved else "denied", action_id
-            )
+            logger.info("Approval %s for %s", "granted" if approved else "denied", action_id)
             return approved
         except asyncio.TimeoutError:
             logger.warning("Approval timed out for %s", action_id)
@@ -770,9 +753,7 @@ _INJECTION_PATTERNS = [
     # #615: word-order tolerant — "ignore all previous instructions" escaped
     # the old single-slot alternation.
     re.compile(r"(?i)ignore\s+((?:all|previous|above)\s+)+instructions?", re.IGNORECASE),
-    re.compile(
-        r"(?i)forget\s+(your|all|previous)\s+(instructions|rules|prompt)", re.IGNORECASE
-    ),
+    re.compile(r"(?i)forget\s+(your|all|previous)\s+(instructions|rules|prompt)", re.IGNORECASE),
     re.compile(r"(?i)you\s+are\s+now\s+a", re.IGNORECASE),
     # #615: anchored to line start (instruction-style position). The old
     # unanchored `system\s*:` matched benign prose like
@@ -780,9 +761,7 @@ _INJECTION_PATTERNS = [
     # subsequent llm_call as injection, hard-failing headless seat agents.
     re.compile(r"(?im)^[ \t]{0,16}system\s*:"),
     re.compile(r"(?i)new\s+instructions?\s*:", re.IGNORECASE),
-    re.compile(
-        r"(?i)disregard\s+(your|all|previous)\s+(instructions|rules)", re.IGNORECASE
-    ),
+    re.compile(r"(?i)disregard\s+(your|all|previous)\s+(instructions|rules)", re.IGNORECASE),
     re.compile(r"(?i)act\s+as\s+if\s+you\s+(are|were)", re.IGNORECASE),
     re.compile(r"(?i)pretend\s+(you\s+are|to\s+be)", re.IGNORECASE),
     re.compile(r"(?i)jailbreak", re.IGNORECASE),

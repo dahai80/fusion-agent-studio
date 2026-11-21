@@ -93,18 +93,14 @@ class TestHttpRequestTool:
     @pytest.mark.asyncio
     async def test_invalid_url(self):
         tool = HttpRequestTool()
-        result = await tool.execute(
-            method="GET", url="http://nonexistent-domain-xyz-123.com"
-        )
+        result = await tool.execute(method="GET", url="http://nonexistent-domain-xyz-123.com")
         assert "Error" in result or "Connection" in result or "Failed" in result
 
     @pytest.mark.asyncio
     async def test_timeout(self):
         tool = HttpRequestTool()
         result = await tool.execute(method="GET", url="http://localhost:1", timeout=1)
-        assert (
-            "Error" in result or "timed out" in result.lower() or "Connection" in result
-        )
+        assert "Error" in result or "timed out" in result.lower() or "Connection" in result
 
 
 # ── CodeExecuteTool ──
@@ -173,9 +169,7 @@ class TestJsonParseTool:
     @pytest.mark.asyncio
     async def test_extract_keys(self):
         tool = JsonParseTool()
-        result = await tool.execute(
-            input='{"name": "test", "count": 5}', operation="extract_keys"
-        )
+        result = await tool.execute(input='{"name": "test", "count": 5}', operation="extract_keys")
         assert "name" in result
         assert "count" in result
 
@@ -409,9 +403,7 @@ class TestErrorHandlerNode:
         graph.add_node("start", NodeConfig(type="start", label="Start"))
         graph.add_node(
             "err",
-            NodeConfig(
-                type="error_handler", label="Retry", max_retries=2, retry_delay=0.01
-            ),
+            NodeConfig(type="error_handler", label="Retry", max_retries=2, retry_delay=0.01),
         )
         graph.add_node("end", NodeConfig(type="end", label="End"))
         graph.add_edge("start", "err")

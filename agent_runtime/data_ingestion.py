@@ -284,9 +284,7 @@ class MarkdownChunker(ChunkingStrategy):
                     )
                     idx += 1
 
-            section_end = (
-                headings[i + 1].start() if i + 1 < len(headings) else len(text)
-            )
+            section_end = headings[i + 1].start() if i + 1 < len(headings) else len(text)
             section_text = text[match.start() : section_end].strip()
             heading_level = len(match.group(1))
             heading_text = match.group(2)
@@ -363,9 +361,7 @@ class ETLPipeline:
         doc = reader.read_file(path)
         return self.process(doc, **chunk_kwargs)
 
-    def process_text(
-        self, text: str, source: str = "inline", **chunk_kwargs
-    ) -> list[Chunk]:
+    def process_text(self, text: str, source: str = "inline", **chunk_kwargs) -> list[Chunk]:
         reader = DocumentReader()
         doc = reader.read_text(text, source=source)
         return self.process(doc, **chunk_kwargs)
@@ -409,9 +405,7 @@ class WebReader:
     def read_url(self, url: str, timeout: int = 30) -> Document:
         logger.info("WebReader fetching: %s", url)
         try:
-            req = urllib.request.Request(
-                url, headers={"User-Agent": "FusionAgentStudio/1.0"}
-            )
+            req = urllib.request.Request(url, headers={"User-Agent": "FusionAgentStudio/1.0"})
             with urllib.request.urlopen(req, timeout=timeout) as resp:
                 html = resp.read().decode("utf-8", errors="replace")
             content = self._strip_html(html)
@@ -445,12 +439,8 @@ class WebReader:
         return docs
 
     def _strip_html(self, html: str) -> str:
-        text = re.sub(
-            r"<script[^>]*>.*?</script>", " ", html, flags=re.DOTALL | re.IGNORECASE
-        )
-        text = re.sub(
-            r"<style[^>]*>.*?</style>", " ", text, flags=re.DOTALL | re.IGNORECASE
-        )
+        text = re.sub(r"<script[^>]*>.*?</script>", " ", html, flags=re.DOTALL | re.IGNORECASE)
+        text = re.sub(r"<style[^>]*>.*?</style>", " ", text, flags=re.DOTALL | re.IGNORECASE)
         text = re.sub(r"<br\s*/?>", "\n", text, flags=re.IGNORECASE)
         text = re.sub(r"</p>", "\n", text, flags=re.IGNORECASE)
         text = re.sub(r"</div>", "\n", text, flags=re.IGNORECASE)
@@ -500,9 +490,7 @@ class GitHubReader:
         self.token = token
         self.base_url = base_url.rstrip("/")
 
-    def read_repo_file(
-        self, owner: str, repo: str, path: str, ref: str = "main"
-    ) -> Document:
+    def read_repo_file(self, owner: str, repo: str, path: str, ref: str = "main") -> Document:
         url = f"{self.base_url}/repos/{owner}/{repo}/contents/{path}?ref={ref}"
         logger.info("GitHubReader fetching: %s/%s/%s @%s", owner, repo, path, ref)
         try:
@@ -549,9 +537,7 @@ class GitHubReader:
         ref: str = "main",
         extensions: set[str] | None = None,
     ) -> list[Document]:
-        logger.info(
-            "GitHubReader tree: %s/%s/%s @%s", owner, repo, path or "(root)", ref
-        )
+        logger.info("GitHubReader tree: %s/%s/%s @%s", owner, repo, path or "(root)", ref)
         tree_url = f"{self.base_url}/repos/{owner}/{repo}/git/trees/{ref}?recursive=1"
         try:
             data = self._api_get(tree_url)
@@ -599,9 +585,7 @@ class GitHubReader:
                 doc = self.read_repo_file(owner, repo, item_path, ref)
                 if not doc.metadata.get("error"):
                     docs.append(doc)
-            logger.info(
-                "GitHubReader tree: %d files read from %s/%s", len(docs), owner, repo
-            )
+            logger.info("GitHubReader tree: %d files read from %s/%s", len(docs), owner, repo)
             return docs
         except Exception as e:
             logger.error("GitHubReader tree failed for %s/%s: %s", owner, repo, e)
@@ -683,14 +667,10 @@ class NotionReader:
             )
 
     def read_database(self, database_id: str, max_pages: int = 50) -> list[Document]:
-        logger.info(
-            "NotionReader fetching database: %s (max %d)", database_id, max_pages
-        )
+        logger.info("NotionReader fetching database: %s (max %d)", database_id, max_pages)
         try:
             body = {"page_size": min(max_pages, 100)}
-            result = self._api_post(
-                f"{self.base_url}/databases/{database_id}/query", body
-            )
+            result = self._api_post(f"{self.base_url}/databases/{database_id}/query", body)
             pages = result.get("results", [])
             docs = []
             for page_obj in pages[:max_pages]:
@@ -698,9 +678,7 @@ class NotionReader:
                 if pid:
                     doc = self.read_page(pid)
                     docs.append(doc)
-            logger.info(
-                "NotionReader database: %d pages read from %s", len(docs), database_id
-            )
+            logger.info("NotionReader database: %d pages read from %s", len(docs), database_id)
             return docs
         except Exception as e:
             logger.error("NotionReader database failed for %s: %s", database_id, e)
@@ -819,9 +797,7 @@ class PDFReader:
             )
 
     def read_bytes(self, data: bytes, source: str = "") -> Document:
-        logger.info(
-            "PDFReader reading bytes (%d bytes) from %s", len(data), source or "unknown"
-        )
+        logger.info("PDFReader reading bytes (%d bytes) from %s", len(data), source or "unknown")
         try:
             content = self._extract_bytes_with_pypdf(data)
             if not content:
@@ -915,9 +891,7 @@ class PDFReader:
 
 
 class DirectoryReader:
-    def __init__(
-        self, extensions: set[str] | None = None, exclude_dirs: set[str] | None = None
-    ):
+    def __init__(self, extensions: set[str] | None = None, exclude_dirs: set[str] | None = None):
         self.extensions = extensions or SUPPORTED_EXTENSIONS
         self.exclude_dirs = exclude_dirs or {
             ".git",
@@ -973,9 +947,7 @@ class DirectoryReader:
         logger.info("DirectoryReader: %d documents from %s", len(docs), path)
         return docs
 
-    def _walk(
-        self, root: Path, max_depth: int = 10, current_depth: int = 0
-    ) -> list[Path]:
+    def _walk(self, root: Path, max_depth: int = 10, current_depth: int = 0) -> list[Path]:
         if current_depth > max_depth:
             return []
         files = []

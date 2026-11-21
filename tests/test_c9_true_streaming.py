@@ -4,6 +4,7 @@ Verifies the boundary layers no longer buffer: WS pushes per-token TOKEN
 events, SSE returns text/event-stream with per-event data lines, and the
 agent.execute_stream RPC yields TOKEN events (not a single THINK).
 """
+
 from __future__ import annotations
 
 import json
@@ -99,8 +100,8 @@ def patched_api(tmp_path, monkeypatch):
 # Runtime-level: execute_graph_stream yields TOKEN events
 # ---------------------------------------------------------------------------
 
-class TestRuntimeStream:
 
+class TestRuntimeStream:
     @pytest.mark.asyncio
     async def test_execute_graph_stream_yields_tokens(self):
         rt = _make_runtime()
@@ -125,8 +126,8 @@ class TestRuntimeStream:
 # SSE endpoint — real streaming, text/event-stream
 # ---------------------------------------------------------------------------
 
-class TestSSEEndpoint:
 
+class TestSSEEndpoint:
     def test_sse_returns_event_stream(self, patched_api):
         graph = patched_api["graph"]
         client = TestClient(app)
@@ -139,7 +140,7 @@ class TestSSEEndpoint:
         text = body.decode("utf-8")
         # SSE data lines
         assert "data: " in text
-        lines = [l[len("data: "):] for l in text.splitlines() if l.startswith("data: ")]
+        lines = [l[len("data: ") :] for l in text.splitlines() if l.startswith("data: ")]
         assert lines, "no SSE data lines received"
         events = [json.loads(l) for l in lines]
         types = [e.get("type") for e in events]
@@ -157,7 +158,7 @@ class TestSSEEndpoint:
         client = TestClient(app)
         with client.stream("GET", f"/v1/graphs/{graph.id}/execute/stream?input=hi") as resp:
             body = b"".join(resp.iter_bytes())
-        lines = [l[len("data: "):] for l in body.decode().splitlines() if l.startswith("data: ")]
+        lines = [l[len("data: ") :] for l in body.decode().splitlines() if l.startswith("data: ")]
         events = [json.loads(l) for l in lines]
         token_events = [e for e in events if e.get("type") == "token"]
         assert len(token_events) >= 3, f"expected >=3 token chunks, got {len(token_events)}"
@@ -167,8 +168,8 @@ class TestSSEEndpoint:
 # WS endpoint — now connects execute_graph_stream, pushes TOKEN events
 # ---------------------------------------------------------------------------
 
-class TestWSEndpoint:
 
+class TestWSEndpoint:
     def test_ws_pushes_token_events(self, patched_api):
         graph = patched_api["graph"]
         client = TestClient(app)
@@ -195,8 +196,8 @@ class TestWSEndpoint:
 # agent.execute_stream RPC — now uses execute_graph_stream (TOKEN events)
 # ---------------------------------------------------------------------------
 
-class TestAgentExecuteStreamRPC:
 
+class TestAgentExecuteStreamRPC:
     @pytest.mark.asyncio
     async def test_execute_stream_rpc_yields_token_events(self, tmp_path, monkeypatch):
         from agent_runtime.dispatchers.agent import AgentDispatcher
@@ -210,12 +211,16 @@ class TestAgentExecuteStreamRPC:
         agent_dir = tmp_path / "agent-stream"
         pkg_dir = agent_dir / ".fusion-agent"
         pkg_dir.mkdir(parents=True, exist_ok=True)
-        (pkg_dir / "manifest.json").write_text(json.dumps({
-            "name": "stream-agent",
-            "system_prompt": "you are helpful",
-            "model": "test-model",
-            "tools": [],
-        }))
+        (pkg_dir / "manifest.json").write_text(
+            json.dumps(
+                {
+                    "name": "stream-agent",
+                    "system_prompt": "you are helpful",
+                    "model": "test-model",
+                    "tools": [],
+                }
+            )
+        )
 
         class FakeDaemon:
             def _agent_dir(self, agent_id):
@@ -227,12 +232,14 @@ class TestAgentExecuteStreamRPC:
             def _inject_knowledge_context(self, *a, **k):
                 async def _nope(*a, **k):
                     return ""
+
                 return _nope()
 
             def _get_style_manager(self):
                 class _SM:
                     def apply(self, prompt, style):
                         return {"system_prompt": prompt}
+
                 return _SM()
 
             # 审计 P2-5/P2-6/P0-3: agent.execute_stream 依赖的 daemon 访问点.
@@ -251,10 +258,12 @@ class TestAgentExecuteStreamRPC:
         daemon = FakeDaemon()
         daemon.store = store
         disp = AgentDispatcher(daemon)
-        result = await disp._handle_agent_execute_stream({
-            "agent_id": "stream-agent",
-            "input": "hi",
-        })
+        result = await disp._handle_agent_execute_stream(
+            {
+                "agent_id": "stream-agent",
+                "input": "hi",
+            }
+        )
         assert result["status"] == "completed"
         types = [e.get("type") for e in result["events"]]
         assert "token" in types, f"RPC execute_stream emitted no token: {types}"

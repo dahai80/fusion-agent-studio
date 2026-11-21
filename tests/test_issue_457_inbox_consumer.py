@@ -42,9 +42,7 @@ def _make_consumer(roster, mailbox, runs=None):
     async def get_run(run_id):
         return runs.get(run_id)
 
-    consumer = InboxConsumer(
-        roster=roster, mailbox=mailbox, submit_run=submit_run, get_run=get_run
-    )
+    consumer = InboxConsumer(roster=roster, mailbox=mailbox, submit_run=submit_run, get_run=get_run)
     return consumer, submitted
 
 
@@ -94,7 +92,9 @@ async def test_reply_posted_back_to_sender_on_completion(stores):
     roster, mailbox = stores
     _autonomous_agent(roster)
     mailbox.send("cowork-agent", "auto-1", "summarize")
-    runs = {"run-1": {"status": "completed", "last_result": {"output": "the summary"}, "last_error": ""}}
+    runs = {
+        "run-1": {"status": "completed", "last_result": {"output": "the summary"}, "last_error": ""}
+    }
     consumer, _ = _make_consumer(roster, mailbox, runs)
 
     await consumer.tick()  # dispatch
@@ -176,9 +176,7 @@ async def test_roster_migration_adds_columns(tmp_path):
         "team TEXT NOT NULL DEFAULT '', capabilities TEXT NOT NULL DEFAULT '', "
         "status TEXT NOT NULL DEFAULT 'idle', updated_at REAL NOT NULL)"
     )
-    conn.execute(
-        "INSERT INTO roster VALUES ('old-1', 'Old', 't', '', 'idle', 0)"
-    )
+    conn.execute("INSERT INTO roster VALUES ('old-1', 'Old', 't', '', 'idle', 0)")
     conn.commit()
     conn.close()
 

@@ -136,6 +136,7 @@ class TestMigrationV4:
         store, path = _temp_store()
         try:
             import sqlite3
+
             conn = sqlite3.connect(path)
             cols = {row[1] for row in conn.execute("PRAGMA table_info(tasks)").fetchall()}
             conn.close()
@@ -149,6 +150,7 @@ class TestMigrationV4:
         fd, path = tempfile.mkstemp(suffix=".db")
         os.close(fd)
         import sqlite3
+
         conn = sqlite3.connect(path)
         conn.execute("PRAGMA user_version = 3")
         # simulate a real v3 DB: full base schema (no depends_on yet)
@@ -186,6 +188,7 @@ class TestMigrationV4:
 class TestRunChain:
     def _make_mock_daemon(self, store, runtime, graph_map):
         from agent_runtime.daemon_server import DaemonServer
+
         daemon = MagicMock(spec=DaemonServer)
         daemon._active_chains = {}
         daemon._get_task_store = MagicMock(return_value=store)
@@ -213,14 +216,29 @@ class TestRunChain:
             runtime.execute_graph = gen
             daemon = self._make_mock_daemon(store, runtime, {"g0": graph, "g1": graph})
             from agent_runtime.dispatchers.infra import InfraDispatcher
+
             disp = InfraDispatcher(daemon)
-            result = await disp._handle_task_run_chain({
-                "steps": [
-                    {"title": "s0", "graph_id": "g0", "depends_on": [], "role": "writer", "output_keys": []},
-                    {"title": "s1", "graph_id": "g1", "depends_on": [0], "role": "imager", "output_keys": []},
-                ],
-                "team": "default",
-            })
+            result = await disp._handle_task_run_chain(
+                {
+                    "steps": [
+                        {
+                            "title": "s0",
+                            "graph_id": "g0",
+                            "depends_on": [],
+                            "role": "writer",
+                            "output_keys": [],
+                        },
+                        {
+                            "title": "s1",
+                            "graph_id": "g1",
+                            "depends_on": [0],
+                            "role": "imager",
+                            "output_keys": [],
+                        },
+                    ],
+                    "team": "default",
+                }
+            )
             assert result["status"] == "started"
             chain_id = result["chain_id"]
             bg = daemon._active_chains.get(chain_id)
@@ -255,14 +273,23 @@ class TestRunChain:
             runtime.execute_graph = gen
             daemon = self._make_mock_daemon(store, runtime, {"g0": graph})
             from agent_runtime.dispatchers.infra import InfraDispatcher
+
             disp = InfraDispatcher(daemon)
-            result = await disp._handle_task_run_chain({
-                "steps": [
-                    {"title": "s0", "graph_id": "g0", "depends_on": [], "role": "writer",
-                     "output_keys": [], "max_retries": 2},
-                ],
-                "team": "default",
-            })
+            result = await disp._handle_task_run_chain(
+                {
+                    "steps": [
+                        {
+                            "title": "s0",
+                            "graph_id": "g0",
+                            "depends_on": [],
+                            "role": "writer",
+                            "output_keys": [],
+                            "max_retries": 2,
+                        },
+                    ],
+                    "team": "default",
+                }
+            )
             chain_id = result["chain_id"]
             bg = daemon._active_chains.get(chain_id)
             if bg:
@@ -290,16 +317,31 @@ class TestRunChain:
             runtime.execute_graph = always_fail
             daemon = self._make_mock_daemon(store, runtime, {"g0": graph, "g1": graph})
             from agent_runtime.dispatchers.infra import InfraDispatcher
+
             disp = InfraDispatcher(daemon)
-            result = await disp._handle_task_run_chain({
-                "steps": [
-                    {"title": "s0", "graph_id": "g0", "depends_on": [], "role": "writer",
-                     "output_keys": [], "max_retries": 1},
-                    {"title": "s1", "graph_id": "g1", "depends_on": [0], "role": "imager",
-                     "output_keys": [], "max_retries": 1},
-                ],
-                "team": "default",
-            })
+            result = await disp._handle_task_run_chain(
+                {
+                    "steps": [
+                        {
+                            "title": "s0",
+                            "graph_id": "g0",
+                            "depends_on": [],
+                            "role": "writer",
+                            "output_keys": [],
+                            "max_retries": 1,
+                        },
+                        {
+                            "title": "s1",
+                            "graph_id": "g1",
+                            "depends_on": [0],
+                            "role": "imager",
+                            "output_keys": [],
+                            "max_retries": 1,
+                        },
+                    ],
+                    "team": "default",
+                }
+            )
             chain_id = result["chain_id"]
             bg = daemon._active_chains.get(chain_id)
             if bg:
@@ -343,16 +385,31 @@ class TestRunChain:
             runtime.execute_graph = execute_graph
             daemon = self._make_mock_daemon(store, runtime, {"g0": g0, "g1": g1})
             from agent_runtime.dispatchers.infra import InfraDispatcher
+
             disp = InfraDispatcher(daemon)
-            result = await disp._handle_task_run_chain({
-                "steps": [
-                    {"title": "s0", "graph_id": "g0", "depends_on": [], "role": "writer",
-                     "output_keys": ["script_json"], "max_retries": 0},
-                    {"title": "s1", "graph_id": "g1", "depends_on": [0], "role": "imager",
-                     "output_keys": ["image_paths"], "max_retries": 0},
-                ],
-                "team": "default",
-            })
+            result = await disp._handle_task_run_chain(
+                {
+                    "steps": [
+                        {
+                            "title": "s0",
+                            "graph_id": "g0",
+                            "depends_on": [],
+                            "role": "writer",
+                            "output_keys": ["script_json"],
+                            "max_retries": 0,
+                        },
+                        {
+                            "title": "s1",
+                            "graph_id": "g1",
+                            "depends_on": [0],
+                            "role": "imager",
+                            "output_keys": ["image_paths"],
+                            "max_retries": 0,
+                        },
+                    ],
+                    "team": "default",
+                }
+            )
             chain_id = result["chain_id"]
             bg = daemon._active_chains.get(chain_id)
             if bg:
@@ -364,5 +421,3 @@ class TestRunChain:
             assert t1.status == TASK_STATUS_COMPLETED
         finally:
             os.unlink(path)
-
-

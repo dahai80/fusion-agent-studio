@@ -40,7 +40,7 @@ def parse_sandbox(value: str | None) -> SandboxTarget:
     if raw == LOCAL:
         return SandboxTarget(raw=LOCAL, mode=LOCAL)
     if raw.startswith("multi-node:"):
-        node = raw[len("multi-node:"):].strip()
+        node = raw[len("multi-node:") :].strip()
         if not node:
             raise ValueError("sandbox multi-node:<node_id> requires a node id")
         return SandboxTarget(raw=raw, mode="multi-node", node=node)

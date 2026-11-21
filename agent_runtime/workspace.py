@@ -32,7 +32,9 @@ CONTAINER_LANGUAGES = {"python", "shell", "bash"}
 
 
 def workspace_image() -> str:
-    return os.environ.get("FUSION_WORKSPACE_IMAGE", "python:3.12-slim").strip() or "python:3.12-slim"
+    return (
+        os.environ.get("FUSION_WORKSPACE_IMAGE", "python:3.12-slim").strip() or "python:3.12-slim"
+    )
 
 
 def docker_available(force: bool = False) -> bool:
@@ -44,9 +46,7 @@ def docker_available(force: bool = False) -> bool:
     ok = False
     if shutil.which("docker"):
         try:
-            proc = subprocess.run(
-                ["docker", "info"], capture_output=True, text=True, timeout=10
-            )
+            proc = subprocess.run(["docker", "info"], capture_output=True, text=True, timeout=10)
             ok = proc.returncode == 0
         except Exception as e:
             logger.warning("docker info probe failed: %s", e)
@@ -68,7 +68,9 @@ def resolve_workspace_backend(requested: str = "") -> str:
     # fallback with warning (AC: fallback verified when Docker absent).
     mode = normalize_workspace_mode(requested)
     if not mode:
-        mode = normalize_workspace_mode(os.environ.get("FUSION_WORKSPACE_BACKEND", "auto")) or "auto"
+        mode = (
+            normalize_workspace_mode(os.environ.get("FUSION_WORKSPACE_BACKEND", "auto")) or "auto"
+        )
     if mode == "local":
         return "local"
     if mode == "docker":
@@ -93,10 +95,15 @@ def run_in_container(
     # must reference /workspace-relative paths.
     exec_id = exec_id or uuid.uuid4().hex[:8]
     cmd = [
-        "docker", "run", "--rm",
-        "--network", "none",
-        "--memory", "512m",
-        "--pids-limit", "256",
+        "docker",
+        "run",
+        "--rm",
+        "--network",
+        "none",
+        "--memory",
+        "512m",
+        "--pids-limit",
+        "256",
     ]
     if workdir:
         resolved = str(Path(workdir).resolve())
@@ -104,13 +111,9 @@ def run_in_container(
     cmd += [workspace_image()] + inner_argv
     logger.info("container exec %s: %s", exec_id, " ".join(cmd[:10]))
     try:
-        proc = subprocess.run(
-            cmd, capture_output=True, text=True, timeout=timeout
-        )
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
         success = proc.returncode == 0
-        logger.info(
-            "container exec %s: exit=%d success=%s", exec_id, proc.returncode, success
-        )
+        logger.info("container exec %s: exit=%d success=%s", exec_id, proc.returncode, success)
         return SandboxResult(
             success=success,
             exit_code=proc.returncode,

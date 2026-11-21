@@ -79,7 +79,9 @@ class WorkerPool:
             worker_id = f"worker-{i}"
             q: asyncio.Queue = asyncio.Queue()
             self._queues.append(q)
-            self.workers.append({"worker_id": worker_id, "workspace": str(self._workspace(worker_id))})
+            self.workers.append(
+                {"worker_id": worker_id, "workspace": str(self._workspace(worker_id))}
+            )
             self._tasks.append(asyncio.create_task(self._loop(i)))
         logger.info("worker pool started workers=%d", self.size)
 
@@ -151,7 +153,9 @@ class WorkerPool:
                     )
                     continue
                 try:
-                    out = await self.executor(job.payload, session_id=job.session_id, workspace=str(workspace))
+                    out = await self.executor(
+                        job.payload, session_id=job.session_id, workspace=str(workspace)
+                    )
                 except Exception as e:
                     logger.warning("worker %s session %s failed: %s", worker_id, job.session_id, e)
                     job.future.set_result(
@@ -202,7 +206,11 @@ class WorkerPool:
             "size": self.size,
             "running": self._running,
             "workers": [
-                {"worker_id": w["worker_id"], "workspace": w["workspace"], "queued": self._queues[i].qsize()}
+                {
+                    "worker_id": w["worker_id"],
+                    "workspace": w["workspace"],
+                    "queued": self._queues[i].qsize(),
+                }
                 for i, w in enumerate(self.workers)
             ],
             "sessions_tracked": len(self._affinity),

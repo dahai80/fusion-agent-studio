@@ -14,6 +14,7 @@ Pins:
   3. mlx.status probes engine health when the daemon process handle is None —
      a standalone engine yields running=true + a models list.
 """
+
 from __future__ import annotations
 
 import tempfile
@@ -105,28 +106,55 @@ class TestIssue419DashboardCounters:
         now = time.time()
         exec_id = "exec-419-tokens"
         # Span: 3 token events on one node + a usage-bearing result event.
-        daemon._append_run_span(exec_id, "default", {
-            "type": "start", "timestamp": now - 10, "node_id": "",
-        })
+        daemon._append_run_span(
+            exec_id,
+            "default",
+            {
+                "type": "start",
+                "timestamp": now - 10,
+                "node_id": "",
+            },
+        )
         for _ in range(3):
-            daemon._append_run_span(exec_id, "default", {
-                "type": "token", "timestamp": now - 5, "node_id": "llm-2", "content": "x",
-            })
-        daemon._append_run_span(exec_id, "default", {
-            "type": "result", "timestamp": now - 4, "node_id": "llm-1",
-            "metadata": {"usage": {"total_tokens": 42}},
-        })
-        daemon._append_run_span(exec_id, "default", {
-            "type": "run_end", "timestamp": now - 1, "status": "completed",
-        })
-        daemon._task_store.submit(Task(
-            title="t-419",
-            agent_id="solo",
-            status="completed",
-            created_at=now - 30,
-            updated_at=now - 10,
-            last_result={"execution_id": exec_id},
-        ))
+            daemon._append_run_span(
+                exec_id,
+                "default",
+                {
+                    "type": "token",
+                    "timestamp": now - 5,
+                    "node_id": "llm-2",
+                    "content": "x",
+                },
+            )
+        daemon._append_run_span(
+            exec_id,
+            "default",
+            {
+                "type": "result",
+                "timestamp": now - 4,
+                "node_id": "llm-1",
+                "metadata": {"usage": {"total_tokens": 42}},
+            },
+        )
+        daemon._append_run_span(
+            exec_id,
+            "default",
+            {
+                "type": "run_end",
+                "timestamp": now - 1,
+                "status": "completed",
+            },
+        )
+        daemon._task_store.submit(
+            Task(
+                title="t-419",
+                agent_id="solo",
+                status="completed",
+                created_at=now - 30,
+                updated_at=now - 10,
+                last_result={"execution_id": exec_id},
+            )
+        )
         # Old task outside the 24h window must not count. submit() stamps
         # updated_at=now unconditionally, so freeze the clock during submit.
         import agent_runtime.task_store as ts_mod
@@ -139,14 +167,16 @@ class TestIssue419DashboardCounters:
         real_time = ts_mod.time
         ts_mod.time = _FrozenTime
         try:
-            daemon._task_store.submit(Task(
-                title="t-419-old",
-                agent_id="solo",
-                status="completed",
-                created_at=now - 86400 * 3,
-                updated_at=now - 86400 * 3,
-                last_result={"execution_id": exec_id},
-            ))
+            daemon._task_store.submit(
+                Task(
+                    title="t-419-old",
+                    agent_id="solo",
+                    status="completed",
+                    created_at=now - 86400 * 3,
+                    updated_at=now - 86400 * 3,
+                    last_result={"execution_id": exec_id},
+                )
+            )
         finally:
             ts_mod.time = real_time
         result = await InfraDispatcher(daemon)._handle_dashboard_overview({})
@@ -157,13 +187,15 @@ class TestIssue419DashboardCounters:
     @pytest.mark.asyncio
     async def test_failed_task_counts_as_error(self, daemon):
         now = time.time()
-        daemon._task_store.submit(Task(
-            title="t-419-fail",
-            agent_id="solo",
-            status="failed",
-            created_at=now - 30,
-            updated_at=now - 10,
-        ))
+        daemon._task_store.submit(
+            Task(
+                title="t-419-fail",
+                agent_id="solo",
+                status="failed",
+                created_at=now - 30,
+                updated_at=now - 10,
+            )
+        )
         result = await InfraDispatcher(daemon)._handle_dashboard_overview({})
         assert result["today_requests"] == 1
         assert result["error_count"] >= 1
@@ -204,29 +236,46 @@ class TestIssue417AgentUsage:
         # empty legacy MetricsEngine sessions path.
         now = time.time()
         exec_id = "exec-417-usage"
-        daemon._append_run_span(exec_id, "default", {
-            "type": "token", "timestamp": now - 5, "node_id": "llm-1", "content": "x",
-        })
-        daemon._append_run_span(exec_id, "default", {
-            "type": "run_end", "timestamp": now - 1, "status": "completed",
-        })
+        daemon._append_run_span(
+            exec_id,
+            "default",
+            {
+                "type": "token",
+                "timestamp": now - 5,
+                "node_id": "llm-1",
+                "content": "x",
+            },
+        )
+        daemon._append_run_span(
+            exec_id,
+            "default",
+            {
+                "type": "run_end",
+                "timestamp": now - 1,
+                "status": "completed",
+            },
+        )
         daemon._agents_index_loaded = True
         daemon._agents = {"ag-1": {"name": "usage-agent", "status": "draft"}}
-        daemon._task_store.submit(Task(
-            title="t-417-a",
-            agent_id="ag-1",
-            status="completed",
-            created_at=now - 30,
-            updated_at=now - 10,
-            last_result={"execution_id": exec_id},
-        ))
-        daemon._task_store.submit(Task(
-            title="t-417-b",
-            agent_id="ag-1",
-            status="failed",
-            created_at=now - 30,
-            updated_at=now - 5,
-        ))
+        daemon._task_store.submit(
+            Task(
+                title="t-417-a",
+                agent_id="ag-1",
+                status="completed",
+                created_at=now - 30,
+                updated_at=now - 10,
+                last_result={"execution_id": exec_id},
+            )
+        )
+        daemon._task_store.submit(
+            Task(
+                title="t-417-b",
+                agent_id="ag-1",
+                status="failed",
+                created_at=now - 30,
+                updated_at=now - 5,
+            )
+        )
         result = await InfraDispatcher(daemon)._handle_analytics_agent_usage({})
         rows = result["agents"]
         assert len(rows) == 1
@@ -246,27 +295,44 @@ class TestIssue417AgentUsage:
 
         now = time.time()
         exec_id = "exec-417-graph"
-        daemon._append_run_span(exec_id, "default", {
-            "type": "token", "timestamp": now - 5, "node_id": "llm-1", "content": "x",
-        })
-        daemon._append_run_span(exec_id, "default", {
-            "type": "run_end", "timestamp": now - 1, "status": "completed",
-        })
-        daemon.store.save_graph(AgentGraph(
-            id="g-417",
-            name="usage-graph",
-            description="",
-            agent_id="ag-graph",
-        ))
-        daemon._task_store.submit(Task(
-            title="t-417-graph",
-            agent_id="",
-            graph_id="g-417",
-            status="completed",
-            created_at=now - 30,
-            updated_at=now - 10,
-            last_result={"execution_id": exec_id},
-        ))
+        daemon._append_run_span(
+            exec_id,
+            "default",
+            {
+                "type": "token",
+                "timestamp": now - 5,
+                "node_id": "llm-1",
+                "content": "x",
+            },
+        )
+        daemon._append_run_span(
+            exec_id,
+            "default",
+            {
+                "type": "run_end",
+                "timestamp": now - 1,
+                "status": "completed",
+            },
+        )
+        daemon.store.save_graph(
+            AgentGraph(
+                id="g-417",
+                name="usage-graph",
+                description="",
+                agent_id="ag-graph",
+            )
+        )
+        daemon._task_store.submit(
+            Task(
+                title="t-417-graph",
+                agent_id="",
+                graph_id="g-417",
+                status="completed",
+                created_at=now - 30,
+                updated_at=now - 10,
+                last_result={"execution_id": exec_id},
+            )
+        )
         result = await InfraDispatcher(daemon)._handle_analytics_agent_usage({})
         row = next((r for r in result["agents"] if r["agent_id"] == "ag-graph"), None)
         assert row is not None, "graph-scoped task attributed to bound agent"
@@ -286,13 +352,15 @@ class TestIssue417AgentUsage:
         real_time = ts_mod.time
         ts_mod.time = _FrozenTime
         try:
-            daemon._task_store.submit(Task(
-                title="t-417-old",
-                agent_id="ag-1",
-                status="completed",
-                created_at=now - 86400 * 3,
-                updated_at=now - 86400 * 3,
-            ))
+            daemon._task_store.submit(
+                Task(
+                    title="t-417-old",
+                    agent_id="ag-1",
+                    status="completed",
+                    created_at=now - 86400 * 3,
+                    updated_at=now - 86400 * 3,
+                )
+            )
         finally:
             ts_mod.time = real_time
         result = await InfraDispatcher(daemon)._handle_analytics_agent_usage({})

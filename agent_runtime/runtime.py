@@ -428,9 +428,8 @@ class AgentRuntime(_SafetyApprovalMixin, _CheckpointMixin, _DynamicToolsMixin, _
             return None
         from .paths import studio_home
 
-        log_dir = (
-            os.environ.get("FUSION_SESSION_EVENT_LOG_DIR")
-            or str(studio_home() / "session-events")
+        log_dir = os.environ.get("FUSION_SESSION_EVENT_LOG_DIR") or str(
+            studio_home() / "session-events"
         )
         try:
             log = SessionEventLog(ctx.session_id, log_dir=log_dir)
@@ -536,8 +535,10 @@ class AgentRuntime(_SafetyApprovalMixin, _CheckpointMixin, _DynamicToolsMixin, _
         # E1: session-level run budget (tokens/cost/wall) — first-class run
         # object. Tracker anchors wall-clock at run start; enforcement point
         # is the post-llm-node check below (mirrors TokenBudget stop path).
-        _rb = run_budget if isinstance(run_budget, RunBudget) else RunBudget.from_dict(
-            run_budget if isinstance(run_budget, dict) else None
+        _rb = (
+            run_budget
+            if isinstance(run_budget, RunBudget)
+            else RunBudget.from_dict(run_budget if isinstance(run_budget, dict) else None)
         )
         run_tracker = RunBudgetTracker(_rb) if _rb.active() else None
         ctx = context or AgentContext()
@@ -943,7 +944,8 @@ class AgentRuntime(_SafetyApprovalMixin, _CheckpointMixin, _DynamicToolsMixin, _
                                         ctx.variables.set(_k, _seed[_k])
                                 logger.info(
                                     "flow_state seeded keys=%s graph=%s",
-                                    _flow_keys, graph.id,
+                                    _flow_keys,
+                                    graph.id,
                                 )
                         except (ValueError, TypeError):
                             pass
@@ -976,10 +978,7 @@ class AgentRuntime(_SafetyApprovalMixin, _CheckpointMixin, _DynamicToolsMixin, _
                             )
                             yield AgentEvent(
                                 type=AgentEventType.BUDGET_REACHED,
-                                content=(
-                                    "Run budget exceeded: "
-                                    + ", ".join(rb_status.dims)
-                                ),
+                                content=("Run budget exceeded: " + ", ".join(rb_status.dims)),
                                 metadata=rb_status.to_dict(),
                             )
                             ctx.stop_reason = "budget_reached"
@@ -1218,9 +1217,8 @@ class AgentRuntime(_SafetyApprovalMixin, _CheckpointMixin, _DynamicToolsMixin, _
                         yield event
                         if event.type == AgentEventType.ERROR:
                             return
-                        if (
-                            event.type == AgentEventType.CHECKPOINT
-                            and (event.metadata or {}).get("paused")
+                        if event.type == AgentEventType.CHECKPOINT and (event.metadata or {}).get(
+                            "paused"
                         ):
                             ctx.stop_reason = "paused_human_input"
                             logger.info(

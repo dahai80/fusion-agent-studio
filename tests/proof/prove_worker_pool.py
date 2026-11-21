@@ -43,7 +43,9 @@ async def main() -> int:
         elapsed = time.time() - started
 
         ok = [r for r in results if r.ok]
-        parked_resumed = [r for r in results if r.session_id in PARK_SESSIONS and r.ok and r.attempts >= 2]
+        parked_resumed = [
+            r for r in results if r.session_id in PARK_SESSIONS and r.ok and r.attempts >= 2
+        ]
         assert len(ok) == SESSIONS, f"expected all {SESSIONS} ok, got {len(ok)}"
         assert len(parked_resumed) == len(PARK_SESSIONS), (
             f"expected {len(PARK_SESSIONS)} parked+resumed, got {len(parked_resumed)}"

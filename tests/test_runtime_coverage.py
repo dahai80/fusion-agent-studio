@@ -35,9 +35,7 @@ class MockMLXClient:
     def set_raise(self, exc):
         self._raise = exc
 
-    async def chat(
-        self, model, messages, tools=None, temperature=0.7, max_tokens=4096, **kwargs
-    ):
+    async def chat(self, model, messages, tools=None, temperature=0.7, max_tokens=4096, **kwargs):
         self.call_count += 1
         if self._raise:
             raise self._raise
@@ -313,9 +311,7 @@ class TestConditionEngineEvaluate:
 
     def test_unknown_returns_false(self):
         eng = ConditionEngine()
-        assert (
-            eng.evaluate("unknown_expr", AgentContext(), VariableManager()) == "false"
-        )
+        assert eng.evaluate("unknown_expr", AgentContext(), VariableManager()) == "false"
 
 
 # ---------------------------------------------------------------------------
@@ -705,9 +701,7 @@ class TestExecuteLlmNodeToolCallChainLimit:
         ctx.tool_call_chain_count = _MAX_TOOL_CALL_CHAIN
         node = g.get_node("llm")
         events = []
-        async for ev in runtime._execute_llm_node(
-            ctx, node, g, "m", tools.to_openai_schemas(), ""
-        ):
+        async for ev in runtime._execute_llm_node(ctx, node, g, "m", tools.to_openai_schemas(), ""):
             events.append(ev)
         errors = [e for e in events if e.type == AgentEventType.ERROR]
         assert any("Tool call chain exceeded" in e.content for e in errors)
@@ -890,9 +884,7 @@ class TestExecuteToolNodeErrors:
         g = _build_graph(
             {
                 "start": NodeConfig(type="start", label="Start"),
-                "tool1": NodeConfig(
-                    type="tool", label="Tool", tool_name="boom", tool_params={}
-                ),
+                "tool1": NodeConfig(type="tool", label="Tool", tool_name="boom", tool_params={}),
                 "end": NodeConfig(type="end", label="End"),
             },
             [("start", "tool1"), ("tool1", "end")],
@@ -917,9 +909,7 @@ class TestExecuteConditionNodeException:
         g = _build_graph(
             {
                 "start": NodeConfig(type="start", label="Start"),
-                "cond": NodeConfig(
-                    type="condition", label="Cond", condition_expr="oops"
-                ),
+                "cond": NodeConfig(type="condition", label="Cond", condition_expr="oops"),
                 "end": NodeConfig(type="end", label="End"),
             },
             [("start", "cond"), ("cond", "end", "true")],
@@ -1075,9 +1065,7 @@ class TestExecuteErrorHandlerNode:
         g = _build_graph(
             {
                 "start": NodeConfig(type="start", label="Start"),
-                "tool1": NodeConfig(
-                    type="tool", label="Tool", tool_name="t1", tool_params={}
-                ),
+                "tool1": NodeConfig(type="tool", label="Tool", tool_name="t1", tool_params={}),
                 "errh": NodeConfig(
                     type="error_handler",
                     label="ErrHandler",
@@ -1105,9 +1093,7 @@ class TestExecuteErrorHandlerNode:
         g = _build_graph(
             {
                 "start": NodeConfig(type="start", label="Start"),
-                "tool1": NodeConfig(
-                    type="tool", label="Tool", tool_name="t1", tool_params={}
-                ),
+                "tool1": NodeConfig(type="tool", label="Tool", tool_name="t1", tool_params={}),
                 "errh": NodeConfig(
                     type="error_handler",
                     label="ErrHandler",
@@ -1138,9 +1124,7 @@ class TestExecuteSubGraph:
         tools = MockToolRegistry()
         runtime = _make_runtime(mlx, tools)
         ctx = AgentContext()
-        node = NodeConfig(
-            type="tool", label="sub", tool_name="__sub_graph__", tool_params={}
-        )
+        node = NodeConfig(type="tool", label="sub", tool_name="__sub_graph__", tool_params={})
         events = []
         async for ev in runtime._execute_sub_graph(ctx, {}, node):
             events.append(ev)
@@ -1152,13 +1136,9 @@ class TestExecuteSubGraph:
         tools = MockToolRegistry()
         runtime = _make_runtime(mlx, tools)
         ctx = AgentContext()
-        node = NodeConfig(
-            type="tool", label="sub", tool_name="__sub_graph__", tool_params={}
-        )
+        node = NodeConfig(type="tool", label="sub", tool_name="__sub_graph__", tool_params={})
         events = []
-        async for ev in runtime._execute_sub_graph(
-            ctx, {"graph_json": "not valid json"}, node
-        ):
+        async for ev in runtime._execute_sub_graph(ctx, {"graph_json": "not valid json"}, node):
             events.append(ev)
         errors = [e for e in events if e.type == AgentEventType.ERROR]
         assert any("parse error" in e.content for e in errors)
@@ -1178,9 +1158,7 @@ class TestExecuteSubGraph:
         runtime = _make_runtime(mlx, tools)
         runtime.variables.set("parent_val", "hello")
         ctx = AgentContext()
-        node = NodeConfig(
-            type="tool", label="sub", tool_name="__sub_graph__", tool_params={}
-        )
+        node = NodeConfig(type="tool", label="sub", tool_name="__sub_graph__", tool_params={})
         events = []
         async for ev in runtime._execute_sub_graph(
             ctx,
@@ -1208,9 +1186,7 @@ class TestExecuteSubGraph:
         tools = MockToolRegistry()
         runtime = _make_runtime(mlx, tools)
         ctx = AgentContext()
-        node = NodeConfig(
-            type="tool", label="sub", tool_name="__sub_graph__", tool_params={}
-        )
+        node = NodeConfig(type="tool", label="sub", tool_name="__sub_graph__", tool_params={})
         events = []
         async for ev in runtime._execute_sub_graph(
             ctx,
@@ -1239,9 +1215,7 @@ class TestExecuteSubGraph:
         runtime = _make_runtime(mlx, tools)
         runtime.variables.set("src_var", "value123")
         ctx = AgentContext()
-        node = NodeConfig(
-            type="tool", label="sub", tool_name="__sub_graph__", tool_params={}
-        )
+        node = NodeConfig(type="tool", label="sub", tool_name="__sub_graph__", tool_params={})
         events = []
         async for ev in runtime._execute_sub_graph(
             ctx,
@@ -1300,16 +1274,11 @@ class TestExecuteSubGraph:
 class TestExtractTemplateName:
     def test_valid_template(self):
         runtime = _make_runtime()
-        assert (
-            runtime._extract_template_name("{{ template:code-review }}")
-            == "code-review"
-        )
+        assert runtime._extract_template_name("{{ template:code-review }}") == "code-review"
 
     def test_valid_template_with_extra_spaces(self):
         runtime = _make_runtime()
-        assert (
-            runtime._extract_template_name("  {{  template:my-tmpl  }}  ") == "my-tmpl"
-        )
+        assert runtime._extract_template_name("  {{  template:my-tmpl  }}  ") == "my-tmpl"
 
     def test_not_a_template(self):
         runtime = _make_runtime()
@@ -1493,9 +1462,7 @@ class TestExecuteGraphSystemPromptInterpolation:
         async for ev in runtime.execute_graph(g, "hi"):
             events.append(ev)
         assert mlx.call_count == 1
-        _call_messages = (
-            mlx.call_args_messages if hasattr(mlx, "call_args_messages") else []
-        )
+        _call_messages = mlx.call_args_messages if hasattr(mlx, "call_args_messages") else []
 
 
 # Lines 236-238: node not found in execute_graph
@@ -1525,9 +1492,7 @@ class TestExecuteGraphErrorHandlerNode:
         g = _build_graph(
             {
                 "start": NodeConfig(type="start", label="Start"),
-                "tool1": NodeConfig(
-                    type="tool", label="Tool", tool_name="t1", tool_params={}
-                ),
+                "tool1": NodeConfig(type="tool", label="Tool", tool_name="t1", tool_params={}),
                 "errh": NodeConfig(
                     type="error_handler",
                     label="ErrHandler",
@@ -1780,9 +1745,7 @@ class TestExecuteErrorHandlerNodeReverseIteration:
         g = _build_graph(
             {
                 "start": NodeConfig(type="start", label="Start"),
-                "tool1": NodeConfig(
-                    type="tool", label="Tool", tool_name="t1", tool_params={}
-                ),
+                "tool1": NodeConfig(type="tool", label="Tool", tool_name="t1", tool_params={}),
                 "errh": NodeConfig(
                     type="error_handler",
                     label="ErrHandler",
@@ -1811,9 +1774,7 @@ class TestExecuteErrorHandlerNodeReverseIteration:
         g = _build_graph(
             {
                 "start": NodeConfig(type="start", label="Start"),
-                "tool1": NodeConfig(
-                    type="tool", label="Tool", tool_name="t1", tool_params={}
-                ),
+                "tool1": NodeConfig(type="tool", label="Tool", tool_name="t1", tool_params={}),
                 "errh": NodeConfig(
                     type="error_handler",
                     label="ErrHandler",
@@ -1846,9 +1807,7 @@ class TestExecuteErrorHandlerNodeRetry:
         g = _build_graph(
             {
                 "start": NodeConfig(type="start", label="Start"),
-                "tool1": NodeConfig(
-                    type="tool", label="Tool", tool_name="t1", tool_params={}
-                ),
+                "tool1": NodeConfig(type="tool", label="Tool", tool_name="t1", tool_params={}),
                 "errh": NodeConfig(
                     type="error_handler",
                     label="ErrHandler",

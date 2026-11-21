@@ -15,6 +15,7 @@ to break the circular import. This test pins the split: all 4 mixins present
 in MRO, the moved methods still resolve on AgentRuntime, and the backward-
 compat re-exports from runtime still import.
 """
+
 from __future__ import annotations
 
 from agent_runtime._runtime_checkpoint import _CheckpointMixin

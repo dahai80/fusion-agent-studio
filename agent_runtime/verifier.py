@@ -115,17 +115,14 @@ class VerificationEngine:
         max_attempts: int | None = None,
     ) -> VerificationResult:
         attempts = max_attempts or self.max_attempts
-        logger.info(
-            "Starting verification: task=%s, max_attempts=%d", task[:60], attempts
-        )
+        logger.info("Starting verification: task=%s, max_attempts=%d", task[:60], attempts)
 
         result = None
         for attempt in range(1, attempts + 1):
             prompt = VERIFY_PROMPT.format(
                 task=task,
                 output=output,
-                criteria=criteria
-                or "Output should correctly and completely address the task",
+                criteria=criteria or "Output should correctly and completely address the task",
                 context=context,
             )
 
@@ -177,8 +174,7 @@ class VerificationEngine:
             original_output=original_output,
             fix_description=fix_description,
             new_output=new_output,
-            criteria=criteria
-            or "Output should correctly and completely address the task",
+            criteria=criteria or "Output should correctly and completely address the task",
             context=context,
         )
 
@@ -276,9 +272,7 @@ class VerificationEngine:
                 votes.append({"voter": i, "verdict": "error", "reason": str(r)})
                 refuted_count += 1
             elif r is None:
-                votes.append(
-                    {"voter": i, "verdict": "error", "reason": "LLM returned None"}
-                )
+                votes.append({"voter": i, "verdict": "error", "reason": "LLM returned None"})
                 refuted_count += 1
             else:
                 is_refuted = not r.passed or r.score < 0.5

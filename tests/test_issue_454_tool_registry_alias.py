@@ -6,6 +6,7 @@ plugin dispatchers read/write runtime.tool_registry, which never existed
 the RPC answered -32000. A property alias keeps both names on the same
 backing attr.
 """
+
 from __future__ import annotations
 
 from pathlib import Path

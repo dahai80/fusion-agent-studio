@@ -3,6 +3,7 @@
 Holds the safety-gateway approval + in-graph plan approval methods. Method
 bodies are verbatim moves from runtime.py; AgentRuntime inherits this mixin.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -102,7 +103,9 @@ class _SafetyApprovalMixin:
         )
         return {"tier": tier, "risk_score": risk_score, "decision": decision}
 
-    def _policy_escalation_verdict(self, ctx: AgentContext, tool_name: str, params: dict | None = None):
+    def _policy_escalation_verdict(
+        self, ctx: AgentContext, tool_name: str, params: dict | None = None
+    ):
         # #499: AlwaysConfirm / ConfirmRisk(at/above threshold) escalate
         # actions the funnel auto-passed into the human approval flow.
         # Returns a synthesized SafetyVerdict for _await_safety_approval,
@@ -246,7 +249,9 @@ class _SafetyApprovalMixin:
             # FUSION_SAFETY_AUTO_REJECT=1 -> 超时视同拒绝 (报错终止, 原默认行为);
             # FUSION_SAFETY_FAIL_FAST=1 -> 立即失败不等 timeout (timeout 设 0).
             # 默认 auto_reject (向后兼容: 报错终止).
-            disposition = os.environ.get("FUSION_SAFETY_TIMEOUT_DISPOSITION", "reject").strip().lower()
+            disposition = (
+                os.environ.get("FUSION_SAFETY_TIMEOUT_DISPOSITION", "reject").strip().lower()
+            )
             yield AgentEvent(
                 type=AgentEventType.SAFETY_TIMEOUT,
                 content=f"Safety approval timed out for {category}",

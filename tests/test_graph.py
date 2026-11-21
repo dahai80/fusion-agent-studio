@@ -257,7 +257,9 @@ class TestAgentGraph:
         assert parsed["name"] == "Test"
 
     def test_from_json(self):
-        json_str = '{"name": "Test", "nodes": {"s": {"type": "start"}}, "edges": [], "start_node_id": "s"}'
+        json_str = (
+            '{"name": "Test", "nodes": {"s": {"type": "start"}}, "edges": [], "start_node_id": "s"}'
+        )
         graph = AgentGraph.from_json(json_str)
         assert graph.name == "Test"
 

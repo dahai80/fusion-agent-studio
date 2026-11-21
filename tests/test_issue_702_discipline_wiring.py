@@ -24,7 +24,9 @@ def _home(tmp_path, monkeypatch):
 class TestWorkerDeliveryChannel:
     def test_deliver_writes_artifact_and_summarizes(self, _home):
         ch = WorkerDeliveryChannel()
-        d = ch.deliver("run-1", "worker-a", "Decision: use sqlite\nResult: 42 rows\n" + "filler\n" * 200)
+        d = ch.deliver(
+            "run-1", "worker-a", "Decision: use sqlite\nResult: 42 rows\n" + "filler\n" * 200
+        )
         assert d.artifact_ref == "run-1/worker-a.text"
         full = _home / "worker_artifacts" / "run-1" / "worker-a.text"
         assert full.is_file()
@@ -62,7 +64,8 @@ class TestWorkerDeliveryChannel:
         segs = [
             m
             for m in parent.messages
-            if m.get("role") == "system" and str(m.get("content", "")).startswith("[Worker summaries")
+            if m.get("role") == "system"
+            and str(m.get("content", "")).startswith("[Worker summaries")
         ]
         assert segs and "w" in segs[0]["content"]
 

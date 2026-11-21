@@ -128,9 +128,7 @@ class TestStreamChat:
         client._client = mock_http
 
         chunks = []
-        async for chunk in client.chat_stream(
-            "model", [{"role": "user", "content": "hi"}]
-        ):
+        async for chunk in client.chat_stream("model", [{"role": "user", "content": "hi"}]):
             chunks.append(chunk)
 
         assert len(chunks) == 3
@@ -154,9 +152,7 @@ class TestStreamChat:
         client._client = mock_http
 
         chunks = []
-        async for chunk in client.chat_stream(
-            "model", [{"role": "user", "content": "hi"}]
-        ):
+        async for chunk in client.chat_stream("model", [{"role": "user", "content": "hi"}]):
             chunks.append(chunk)
 
         assert len(chunks) == 1
@@ -179,9 +175,7 @@ class TestStreamChat:
         client._client = mock_http
 
         chunks = []
-        async for chunk in client.chat_stream(
-            "model", [{"role": "user", "content": "hi"}]
-        ):
+        async for chunk in client.chat_stream("model", [{"role": "user", "content": "hi"}]):
             chunks.append(chunk)
 
         assert len(chunks) == 1
@@ -247,9 +241,7 @@ class TestOpenClawSessions:
         from unittest.mock import AsyncMock
 
         client = FusionMLXClient(timeout=5.0)
-        client.get_agent_session = AsyncMock(
-            return_value={"status": "completed", "id": "s1"}
-        )
+        client.get_agent_session = AsyncMock(return_value={"status": "completed", "id": "s1"})
 
         result = await client.poll_agent_session("s1", timeout=2.0, interval=0.1)
         assert result["status"] == "completed"
@@ -258,9 +250,7 @@ class TestOpenClawSessions:
         from unittest.mock import AsyncMock
 
         client = FusionMLXClient(timeout=5.0)
-        client.get_agent_session = AsyncMock(
-            return_value={"status": "running", "id": "s1"}
-        )
+        client.get_agent_session = AsyncMock(return_value={"status": "running", "id": "s1"})
 
         result = await client.poll_agent_session("s1", timeout=0.5, interval=0.1)
         assert result["status"] == "running"

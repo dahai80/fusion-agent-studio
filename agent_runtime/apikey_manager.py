@@ -74,9 +74,7 @@ def _verify_key(key: str, stored: str) -> bool:
     if stored.startswith("pbkdf2$"):
         try:
             _, iters_s, salt, hash_hex = stored.split("$")
-            derived = hashlib.pbkdf2_hmac(
-                "sha256", key.encode(), salt.encode(), int(iters_s)
-            )
+            derived = hashlib.pbkdf2_hmac("sha256", key.encode(), salt.encode(), int(iters_s))
             return secrets.compare_digest(derived.hex(), hash_hex)
         except (ValueError, TypeError):
             return False
@@ -131,9 +129,13 @@ class ApiKeyManager:
             self.index_path.parent.mkdir(parents=True, exist_ok=True)
             os.chmod(self.index_path.parent, 0o700)
             with open(self.index_path, "w", encoding="utf-8") as f:
-                json.dump([c.to_dict() for c in self._keys.values()], f, ensure_ascii=False, indent=2)
+                json.dump(
+                    [c.to_dict() for c in self._keys.values()], f, ensure_ascii=False, indent=2
+                )
             os.chmod(self.index_path, 0o600)
-            logger.info("migrated %d legacy apikey entries from %s to %s", added, legacy, self.index_path)
+            logger.info(
+                "migrated %d legacy apikey entries from %s to %s", added, legacy, self.index_path
+            )
         except OSError as exc:
             logger.error("legacy apikey index migration failed: %s", exc)
 
@@ -272,11 +274,7 @@ class ApiKeyManager:
             if _verify_key(raw_key, cfg.key_hash):
                 if cfg.expires_at and time.time() > cfg.expires_at:
                     return {"valid": False, "reason": "key_expired"}
-                if (
-                    cfg.allowed_agent_ids
-                    and agent_id
-                    and agent_id not in cfg.allowed_agent_ids
-                ):
+                if cfg.allowed_agent_ids and agent_id and agent_id not in cfg.allowed_agent_ids:
                     return {"valid": False, "reason": "agent_not_allowed"}
                 if cfg.ip_whitelist and client_ip and client_ip not in cfg.ip_whitelist:
                     return {"valid": False, "reason": "ip_not_allowed"}

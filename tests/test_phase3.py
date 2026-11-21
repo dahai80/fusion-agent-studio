@@ -256,9 +256,7 @@ class TestMetricsEngine:
         assert row_id > 0
 
     def test_record_session(self, engine):
-        s = SessionRecord(
-            session_id="s1", graph_id="g1", status="completed", duration_ms=500
-        )
+        s = SessionRecord(session_id="s1", graph_id="g1", status="completed", duration_ms=500)
         row_id = engine.record_session(s)
         assert row_id > 0
 

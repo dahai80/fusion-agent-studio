@@ -129,9 +129,7 @@ class StyleManager:
             return None
         return cfg.to_dict()
 
-    def create(
-        self, name: str, suffix: str, output_format: str = "markdown"
-    ) -> dict[str, Any]:
+    def create(self, name: str, suffix: str, output_format: str = "markdown") -> dict[str, Any]:
         import uuid
 
         style_id = f"custom-{uuid.uuid4().hex[:8]}"

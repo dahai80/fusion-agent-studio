@@ -99,12 +99,14 @@ class AcpClientCallbacks:
             option_id = options[0].option_id if hasattr(options[0], "option_id") else ""
             logger.info(
                 "acp permission auto-allowed: tool=%s option=%s",
-                getattr(tool_call, "title", "?"), option_id,
+                getattr(tool_call, "title", "?"),
+                option_id,
             )
             return RequestPermissionResponse(outcome=SelectedPermissionOutcome(option_id=option_id))
         logger.warning(
             "acp permission denied (policy=%s): tool=%s",
-            self.permission_policy, getattr(tool_call, "title", "?"),
+            self.permission_policy,
+            getattr(tool_call, "title", "?"),
         )
         return RequestPermissionResponse(outcome=DeniedOutcome())
 
@@ -195,9 +197,7 @@ async def run_acp_prompt(
                 block = acp.text_block(prompt)
             else:
                 block = {"type": "text", "text": prompt}
-            resp = await asyncio.wait_for(
-                conn.prompt(session_id, [block]), timeout
-            )
+            resp = await asyncio.wait_for(conn.prompt(session_id, [block]), timeout)
             try:
                 await asyncio.wait_for(conn.close_session(session_id), timeout=10.0)
             except Exception as e:
@@ -229,7 +229,9 @@ async def run_acp_prompt(
         }
     logger.info(
         "acp run done: stop_reason=%s message_len=%d events=%d",
-        resp.stop_reason, len(message), len(events),
+        resp.stop_reason,
+        len(message),
+        len(events),
     )
     return AcpRunResult(
         success=True,

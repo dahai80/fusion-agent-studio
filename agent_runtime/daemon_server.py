@@ -563,9 +563,7 @@ class DaemonServer:
             from .compactor import Compactor
 
             # #478: gateway LLM wired so compaction summarize runs on :11432.
-            rt.compactor = Compactor(
-                memory_engine=rt.memory_engine, llm_gateway=rt.llm_gateway
-            )
+            rt.compactor = Compactor(memory_engine=rt.memory_engine, llm_gateway=rt.llm_gateway)
             if hasattr(rt.llm_gateway, "set_compactor"):
                 rt.llm_gateway.set_compactor(rt.compactor)
         return rt.compactor
@@ -889,9 +887,7 @@ class DaemonServer:
             # #694: single-shot health check is not a verdict — schedule the
             # background re-attach worker (also triggered lazily on first
             # RPC while the gateway has no default client).
-            logger.warning(
-                "MLX client not attached (mlx unreachable at startup), will retry"
-            )
+            logger.warning("MLX client not attached (mlx unreachable at startup), will retry")
             self._schedule_mlx_reattach("startup-unreachable")
 
         self._log_startup_selfcheck()
@@ -1542,7 +1538,7 @@ class DaemonServer:
             SessionDispatcher(self),
             BundleDispatcher(self),
             FlowDispatcher(self),
-    HistoryDispatcher(self),
+            HistoryDispatcher(self),
             ReviewerDispatcher(self),
             CommodityDispatcher(self),
         ]
@@ -1648,9 +1644,7 @@ class DaemonServer:
                 not in ("0", "false", "no"),
                 "mcp_outbound": True,
                 # #487: subagent_spawn default ON (opt-out 0/false/no).
-                "subagent_tools": os.environ.get("FUSION_SUBAGENT_TOOLS", "1")
-                .strip()
-                .lower()
+                "subagent_tools": os.environ.get("FUSION_SUBAGENT_TOOLS", "1").strip().lower()
                 not in ("0", "false", "no"),
                 "runtime_review": _runtime_review_enabled(),
                 "ws": _ws_enabled() and bool(_ws_token()),
@@ -2152,9 +2146,7 @@ class DaemonServer:
                     )
                     file_snapshot_id = snap["snapshot_id"]
                 except Exception as exc:
-                    logger.warning(
-                        "graph.execute %s file checkpoint failed: %s", graph_id, exc
-                    )
+                    logger.warning("graph.execute %s file checkpoint failed: %s", graph_id, exc)
             initial_vars = params.get("variables", {})
             # 审计 P0-1/P1-1/P1-2: 构建 per-exec ctx, 变量+工具配置进 ctx 隔离, 不写 singleton.
             # 旧版 rt.variables.set 写 singleton VariableManager -> _seed_ctx_variables 快照
@@ -2380,9 +2372,7 @@ class DaemonServer:
                     if isinstance(usage, dict):
                         try:
                             total += int(
-                                usage.get("total_tokens")
-                                or usage.get("completion_tokens")
-                                or 0
+                                usage.get("total_tokens") or usage.get("completion_tokens") or 0
                             )
                         except (TypeError, ValueError):
                             pass
@@ -2448,19 +2438,22 @@ class DaemonServer:
             node_id = str(ev.get("node_id") or "")
             if not node_id:
                 continue
-            span = nodes.setdefault(node_id, {
-                "node_id": node_id,
-                "start": ts,
-                "end": ts,
-                "status": "success",
-                "tool_calls": 0,
-                "token_events": 0,
-                "tokens": 0,
-                "input": "",
-                "output": "",
-                "events": 0,
-                "error": "",
-            })
+            span = nodes.setdefault(
+                node_id,
+                {
+                    "node_id": node_id,
+                    "start": ts,
+                    "end": ts,
+                    "status": "success",
+                    "tool_calls": 0,
+                    "token_events": 0,
+                    "tokens": 0,
+                    "input": "",
+                    "output": "",
+                    "events": 0,
+                    "error": "",
+                },
+            )
             span["events"] += 1
             span["end"] = max(span["end"], ts)
             if ts and (not run_start or ts < run_start):
@@ -2564,9 +2557,7 @@ class DaemonServer:
                 str(fork_from["run_id"]), str(fork_from.get("at_event_id") or "")
             )
             if fork_msgs is None:
-                raise ValueError(
-                    f"fork_from run not found or has no events: {fork_from['run_id']}"
-                )
+                raise ValueError(f"fork_from run not found or has no events: {fork_from['run_id']}")
 
         # 写启动证据
         self._write_evidence(
@@ -2676,31 +2667,40 @@ class DaemonServer:
                 input_str = raw_input
             else:
                 input_str = json.dumps(raw_input or {}, ensure_ascii=False)
-            task = ts.submit(Task(
-                title=step.get("title", f"chain_step_{idx}"),
-                graph_id=step.get("graph_id", ""),
-                input=input_str,
-                team=team,
-                owner_role=step.get("role", ""),
-                depends_on=dep_ids,
-                max_retries=int(step.get("max_retries", 2) or 2),
-                idempotency_key=f"{idem_prefix}:step{idx}",
-                priority=int(step.get("priority", 0) or 0),
-            ))
+            task = ts.submit(
+                Task(
+                    title=step.get("title", f"chain_step_{idx}"),
+                    graph_id=step.get("graph_id", ""),
+                    input=input_str,
+                    team=team,
+                    owner_role=step.get("role", ""),
+                    depends_on=dep_ids,
+                    max_retries=int(step.get("max_retries", 2) or 2),
+                    idempotency_key=f"{idem_prefix}:step{idx}",
+                    priority=int(step.get("priority", 0) or 0),
+                )
+            )
             task_ids.append(task.task_id)
             logger.info(
                 "chain %s step %d task %s created (deps=%s role=%s)",
-                chain_id, idx, task.task_id, dep_ids, step.get("role", ""),
+                chain_id,
+                idx,
+                task.task_id,
+                dep_ids,
+                step.get("role", ""),
             )
             try:
-                await self._broadcast_event("task.created", {
-                    "task_id": task.task_id,
-                    "chain_id": chain_id,
-                    "graph_id": step.get("graph_id", ""),
-                    "team": team,
-                    "depends_on": dep_ids,
-                    "step": idx,
-                })
+                await self._broadcast_event(
+                    "task.created",
+                    {
+                        "task_id": task.task_id,
+                        "chain_id": chain_id,
+                        "graph_id": step.get("graph_id", ""),
+                        "team": team,
+                        "depends_on": dep_ids,
+                        "step": idx,
+                    },
+                )
             except Exception as exc:
                 logger.warning("chain %s step %d broadcast failed: %s", chain_id, idx, exc)
 
@@ -2750,43 +2750,59 @@ class DaemonServer:
                         if val is not None:
                             step_outputs[out_key] = val
                     shared_outputs.update(step_outputs)
-                    ts.update_status(tid, TASK_STATUS_COMPLETED, last_result={
-                        "chain_id": chain_id,
-                        "step": idx,
-                        "attempt": attempt,
-                        "outputs": step_outputs,
-                    })
+                    ts.update_status(
+                        tid,
+                        TASK_STATUS_COMPLETED,
+                        last_result={
+                            "chain_id": chain_id,
+                            "step": idx,
+                            "attempt": attempt,
+                            "outputs": step_outputs,
+                        },
+                    )
                     step_success = True
                     logger.info(
                         "chain %s step %d (%s) completed attempt %d outputs=%s",
-                        chain_id, idx, tid, attempt, list(step_outputs.keys()),
+                        chain_id,
+                        idx,
+                        tid,
+                        attempt,
+                        list(step_outputs.keys()),
                     )
                     break
                 except Exception as exc:
                     logger.warning(
                         "chain %s step %d attempt %d failed: %s",
-                        chain_id, idx, attempt, exc,
+                        chain_id,
+                        idx,
+                        attempt,
+                        exc,
                     )
                     ts.update_status(
-                        tid, "failed",
+                        tid,
+                        "failed",
                         last_error=str(exc)[:500],
                         retry_count=attempt,
                     )
             if not step_success:
                 ts.update_status(
-                    tid, TASK_STATUS_FAILED,
+                    tid,
+                    TASK_STATUS_FAILED,
                     last_error=f"exhausted {max_retries + 1} attempts",
                 )
                 chain_failed = True
                 logger.error("chain %s blocked at step %d (%s)", chain_id, idx, tid)
         logger.info("chain %s done: failed=%s steps=%d", chain_id, chain_failed, len(steps))
         try:
-            await self._broadcast_event("chain.completed", {
-                "chain_id": chain_id,
-                "failed": chain_failed,
-                "task_ids": task_ids,
-                "team": team,
-            })
+            await self._broadcast_event(
+                "chain.completed",
+                {
+                    "chain_id": chain_id,
+                    "failed": chain_failed,
+                    "task_ids": task_ids,
+                    "team": team,
+                },
+            )
         except Exception as exc:
             logger.warning("chain %s completion broadcast failed: %s", chain_id, exc)
         self._active_chains.pop(chain_id, None)
@@ -2827,9 +2843,7 @@ class DaemonServer:
                     fork_parent_run, str(fork_from.get("at_event_id") or "")
                 )
                 if fork_messages is None:
-                    raise ValueError(
-                        f"fork_from run not found or has no events: {fork_parent_run}"
-                    )
+                    raise ValueError(f"fork_from run not found or has no events: {fork_parent_run}")
                 exec_ctx.messages = list(fork_messages)
                 logger.info(
                     "execute_async %s forked from %s at %s messages=%d",
@@ -2932,7 +2946,9 @@ class DaemonServer:
                     # N7 (#344): align stop reason — END event carries ctx.stop_reason.
                     if ev_dict.get("type") == "end":
                         stop_reason = (ev_dict.get("metadata") or {}).get("stop_reason", "end_turn")
-                    if ev_dict.get("type") == "error" and not (ev_dict.get("metadata") or {}).get("tool_error"):
+                    if ev_dict.get("type") == "error" and not (ev_dict.get("metadata") or {}).get(
+                        "tool_error"
+                    ):
                         stop_reason = "error"
                     # 每 5 个事件写一次进度证据 + 广播
                     if events_count % 5 == 0:
@@ -3378,8 +3394,7 @@ class DaemonServer:
                 edges_data = graph_data.get("edges")
         if isinstance(nodes_data, dict):
             nodes_data = [
-                {"id": nid, **(n if isinstance(n, dict) else {})}
-                for nid, n in nodes_data.items()
+                {"id": nid, **(n if isinstance(n, dict) else {})} for nid, n in nodes_data.items()
             ]
         if nodes_data is not None:
             graph.nodes.clear()
@@ -3742,7 +3757,6 @@ class DaemonServer:
         from .triggers import CronManager
 
         if not hasattr(self, "_cron_manager") or self._cron_manager is None:
-
             db_path = str(studio_home() / "cron.db")
             self._cron_manager = CronManager(
                 db_path=db_path,
@@ -3793,9 +3807,7 @@ class DaemonServer:
             )
         except Exception as exc:
             logger.warning("cron failure audit log failed for %s: %s", job.id, exc)
-        logger.warning(
-            "cron job %s execution failed and alerted: %s", job.id, exe.error[:200]
-        )
+        logger.warning("cron job %s execution failed and alerted: %s", job.id, exe.error[:200])
 
     def _get_inbox_consumer(self):
         # #457: autonomous inbox consumer — opt-in per rostered agent
@@ -3805,9 +3817,7 @@ class DaemonServer:
             from .inbox_consumer import InboxConsumer
             from .task_store import Task, TaskStore
 
-            poll_interval = float(
-                os.environ.get("FUSION_INBOX_POLL_INTERVAL", "5")
-            )
+            poll_interval = float(os.environ.get("FUSION_INBOX_POLL_INTERVAL", "5"))
             roster = DurableRoster()
             mailbox = Mailbox()
             ts: TaskStore = self._get_task_store()
@@ -4002,10 +4012,7 @@ class DaemonServer:
         # #604: non-loop cron jobs converge onto the task executor (single
         # execution exit). Loop-mode jobs keep the in-handler await path —
         # per-iteration token budget accounting (#477) needs the execution_id.
-        if (
-            getattr(job, "loop_mode", "cron") == "cron"
-            and self._get_task_executor().running
-        ):
+        if getattr(job, "loop_mode", "cron") == "cron" and self._get_task_executor().running:
             await self._broadcast_event(
                 "task.created",
                 {
@@ -4016,9 +4023,7 @@ class DaemonServer:
                     "team": team,
                 },
             )
-            logger.info(
-                "Cron job %s task %s queued to task executor", job.id, task.task_id
-            )
+            logger.info("Cron job %s task %s queued to task executor", job.id, task.task_id)
             return {"status": "queued", "task_id": task.task_id}
 
         exec_params = {
@@ -4047,7 +4052,9 @@ class DaemonServer:
                     except Exception as exc:
                         logger.warning(
                             "Cron job %s iteration execution %s ended: %s",
-                            job.id, exec_id, exc,
+                            job.id,
+                            exec_id,
+                            exc,
                         )
                 usage = self._execution_token_usage(exec_id, team)
             await self._broadcast_event(
@@ -4254,12 +4261,8 @@ class DaemonServer:
         if self._persona_pack_manager is None:
             from .persona_pack import PersonaPackManager
 
-            self._persona_pack_manager = PersonaPackManager(
-                marketplace=self._get_marketplace()
-            )
-            logger.info(
-                "PersonaPackManager created at %s", self._persona_pack_manager.store_dir
-            )
+            self._persona_pack_manager = PersonaPackManager(marketplace=self._get_marketplace())
+            logger.info("PersonaPackManager created at %s", self._persona_pack_manager.store_dir)
         return self._persona_pack_manager
 
     def _agent_dir(self, agent_id: str) -> Path:
@@ -4584,7 +4587,9 @@ class DaemonServer:
 
     def _gateway_attached(self) -> bool:
         gw = self._gateway
-        return bool(getattr(gw, "_default_client", None) is not None and getattr(gw, "_default_model", ""))
+        return bool(
+            getattr(gw, "_default_client", None) is not None and getattr(gw, "_default_model", "")
+        )
 
     async def _ensure_mlx_attached(self) -> bool:
         # #694: lazy attach on first use — when the gateway has no default
@@ -4619,9 +4624,7 @@ class DaemonServer:
             if await self._check_mlx_health():
                 try:
                     self._attach_mlx_client()
-                    logger.info(
-                        "#694: MLX client attached after retry (rounds=%d)", rounds
-                    )
+                    logger.info("#694: MLX client attached after retry (rounds=%d)", rounds)
                     return
                 except Exception as e:
                     logger.warning("#694: attach attempt failed: %s", e)
@@ -4671,7 +4674,9 @@ class DaemonServer:
                         anchor = rule.get("last_fired") or rule.get("created") or 0
                         due = now >= float(anchor) + float(rule.get("every", 0) or 0)
                     else:
-                        logger.warning("#749: unknown wakeup kind skipped task=%s kind=%r", task.id, kind)
+                        logger.warning(
+                            "#749: unknown wakeup kind skipped task=%s kind=%r", task.id, kind
+                        )
                         continue
                     if not due:
                         continue
@@ -4699,7 +4704,10 @@ class DaemonServer:
                     )
                     emit = getattr(team_rt, "_emit", None)
                     if callable(emit):
-                        emit("team.wakeup.fired", {"task_id": task.id, "wake_id": wake_id, "action": action})
+                        emit(
+                            "team.wakeup.fired",
+                            {"task_id": task.id, "wake_id": wake_id, "action": action},
+                        )
         if fired:
             logger.info("#749: wakeup eval round fired=%d", fired)
         return fired
@@ -4801,9 +4809,7 @@ class DaemonServer:
                         "model_type": m.get("model_type", ""),
                         # #541: per-model prefix-cache counters from admin stats.
                         "partial_tokens_skipped": m.get("partial_tokens_skipped", 0),
-                        "last_partial_tokens_skipped": m.get(
-                            "last_partial_tokens_skipped", 0
-                        ),
+                        "last_partial_tokens_skipped": m.get("last_partial_tokens_skipped", 0),
                     }
                 )
         else:
@@ -5043,9 +5049,7 @@ class DaemonServer:
                 own_tail = _normalized_model_tail(own)
                 for cid in chat_ids:
                     if _normalized_model_tail(cid) == own_tail:
-                        logger.info(
-                            "select mlx default model (fusion-mlx settings): %s", cid
-                        )
+                        logger.info("select mlx default model (fusion-mlx settings): %s", cid)
                         return cid
                 logger.info(
                     "fusion-mlx settings default %r not in catalog; falling back to size ranking",
@@ -5082,7 +5086,9 @@ class DaemonServer:
         input_text = params.get("input", "")
         if not isinstance(input_text, str):
             input_text = json.dumps(input_text, ensure_ascii=False)
-        bg_session = await mgr.fork(session_id, input_text, summarize=bool(params.get("summarize", False)))
+        bg_session = await mgr.fork(
+            session_id, input_text, summarize=bool(params.get("summarize", False))
+        )
         logger.info("session.fork: from=%s fork=%s", session_id, bg_session.id)
         return bg_session.to_dict()
 
@@ -5237,7 +5243,6 @@ class DaemonServer:
             "executeCode": "code_execution" in manifest.tools,
             "accessNetwork": manifest.web_search_enabled,
         }
-
 
 
 def run_daemon(socket_path: str = ""):

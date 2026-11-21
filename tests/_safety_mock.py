@@ -103,9 +103,7 @@ class MockGuardClient:
             }
         )
         if self._raise_stale and caller_epoch != self._epoch:
-            raise RuntimeError(
-                f"stale epoch: caller={caller_epoch} guard={self._epoch}"
-            )
+            raise RuntimeError(f"stale epoch: caller={caller_epoch} guard={self._epoch}")
         verdict = self._verdict
         if self._unique_action_ids and getattr(verdict, "action_id", None) is None:
             verdict = MockVerdict(

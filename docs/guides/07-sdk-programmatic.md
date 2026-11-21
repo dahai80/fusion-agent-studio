@@ -112,9 +112,11 @@ from agent_runtime.sdk import AgentClient, Agent, Tool
 
 client = AgentClient(socket_path="/tmp/fusion-studio.sock")
 
+
 async def fetch_price(symbol: str) -> str:
     # 你的业务逻辑：查股价
     return f"{symbol}: 168.42"
+
 
 price_tool = Tool(
     name="fetch_price",
@@ -138,9 +140,11 @@ agent = Agent(
     tools=["fetch_price"],
 )
 
+
 async def main():
     async for chunk in agent.query(client, input="苹果股价多少？", stream=True):
         print(chunk, end="", flush=True)
+
 
 asyncio.run(main())
 ```
@@ -163,7 +167,7 @@ agent = Agent(
     max_iterations=15,
     temperature=0.3,
     hooks={"on_session_start": my_hook},
-    memory=True,   # 启用自动记忆
+    memory=True,  # 启用自动记忆
 )
 ```
 
@@ -195,7 +199,7 @@ from agent_runtime.sdk import scaffold
 
 scaffold(
     name="my-coder",
-    template="coder",          # basic | coder | reviewer | researcher
+    template="coder",  # basic | coder | reviewer | researcher
     output_dir="./my-agents",
 )
 ```

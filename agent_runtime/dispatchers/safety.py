@@ -153,9 +153,7 @@ class SafetyDispatcher(SubDispatcher):
 
     async def _handle_safety_classify_action(self, params: dict) -> dict:
         gateway = (
-            self._daemon._safety
-            if self._daemon._safety
-            else self._daemon._get_runtime()._safety
+            self._daemon._safety if self._daemon._safety else self._daemon._get_runtime()._safety
         )
         action = params.get("action", "")
         context = params.get("context", "")
@@ -164,9 +162,7 @@ class SafetyDispatcher(SubDispatcher):
 
     async def _handle_safety_set_auto_mode(self, params: dict) -> dict:
         gateway = (
-            self._daemon._safety
-            if self._daemon._safety
-            else self._daemon._get_runtime()._safety
+            self._daemon._safety if self._daemon._safety else self._daemon._get_runtime()._safety
         )
         enabled = params.get("enabled", True)
         threshold = params.get("threshold", 0.2)
@@ -175,17 +171,13 @@ class SafetyDispatcher(SubDispatcher):
 
     async def _handle_safety_set_network_policy(self, params: dict) -> dict:
         gateway = (
-            self._daemon._safety
-            if self._daemon._safety
-            else self._daemon._get_runtime()._safety
+            self._daemon._safety if self._daemon._safety else self._daemon._get_runtime()._safety
         )
         gateway.set_network_policy(params)
         return {"set": True}
 
     async def _handle_safety_get_network_policy(self, params: dict) -> dict:
         gateway = (
-            self._daemon._safety
-            if self._daemon._safety
-            else self._daemon._get_runtime()._safety
+            self._daemon._safety if self._daemon._safety else self._daemon._get_runtime()._safety
         )
         return gateway.get_network_policy()

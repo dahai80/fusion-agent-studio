@@ -58,9 +58,7 @@ class TestIssue289AgentSnapshot:
 
     @pytest.mark.asyncio
     async def test_snapshot_unknown_agent(self, daemon):
-        result = await _run(
-            daemon, "agent_studio.agent.snapshot", {"agent_id": "nope"}
-        )
+        result = await _run(daemon, "agent_studio.agent.snapshot", {"agent_id": "nope"})
         assert result["status"] == "error"
 
     @pytest.mark.asyncio
@@ -69,9 +67,7 @@ class TestIssue289AgentSnapshot:
         agent_id = created["agent_id"]
         await _run(daemon, "agent_studio.agent.snapshot", {"agent_id": agent_id})
         await _run(daemon, "agent_studio.agent.snapshot", {"agent_id": agent_id})
-        result = await _run(
-            daemon, "agent_studio.agent.versions", {"agent_id": agent_id}
-        )
+        result = await _run(daemon, "agent_studio.agent.versions", {"agent_id": agent_id})
         assert result["total"] == 2
         assert len(result["versions"]) == 2
 
@@ -88,9 +84,7 @@ class TestIssue289AgentSnapshot:
     async def test_restore_version_restores_manifest(self, daemon):
         created = await _create_agent(daemon, name="OrigName")
         agent_id = created["agent_id"]
-        snap = await _run(
-            daemon, "agent_studio.agent.snapshot", {"agent_id": agent_id}
-        )
+        snap = await _run(daemon, "agent_studio.agent.snapshot", {"agent_id": agent_id})
         version_id = snap["version_id"]
 
         await _run(
@@ -122,9 +116,7 @@ class TestIssue289AgentSnapshot:
     async def test_restore_missing_params(self, daemon):
         created = await _create_agent(daemon)
         agent_id = created["agent_id"]
-        result = await _run(
-            daemon, "agent_studio.agent.restore_version", {"agent_id": agent_id}
-        )
+        result = await _run(daemon, "agent_studio.agent.restore_version", {"agent_id": agent_id})
         assert result["status"] == "error"
 
 
@@ -146,21 +138,15 @@ class TestIssue290AuditAndSessionLogs:
             resource_type="agent",
             resource_id="other-agent",
         )
-        result = await _run(
-            daemon, "agent_studio.audit.trail", {"agent_id": agent_id}
-        )
+        result = await _run(daemon, "agent_studio.audit.trail", {"agent_id": agent_id})
         assert result["total"] == 1
         assert result["entries"][0]["resource_id"] == agent_id
 
     @pytest.mark.asyncio
     async def test_audit_trail_unscoped_returns_all(self, daemon):
         audit = daemon._get_audit_logger()
-        audit.log_action(
-            actor_id="u", action="x", resource_type="agent", resource_id="a1"
-        )
-        audit.log_action(
-            actor_id="u", action="x", resource_type="agent", resource_id="a2"
-        )
+        audit.log_action(actor_id="u", action="x", resource_type="agent", resource_id="a1")
+        audit.log_action(actor_id="u", action="x", resource_type="agent", resource_id="a2")
         result = await _run(daemon, "agent_studio.audit.trail", {})
         assert result["total"] == 2
 
@@ -172,18 +158,12 @@ class TestIssue290AuditAndSessionLogs:
         created = await _create_agent(daemon)
         agent_id = created["agent_id"]
         tracker.record_run(
-            RunHistoryEntry(
-                run_id="r1", agent_id=agent_id, status="completed", started_at=1000.0
-            )
+            RunHistoryEntry(run_id="r1", agent_id=agent_id, status="completed", started_at=1000.0)
         )
         tracker.record_run(
-            RunHistoryEntry(
-                run_id="r2", agent_id="other", status="completed", started_at=1000.0
-            )
+            RunHistoryEntry(run_id="r2", agent_id="other", status="completed", started_at=1000.0)
         )
-        result = await _run(
-            daemon, "agent_studio.session.logs", {"agent_id": agent_id}
-        )
+        result = await _run(daemon, "agent_studio.session.logs", {"agent_id": agent_id})
         assert result["total"] == 1
         assert result["sessions"][0]["run_id"] == "r1"
 
@@ -199,9 +179,7 @@ class TestIssue290AuditAndSessionLogs:
         old_ts = datetime.datetime(2024, 1, 1).timestamp()
         new_ts = datetime.datetime(2024, 6, 1).timestamp()
         tracker.record_run(
-            RunHistoryEntry(
-                run_id="old", agent_id=agent_id, status="completed", started_at=old_ts
-            )
+            RunHistoryEntry(run_id="old", agent_id=agent_id, status="completed", started_at=old_ts)
         )
         tracker.record_run(
             RunHistoryEntry(
@@ -237,9 +215,7 @@ class TestIssue291StyleDelete:
 
     def test_style_delete_refuses_builtin(self, daemon):
         mgr = daemon._get_style_manager()
-        builtin_id = next(
-            sid for sid, s in mgr._styles.items() if s.is_builtin
-        )
+        builtin_id = next(sid for sid, s in mgr._styles.items() if s.is_builtin)
         deleted = mgr.delete(builtin_id)
         assert deleted is False
         assert mgr.get(builtin_id) is not None
@@ -264,9 +240,7 @@ class TestIssue291StyleDelete:
 
     @pytest.mark.asyncio
     async def test_style_delete_rpc_unknown(self, daemon):
-        result = await _run(
-            daemon, "style.delete", {"style_id": "no-such-style"}
-        )
+        result = await _run(daemon, "style.delete", {"style_id": "no-such-style"})
         assert result["status"] == "error"
 
 

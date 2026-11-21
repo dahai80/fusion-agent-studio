@@ -12,7 +12,6 @@ the consolidation contract:
   degraded to the caller's stub fallback)
 """
 
-
 import pytest
 
 import agent_runtime.llm_gateway as llm_gateway_module
@@ -100,9 +99,7 @@ class TestSharedTransports:
                 return _RemoteClient()
 
         gw._get_transport = _Factory()
-        resp = await gw.chat(
-            messages=[{"role": "user", "content": "hi"}], model="remote-1"
-        )
+        resp = await gw.chat(messages=[{"role": "user", "content": "hi"}], model="remote-1")
         assert resp.finish_reason == "stop"
         assert resp.content == "remote pong"
         await gw.chat(messages=[{"role": "user", "content": "hi"}], model="remote-1")

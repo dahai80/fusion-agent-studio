@@ -43,9 +43,7 @@ class WorkflowDispatcher(SubDispatcher):
             output_schema=params.get("output_schema", {}),
             metadata=params.get("metadata", {}),
         )
-        logger.info(
-            "workflow.create: name=%s id=%s phases=%d", name, wf.id, len(wf.phases)
-        )
+        logger.info("workflow.create: name=%s id=%s phases=%d", name, wf.id, len(wf.phases))
         return wf.to_dict()
 
     async def _handle_workflow_execute(self, params: dict) -> dict:
@@ -138,9 +136,7 @@ class WorkflowDispatcher(SubDispatcher):
         content = params.get("content")
         metadata = params.get("metadata")
         mgr = self._daemon._get_artifact_manager()
-        return mgr.update_artifact(
-            artifact_id, agent_id, content=content, metadata=metadata
-        )
+        return mgr.update_artifact(artifact_id, agent_id, content=content, metadata=metadata)
 
     async def _handle_artifact_search(self, params: dict) -> dict:
         query = params.get("query", "")

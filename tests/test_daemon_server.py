@@ -291,9 +291,13 @@ class TestDaemonMLX:
 
     def test_default_ports_align_114xx(self):
         d = DaemonServer(socket_path="/tmp/_nonexistent.sock")
-        assert d.http_port == 11442, "agent-studio HTTP on 11442 (registry: 11455 belongs to fusion-simulation-gui, #265/#327)"
+        assert d.http_port == 11442, (
+            "agent-studio HTTP on 11442 (registry: 11455 belongs to fusion-simulation-gui, #265/#327)"
+        )
         assert d.cluster_port == 11457, "cluster port must avoid fusion-security 11454"
-        assert d.ws_port == 11433, "WS on 11433 (registry fusion-agent-studio-ws; 11435=fm-server, 11437=cowork-sync)"
+        assert d.ws_port == 11433, (
+            "WS on 11433 (registry fusion-agent-studio-ws; 11435=fm-server, 11437=cowork-sync)"
+        )
 
     @pytest.mark.asyncio
     @pytest.mark.skipif(_MLX_UP, reason="fusion-mlx running; 'not running' path not testable")

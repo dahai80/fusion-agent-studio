@@ -44,8 +44,9 @@ def _signature(files: list[dict]) -> str:
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
-def build_manifest(pack_dir: Path | str, layer: str, name: str,
-                   version: str = "1.0.0", visibility: str = "public") -> dict:
+def build_manifest(
+    pack_dir: Path | str, layer: str, name: str, version: str = "1.0.0", visibility: str = "public"
+) -> dict:
     d = Path(pack_dir)
     if not _LAYER_RE.match(layer):
         raise ValueError(f"unknown persona layer: {layer}")
@@ -130,13 +131,15 @@ def denies_removed(existing_rules: list[str], pack_rules: list[str]) -> list[str
 
 
 class PersonaPackManager:
-    def __init__(self, store_dir: Path | str | None = None,
-                 marketplace=None, persona_root: Path | None = None):
+    def __init__(
+        self,
+        store_dir: Path | str | None = None,
+        marketplace=None,
+        persona_root: Path | None = None,
+    ):
         from .persona import PERSONA_ROOT
 
-        self.store_dir = Path(store_dir) if store_dir else (
-            studio_home() / PERSONA_PACKS_DIRNAME
-        )
+        self.store_dir = Path(store_dir) if store_dir else (studio_home() / PERSONA_PACKS_DIRNAME)
         self.packs_dir = self.store_dir / PERSONA_PACKS_DIRNAME
         self.index_path = self.store_dir / "persona_packs_index.json"
         self.persona_root = Path(persona_root) if persona_root else PERSONA_ROOT
@@ -193,8 +196,12 @@ class PersonaPackManager:
             "created_at": now,
         }
         self._save_index()
-        self._audit("persona_pack_publish", pack_id, tenant,
-                    f"layer={manifest.get('layer')} files={len(manifest.get('files', []))}")
+        self._audit(
+            "persona_pack_publish",
+            pack_id,
+            tenant,
+            f"layer={manifest.get('layer')} files={len(manifest.get('files', []))}",
+        )
         logger.info("persona pack published: %s (%s)", manifest.get("name"), pack_id)
         return pack_id
 
@@ -213,8 +220,7 @@ class PersonaPackManager:
         sub = "tenants" if layer == "tenant" else "teams"
         return self.persona_root / sub / _safe_name(name)
 
-    def install(self, pack_id: str, tenant: str = "default",
-                layer_name: str = "") -> dict:
+    def install(self, pack_id: str, tenant: str = "default", layer_name: str = "") -> dict:
         pack = self._index.get(pack_id)
         if pack is None or not self._visible(pack, tenant):
             self._audit("persona_pack_install_refused", pack_id, tenant, "not visible")
@@ -240,12 +246,10 @@ class PersonaPackManager:
         pack_rules = _rule_dir_rules(pack_dir / "rules")
         loosened = denies_removed(existing_rules, pack_rules)
         if loosened:
-            msg = (
-                f"install refused: pack removes existing deny rule(s): "
-                f"{'; '.join(loosened)}"
+            msg = f"install refused: pack removes existing deny rule(s): {'; '.join(loosened)}"
+            self._audit(
+                "persona_pack_install_refused", pack_id, tenant, f"deny loosening: {len(loosened)}"
             )
-            self._audit("persona_pack_install_refused", pack_id, tenant,
-                        f"deny loosening: {len(loosened)}")
             logger.error("persona pack %s install refused for %s: %s", pack_id, tenant, msg)
             return {"status": "error", "message": msg}
         for f in manifest["files"]:
@@ -253,7 +257,6 @@ class PersonaPackManager:
             dest = target / rel
             dest.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(pack_dir / rel, dest)
-        self._audit("persona_pack_install", pack_id, tenant,
-                    f"layer={layer} name={name or '-'}")
+        self._audit("persona_pack_install", pack_id, tenant, f"layer={layer} name={name or '-'}")
         logger.info("persona pack %s installed into %s", pack_id, target)
         return {"status": "ok", "layer": layer, "name": name, "path": str(target)}

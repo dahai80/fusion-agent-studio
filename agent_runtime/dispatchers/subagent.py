@@ -100,15 +100,17 @@ class SubAgentDispatcher(SubDispatcher):
             permission_mode=str(spec.permission_mode or "default"),
             budget_tokens=int(spec.budget_tokens or 20000),
             max_turns=int(spec.max_turns or 8),
-            metadata={"brief": {
-                "objective": brief.objective,
-                "output_format": brief.output_format,
-                "tool_guidance": brief.tool_guidance,
-                "boundaries": brief.boundaries,
-                "token_budget": brief.token_budget,
-                "concurrency": brief.concurrency,
-                "depth": brief.depth,
-            }},
+            metadata={
+                "brief": {
+                    "objective": brief.objective,
+                    "output_format": brief.output_format,
+                    "tool_guidance": brief.tool_guidance,
+                    "boundaries": brief.boundaries,
+                    "token_budget": brief.token_budget,
+                    "concurrency": brief.concurrency,
+                    "depth": brief.depth,
+                }
+            },
         )
         result = await orch["runner"].run(
             hspec,
@@ -118,7 +120,10 @@ class SubAgentDispatcher(SubDispatcher):
         )
         logger.info(
             "subagent.run via kernel orchestrator name=%s status=%s turns=%s tokens=%s",
-            spec.name, result.status, result.turns, result.tokens_spent,
+            spec.name,
+            result.status,
+            result.turns,
+            result.tokens_spent,
         )
         return {
             "status": "ok",
@@ -162,7 +167,10 @@ class SubAgentDispatcher(SubDispatcher):
         report = await runner.run(spec)
         logger.info(
             "subagent.run name=%s ok=%s turns=%s tokens=%s",
-            spec.name, report.ok, report.turns, report.tokens_used,
+            spec.name,
+            report.ok,
+            report.turns,
+            report.tokens_used,
         )
         return {"status": "ok", "report": report.to_dict()}
 
@@ -194,14 +202,17 @@ class SubAgentDispatcher(SubDispatcher):
         effective_overrides = dict(params.get("effective_overrides") or {})
         if not hasattr(self, "_run_task_bg_tasks"):
             self._run_task_bg_tasks = set()
-        bg = asyncio.create_task(
-            self._run_task_bg(runner, spec, task_id, effective_overrides)
-        )
+        bg = asyncio.create_task(self._run_task_bg(runner, spec, task_id, effective_overrides))
         self._run_task_bg_tasks.add(bg)
         bg.add_done_callback(self._run_task_bg_tasks.discard)
         logger.info(
             "subagent.run_task started task=%s name=%s tools=%d model=%r max_turns=%s budget_tokens=%s",
-            task_id, spec.name, len(spec.tools), spec.model, spec.max_turns, spec.budget_tokens,
+            task_id,
+            spec.name,
+            len(spec.tools),
+            spec.model,
+            spec.max_turns,
+            spec.budget_tokens,
         )
         return {"status": "ok", "task_id": task_id, "name": spec.name}
 
@@ -245,13 +256,18 @@ class SubAgentDispatcher(SubDispatcher):
             ts.update_status(task_id, "completed", last_result=last_result)
         else:
             ts.update_status(
-                task_id, "failed",
+                task_id,
+                "failed",
                 last_result=last_result,
                 last_error=report.error or "subagent run did not succeed",
             )
         logger.info(
             "subagent.run_task done task=%s ok=%s turns=%s tokens=%s partial=%s",
-            task_id, report.ok, report.turns, report.tokens_used, report.partial,
+            task_id,
+            report.ok,
+            report.turns,
+            report.tokens_used,
+            report.partial,
         )
 
     async def _handle_subagent_register(self, params: dict) -> dict:
@@ -353,7 +369,9 @@ class SubAgentDispatcher(SubDispatcher):
         )
         if report is None:
             return {"status": "error", "message": f"cannot resume: {agent_id}"}
-        logger.info("subagent.resume agent_id=%s ok=%s partial=%s", agent_id, report.ok, report.partial)
+        logger.info(
+            "subagent.resume agent_id=%s ok=%s partial=%s", agent_id, report.ok, report.partial
+        )
         return {"status": "ok", "report": report.to_dict()}
 
     async def _handle_definition_list(self, params: dict) -> dict:

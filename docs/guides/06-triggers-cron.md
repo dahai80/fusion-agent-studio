@@ -45,25 +45,38 @@ GRAPH = {
     "id": "disk-report-001",
     "name": "Daily Disk Report",
     "nodes": {
-        "start": {"type": "start", "label": "Start",
-                  "system_prompt": "你是巡检助手，执行 df 并总结。"},
-        "check": {"type": "tool", "label": "df",
-                  "tool_name": "terminal", "tool_params": {"command": "df -h /"}},
-        "report": {"type": "llm", "label": "Report",
-                   "model": "qwen2.5-7b-instruct", "temperature": 0.3},
-        "end": {"type": "end", "label": "Done"}
+        "start": {
+            "type": "start",
+            "label": "Start",
+            "system_prompt": "你是巡检助手，执行 df 并总结。",
+        },
+        "check": {
+            "type": "tool",
+            "label": "df",
+            "tool_name": "terminal",
+            "tool_params": {"command": "df -h /"},
+        },
+        "report": {
+            "type": "llm",
+            "label": "Report",
+            "model": "qwen2.5-7b-instruct",
+            "temperature": 0.3,
+        },
+        "end": {"type": "end", "label": "Done"},
     },
     "edges": [
         {"source_id": "start", "target_id": "check"},
         {"source_id": "check", "target_id": "report"},
-        {"source_id": "report", "target_id": "end"}
+        {"source_id": "report", "target_id": "end"},
     ],
     "start_node_id": "start",
-    "version": "1.0"
+    "version": "1.0",
 }
+
 
 async def main():
     print(await rpc("graph.create", {"graph_data": GRAPH, "stable_id": True}))
+
 
 asyncio.run(main())
 ```
@@ -80,17 +93,22 @@ cron 用标准 5 字段表达式：`分 时 日 月 周`。daemon 内部时区�
 from rpc import rpc
 import asyncio
 
+
 async def main():
-    r = await rpc("cron.register", {
-        "id": "daily-disk",
-        "name": "每日磁盘巡检",
-        "expression": "0 8 * * *",        # 每天 08:00（UTC）
-        "graph_id": "disk-report-001",
-        "enabled": True,
-        "input_data": {"note": "例行巡检"},
-        "max_retries": 3,
-    })
+    r = await rpc(
+        "cron.register",
+        {
+            "id": "daily-disk",
+            "name": "每日磁盘巡检",
+            "expression": "0 8 * * *",  # 每天 08:00（UTC）
+            "graph_id": "disk-report-001",
+            "enabled": True,
+            "input_data": {"note": "例行巡检"},
+            "max_retries": 3,
+        },
+    )
     print(r)
+
 
 asyncio.run(main())
 ```
@@ -112,9 +130,9 @@ asyncio.run(main())
 ### 管理定时任务
 
 ```python
-await rpc("cron.list", {})                                   # 全部
-await rpc("cron.unregister", {"id": "daily-disk"})            # 删除
-await rpc("cron.get", {"id": "daily-disk"})                  # 详情
+await rpc("cron.list", {})  # 全部
+await rpc("cron.unregister", {"id": "daily-disk"})  # 删除
+await rpc("cron.get", {"id": "daily-disk"})  # 详情
 ```
 
 ## 机制二：一次性定时（run_at）
@@ -125,15 +143,20 @@ await rpc("cron.get", {"id": "daily-disk"})                  # 详情
 from rpc import rpc
 import asyncio
 
+
 async def main():
-    r = await rpc("cron.register_once", {
-        "id": "oneoff-deploy-check",
-        "name": "部署后验证",
-        "run_at": "2026-08-28T15:00:00+08:00",   # ISO8601 带时区
-        "graph_id": "disk-report-001",
-        "input_data": {"reason": "部署后巡检"},
-    })
+    r = await rpc(
+        "cron.register_once",
+        {
+            "id": "oneoff-deploy-check",
+            "name": "部署后验证",
+            "run_at": "2026-08-28T15:00:00+08:00",  # ISO8601 带时区
+            "graph_id": "disk-report-001",
+            "input_data": {"reason": "部署后巡检"},
+        },
+    )
     print(r)
+
 
 asyncio.run(main())
 ```
@@ -150,23 +173,28 @@ cron 是"到点自动跑"；`task.submit` 是"现在提交一个任务进队列�
 from rpc import rpc
 import asyncio
 
+
 async def main():
-    r = await rpc("task.submit", {
-        "graph_id": "disk-report-001",
-        "input": "巡检磁盘",
-        "priority": 1,
-        # 可选：idempotency_key, project_id, cron_id, run_at
-    })
+    r = await rpc(
+        "task.submit",
+        {
+            "graph_id": "disk-report-001",
+            "input": "巡检磁盘",
+            "priority": 1,
+            # 可选：idempotency_key, project_id, cron_id, run_at
+        },
+    )
     task_id = r["task_id"]
     print("submitted:", task_id, "status:", r["status"])
 
     # 轮询状态
     s = await rpc("task.status", {"task_id": task_id})
-    print("now:", s["status"])   # pending → running → completed / failed / cancelled
+    print("now:", s["status"])  # pending → running → completed / failed / cancelled
 
     # 完成后取结果
     g = await rpc("task.get", {"task_id": task_id})
     print("result:", g.get("result"))
+
 
 asyncio.run(main())
 ```
@@ -178,11 +206,14 @@ asyncio.run(main())
 脚本可能重试、网络可能抖动——同一次逻辑提交被执行两次就糟了。给 `idempotency_key`，相同 key 的重复提交返回**同一个旧任务**，不新建：
 
 ```python
-await rpc("task.submit", {
-    "graph_id": "disk-report-001",
-    "input": "巡检",
-    "idempotency_key": "disk-2026-08-27-001",   # 业务侧唯一键
-})
+await rpc(
+    "task.submit",
+    {
+        "graph_id": "disk-report-001",
+        "input": "巡检",
+        "idempotency_key": "disk-2026-08-27-001",  # 业务侧唯一键
+    },
+)
 # 再提交同样的 key → 返回同一个 task_id，deduped: true
 ```
 
@@ -194,7 +225,7 @@ await rpc("task.submit", {
 await rpc("task.list", {"status": "running", "limit": 20})
 await rpc("task.cancel", {"task_id": task_id})
 await rpc("task.rerun", {"task_id": task_id})
-await rpc("task.health", {})   # 见下
+await rpc("task.health", {})  # 见下
 ```
 
 ## 机制四：项目聚合（project）
@@ -205,20 +236,25 @@ await rpc("task.health", {})   # 见下
 from rpc import rpc
 import asyncio
 
+
 async def main():
     # 提交时打项目标签
     for name, inp in [("disk", "查磁盘"), ("mem", "查内存"), ("log", "查日志")]:
-        await rpc("task.submit", {
-            "graph_id": "disk-report-001",
-            "input": inp,
-            "project_id": "inspect-2026-08",
-            "idempotency_key": f"inspect-{name}-2026-08-27",
-        })
+        await rpc(
+            "task.submit",
+            {
+                "graph_id": "disk-report-001",
+                "input": inp,
+                "project_id": "inspect-2026-08",
+                "idempotency_key": f"inspect-{name}-2026-08-27",
+            },
+        )
 
     # 列出该项目下所有任务
     proj = await rpc("project.list", {})
     tasks = await rpc("project.tasks", {"project_id": "inspect-2026-08"})
     print("project tasks:", len(tasks["tasks"]))
+
 
 asyncio.run(main())
 ```
@@ -263,16 +299,19 @@ cron job 除了表达式到点，还支持三种循环模式——`cron.register
 | `event_driven` | 平时休眠，`cron.trigger` 唤醒一次 | 事件驱动，一个事件跑一轮 |
 
 ```python
-await rpc("cron.register", {
-    "name": "watch-loop",
-    "expression": "* * * * *",          # continuous/interval/event_driven 下不用于调度
-    "graph_id": "g_watch",
-    "loop_mode": "continuous",
-    "max_iterations": 100,              # 0 = 不限
-    "token_budget": 500000,             # 0 = 不限；跨迭代累计，超了在迭代边界停
-    "permission_mode": "plan",          # 每次迭代生效；"plan" = 只读门禁
-})
-await rpc("cron.trigger", {"id": "<job_id>"})   # 仅 event_driven job 可唤醒
+await rpc(
+    "cron.register",
+    {
+        "name": "watch-loop",
+        "expression": "* * * * *",  # continuous/interval/event_driven 下不用于调度
+        "graph_id": "g_watch",
+        "loop_mode": "continuous",
+        "max_iterations": 100,  # 0 = 不限
+        "token_budget": 500000,  # 0 = 不限；跨迭代累计，超了在迭代边界停
+        "permission_mode": "plan",  # 每次迭代生效；"plan" = 只读门禁
+    },
+)
+await rpc("cron.trigger", {"id": "<job_id>"})  # 仅 event_driven job 可唤醒
 ```
 
 终止语义（都在**迭代边界**判定，绝不在迭代中间杀）：

@@ -70,6 +70,7 @@ def _skill_env(tmp_path, monkeypatch):
 
 # ---------------- token counter ----------------
 
+
 def test_compaction_config_token_counter_on(monkeypatch):
     monkeypatch.setenv("FUSION_TOKEN_COUNTER", "1")
     cfg = build_compaction_config()
@@ -95,6 +96,7 @@ def test_runtime_wires_token_counter(tmp_path, monkeypatch):
 
 
 # ---------------- sandbox policy ----------------
+
 
 def test_sandbox_policy_disabled_by_default(monkeypatch):
     monkeypatch.delenv("FUSION_SANDBOX_POLICY", raising=False)
@@ -122,9 +124,7 @@ def test_sandbox_policy_runner_only_with_flag(monkeypatch):
 @pytest.mark.skipif(sys.platform != "darwin", reason="sandbox-exec is macOS-only")
 def test_sandbox_exec_runner_runs_command():
     runner = SandboxExecRunner()
-    out = asyncio.run(
-        runner.run_sandboxed("terminal_execute", {"command": "echo kernel-wired"})
-    )
+    out = asyncio.run(runner.run_sandboxed("terminal_execute", {"command": "echo kernel-wired"}))
     assert "kernel-wired" in out
 
 
@@ -145,14 +145,13 @@ def test_funnel_sandbox_gate_blocks(tmp_path, monkeypatch):
     )
     funnel = rt.tool_funnel
     assert funnel.sandbox_policy is not None
-    outcome = asyncio.run(
-        funnel.admit(tool_name="terminal_execute", args={"command": "ls"})
-    )
+    outcome = asyncio.run(funnel.admit(tool_name="terminal_execute", args={"command": "ls"}))
     assert outcome.allowed is False
     assert outcome.blocked_by == "sandbox"
 
 
 # ---------------- skill registry ----------------
+
 
 def test_skill_registry_derives_rules(tmp_path, monkeypatch):
     skills = _skill_env(tmp_path, monkeypatch)
@@ -201,6 +200,7 @@ def test_skill_registry_malformed_permissions_skipped(tmp_path, monkeypatch):
 
 # ---------------- kernel checkpoints ----------------
 
+
 def test_kernel_checkpointer_roundtrip(tmp_path):
     cp = KernelCheckpointer(str(tmp_path / "kcp.db"))
     seq = cp.save(
@@ -222,14 +222,13 @@ def test_runtime_wires_checkpointer(tmp_path, monkeypatch):
 
 
 def test_checkpoint_disabled_by_env(tmp_path, monkeypatch):
-    rt = _runtime(
-        tmp_path, monkeypatch, FUSION_TOKEN_COUNTER="0", FUSION_KERNEL_CHECKPOINTS="0"
-    )
+    rt = _runtime(tmp_path, monkeypatch, FUSION_TOKEN_COUNTER="0", FUSION_KERNEL_CHECKPOINTS="0")
     assert "checkpointer" not in rt.kernel
     assert getattr(rt, "kernel_checkpoints", None) is None
 
 
 # ---------------- orchestrator ----------------
+
 
 def test_kernel_orchestrator_build(tmp_path, monkeypatch):
     rt = _runtime(tmp_path, monkeypatch, FUSION_TOKEN_COUNTER="0", FUSION_KERNEL_CHECKPOINTS="0")
@@ -269,6 +268,7 @@ def test_kernel_orchestrator_agent_fn_delegates(tmp_path, monkeypatch):
 
 
 # ---------------- wire_kernel_surfaces aggregate ----------------
+
 
 def test_wire_fail_open(tmp_path, monkeypatch):
     monkeypatch.setenv("FUSION_AGENT_STUDIO_HOME", str(tmp_path / "home"))

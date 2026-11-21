@@ -51,9 +51,7 @@ class TestTranscripts:
         responses = [_llm_response(tool_calls=[_tc("t1", {"tag": "a"})])]
         rt, _ = _make_parent(responses, tools=_tools())
         runner = SubAgentRunner(rt)
-        report = await runner.run(
-            SubAgentSpec(name="cut", task="loop", tools=["t1"], max_turns=1)
-        )
+        report = await runner.run(SubAgentSpec(name="cut", task="loop", tools=["t1"], max_turns=1))
         assert report.partial is True
         record = runner.transcripts().get(report.agent_id)
         assert record["status"] == "partial"
@@ -112,9 +110,7 @@ class TestBackgroundSpawn:
         ids = []
         for i in range(3):
             ids.append(
-                runner.spawn(SubAgentSpec(name=f"w{i}", task="t", background=True))[
-                    "agent_id"
-                ]
+                runner.spawn(SubAgentSpec(name=f"w{i}", task="t", background=True))["agent_id"]
             )
         tree = runner.task_manager().tree()
         assert tree["nodes"], "tree must list spawned subagents"

@@ -94,9 +94,7 @@ class CoworkManager:
         logger.info("Removed agent %s from space %s", agent_id, space_id)
         return {"status": "ok"}
 
-    def check_permission(
-        self, space_id: str, agent_id: str, caller_role: str = "member"
-    ) -> bool:
+    def check_permission(self, space_id: str, agent_id: str, caller_role: str = "member") -> bool:
         bindings = self._bindings.get(space_id, [])
         for b in bindings:
             if b.agent_id == agent_id:
@@ -135,9 +133,7 @@ class CoworkManager:
 
         binding.last_called_at = time.time()
         binding.call_count += 1
-        logger.info(
-            "Called agent %s in space %s (stream=%s)", agent_id, space_id, stream
-        )
+        logger.info("Called agent %s in space %s (stream=%s)", agent_id, space_id, stream)
         return {
             "status": "ok",
             "agent_id": agent_id,
@@ -189,7 +185,5 @@ class CoworkManager:
         else:
             result = [m.to_dict() for m in messages[-50:]]
 
-        logger.info(
-            "Injected %d messages (mode=%s) for space %s", len(result), mode, space_id
-        )
+        logger.info("Injected %d messages (mode=%s) for space %s", len(result), mode, space_id)
         return result

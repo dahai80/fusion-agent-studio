@@ -4,6 +4,7 @@ Extracted from runtime.py (audit 0826 P2-4 god-object split) to break the
 circular import that would arise if mixin modules imported these symbols
 directly from runtime.py. This module is a leaf — no back-imports.
 """
+
 from __future__ import annotations
 
 import logging
@@ -246,8 +247,7 @@ class ConditionEngine:
             # misroutes (e.g. list/dict tool output vs scalar) are
             # traceable in daemon logs instead of silent false-branch.
             logger.warning(
-                "condition compare TypeError swallowed -> false: "
-                "%r(%s) %s %r(%s)",
+                "condition compare TypeError swallowed -> false: %r(%s) %s %r(%s)",
                 left,
                 type(left).__name__,
                 op,

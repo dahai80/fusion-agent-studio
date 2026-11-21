@@ -36,7 +36,9 @@ def test_read_mlx_own_default(tmp_path, monkeypatch):
     assert ds._read_mlx_own_default() == ""
     cfg = tmp_path / ".fusion-mlx"
     cfg.mkdir()
-    (cfg / "settings.json").write_text(json.dumps({"default_model": "mlx-community/Qwen3.5-4B-MLX-4bit"}))
+    (cfg / "settings.json").write_text(
+        json.dumps({"default_model": "mlx-community/Qwen3.5-4B-MLX-4bit"})
+    )
     assert ds._read_mlx_own_default() == "mlx-community/Qwen3.5-4B-MLX-4bit"
 
 
@@ -76,9 +78,7 @@ def test_fallback_picks_largest_qwen_not_catalog_order(daemon):
 
 
 def test_settings_default_wins_when_in_catalog(daemon, monkeypatch):
-    monkeypatch.setattr(
-        ds, "_read_mlx_own_default", lambda: "mlx-community/Qwen3.5-4B-MLX-4bit"
-    )
+    monkeypatch.setattr(ds, "_read_mlx_own_default", lambda: "mlx-community/Qwen3.5-4B-MLX-4bit")
     assert daemon._discover_mlx_model_id("") == "mlx-community--Qwen3.5-4B-MLX-4bit"
 
 

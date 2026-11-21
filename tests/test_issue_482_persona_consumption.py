@@ -192,9 +192,7 @@ class TestSkillsAllowlist:
             "---\nskills:\n  - review\n---\n",
         )
         d = self._dispatcher()
-        assert d._persona_skill_check(
-            {"agent_id": "a1", "tenant_id": "acme"}, "review"
-        ) is None
+        assert d._persona_skill_check({"agent_id": "a1", "tenant_id": "acme"}, "review") is None
 
     async def test_undeclared_skill_refused(self, persona_root):
         _write(
@@ -293,9 +291,7 @@ class TestShardLayout:
             persona_root / "tenants" / "acme" / "persona" / "z.md",
             "---\nrules:\n  - deny: terminal\nmemory_scope: project\nskills:\n  - review\n---\n",
         )
-        result = persona_mod.resolve_persona(
-            agent_id="a1", tenant_id="acme", fallback="soul text"
-        )
+        result = persona_mod.resolve_persona(agent_id="a1", tenant_id="acme", fallback="soul text")
         assert result["persona"] == "soul text"
         assert result["declarations"] == {
             "rules": ["deny: terminal"],

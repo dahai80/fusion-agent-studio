@@ -86,9 +86,9 @@ Web Safety 页「待审动作」按四类卡过滤、用卡片网格展示，dif
 只读 RPC（web 桥白名单内）：
 
 ```python
-await rpc("run_artifact.list", {"limit": 20, "name": ""})   # 摘要，不含图/对话正文
-await rpc("run_artifact.get", {"artifact_id": "run-…"})     # 完整三元组
-await rpc("run_artifact.versions", {"name": "my_graph"})    # 同名各版本
+await rpc("run_artifact.list", {"limit": 20, "name": ""})  # 摘要，不含图/对话正文
+await rpc("run_artifact.get", {"artifact_id": "run-…"})  # 完整三元组
+await rpc("run_artifact.versions", {"name": "my_graph"})  # 同名各版本
 ```
 
 Web Governance 页「产物 / Artifacts」页签列出运行记录，点击「查看三元组」并排展示三块内容。
@@ -98,8 +98,8 @@ Web Governance 页「产物 / Artifacts」页签列出运行记录，点击「�
 `graph.list` / `agent.list` 默认按名称去重：保留最新一条，其余隐藏并返回 `duplicate_count`。需要完整清单时传 `dedupe=false`。
 
 ```python
-await rpc("graph.list", {})                  # 去重视图
-await rpc("graph.list", {"dedupe": False})   # 原始全量
+await rpc("graph.list", {})  # 去重视图
+await rpc("graph.list", {"dedupe": False})  # 原始全量
 ```
 
 批量清理测试残留（鉴权同其他 mutating RPC，先 `auth.login`）：

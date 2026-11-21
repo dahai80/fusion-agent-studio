@@ -10,6 +10,7 @@ Supports three transports:
 
 Also discovers MCP resources (resources/list) and prompts (prompts/list).
 """
+
 from __future__ import annotations
 
 import json
@@ -68,15 +69,25 @@ class HTTPMCPTransport(MCPTransport):
 
     async def list_tools(self) -> list[dict]:
         resp = await self._rpc("tools/list")
-        return resp.get("result", {}).get("tools", []) if "result" in resp else resp.get("tools", [])
+        return (
+            resp.get("result", {}).get("tools", []) if "result" in resp else resp.get("tools", [])
+        )
 
     async def list_resources(self) -> list[dict]:
         resp = await self._rpc("resources/list")
-        return resp.get("result", {}).get("resources", []) if "result" in resp else resp.get("resources", [])
+        return (
+            resp.get("result", {}).get("resources", [])
+            if "result" in resp
+            else resp.get("resources", [])
+        )
 
     async def list_prompts(self) -> list[dict]:
         resp = await self._rpc("prompts/list")
-        return resp.get("result", {}).get("prompts", []) if "result" in resp else resp.get("prompts", [])
+        return (
+            resp.get("result", {}).get("prompts", [])
+            if "result" in resp
+            else resp.get("prompts", [])
+        )
 
 
 class StdioMCPTransport(MCPTransport):
@@ -108,11 +119,14 @@ class StdioMCPTransport(MCPTransport):
         await self._initialize()
 
     async def _initialize(self) -> dict:
-        return await self._rpc("initialize", {
-            "protocolVersion": "2024-11-05",
-            "capabilities": {},
-            "clientInfo": {"name": "fusion-agent-studio", "version": "1.0"},
-        })
+        return await self._rpc(
+            "initialize",
+            {
+                "protocolVersion": "2024-11-05",
+                "capabilities": {},
+                "clientInfo": {"name": "fusion-agent-studio", "version": "1.0"},
+            },
+        )
 
     async def _rpc(self, method: str, params: dict | None = None) -> dict:
         import asyncio
@@ -153,7 +167,8 @@ class StdioMCPTransport(MCPTransport):
             if msg["id"] != req_id:
                 logger.info(
                     "stdio MCP skipping message with foreign id %s (want %s)",
-                    msg["id"], req_id,
+                    msg["id"],
+                    req_id,
                 )
                 continue
             if "error" in msg:
@@ -343,9 +358,7 @@ class MCPTool(BaseTool):
         text = cls._format_result_uncapped(result)
         cap = cls._output_char_cap()
         if len(text) > cap:
-            logger.warning(
-                "MCP output truncated: %d chars -> %d (cap)", len(text), cap
-            )
+            logger.warning("MCP output truncated: %d chars -> %d (cap)", len(text), cap)
             return (
                 text[:cap]
                 + f"\n[output truncated at {cap // 4} tokens; narrow the query or paginate]"
@@ -473,9 +486,7 @@ class MCPRegistry:
                 )
                 self._registry.register(mcp_tool)
                 registered.append(name)
-                logger.info(
-                    "Registered MCP tool: %s extensions=%s", name, sorted(extensions)
-                )
+                logger.info("Registered MCP tool: %s extensions=%s", name, sorted(extensions))
 
             key = server_url or (sse_url or "") or " ".join(stdio_cmd or [])
             self._servers[key] = {

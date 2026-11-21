@@ -257,9 +257,7 @@ class TestConsumeRpcAuth:
         )
 
         resp = MagicMock(status_code=200)
-        resp.json.return_value = {
-            "claims": {"tid": "tenant-x", "role": "admin"}
-        }
+        resp.json.return_value = {"claims": {"tid": "tenant-x", "role": "admin"}}
         with patch("httpx.post", return_value=resp):
             token = consume_rpc_auth({"_auth": {"jwt": "valid"}})
 
@@ -312,9 +310,7 @@ class TestDispatchAuth:
 
         monkeypatch.setattr(srv, "_get_handler", lambda m: fake_handler)
         resp = MagicMock(status_code=200)
-        resp.json.return_value = {
-            "claims": {"tid": "tenant-x", "role": "admin"}
-        }
+        resp.json.return_value = {"claims": {"tid": "tenant-x", "role": "admin"}}
         with patch("httpx.post", return_value=resp):
             msg = {
                 "jsonrpc": "2.0",

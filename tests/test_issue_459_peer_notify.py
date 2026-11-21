@@ -117,9 +117,7 @@ def test_mailbox_send_fires_notify(env, sink, tmp_path):
     import os
 
     os.environ["FUSION_TEAM_PEER_NOTIFY_URLS"] = sink
-    DurableRoster(str(tmp_path / "team.db")).register(
-        agent_id="a1", name="A1", team="ops"
-    )
+    DurableRoster(str(tmp_path / "team.db")).register(agent_id="a1", name="A1", team="ops")
     mb = Mailbox(str(tmp_path / "team.db"))
     rec = mb.send("a1", "a2", "hello", team="ops")
     assert rec["message_id"]
@@ -144,9 +142,7 @@ def test_mailbox_broadcast_notifies_once(env, sink, tmp_path):
 
 
 def test_mailbox_send_without_config_still_works(env, tmp_path):
-    DurableRoster(str(tmp_path / "team.db")).register(
-        agent_id="a1", name="A1", team="ops"
-    )
+    DurableRoster(str(tmp_path / "team.db")).register(agent_id="a1", name="A1", team="ops")
     mb = Mailbox(str(tmp_path / "team.db"))
     rec = mb.send("a1", "a2", "hello", team="ops")
     assert rec["message_id"]

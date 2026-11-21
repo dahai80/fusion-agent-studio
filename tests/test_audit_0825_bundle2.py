@@ -10,6 +10,7 @@ E-18 MLX_BASE_URL 运行时解析 + gateway.reconfigure RPC 热切.
 E-20 checkpoint 读写签名对齐 + graph.resume RPC 闭合读路径.
 E-22 apikey/mlx-key 文件 0o600 收紧 + bootstrap key 不写明文进日志.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -110,18 +111,12 @@ class TestE12GatewaySentinel:
             async def chat(self, **kwargs):
                 from agent_runtime.llm_gateway import GatewayResponse
 
-                return GatewayResponse(
-                    content="", finish_reason="error", usage={"error": "boom"}
-                )
+                return GatewayResponse(content="", finish_reason="error", usage={"error": "boom"})
 
         eng = PlannerEngine.__new__(PlannerEngine)
         eng.gateway = FakeGateway()
-        monkeypatch.setattr(
-            eng, "_generate_steps_stub", lambda t, c, f: ["stub-step"]
-        )
-        result = asyncio.run(
-            eng._generate_steps_with_llm("task", "ctx", ["f.py"])
-        )
+        monkeypatch.setattr(eng, "_generate_steps_stub", lambda t, c, f: ["stub-step"])
+        result = asyncio.run(eng._generate_steps_with_llm("task", "ctx", ["f.py"]))
         assert result == ["stub-step"]
 
     def test_verifier_raises_on_gateway_error(self, monkeypatch, caplog):
@@ -132,9 +127,7 @@ class TestE12GatewaySentinel:
 
         class FakeGateway:
             async def chat(self, **kwargs):
-                return GatewayResponse(
-                    content="", finish_reason="error", usage={"error": "boom"}
-                )
+                return GatewayResponse(content="", finish_reason="error", usage={"error": "boom"})
 
         eng = VerificationEngine.__new__(VerificationEngine)
         eng.gateway = FakeGateway()
@@ -154,9 +147,7 @@ class TestE12GatewaySentinel:
 
         class FakeGateway:
             async def chat(self, **kwargs):
-                return GatewayResponse(
-                    content="", finish_reason="error", usage={"error": "boom"}
-                )
+                return GatewayResponse(content="", finish_reason="error", usage={"error": "boom"})
 
         eng = WorkflowEngine.__new__(WorkflowEngine)
         eng.llm_gateway = FakeGateway()

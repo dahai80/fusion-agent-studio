@@ -37,9 +37,7 @@ class TestFusionMLXClientMocked:
                 {
                     "message": {
                         "content": "Let me check",
-                        "tool_calls": [
-                            {"id": "c1", "function": {"name": "f1", "arguments": "{}"}}
-                        ],
+                        "tool_calls": [{"id": "c1", "function": {"name": "f1", "arguments": "{}"}}],
                     },
                     "finish_reason": "tool_calls",
                 }
@@ -265,9 +263,7 @@ class TestGitToolAdvanced:
             repo = await self._init_repo(tmpdir)
             (repo / "f.txt").write_text("hello")
             tool = GitTool()
-            result = await tool.execute(
-                action="commit", repo_path=str(repo), message="init"
-            )
+            result = await tool.execute(action="commit", repo_path=str(repo), message="init")
             assert "commit" in result.lower() or "file" in result.lower()
 
     @pytest.mark.asyncio
@@ -288,9 +284,7 @@ class TestGitToolAdvanced:
                 await proc.wait()
             tool = GitTool()
             result = await tool.execute(action="diff", repo_path=str(repo))
-            assert ("no uncommitted" in result.lower()) or (
-                "no output" in result.lower()
-            )
+            assert ("no uncommitted" in result.lower()) or ("no output" in result.lower())
 
     @pytest.mark.asyncio
     async def test_git_pull_no_remote(self):
@@ -324,9 +318,7 @@ class TestGitToolAdvanced:
     @pytest.mark.asyncio
     async def test_git_cmd_generic_error(self):
         tool = GitTool()
-        with patch(
-            "asyncio.create_subprocess_exec", side_effect=PermissionError("denied")
-        ):
+        with patch("asyncio.create_subprocess_exec", side_effect=PermissionError("denied")):
             result = await tool._git_cmd(Path("."), "status")
             assert "Error" in result
 
@@ -412,9 +404,7 @@ class TestTerminalToolAdvanced:
     @pytest.mark.asyncio
     async def test_terminal_generic_error(self):
         tool = TerminalTool()
-        with patch(
-            "asyncio.create_subprocess_shell", side_effect=RuntimeError("crash")
-        ):
+        with patch("asyncio.create_subprocess_shell", side_effect=RuntimeError("crash")):
             result = await tool.execute(command="x")
             assert "Error" in result
 
@@ -528,18 +518,12 @@ class TestRuntimeErrorPaths:
     def test_condition_has_tool_calls_false(self):
         runtime = AgentRuntime(MagicMock(), ToolRegistry())
         vm = runtime.variables
-        assert (
-            runtime.condition_engine.evaluate("has_tool_calls", AgentContext(), vm)
-            == "false"
-        )
+        assert runtime.condition_engine.evaluate("has_tool_calls", AgentContext(), vm) == "false"
 
     def test_condition_has_error_false(self):
         runtime = AgentRuntime(MagicMock(), ToolRegistry())
         vm = runtime.variables
-        assert (
-            runtime.condition_engine.evaluate("has_error", AgentContext(), vm)
-            == "false"
-        )
+        assert runtime.condition_engine.evaluate("has_error", AgentContext(), vm) == "false"
 
     def test_condition_unknown(self):
         runtime = AgentRuntime(MagicMock(), ToolRegistry())
@@ -551,10 +535,7 @@ class TestRuntimeErrorPaths:
     def test_condition_malformed_iteration(self):
         runtime = AgentRuntime(MagicMock(), ToolRegistry())
         vm = runtime.variables
-        assert (
-            runtime.condition_engine.evaluate("iteration >", AgentContext(), vm)
-            == "false"
-        )
+        assert runtime.condition_engine.evaluate("iteration >", AgentContext(), vm) == "false"
 
 
 # ── Orchestrator error paths ──
@@ -605,9 +586,7 @@ class TestTextToolAdvanced:
     @pytest.mark.asyncio
     async def test_search_plain_max_results(self):
         tool = TextSearchTool()
-        result = await tool.execute(
-            text="target " * 50, pattern="target", max_results=5
-        )
+        result = await tool.execute(text="target " * 50, pattern="target", max_results=5)
         assert "5" in result or "occurrence" in result
 
     @pytest.mark.asyncio

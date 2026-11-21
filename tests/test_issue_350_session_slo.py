@@ -1,6 +1,5 @@
 """#350 N11: long-session SLO telemetry (duration / compactions / approval latency)."""
 
-
 import pytest
 
 from agent_runtime.telemetry import TelemetryEngine

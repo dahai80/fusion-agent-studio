@@ -88,14 +88,10 @@ def _self_repair_setup(deny_probe=False, probe_usage=None):
         rt.permission_engine.add_rule(PermissionRule(action="deny", tool="probe_tool"))
     else:
         rt.permission_engine.add_rule(PermissionRule(action="allow", tool="probe_tool"))
-    retry_resp = _resp(
-        [_tool_call("probe_tool", call_id="call_2")], **(probe_usage or {})
-    )
+    retry_resp = _resp([_tool_call("probe_tool", call_id="call_2")], **(probe_usage or {}))
     rt.llm_gateway = _SeqGateway([_resp([_tool_call("boom_tool")]), retry_resp])
     graph = AgentGraph(name="g475")
-    node = NodeConfig(
-        type="llm", label="n1", retry_on_error=True, max_retries=1
-    )
+    node = NodeConfig(type="llm", label="n1", retry_on_error=True, max_retries=1)
     graph.add_node("s", NodeConfig(type="start", label="s"))
     graph.add_node("n1", node)
     graph.add_node("e", NodeConfig(type="end", label="e"))
@@ -116,9 +112,7 @@ class TestIssue475SelfRepairFunnel:
             events.append(evt)
         assert probe.executions == 1
         assert any(
-            e.type.value == "retry_success"
-            for e in events
-            if hasattr(e.type, "value")
+            e.type.value == "retry_success" for e in events if hasattr(e.type, "value")
         ) or "Self-repair succeeded" in [getattr(e, "content", "") for e in events]
 
     @pytest.mark.asyncio
@@ -133,9 +127,7 @@ class TestIssue475SelfRepairFunnel:
                 tool_results.append(evt.content)
         assert probe.executions == 0
         assert tool_results and "Permission denied tool call" in tool_results[0]
-        assert any(
-            "funnel blocked self_repair" in r.message for r in caplog.records
-        )
+        assert any("funnel blocked self_repair" in r.message for r in caplog.records)
 
     @pytest.mark.asyncio
     async def test_self_repair_pre_tool_use_hook_fires(self):
@@ -189,14 +181,11 @@ class TestIssue475GrepAssert:
                 if pattern.search(text) and path.name not in allowlist:
                     offenders.append(str(path.relative_to(REPO_ROOT)))
         assert offenders == [], (
-            "evaluate_action(category=\"tool_call\") outside funnel chain: "
-            + ", ".join(offenders)
+            'evaluate_action(category="tool_call") outside funnel chain: ' + ", ".join(offenders)
         )
 
     def test_self_repair_path_uses_funnel_admit(self):
-        text = (REPO_ROOT / "agent_runtime" / "_runtime_nodes.py").read_text(
-            encoding="utf-8"
-        )
+        text = (REPO_ROOT / "agent_runtime" / "_runtime_nodes.py").read_text(encoding="utf-8")
         assert "funnel blocked self_repair" in text
         self_repair_seg = text[text.index("Self-repair retry %d/%d") :]
         assert "tool_funnel.admit" in self_repair_seg

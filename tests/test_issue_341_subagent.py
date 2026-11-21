@@ -120,8 +120,14 @@ class TestSpecReportRoundtrip:
 
     def test_report_roundtrip(self):
         report = SubAgentReport(
-            name="researcher", ok=True, report="done", turns=2,
-            tokens_used=42, error="", team="alpha", duration_ms=99,
+            name="researcher",
+            ok=True,
+            report="done",
+            turns=2,
+            tokens_used=42,
+            error="",
+            team="alpha",
+            duration_ms=99,
         )
         d = report.to_dict()
         assert d["ok"] is True
@@ -354,16 +360,11 @@ class TestBudget:
         # returns). A single no-tool call with usage 10 vs cap 5 trips it.
         rt, _ = _make_parent([_llm_response(content="final")])
         runner = SubAgentRunner(rt)
-        report = await runner.run(
-            SubAgentSpec(name="b", task="t", budget_tokens=5)
-        )
+        report = await runner.run(SubAgentSpec(name="b", task="t", budget_tokens=5))
         assert report.ok is True
         assert report.report == "final"
         assert report.tokens_used == 10
-        exceeded = [
-            e for e in runner.last_events
-            if e.type == AgentEventType.TOKEN_BUDGET_EXCEEDED
-        ]
+        exceeded = [e for e in runner.last_events if e.type == AgentEventType.TOKEN_BUDGET_EXCEEDED]
         assert exceeded, "token cap mechanism must fire"
         assert report.duration_ms >= 0
 
@@ -373,10 +374,7 @@ class TestBudget:
         runner = SubAgentRunner(rt)
         report = await runner.run(SubAgentSpec(name="nb", task="t"))
         assert report.ok is True
-        exceeded = [
-            e for e in runner.last_events
-            if e.type == AgentEventType.TOKEN_BUDGET_EXCEEDED
-        ]
+        exceeded = [e for e in runner.last_events if e.type == AgentEventType.TOKEN_BUDGET_EXCEEDED]
         assert not exceeded
 
 

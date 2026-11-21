@@ -35,7 +35,9 @@ DEFAULT_CARD = CARD_CODE
 def card_type_for_category(category: str) -> str:
     card = CATEGORY_TO_CARD.get(category or "")
     if card is None:
-        logger.info("permission card: unknown category '%s', defaulting to %s", category, DEFAULT_CARD)
+        logger.info(
+            "permission card: unknown category '%s', defaulting to %s", category, DEFAULT_CARD
+        )
         return DEFAULT_CARD
     return card
 

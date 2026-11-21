@@ -29,7 +29,9 @@ class _StubDaemon:
         return None
 
     async def _handle_task_submit(self, params):
-        return {"task": {"task_id": "task-327", "status": "pending", "title": params.get("title", "")}}
+        return {
+            "task": {"task_id": "task-327", "status": "pending", "title": params.get("title", "")}
+        }
 
     async def _handle_task_get(self, params):
         return {"task": {"task_id": params.get("task_id", ""), "status": "pending"}}
@@ -116,7 +118,9 @@ class TestHttpAuthGate:
         assert resp.json()["status"] == "pending"
 
     def test_x_api_key_static_key_passes_auth(self, static_key_env, stub_daemon):
-        resp = self._client().post("/v1/runs", json={"goal": "hi"}, headers={"x-api-key": STATIC_KEY})
+        resp = self._client().post(
+            "/v1/runs", json={"goal": "hi"}, headers={"x-api-key": STATIC_KEY}
+        )
         assert resp.status_code == 200
         assert resp.json()["run_id"] == "task-327"
 
@@ -139,9 +143,7 @@ class TestHttpAuthGate:
         assert resp.status_code == 401
 
     def test_sse_query_api_key_static_passes_auth(self, static_key_env):
-        resp = self._client().get(
-            f"/v1/graphs/nonexistent-327/execute/stream?api_key={STATIC_KEY}"
-        )
+        resp = self._client().get(f"/v1/graphs/nonexistent-327/execute/stream?api_key={STATIC_KEY}")
         assert resp.status_code == 404
 
 
@@ -176,10 +178,7 @@ class TestWebDistMount:
         assert manifest["category"] in ("platform", "domain", "infra", "dev")
         assert manifest["icon"]
         assert manifest["title"] and manifest["title_en"]
-        assert (
-            manifest["health"]
-            == "http://127.0.0.1:11432/shell/fusion-agent-studio/v1/health"
-        )
+        assert manifest["health"] == "http://127.0.0.1:11432/shell/fusion-agent-studio/v1/health"
 
     def test_vendored_packages_pinned(self):
         vendor = Path(__file__).resolve().parent.parent / "web" / "vendor" / "@fusion"

@@ -71,7 +71,13 @@ async def test_runs_list_reports_attempts(daemon, tmp_path):
         [
             ("prompt", {"text": "reproduce failing test first"}),
             ("tool_call", {"tool": "bash", "input": "pytest -x"}),
-            ("run_finished", {"status": "ok", "usage": {"prompt_tokens": 100, "completion_tokens": 20, "total_tokens": 120}}),
+            (
+                "run_finished",
+                {
+                    "status": "ok",
+                    "usage": {"prompt_tokens": 100, "completion_tokens": 20, "total_tokens": 120},
+                },
+            ),
         ],
     )
     res = await _run(daemon, "teams.runs_list", {"team": "runs-team", "task_id": task_id})
@@ -103,7 +109,9 @@ async def test_run_messages_replays_full_run(daemon, tmp_path):
             ("run_finished", {"status": "failed", "usage": {"total_tokens": 55}}),
         ],
     )
-    res = await _run(daemon, "teams.run_messages", {"team": "runs-team", "task_id": task_id, "attempt": 2})
+    res = await _run(
+        daemon, "teams.run_messages", {"team": "runs-team", "task_id": task_id, "attempt": 2}
+    )
     assert res["status"] == "ok"
     assert res["attempt"] == 2
     types = [m["type"] for m in res["messages"]]
@@ -114,7 +122,9 @@ async def test_run_messages_replays_full_run(daemon, tmp_path):
 
 async def test_run_messages_missing_attempt(daemon, tmp_path):
     task_id, _ = await _team_with_task(daemon, tmp_path)
-    res = await _run(daemon, "teams.run_messages", {"team": "runs-team", "task_id": task_id, "attempt": 9})
+    res = await _run(
+        daemon, "teams.run_messages", {"team": "runs-team", "task_id": task_id, "attempt": 9}
+    )
     assert res["status"] == "error"
     assert res["reason_code"] == "task_not_found"
     assert "no run attempt 9" in res["message"]
@@ -128,8 +138,43 @@ async def test_run_messages_attempt_required(daemon, tmp_path):
 
 async def test_run_usage_rows_match_run_finished(daemon, tmp_path):
     task_id, runs_dir = await _team_with_task(daemon, tmp_path)
-    _write_run(runs_dir, 1, [("run_finished", {"status": "ok", "usage": {"prompt_tokens": 10, "completion_tokens": 5, "cache_hit_tokens": 0, "total_tokens": 15}})])
-    _write_run(runs_dir, 2, [("run_finished", {"status": "ok", "usage": {"prompt_tokens": 30, "completion_tokens": 9, "cache_hit_tokens": 12, "total_tokens": 39}})], member="worker-b")
+    _write_run(
+        runs_dir,
+        1,
+        [
+            (
+                "run_finished",
+                {
+                    "status": "ok",
+                    "usage": {
+                        "prompt_tokens": 10,
+                        "completion_tokens": 5,
+                        "cache_hit_tokens": 0,
+                        "total_tokens": 15,
+                    },
+                },
+            )
+        ],
+    )
+    _write_run(
+        runs_dir,
+        2,
+        [
+            (
+                "run_finished",
+                {
+                    "status": "ok",
+                    "usage": {
+                        "prompt_tokens": 30,
+                        "completion_tokens": 9,
+                        "cache_hit_tokens": 12,
+                        "total_tokens": 39,
+                    },
+                },
+            )
+        ],
+        member="worker-b",
+    )
     res = await _run(daemon, "teams.run_usage", {"team": "runs-team", "task_id": task_id})
     assert res["status"] == "ok"
     assert [r["attempt"] for r in res["usage"]] == [1, 2]
@@ -159,6 +204,8 @@ async def test_run_messages_returns_stored_payloads_verbatim(daemon, tmp_path):
     # the read surface replays the stored JSONL verbatim with no transform.
     task_id, runs_dir = await _team_with_task(daemon, tmp_path)
     _write_run(runs_dir, 1, [("tool_call", {"input": "pytest -x tests/test_auth.py"})])
-    res = await _run(daemon, "teams.run_messages", {"team": "runs-team", "task_id": task_id, "attempt": 1})
+    res = await _run(
+        daemon, "teams.run_messages", {"team": "runs-team", "task_id": task_id, "attempt": 1}
+    )
     assert res["status"] == "ok"
     assert res["messages"][0]["payload"]["input"] == "pytest -x tests/test_auth.py"

@@ -40,9 +40,19 @@ class FakeMemoryEngine:
         self.recall_calls.append({"query": query, "scope": scope})
         return f"remembered:{scope}"
 
-    def store(self, content, scope="default", tags="", importance=5,
-              metadata=None, tier="", is_summary=False, memory_type="",
-              tenant_id="", team_id=""):
+    def store(
+        self,
+        content,
+        scope="default",
+        tags="",
+        importance=5,
+        metadata=None,
+        tier="",
+        is_summary=False,
+        memory_type="",
+        tenant_id="",
+        team_id="",
+    ):
         self.store_calls.append({"content": content, "scope": scope, "memory_type": memory_type})
         return "mem-1"
 
@@ -90,9 +100,7 @@ class TestAgentDefinitionParsing:
         assert definition.to_dict()["disallowedTools"] == []
 
     def test_unknown_effort_and_memory_disabled(self):
-        definition = AgentDefinition.from_dict(
-            {"name": "x", "effort": "turbo", "memory": "galaxy"}
-        )
+        definition = AgentDefinition.from_dict({"name": "x", "effort": "turbo", "memory": "galaxy"})
         assert definition.effort == ""
         assert definition.memory == ""
 
@@ -111,9 +119,16 @@ class TestAgentDefinitionParsing:
 
     def test_spec_roundtrip_keeps_new_fields(self):
         spec = SubAgentSpec(
-            name="n", task="t", disallowed_tools=["x"], effort="low",
-            auto_compact_window=1024, memory_scope="user", background=True,
-            skills=["s"], mcp_servers=["docs"], permission_mode="plan",
+            name="n",
+            task="t",
+            disallowed_tools=["x"],
+            effort="low",
+            auto_compact_window=1024,
+            memory_scope="user",
+            background=True,
+            skills=["s"],
+            mcp_servers=["docs"],
+            permission_mode="plan",
         )
         assert SubAgentSpec.from_dict(spec.to_dict()) == spec
 
@@ -130,7 +145,10 @@ class TestAgentDefinitionParsing:
             "---\nname: reviewer\ntools: read_file, write_file\n---\nproject tier prompt\n",
             encoding="utf-8",
         )
-        monkeypatch.setattr("agent_runtime.subagent_defs.DEFAULT_USER_AGENTS_DIR", str(user_dir / ".fusion-agent-studio" / "agents"))
+        monkeypatch.setattr(
+            "agent_runtime.subagent_defs.DEFAULT_USER_AGENTS_DIR",
+            str(user_dir / ".fusion-agent-studio" / "agents"),
+        )
         registry = AgentDefinitionRegistry()
         count = registry.discover(project_dir=str(project_dir))
         definition = registry.get("reviewer")
@@ -154,9 +172,7 @@ class TestPhysicalToolDeny:
         tools.register(T2Tool())
         rt, _ = _make_parent([_llm_response(content="ok")], tools=tools)
         runner = SubAgentRunner(rt)
-        spec = SubAgentSpec(
-            name="ro", task="t", tools=["t1", "t2"], disallowed_tools=["t2"]
-        )
+        spec = SubAgentSpec(name="ro", task="t", tools=["t1", "t2"], disallowed_tools=["t2"])
         reg, missing = runner._build_registry(spec)
         assert missing == []
         assert reg.has("t1") is True
@@ -214,9 +230,7 @@ class TestPhysicalToolDeny:
         rt, _ = _make_parent([_llm_response(content="done")], tools=tools)
         runner = SubAgentRunner(rt)
         report = await runner.run(
-            SubAgentSpec(
-                name="deny-run", task="t", tools=["t1"], disallowed_tools=["t1"]
-            )
+            SubAgentSpec(name="deny-run", task="t", tools=["t1"], disallowed_tools=["t1"])
         )
         assert report.ok is True
         assert runner.last_runtime.tools.count == 0
@@ -227,9 +241,7 @@ class TestPerSubagentCompactionAndEffort:
     async def test_auto_compact_window_applied(self):
         rt, _ = _make_parent([_llm_response(content="ok")])
         runner = SubAgentRunner(rt)
-        await runner.run(
-            SubAgentSpec(name="small", task="t", auto_compact_window=2048)
-        )
+        await runner.run(SubAgentSpec(name="small", task="t", auto_compact_window=2048))
         compactor = runner.last_runtime.compactor
         assert compactor is not None
         assert compactor.config.context_window == 2048
@@ -245,9 +257,7 @@ class TestPerSubagentCompactionAndEffort:
     def test_effort_forwarded_to_llm_node(self):
         rt, _ = _make_parent([_llm_response(content="ok")])
         runner = SubAgentRunner(rt)
-        graph = runner._build_graph(
-            SubAgentSpec(name="e", task="t", effort="high"), "m1"
-        )
+        graph = runner._build_graph(SubAgentSpec(name="e", task="t", effort="high"), "m1")
         node = graph.nodes["llm1"]
         assert node.effort == "high"
 
@@ -275,9 +285,7 @@ class TestMemoryScopes:
         rt, _ = _make_parent([_llm_response(content="learned outcome")])
         rt.memory_engine = engine
         runner = SubAgentRunner(rt)
-        spec = SubAgentSpec(
-            name="mem", task="do work", memory_scope="project", team=str(tmp_path)
-        )
+        spec = SubAgentSpec(name="mem", task="do work", memory_scope="project", team=str(tmp_path))
         report = await runner.run(spec)
         assert report.ok is True
         assert engine.recall_calls and engine.recall_calls[0]["scope"].startswith("project:")

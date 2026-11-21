@@ -20,7 +20,6 @@ from .paths import studio_home
 logger = logging.getLogger(__name__)
 
 
-
 @dataclass
 class Checkpoint:
     """A checkpoint of agent execution state for resume capability."""
@@ -404,9 +403,7 @@ class AgentStore:
     def load_graph(self, graph_id: str) -> AgentGraph | None:
         """Load an agent graph by ID."""
         with self._cursor() as conn:
-            row = conn.execute(
-                "SELECT data FROM graphs WHERE id = ?", (graph_id,)
-            ).fetchone()
+            row = conn.execute("SELECT data FROM graphs WHERE id = ?", (graph_id,)).fetchone()
         if row is None:
             return None
         return AgentGraph.from_json(row["data"])
@@ -448,9 +445,7 @@ class AgentStore:
         for name, entry in kept.items():
             entry["duplicate_count"] = counts[name] - 1
         deduped = [e for e in results if kept.get(e.get("name", "")) is e]
-        logger.debug(
-            "list_graphs dedupe: %d -> %d entries", len(results), len(deduped)
-        )
+        logger.debug("list_graphs dedupe: %d -> %d entries", len(results), len(deduped))
         return deduped
 
     def delete_graph(self, graph_id: str) -> bool:
@@ -566,9 +561,7 @@ class AgentStore:
             )
         return cursor.lastrowid or 0
 
-    def load_latest_checkpoint(
-        self, session_id: str = "", graph_id: str = ""
-    ) -> Checkpoint | None:
+    def load_latest_checkpoint(self, session_id: str = "", graph_id: str = "") -> Checkpoint | None:
         # 审计 E-20: 支持 graph_id 过滤; 老表无 graph_id 列时退化为 session-only.
         with self._cursor() as conn:
             if graph_id:
@@ -639,9 +632,7 @@ class AgentStore:
 
     def load_chat_session(self, session_id: str) -> ChatSession | None:
         with self._cursor() as conn:
-            row = conn.execute(
-                "SELECT * FROM chat_sessions WHERE id = ?", (session_id,)
-            ).fetchone()
+            row = conn.execute("SELECT * FROM chat_sessions WHERE id = ?", (session_id,)).fetchone()
         if row is None:
             return None
         data = {
@@ -683,9 +674,7 @@ class AgentStore:
 
     def delete_chat_session(self, session_id: str) -> bool:
         with self._cursor() as conn:
-            cursor = conn.execute(
-                "DELETE FROM chat_sessions WHERE id = ?", (session_id,)
-            )
+            cursor = conn.execute("DELETE FROM chat_sessions WHERE id = ?", (session_id,))
         return cursor.rowcount > 0
 
     # ── Workflow CRUD (C5: 工作流持久化) ──
@@ -704,9 +693,7 @@ class AgentStore:
 
     def load_workflow(self, workflow_id: str) -> dict[str, Any] | None:
         with self._cursor() as conn:
-            row = conn.execute(
-                "SELECT data FROM workflows WHERE id = ?", (workflow_id,)
-            ).fetchone()
+            row = conn.execute("SELECT data FROM workflows WHERE id = ?", (workflow_id,)).fetchone()
         if row is None:
             return None
         return json.loads(row["data"])
@@ -720,9 +707,7 @@ class AgentStore:
 
     def delete_workflow(self, workflow_id: str) -> bool:
         with self._cursor() as conn:
-            cursor = conn.execute(
-                "DELETE FROM workflows WHERE id = ?", (workflow_id,)
-            )
+            cursor = conn.execute("DELETE FROM workflows WHERE id = ?", (workflow_id,))
         return cursor.rowcount > 0
 
     def save_workflow_run(self, run_id: str, workflow_id: str, data: dict) -> None:
@@ -748,9 +733,7 @@ class AgentStore:
 
     def load_workflow_run(self, run_id: str) -> dict[str, Any] | None:
         with self._cursor() as conn:
-            row = conn.execute(
-                "SELECT data FROM workflow_runs WHERE id = ?", (run_id,)
-            ).fetchone()
+            row = conn.execute("SELECT data FROM workflow_runs WHERE id = ?", (run_id,)).fetchone()
         if row is None:
             return None
         return json.loads(row["data"])
@@ -772,9 +755,7 @@ class AgentStore:
 
     def delete_workflow_run(self, run_id: str) -> bool:
         with self._cursor() as conn:
-            cursor = conn.execute(
-                "DELETE FROM workflow_runs WHERE id = ?", (run_id,)
-            )
+            cursor = conn.execute("DELETE FROM workflow_runs WHERE id = ?", (run_id,))
         return cursor.rowcount > 0
 
     def _migration_v2_team_state(self, conn) -> None:
@@ -1028,9 +1009,7 @@ class AgentStore:
             "team": row[12],
         }
 
-    def list_leases(
-        self, resource_id: str = "", status: str = "", team: str = ""
-    ) -> list[dict]:
+    def list_leases(self, resource_id: str = "", status: str = "", team: str = "") -> list[dict]:
         # 查租约. 可按 resource/status/team 过滤.
         with self._cursor() as conn:
             sql = """SELECT lease_id, resource_id, task_id, owner_role, owner_agent,
@@ -1118,9 +1097,7 @@ class AgentStore:
 
     def delete_lease(self, lease_id: str) -> bool:
         with self._cursor() as conn:
-            cursor = conn.execute(
-                "DELETE FROM resource_leases WHERE lease_id=?", (lease_id,)
-            )
+            cursor = conn.execute("DELETE FROM resource_leases WHERE lease_id=?", (lease_id,))
             conn.commit()
         return cursor.rowcount > 0
 
@@ -1207,9 +1184,7 @@ class AgentStore:
 
     def load_all_plaza_messages(self) -> list[dict[str, Any]]:
         with self._cursor() as conn:
-            rows = conn.execute(
-                "SELECT * FROM plaza_messages ORDER BY ts ASC"
-            ).fetchall()
+            rows = conn.execute("SELECT * FROM plaza_messages ORDER BY ts ASC").fetchall()
         results = []
         for r in rows:
             d = dict(r)
@@ -1251,9 +1226,7 @@ class AgentStore:
 
     def delete_plaza_channel(self, name: str) -> bool:
         with self._cursor() as conn:
-            cursor = conn.execute(
-                "DELETE FROM plaza_channels WHERE name = ?", (name,)
-            )
+            cursor = conn.execute("DELETE FROM plaza_channels WHERE name = ?", (name,))
         return cursor.rowcount > 0
 
     def load_plaza_channels(self) -> list[dict[str, Any]]:
@@ -1310,9 +1283,7 @@ class AgentStore:
 
     def delete_swarm_agent(self, agent_id: str) -> bool:
         with self._cursor() as conn:
-            cursor = conn.execute(
-                "DELETE FROM swarm_agents WHERE agent_id = ?", (agent_id,)
-            )
+            cursor = conn.execute("DELETE FROM swarm_agents WHERE agent_id = ?", (agent_id,))
         return cursor.rowcount > 0
 
     def load_swarm_agents(self) -> list[dict[str, Any]]:
@@ -1326,9 +1297,7 @@ class AgentStore:
             except (json.JSONDecodeError, TypeError):
                 d["capabilities"] = []
             try:
-                d["handoff_targets"] = json.loads(
-                    d.pop("handoff_targets_json", "[]")
-                )
+                d["handoff_targets"] = json.loads(d.pop("handoff_targets_json", "[]"))
             except (json.JSONDecodeError, TypeError):
                 d["handoff_targets"] = []
             try:
@@ -1411,9 +1380,7 @@ class AgentStore:
                     (phase,),
                 ).fetchall()
             else:
-                rows = conn.execute(
-                    "SELECT * FROM team_launch_phases"
-                ).fetchall()
+                rows = conn.execute("SELECT * FROM team_launch_phases").fetchall()
         return [dict(r) for r in rows]
 
     def close(self) -> None:

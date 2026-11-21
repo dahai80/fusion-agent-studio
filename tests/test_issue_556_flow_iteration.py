@@ -3,6 +3,7 @@
 Bounded execution is asserted with asyncio.wait_for — a regression that
 hangs fails the test instead of stalling CI.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -108,9 +109,7 @@ async def test_iteration_runs_subgraph_per_item_and_aggregates():
     events = await asyncio.wait_for(
         _collect(rt, g, json.dumps({"items": ["a", "b", "c"]})), timeout=15
     )
-    iter_events = [
-        e for e in events if e.type == AgentEventType.RESULT and e.node_id == "iter1"
-    ]
+    iter_events = [e for e in events if e.type == AgentEventType.RESULT and e.node_id == "iter1"]
     assert len(iter_events) == 1
     assert json.loads(iter_events[0].content) == ["ok", "ok", "ok"]
     agg = [e for e in events if e.type == AgentEventType.RESULT and e.node_id == "agg"]
@@ -125,9 +124,7 @@ async def test_start_seeds_flow_state_from_json_input():
     events = await asyncio.wait_for(
         _collect(rt, g, json.dumps({"items": ["x", "y"], "region": "cn"})), timeout=15
     )
-    iter_events = [
-        e for e in events if e.node_id == "iter1" and e.type == AgentEventType.RESULT
-    ]
+    iter_events = [e for e in events if e.node_id == "iter1" and e.type == AgentEventType.RESULT]
     assert json.loads(iter_events[0].content) == ["ok", "ok"]
     snap = iter_events[0].metadata.get("flow_state") or {}
     assert snap.get("region") == "cn"

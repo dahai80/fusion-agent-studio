@@ -1,4 +1,3 @@
-
 from agent_runtime.seat_pack import load_seat_specs
 from tools.base import BaseTool
 from tools.file_tools import FileReadTool, FileWriteTool
@@ -52,7 +51,9 @@ def test_validate_tool_args_keeps_explicit_value():
     from agent_runtime._runtime_dynamic_tools import _DynamicToolsMixin
 
     tool = FileReadTool()
-    out = _DynamicToolsMixin._validate_tool_args(None, tool, {"path": "a.md", "encoding": "latin-1"})
+    out = _DynamicToolsMixin._validate_tool_args(
+        None, tool, {"path": "a.md", "encoding": "latin-1"}
+    )
     assert out["encoding"] == "latin-1"
 
 

@@ -19,9 +19,7 @@ from .paths import studio_home
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_DB = os.path.join(
-    str(studio_home()), "team.db"
-)
+DEFAULT_DB = os.path.join(str(studio_home()), "team.db")
 
 
 @contextmanager
@@ -62,13 +60,9 @@ class DurableRoster:
                 """
             )
             # #457: migrate pre-existing DBs (ALTER TABLE lacks IF NOT EXISTS).
-            cols = {
-                r[1] for r in conn.execute("PRAGMA table_info(roster)").fetchall()
-            }
+            cols = {r[1] for r in conn.execute("PRAGMA table_info(roster)").fetchall()}
             if "graph_id" not in cols:
-                conn.execute(
-                    "ALTER TABLE roster ADD COLUMN graph_id TEXT NOT NULL DEFAULT ''"
-                )
+                conn.execute("ALTER TABLE roster ADD COLUMN graph_id TEXT NOT NULL DEFAULT ''")
             if "autonomous_inbox" not in cols:
                 conn.execute(
                     "ALTER TABLE roster ADD COLUMN autonomous_inbox INTEGER NOT NULL DEFAULT 0"
@@ -121,21 +115,29 @@ class DurableRoster:
                     updated_at=excluded.updated_at
                 """,
                 (
-                    agent_id, name or agent_id, team, caps, status,
-                    graph_id, int(bool(autonomous_inbox)), now,
+                    agent_id,
+                    name or agent_id,
+                    team,
+                    caps,
+                    status,
+                    graph_id,
+                    int(bool(autonomous_inbox)),
+                    now,
                 ),
             )
         logger.info(
             "roster register agent=%s team=%s status=%s graph=%s autonomous_inbox=%s",
-            agent_id, team, status, graph_id, autonomous_inbox,
+            agent_id,
+            team,
+            status,
+            graph_id,
+            autonomous_inbox,
         )
         return self.get(agent_id) or {}
 
     def get(self, agent_id: str) -> dict | None:
         with _connect(self.path) as conn:
-            row = conn.execute(
-                "SELECT * FROM roster WHERE agent_id = ?", (agent_id,)
-            ).fetchone()
+            row = conn.execute("SELECT * FROM roster WHERE agent_id = ?", (agent_id,)).fetchone()
         return self._row(row) if row else None
 
     def list(self, team: str = "") -> list[dict]:
@@ -145,9 +147,7 @@ class DurableRoster:
                     "SELECT * FROM roster WHERE team = ? ORDER BY updated_at DESC", (team,)
                 ).fetchall()
             else:
-                rows = conn.execute(
-                    "SELECT * FROM roster ORDER BY updated_at DESC"
-                ).fetchall()
+                rows = conn.execute("SELECT * FROM roster ORDER BY updated_at DESC").fetchall()
         return [self._row(r) for r in rows]
 
     def set_status(self, agent_id: str, status: str) -> bool:
@@ -263,8 +263,6 @@ class Mailbox:
 
     def stats(self) -> dict:
         with _connect(self.path) as conn:
-            pending = conn.execute(
-                "SELECT COUNT(*) FROM mailbox WHERE acked_at = 0"
-            ).fetchone()[0]
+            pending = conn.execute("SELECT COUNT(*) FROM mailbox WHERE acked_at = 0").fetchone()[0]
             total = conn.execute("SELECT COUNT(*) FROM mailbox").fetchone()[0]
         return {"total": total, "pending": pending}

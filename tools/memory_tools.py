@@ -44,7 +44,9 @@ class MemoryReadTool(BaseTool):
             except (TypeError, ValueError):
                 limit = 10
             rows = engine.list_recent(scope=scope, limit=max(1, limit))
-            return json.dumps([r.to_dict() if hasattr(r, "to_dict") else r for r in rows], ensure_ascii=False)
+            return json.dumps(
+                [r.to_dict() if hasattr(r, "to_dict") else r for r in rows], ensure_ascii=False
+            )
         except Exception as e:
             logger.warning("memory_read failed: %s", e)
             return f"Error: memory_read failed: {e}"
@@ -79,14 +81,19 @@ class MemoryWriteTool(BaseTool):
         try:
             if memory_type:
                 entry_id = engine.store(
-                    content=content, scope=scope, importance=importance,
+                    content=content,
+                    scope=scope,
+                    importance=importance,
                     memory_type=memory_type,
                 )
             else:
                 entry_id = engine.store(content=content, scope=scope, importance=importance)
             logger.info(
                 "memory.write id=%s scope=%s type=%s importance=%d",
-                entry_id, scope, memory_type or "auto", importance,
+                entry_id,
+                scope,
+                memory_type or "auto",
+                importance,
             )
             return json.dumps({"id": entry_id, "status": "stored"}, ensure_ascii=False)
         except Exception as e:

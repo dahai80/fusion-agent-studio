@@ -5,6 +5,7 @@
 tool.list shape for the canvas inspector, workflow RPC integration for the
 orchestration GUI, plus source assertions on the canvas/workflow pages.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -43,13 +44,17 @@ def daemon(tmp_path, monkeypatch):
 
 
 def _gid(d):
-    return asyncio.run(d._handle_graph_create({
-        "name": "T",
-        "graph_data": {
-            "nodes": {"n1": {"type": "start"}, "n2": {"type": "llm"}},
-            "edges": [{"source_id": "n1", "target_id": "n2"}],
-        },
-    }))["graph_id"]
+    return asyncio.run(
+        d._handle_graph_create(
+            {
+                "name": "T",
+                "graph_data": {
+                    "nodes": {"n1": {"type": "start"}, "n2": {"type": "llm"}},
+                    "edges": [{"source_id": "n1", "target_id": "n2"}],
+                },
+            }
+        )
+    )["graph_id"]
 
 
 class EchoTool(BaseTool):
@@ -136,13 +141,11 @@ def _sse_frames(resp) -> list[dict]:
 
 
 class TestOnlyNodeSse:
-
     def test_sse_only_node_skips_upstream(self, patched_api):
         with TestClient(app) as client:
             with client.stream(
                 "GET",
-                f"/v1/graphs/{patched_api['graph'].id}/execute/stream"
-                "?input=hi&only_node=b",
+                f"/v1/graphs/{patched_api['graph'].id}/execute/stream?input=hi&only_node=b",
             ) as resp:
                 assert resp.status_code == 200
                 assert "text/event-stream" in resp.headers["content-type"]
@@ -157,8 +160,7 @@ class TestOnlyNodeSse:
         # does not exist in the ErrorCode enum (AttributeError, not 400).
         with TestClient(app) as client:
             resp = client.get(
-                f"/v1/graphs/{patched_api['graph'].id}/execute/stream"
-                "?input=hi&only_node=ghost"
+                f"/v1/graphs/{patched_api['graph'].id}/execute/stream?input=hi&only_node=ghost"
             )
         assert resp.status_code == 400
 
@@ -166,8 +168,7 @@ class TestOnlyNodeSse:
         with TestClient(app) as client:
             with client.stream(
                 "GET",
-                f"/v1/graphs/{patched_api['graph'].id}/execute/stream"
-                "?input=hi&only_node=a",
+                f"/v1/graphs/{patched_api['graph'].id}/execute/stream?input=hi&only_node=a",
             ) as resp:
                 resp.read()
                 frames = _sse_frames(resp)
@@ -182,54 +183,77 @@ class TestOnlyNodeSse:
 
 
 class TestGraphUpdateValidation:
-
     def test_soft_validation_returns_issues_and_saves(self, daemon):
         gid = _gid(daemon)
-        res = asyncio.run(daemon._handle_graph_update({
-            "graph_id": gid,
-            "graph_data": {
-                "nodes": {"n1": {"type": "start"}, "n2": {"type": "llm"},
-                          "orphan": {"type": "llm"}},
-                "edges": [{"source_id": "n1", "target_id": "n2"}],
-            },
-        }))
+        res = asyncio.run(
+            daemon._handle_graph_update(
+                {
+                    "graph_id": gid,
+                    "graph_data": {
+                        "nodes": {
+                            "n1": {"type": "start"},
+                            "n2": {"type": "llm"},
+                            "orphan": {"type": "llm"},
+                        },
+                        "edges": [{"source_id": "n1", "target_id": "n2"}],
+                    },
+                }
+            )
+        )
         assert any("orphan" in i and "unreachable" in i for i in res["issues"])
 
     def test_strict_rejects_hard_error(self, daemon):
         gid = _gid(daemon)
         with pytest.raises(ValueError, match="strict_validate"):
-            asyncio.run(daemon._handle_graph_update({
-                "graph_id": gid,
-                "strict_validate": True,
-                "graph_data": {
-                    "nodes": {"n1": {"type": "start"}, "n2": {"type": "llm"}},
-                    "edges": [{"source_id": "ghost", "target_id": "n2"}],
-                },
-            }))
+            asyncio.run(
+                daemon._handle_graph_update(
+                    {
+                        "graph_id": gid,
+                        "strict_validate": True,
+                        "graph_data": {
+                            "nodes": {"n1": {"type": "start"}, "n2": {"type": "llm"}},
+                            "edges": [{"source_id": "ghost", "target_id": "n2"}],
+                        },
+                    }
+                )
+            )
 
     def test_strict_clean_graph_passes(self, daemon):
         gid = _gid(daemon)
-        res = asyncio.run(daemon._handle_graph_update({
-            "graph_id": gid,
-            "strict_validate": True,
-            "graph_data": {
-                "nodes": {"n1": {"type": "start"}, "n2": {"type": "llm"},
-                          "n3": {"type": "end"}},
-                "edges": [{"source_id": "n1", "target_id": "n2"},
-                          {"source_id": "n2", "target_id": "n3"}],
-            },
-        }))
+        res = asyncio.run(
+            daemon._handle_graph_update(
+                {
+                    "graph_id": gid,
+                    "strict_validate": True,
+                    "graph_data": {
+                        "nodes": {
+                            "n1": {"type": "start"},
+                            "n2": {"type": "llm"},
+                            "n3": {"type": "end"},
+                        },
+                        "edges": [
+                            {"source_id": "n1", "target_id": "n2"},
+                            {"source_id": "n2", "target_id": "n3"},
+                        ],
+                    },
+                }
+            )
+        )
         assert res["issues"] == []
 
     def test_soft_never_raises_on_structure_error(self, daemon):
         gid = _gid(daemon)
-        res = asyncio.run(daemon._handle_graph_update({
-            "graph_id": gid,
-            "graph_data": {
-                "nodes": {"n1": {"type": "llm"}},
-                "edges": [{"source_id": "ghost", "target_id": "n1"}],
-            },
-        }))
+        res = asyncio.run(
+            daemon._handle_graph_update(
+                {
+                    "graph_id": gid,
+                    "graph_data": {
+                        "nodes": {"n1": {"type": "llm"}},
+                        "edges": [{"source_id": "ghost", "target_id": "n1"}],
+                    },
+                }
+            )
+        )
         assert res["issues"]
         assert any("ghost" in i for i in res["issues"])
 
@@ -240,7 +264,6 @@ class TestGraphUpdateValidation:
 
 
 class TestParentGrouping:
-
     def test_node_config_parent_roundtrip(self):
         cfg = NodeConfig(type="llm", parent="group_1")
         d = cfg.to_dict()
@@ -250,14 +273,20 @@ class TestParentGrouping:
 
     def test_update_persists_parent(self, daemon):
         gid = _gid(daemon)
-        res = asyncio.run(daemon._handle_graph_update({
-            "graph_id": gid,
-            "graph_data": {
-                "nodes": {"n1": {"type": "start", "parent": "group_a"},
-                          "n2": {"type": "llm"}},
-                "edges": [],
-            },
-        }))
+        res = asyncio.run(
+            daemon._handle_graph_update(
+                {
+                    "graph_id": gid,
+                    "graph_data": {
+                        "nodes": {
+                            "n1": {"type": "start", "parent": "group_a"},
+                            "n2": {"type": "llm"},
+                        },
+                        "edges": [],
+                    },
+                }
+            )
+        )
         assert res["nodes"]["n1"]["parent"] == "group_a"
         # to_dict drops falsy fields — absent key means no group
         assert res["nodes"]["n2"].get("parent", "") == ""
@@ -286,7 +315,6 @@ class TestParentGrouping:
 
 
 class TestToolList:
-
     def test_tool_list_shape(self, daemon):
         registry = ToolRegistry()
         registry.register(EchoTool())
@@ -313,7 +341,6 @@ class _StubEngineDaemon:
 
 
 class TestWorkflowRpc:
-
     def _dispatcher(self):
         from agent_runtime.dispatchers.workflow import WorkflowDispatcher
         from agent_runtime.workflow_engine import WorkflowEngine
@@ -323,15 +350,23 @@ class TestWorkflowRpc:
 
     async def test_create_list_get_roundtrip(self):
         dispatcher, _ = self._dispatcher()
-        created = await dispatcher.get_handlers()["workflow.create"]({
-            "name": "orch",
-            "phases": [
-                {"name": "p1", "pattern": "pipeline",
-                 "agent_configs": [{"agent_id": "a1", "name": "a1"}]},
-                {"name": "p2", "pattern": "parallel_barrier",
-                 "agent_configs": [{"agent_id": "a1"}, {"agent_id": "a2"}]},
-            ],
-        })
+        created = await dispatcher.get_handlers()["workflow.create"](
+            {
+                "name": "orch",
+                "phases": [
+                    {
+                        "name": "p1",
+                        "pattern": "pipeline",
+                        "agent_configs": [{"agent_id": "a1", "name": "a1"}],
+                    },
+                    {
+                        "name": "p2",
+                        "pattern": "parallel_barrier",
+                        "agent_configs": [{"agent_id": "a1"}, {"agent_id": "a2"}],
+                    },
+                ],
+            }
+        )
         wf_id = created["id"]
         assert len(created["phases"]) == 2
         assert created["phases"][1]["pattern"] == "parallel_barrier"
@@ -342,16 +377,25 @@ class TestWorkflowRpc:
 
     async def test_execute_and_status(self):
         dispatcher, _ = self._dispatcher()
-        created = await dispatcher.get_handlers()["workflow.create"]({
-            "name": "orch2",
-            "phases": [{"name": "p1", "pattern": "pipeline",
-                        "agent_configs": [{"name": "stage", "system_prompt": "be brief"}]}],
-        })
+        created = await dispatcher.get_handlers()["workflow.create"](
+            {
+                "name": "orch2",
+                "phases": [
+                    {
+                        "name": "p1",
+                        "pattern": "pipeline",
+                        "agent_configs": [{"name": "stage", "system_prompt": "be brief"}],
+                    }
+                ],
+            }
+        )
         # no gateway configured — _run_agent passthrough returns the input
-        res = await dispatcher.get_handlers()["workflow.execute"]({
-            "workflow_id": created["id"],
-            "input": "hi",
-        })
+        res = await dispatcher.get_handlers()["workflow.execute"](
+            {
+                "workflow_id": created["id"],
+                "input": "hi",
+            }
+        )
         assert str(res.get("id", "")).startswith("wf_run")
 
     async def test_cancel_unknown_run(self):
@@ -381,7 +425,6 @@ class TestWorkflowRpc:
 
 
 class TestCanvasSourceParity:
-
     def test_canvas_has_schema_driven_inspector(self):
         source = (ROOT / "web" / "src" / "pages" / "studio" / "WorkflowCanvasPage.tsx").read_text()
         for marker in (

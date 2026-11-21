@@ -32,9 +32,7 @@ MEMORY_SCOPE_TOOLS = {"memory_read", "memory_write"}
 class PersonaGate:
     def __init__(self, declarations: dict):
         self.memory_scope = str(declarations.get("memory_scope", "") or "").strip()
-        self.skills = [
-            str(s).strip() for s in declarations.get("skills", []) if str(s).strip()
-        ]
+        self.skills = [str(s).strip() for s in declarations.get("skills", []) if str(s).strip()]
         self.advisory_rules: list[str] = []
         self.engine = None
         structured: list[tuple[str, str]] = []
@@ -81,9 +79,7 @@ class PersonaGate:
         if self.engine is not None:
             decision = self.engine.evaluate(tool_name, args)
             if decision.decision == "deny":
-                logger.info(
-                    "persona rule denied tool=%s reason=%s", tool_name, decision.reason
-                )
+                logger.info("persona rule denied tool=%s reason=%s", tool_name, decision.reason)
                 return False, args, decision.reason or "persona rule denied"
         if tool_name in MEMORY_SCOPE_TOOLS and self.memory_scope:
             if str(args.get("scope", "") or "") != self.memory_scope:
@@ -110,14 +106,10 @@ class PersonaScopedFunnel(ToolFunnel):
                     reason=reason,
                     args=dict(args or {}),
                     needs_approval=False,
-                    decision_log=[
-                        {"stage": "persona", "verdict": "deny", "reason": reason}
-                    ],
+                    decision_log=[{"stage": "persona", "verdict": "deny", "reason": reason}],
                 )
             args = rewritten
-        return await super().admit(
-            ctx=ctx, tool_name=tool_name, args=args, **kwargs
-        )
+        return await super().admit(ctx=ctx, tool_name=tool_name, args=args, **kwargs)
 
     @staticmethod
     def _persona_gate_for(ctx) -> PersonaGate | None:

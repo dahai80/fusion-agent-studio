@@ -71,9 +71,7 @@ class InboxConsumer:
             return
         self._running = True
         self._task = asyncio.ensure_future(self._loop())
-        logger.info(
-            "inbox consumer started poll_interval=%.1fs", self.poll_interval
-        )
+        logger.info("inbox consumer started poll_interval=%.1fs", self.poll_interval)
 
     async def stop(self) -> None:
         self._running = False
@@ -129,7 +127,9 @@ class InboxConsumer:
             # No ack: at-least-once redelivery on the next tick.
             logger.error(
                 "inbox dispatch failed agent=%s message=%s err=%s",
-                agent_id, message.get("message_id"), exc,
+                agent_id,
+                message.get("message_id"),
+                exc,
             )
             return
         latency_ms = (time.time() - started) * 1000
@@ -150,7 +150,10 @@ class InboxConsumer:
             }
         logger.info(
             "inbox dispatched agent=%s message=%s run=%s latency_ms=%.1f",
-            agent_id, message.get("message_id"), run_id, latency_ms,
+            agent_id,
+            message.get("message_id"),
+            run_id,
+            latency_ms,
         )
 
     async def _post_completed_replies(self) -> None:
@@ -181,7 +184,10 @@ class InboxConsumer:
             del self._pending_replies[run_id]
             logger.info(
                 "inbox reply sent agent=%s to=%s run=%s status=%s",
-                info["agent_id"], info["sender"], run_id, status,
+                info["agent_id"],
+                info["sender"],
+                run_id,
+                status,
             )
 
     @staticmethod

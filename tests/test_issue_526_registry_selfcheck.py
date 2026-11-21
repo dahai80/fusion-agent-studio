@@ -1,4 +1,5 @@
 """#526: start.sh register-then-start self-check against port-registry.yaml."""
+
 import os
 import subprocess
 
@@ -113,9 +114,7 @@ def test_default_registry_path_under_home(tmp_path):
 
 
 @pytest.mark.skipif(
-    not os.path.exists(
-        os.path.expanduser("~/fusion/architecture/port-registry.yaml")
-    ),
+    not os.path.exists(os.path.expanduser("~/fusion/architecture/port-registry.yaml")),
     reason="real workspace registry not present",
 )
 def test_real_workspace_registry_passes():

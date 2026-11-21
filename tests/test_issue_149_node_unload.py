@@ -44,9 +44,7 @@ class _UnloadTrackingClient:
         self.unload_fail = unload_fail
         self.last_tools = None
 
-    async def chat(
-        self, model, messages, tools=None, temperature=0.7, max_tokens=4096, **kwargs
-    ):
+    async def chat(self, model, messages, tools=None, temperature=0.7, max_tokens=4096, **kwargs):
         self.call_count += 1
         self.last_tools = tools
         return LLMResponse(content=f"reply-{self.call_count}", tool_calls=[])

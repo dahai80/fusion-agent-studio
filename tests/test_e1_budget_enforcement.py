@@ -73,9 +73,7 @@ class TestCheckRunBudget:
         assert s.exceeded and s.dims == ["max_tokens"] and s.spent_tokens == 100
 
     def test_cost_dim_uses_rate_table(self, monkeypatch):
-        monkeypatch.setenv(
-            "FUSION_RUN_COST_RATES", json_dumps({"mymodel": [1.0, 2.0]})
-        )
+        monkeypatch.setenv("FUSION_RUN_COST_RATES", json_dumps({"mymodel": [1.0, 2.0]}))
         s = check_run_budget(
             RunBudget(max_cost_usd=0.001),
             {"prompt_tokens": 500, "completion_tokens": 500},
@@ -98,9 +96,7 @@ class TestCheckRunBudget:
         assert s.exceeded
 
     def test_default_rates_zero_cost_never_exceeds(self):
-        s = check_run_budget(
-            RunBudget(max_cost_usd=0.0), {"prompt_tokens": 10**9}, elapsed_s=1
-        )
+        s = check_run_budget(RunBudget(max_cost_usd=0.0), {"prompt_tokens": 10**9}, elapsed_s=1)
         assert not s.exceeded
 
 
@@ -143,9 +139,7 @@ class TestRuntimeEnforcement:
     async def test_budget_reached_stops_run(self):
         rt = self._rt()
         events = []
-        async for ev in rt.execute_graph(
-            _llm_graph(), "go", run_budget={"max_tokens": 15}
-        ):
+        async for ev in rt.execute_graph(_llm_graph(), "go", run_budget={"max_tokens": 15}):
             events.append(ev)
         kinds = [e.type for e in events]
         assert AgentEventType.BUDGET_REACHED in kinds
@@ -207,7 +201,10 @@ class TestManagedRunPark:
 
         run = self._run_stub()
         await _execute_managed_run(
-            run, StubRuntime(), _llm_graph(), "go",
+            run,
+            StubRuntime(),
+            _llm_graph(),
+            "go",
             run_budget={"max_tokens": 15},
         )
         assert run.parked and run.park_reason == "usage_limit"

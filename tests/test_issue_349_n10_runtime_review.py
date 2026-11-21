@@ -54,7 +54,9 @@ class TestRuntimeReviewEvents:
         rt = AgentRuntime(tool_registry=ToolRegistry())
         g = _graph()
 
-        async def fake_inner(graph, initial_input, ctx, token_budget, stream=False, max_iterations=None):
+        async def fake_inner(
+            graph, initial_input, ctx, token_budget, stream=False, max_iterations=None
+        ):
             yield _ev(AgentEventType.TOOL_RESULT, "evidence1234", node_id="tool1")
             yield _ev(AgentEventType.THINK, "Therefore zzzz", node_id="llm1")
             yield _ev(AgentEventType.RESULT, "done", node_id="end")
@@ -76,7 +78,9 @@ class TestRuntimeReviewEvents:
         rt = AgentRuntime(tool_registry=ToolRegistry())
         g = _graph()
 
-        async def fake_inner(graph, initial_input, ctx, token_budget, stream=False, max_iterations=None):
+        async def fake_inner(
+            graph, initial_input, ctx, token_budget, stream=False, max_iterations=None
+        ):
             yield _ev(AgentEventType.START, "", node_id="start")
             yield _ev(AgentEventType.RESULT, "", node_id="ghost")
 
@@ -96,7 +100,9 @@ class TestRuntimeReviewEvents:
         rt = AgentRuntime(tool_registry=ToolRegistry())
         g = _graph()
 
-        async def fake_inner(graph, initial_input, ctx, token_budget, stream=False, max_iterations=None):
+        async def fake_inner(
+            graph, initial_input, ctx, token_budget, stream=False, max_iterations=None
+        ):
             yield _ev(AgentEventType.START, "", node_id="start")
             yield _ev(AgentEventType.RESULT, "", node_id="ghost")
 
@@ -110,7 +116,9 @@ class TestRuntimeReviewEvents:
         rt = AgentRuntime(tool_registry=ToolRegistry())
         g = _graph(resident=True)
 
-        async def fake_inner(graph, initial_input, ctx, token_budget, stream=False, max_iterations=None):
+        async def fake_inner(
+            graph, initial_input, ctx, token_budget, stream=False, max_iterations=None
+        ):
             yield _ev(AgentEventType.START, "", node_id="start")
             yield _ev(AgentEventType.RESULT, "", node_id="ghost")
 
@@ -125,7 +133,9 @@ class TestRuntimeReviewEvents:
         rt = AgentRuntime(tool_registry=ToolRegistry())
         g = _graph()
 
-        async def fake_inner(graph, initial_input, ctx, token_budget, stream=False, max_iterations=None):
+        async def fake_inner(
+            graph, initial_input, ctx, token_budget, stream=False, max_iterations=None
+        ):
             yield _ev(AgentEventType.START, "", node_id="start")
             yield _ev(AgentEventType.RESULT, "", node_id="ghost")
 

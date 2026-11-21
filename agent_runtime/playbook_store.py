@@ -68,9 +68,7 @@ class PlaybookStore:
         if count:
             logger.info("playbook replayed ops=%d path=%s", count, self.ops_path)
 
-    def append_lesson(
-        self, section: str, content: str, episodes: list[str] | None = None
-    ) -> dict:
+    def append_lesson(self, section: str, content: str, episodes: list[str] | None = None) -> dict:
         # Provenance is mandatory: episodes (trace/eval ids) must be present
         # for add ops so every lesson traces back to observed behavior.
         if not content.strip():
@@ -91,7 +89,9 @@ class PlaybookStore:
         self._persist(op)
         logger.info(
             "playbook lesson appended section=%s entry=%s episodes=%d",
-            section, entry.entry_id, len(eps),
+            section,
+            entry.entry_id,
+            len(eps),
         )
         return {"status": "ok", "entry_id": entry.entry_id, "revision": entry.revision}
 

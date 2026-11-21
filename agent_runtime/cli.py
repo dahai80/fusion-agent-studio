@@ -58,17 +58,18 @@ class UdsRpcClient:
     """
 
     def __init__(self, socket_path: str = "", timeout: float = 10.0):
-        self.socket_path = (
-            socket_path or os.environ.get(UDS_SOCKET_ENV, "") or UDS_SOCKET_PATH
-        )
+        self.socket_path = socket_path or os.environ.get(UDS_SOCKET_ENV, "") or UDS_SOCKET_PATH
         self.timeout = timeout
 
     def call(self, method: str, params: dict | None = None) -> dict:
         import socket as _socket
 
-        payload = json.dumps(
-            {"jsonrpc": "2.0", "id": 1, "method": method, "params": params or {}}
-        ).encode() + b"\n"
+        payload = (
+            json.dumps(
+                {"jsonrpc": "2.0", "id": 1, "method": method, "params": params or {}}
+            ).encode()
+            + b"\n"
+        )
         try:
             with _socket.socket(_socket.AF_UNIX, _socket.SOCK_STREAM) as sock:
                 sock.settimeout(self.timeout)
@@ -100,8 +101,12 @@ class UdsRpcClient:
 
 
 class AgentStudioClient:
-    def __init__(self, base_url: str = "", api_key: str = "", timeout: float = 60.0, retries: int = 2):
-        self.base_url = (base_url or os.environ.get(BASE_URL_ENV, "") or DEFAULT_BASE_URL).rstrip("/")
+    def __init__(
+        self, base_url: str = "", api_key: str = "", timeout: float = 60.0, retries: int = 2
+    ):
+        self.base_url = (base_url or os.environ.get(BASE_URL_ENV, "") or DEFAULT_BASE_URL).rstrip(
+            "/"
+        )
         self.api_key = _api_key(api_key)
         self.timeout = timeout
         self.retries = max(0, retries)
@@ -132,7 +137,9 @@ class AgentStudioClient:
                 )
             except httpx.HTTPError as e:
                 last_error = f"{type(e).__name__}: {e}"
-                logger.warning("request %s %s failed attempt=%d: %s", method, path, attempt, last_error)
+                logger.warning(
+                    "request %s %s failed attempt=%d: %s", method, path, attempt, last_error
+                )
                 time.sleep(0.2 * (attempt + 1))
                 continue
             if resp.status_code in RETRY_STATUS and attempt < self.retries:
@@ -151,7 +158,9 @@ class AgentStudioClient:
             if not resp.content:
                 return {}
             return resp.json()
-        raise RuntimeError(f"{method} {path} failed after {self.retries + 1} attempts: {last_error}")
+        raise RuntimeError(
+            f"{method} {path} failed after {self.retries + 1} attempts: {last_error}"
+        )
 
     def submit(
         self,
@@ -237,7 +246,9 @@ class AgentStudioClient:
     def approvals_list(self, status: str = "", limit: int = 50) -> dict:
         return self.request("GET", f"/v1/agent-platform/approvals?status={status}&limit={limit}")
 
-    def approvals_decide(self, approval_id: str, approve: bool, decider: str, note: str = "") -> dict:
+    def approvals_decide(
+        self, approval_id: str, approve: bool, decider: str, note: str = ""
+    ) -> dict:
         body: dict = {"decided_by": decider}
         # Server contract: reject carries `reason` (required for reject);
         # approve carries only decided_by — a note is sent as `reason` too,
@@ -270,10 +281,10 @@ class AgentStudioClient:
             data_lines: list[str] = []
             for line in resp.iter_lines():
                 if line.startswith("event:"):
-                    event_name = line[len("event:"):].strip()
+                    event_name = line[len("event:") :].strip()
                     continue
                 if line.startswith("data:"):
-                    data_lines.append(line[len("data:"):].lstrip())
+                    data_lines.append(line[len("data:") :].lstrip())
                     continue
                 if line.strip() == "" and data_lines:
                     payload = "\n".join(data_lines)
@@ -312,9 +323,9 @@ def _print_frame(frame: dict, as_json: bool) -> None:
 
 def _resolve_target(target: str, graph_flag: bool) -> tuple[str, str]:
     if target.startswith("agent:"):
-        return target[len("agent:"):], ""
+        return target[len("agent:") :], ""
     if target.startswith("graph:"):
-        return "", target[len("graph:"):]
+        return "", target[len("graph:") :]
     if graph_flag:
         return "", target
     return target, ""
@@ -344,7 +355,11 @@ def _cmd_submit(client: AgentStudioClient, args: argparse.Namespace) -> int:
         idempotency_key=args.idempotency_key,
     )
     run_id = str(res.get("run_id", ""))
-    print(json.dumps(res, ensure_ascii=False) if args.json else f"run_id={run_id} status={res.get('status')}")
+    print(
+        json.dumps(res, ensure_ascii=False)
+        if args.json
+        else f"run_id={run_id} status={res.get('status')}"
+    )
     if not run_id or args.no_stream:
         return 0
     for frame in client.stream_run(run_id):
@@ -411,7 +426,10 @@ def _cmd_show(client: AgentStudioClient, args: argparse.Namespace) -> int:
     if args.kind == "session":
         res = client.get_session(args.target)
         if not args.json:
-            res = {"session": res.get("session", res), "messages": client.session_messages(args.target).get("messages", [])}
+            res = {
+                "session": res.get("session", res),
+                "messages": client.session_messages(args.target).get("messages", []),
+            }
     else:
         res = {"run": client.get_run(args.target), "events": client.run_events(args.target)}
     print(json.dumps(res, ensure_ascii=False, indent=None if args.json else 2))
@@ -446,7 +464,9 @@ def _cmd_approvals_create(client: AgentStudioClient, args: argparse.Namespace) -
         gate_type=args.type,
     )
     print(f"approval created: {rec.get('approval_id')} (status={rec.get('status')})")
-    print(f"poll: {client.base_url}{rec.get('poll', '/v1/agent-platform/approvals?status=pending')}")
+    print(
+        f"poll: {client.base_url}{rec.get('poll', '/v1/agent-platform/approvals?status=pending')}"
+    )
     return 0
 
 
@@ -537,8 +557,14 @@ def build_parser() -> argparse.ArgumentParser:
         prog="fusion-agent",
         description="Operator CLI for Fusion Agent Studio (thin REST client).",
     )
-    parser.add_argument("--base-url", default="", help=f"daemon URL (default env {BASE_URL_ENV} or {DEFAULT_BASE_URL})")
-    parser.add_argument("--api-key", default="", help=f"API key (default env {API_KEY_ENV} or module key file)")
+    parser.add_argument(
+        "--base-url",
+        default="",
+        help=f"daemon URL (default env {BASE_URL_ENV} or {DEFAULT_BASE_URL})",
+    )
+    parser.add_argument(
+        "--api-key", default="", help=f"API key (default env {API_KEY_ENV} or module key file)"
+    )
     parser.add_argument("--json", action="store_true", help="print raw JSON")
     parser.add_argument("--verbose", action="store_true", help="debug logging")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -547,7 +573,9 @@ def build_parser() -> argparse.ArgumentParser:
     p_submit.add_argument("target", help="agent id, graph id, or agent:<id> / graph:<id>")
     p_submit.add_argument("-i", "--input", default="", help="run input (use - for stdin)")
     p_submit.add_argument("--graph", action="store_true", help="treat target as a graph id")
-    p_submit.add_argument("--sandbox", default="local", help="local (default) or multi-node:<node_id>")
+    p_submit.add_argument(
+        "--sandbox", default="local", help="local (default) or multi-node:<node_id>"
+    )
     p_submit.add_argument("--title", default="", help="run title")
     p_submit.add_argument("--idempotency-key", default="", help="dedupe key")
     p_submit.add_argument("--no-stream", action="store_true", help="return after submit")
@@ -589,15 +617,21 @@ def build_parser() -> argparse.ArgumentParser:
     p_cancel.set_defaults(func=_cmd_cancel)
 
     # #578: approvals — G-gate registration + decisions over agent-platform REST
-    p_appr = sub.add_parser("approvals", help="approval gateway: create/list/approve/reject + webhooks")
+    p_appr = sub.add_parser(
+        "approvals", help="approval gateway: create/list/approve/reject + webhooks"
+    )
     appr_sub = p_appr.add_subparsers(dest="command_approvals", required=True)
 
     p_acreate = appr_sub.add_parser("create", help="register an approval task (external kind)")
     p_acreate.add_argument("--title", required=True)
     p_acreate.add_argument("--requester", required=True)
     p_acreate.add_argument("--assigned-to", required=True, help="reviewer who may decide")
-    p_acreate.add_argument("--type", default="", help="gate type tag, e.g. gate:g1 / gate:g4 / gate:g5")
-    p_acreate.add_argument("--payload-json", default="", help="opaque consumer payload as JSON object")
+    p_acreate.add_argument(
+        "--type", default="", help="gate type tag, e.g. gate:g1 / gate:g4 / gate:g5"
+    )
+    p_acreate.add_argument(
+        "--payload-json", default="", help="opaque consumer payload as JSON object"
+    )
     p_acreate.add_argument("--agent-id", default="")
     p_acreate.set_defaults(func=_cmd_approvals_create)
 
@@ -609,7 +643,9 @@ def build_parser() -> argparse.ArgumentParser:
     for decision in ("approve", "reject"):
         p_adec = appr_sub.add_parser(decision, help=f"{decision} an approval")
         p_adec.add_argument("approval_id")
-        p_adec.add_argument("--decided-by", default="", help=f"who decided (default env {DECIDER_ENV})")
+        p_adec.add_argument(
+            "--decided-by", default="", help=f"who decided (default env {DECIDER_ENV})"
+        )
         p_adec.add_argument("--note", default="", help="reason (required for reject)")
         p_adec.set_defaults(func=_cmd_approvals_decide, decision=decision)
 
@@ -639,7 +675,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_akr.add_argument("--name", default="", help="new key name (create path)")
     p_akr.add_argument("--rotate", default="", help="rotate existing key id instead of creating")
-    p_akr.add_argument("--permissions", default="", help="comma-separated permissions (create path)")
+    p_akr.add_argument(
+        "--permissions", default="", help="comma-separated permissions (create path)"
+    )
     p_akr.add_argument(
         "--socket",
         default="",

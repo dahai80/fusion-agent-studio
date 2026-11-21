@@ -226,7 +226,9 @@ class ArtifactCreateSnapshotTool(BaseTool):
 
 class ArtifactListAllTool(BaseTool):
     name = "artifact_list_all"
-    description = "List all artifacts with pagination support. Filter by owner agent ID and artifact type."
+    description = (
+        "List all artifacts with pagination support. Filter by owner agent ID and artifact type."
+    )
     parameters = {
         "agent_id": {
             "type": "string",

@@ -48,9 +48,7 @@ class TestGatewayErrorsSurface:
         gw.set_mlx_direct_client(_MlxDirectOkClient())  # no-op since #470
         gw.register_default_local(name="Qwen3.5-9B-4bit")
 
-        resp = await gw.chat(
-            messages=[{"role": "user", "content": "say pong"}], model="default"
-        )
+        resp = await gw.chat(messages=[{"role": "user", "content": "say pong"}], model="default")
         # #470: gateway 错误上抛给调用方, 无 cloud→local 静默重试.
         assert resp.finish_reason == "error"
         assert "502" in str(resp.usage.get("error", ""))
@@ -70,9 +68,7 @@ class TestGatewayErrorsSurface:
         gw.set_mlx_direct_client(_MlxDirectOkClient())
         gw.register_default_local(name="Qwen3.5-9B-4bit")
 
-        resp = await gw.chat(
-            messages=[{"role": "user", "content": "say pong"}], model="default"
-        )
+        resp = await gw.chat(messages=[{"role": "user", "content": "say pong"}], model="default")
         assert resp.finish_reason == "stop"
         assert "gateway" in resp.content
         assert resp.fallback_from == ""

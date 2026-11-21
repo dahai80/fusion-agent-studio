@@ -40,9 +40,13 @@ source_of_truth:
 ```python
 from rpc import rpc
 import asyncio
+
+
 async def main():
     r = await rpc("agent.create", {"name": "coder"})
     print(r["agent_id"])
+
+
 asyncio.run(main())
 ```
 
@@ -54,19 +58,24 @@ asyncio.run(main())
 from rpc import rpc
 import asyncio
 
-AGENT_ID = "..."   # 上一步的 agent_id
+AGENT_ID = "..."  # 上一步的 agent_id
+
 
 async def main():
-    r = await rpc("agent.configure", {
-        "agent_id": AGENT_ID,
-        "config": {
-            "model": "qwen2.5-coder-7b-instruct",
-            "temperature": 0.2,
-            "max_tokens": 8192,
-            "top_p": 0.9,
-        }
-    })
+    r = await rpc(
+        "agent.configure",
+        {
+            "agent_id": AGENT_ID,
+            "config": {
+                "model": "qwen2.5-coder-7b-instruct",
+                "temperature": 0.2,
+                "max_tokens": 8192,
+                "top_p": 0.9,
+            },
+        },
+    )
     print(r["configured"], r["manifest"]["model"])
+
 
 asyncio.run(main())
 ```
@@ -80,13 +89,19 @@ asyncio.run(main())
 系统提示定义智能体"是谁、怎么说话、先做什么"。写好它，胜过十次调温度。
 
 ```python
-await rpc("agent.configure", {"agent_id": AGENT_ID, "config": {
-    "system_prompt": (
-        "你是一名资深 Python 工程师。"
-        "接到任务先读相关文件，再动手改代码，改完用 ruff 检查。"
-        "回答用中文，代码块带语言标注。"
-    ),
-}})
+await rpc(
+    "agent.configure",
+    {
+        "agent_id": AGENT_ID,
+        "config": {
+            "system_prompt": (
+                "你是一名资深 Python 工程师。"
+                "接到任务先读相关文件，再动手改代码，改完用 ruff 检查。"
+                "回答用中文，代码块带语言标注。"
+            ),
+        },
+    },
+)
 ```
 
 ### 工具集
@@ -106,9 +121,15 @@ await rpc("agent.configure", {"agent_id": AGENT_ID, "config": {
 | `memory_store` / `memory_recall` | 记忆读写 |
 
 ```python
-await rpc("agent.configure", {"agent_id": AGENT_ID, "config": {
-    "tools": ["file_read", "file_edit", "file_grep", "terminal", "git"],
-}})
+await rpc(
+    "agent.configure",
+    {
+        "agent_id": AGENT_ID,
+        "config": {
+            "tools": ["file_read", "file_edit", "file_grep", "terminal", "git"],
+        },
+    },
+)
 ```
 
 > 工具名必须存在于内置注册表或已加载插件。未知工具名在 `strict_validate` 下硬拒，默认软警告。`await rpc("tool.list")` 看全部可用工具。
@@ -116,10 +137,16 @@ await rpc("agent.configure", {"agent_id": AGENT_ID, "config": {
 ### 迭代上限与上下文窗口
 
 ```python
-await rpc("agent.configure", {"agent_id": AGENT_ID, "config": {
-    "max_iterations": 15,       # agent 循环最多几轮工具调用
-    "context_window": 65536,    # 上下文 token 窗口
-}})
+await rpc(
+    "agent.configure",
+    {
+        "agent_id": AGENT_ID,
+        "config": {
+            "max_iterations": 15,  # agent 循环最多几轮工具调用
+            "context_window": 65536,  # 上下文 token 窗口
+        },
+    },
+)
 ```
 
 `max_iterations` 防止智能体陷入无限工具调用。`context_window` 大则记得多，但更费 token——按模型实际支持的窗口设。
@@ -131,19 +158,22 @@ await rpc("agent.configure", {"agent_id": AGENT_ID, "config": {
 `agent.create` / `agent.configure` 可写 `soul`——一段长文本，落到智能体包的 `soul.md`。比 `system_prompt` 更持久、更"价值观"。系统提示是"这次怎么干活"，灵魂是"我是什么人"。
 
 ```python
-await rpc("agent.create", {
-    "name": "reviewer",
-    "model": "qwen2.5-7b-instruct",
-    "system_prompt": "审查代码改动，指出风险与简化点。",
-    "soul": (
-        "# 代码审查官\n\n"
-        "## 价值观\n"
-        "- 正确性高于简洁，简洁高于花哨\n"
-        "- 不放行未验证的假设\n"
-        "## 语气\n"
-        "直接、就事论事，不夸奖不寒暄\n"
-    ),
-})
+await rpc(
+    "agent.create",
+    {
+        "name": "reviewer",
+        "model": "qwen2.5-7b-instruct",
+        "system_prompt": "审查代码改动，指出风险与简化点。",
+        "soul": (
+            "# 代码审查官\n\n"
+            "## 价值观\n"
+            "- 正确性高于简洁，简洁高于花哨\n"
+            "- 不放行未验证的假设\n"
+            "## 语气\n"
+            "直接、就事论事，不夸奖不寒暄\n"
+        ),
+    },
+)
 ```
 
 ### 记忆
@@ -160,7 +190,9 @@ await rpc("agent.create", {
 手动存一条：
 
 ```python
-await rpc("memory.store", {"agent_id": AGENT_ID, "content": "用户偏好中文回答", "memory_type": "user"})
+await rpc(
+    "memory.store", {"agent_id": AGENT_ID, "content": "用户偏好中文回答", "memory_type": "user"}
+)
 await rpc("memory.recall", {"agent_id": AGENT_ID, "query": "用户偏好"})
 ```
 
@@ -169,10 +201,16 @@ await rpc("memory.recall", {"agent_id": AGENT_ID, "query": "用户偏好"})
 挂知识库让智能体能检索私有文档。先在 fusion-rag 建库（见相关项目文档），拿到 `kb_id`，再绑到智能体：
 
 ```python
-await rpc("agent.configure", {"agent_id": AGENT_ID, "config": {
-    "knowledge_base_ids": ["kb-internal-docs"],
-    "rag_strategy": "hybrid",   # hybrid | keyword | semantic
-}})
+await rpc(
+    "agent.configure",
+    {
+        "agent_id": AGENT_ID,
+        "config": {
+            "knowledge_base_ids": ["kb-internal-docs"],
+            "rag_strategy": "hybrid",  # hybrid | keyword | semantic
+        },
+    },
+)
 ```
 
 绑了知识库且 `tools` 含 `kb_search`/`kb_ask`，智能体就能在回答前检索。
@@ -186,9 +224,15 @@ await rpc("agent.configure", {"agent_id": AGENT_ID, "config": {
 | `L3` | 人工审批（写工具、网络操作需确认） |
 
 ```python
-await rpc("agent.configure", {"agent_id": AGENT_ID, "config": {
-    "safety_level": "L3",
-}})
+await rpc(
+    "agent.configure",
+    {
+        "agent_id": AGENT_ID,
+        "config": {
+            "safety_level": "L3",
+        },
+    },
+)
 ```
 
 > 生产环境默认 `L2`（`start.sh` 注入 `FUSION_SAFETY_LEVEL=L2`）。给能改文件 / 跑命令的智能体配 `L2` 或 `L3`；纯问答可 `L1`。`L3` 在无人工通道（headless / cron）下会阻塞——cron 场景用 `L1`/`L2`。
@@ -201,15 +245,23 @@ await rpc("agent.configure", {"agent_id": AGENT_ID, "config": {
 from rpc import rpc
 import asyncio
 
+
 async def main():
     # 从"只读研究"切换到"能动手改代码"
-    r = await rpc("agent.configure", {"agent_id": AGENT_ID, "config": {
-        "system_prompt": "你是可以改代码的工程师，改完跑测试。",
-        "tools": ["file_read", "file_edit", "file_grep", "terminal"],
-        "temperature": 0.3,
-        "safety_level": "L2",
-    }})
+    r = await rpc(
+        "agent.configure",
+        {
+            "agent_id": AGENT_ID,
+            "config": {
+                "system_prompt": "你是可以改代码的工程师，改完跑测试。",
+                "tools": ["file_read", "file_edit", "file_grep", "terminal"],
+                "temperature": 0.3,
+                "safety_level": "L2",
+            },
+        },
+    )
     print(r)
+
 
 asyncio.run(main())
 ```
@@ -222,30 +274,50 @@ asyncio.run(main())
 
 **编码助手：**
 ```python
-{"name":"coder","model":"qwen2.5-coder-7b-instruct","temperature":0.2,
- "system_prompt":"你是 Python 工程师，先读后改，改完验证。",
- "tools":["file_read","file_edit","file_grep","terminal","git"],"safety_level":"L2"}
+{
+    "name": "coder",
+    "model": "qwen2.5-coder-7b-instruct",
+    "temperature": 0.2,
+    "system_prompt": "你是 Python 工程师，先读后改，改完验证。",
+    "tools": ["file_read", "file_edit", "file_grep", "terminal", "git"],
+    "safety_level": "L2",
+}
 ```
 
 **研究员：**
 ```python
-{"name":"researcher","model":"qwen2.5-7b-instruct","temperature":0.4,
- "system_prompt":"你做主题研究，多源检索后给结构化报告。",
- "tools":["http_request","kb_search","kb_ask","file_write"],"safety_level":"L1"}
+{
+    "name": "researcher",
+    "model": "qwen2.5-7b-instruct",
+    "temperature": 0.4,
+    "system_prompt": "你做主题研究，多源检索后给结构化报告。",
+    "tools": ["http_request", "kb_search", "kb_ask", "file_write"],
+    "safety_level": "L1",
+}
 ```
 
 **代码审查官：**
 ```python
-{"name":"reviewer","model":"qwen2.5-7b-instruct","temperature":0.1,
- "system_prompt":"审查改动，指出风险与简化点，直接不寒暄。",
- "tools":["file_read","file_grep","git"],"safety_level":"L1"}
+{
+    "name": "reviewer",
+    "model": "qwen2.5-7b-instruct",
+    "temperature": 0.1,
+    "system_prompt": "审查改动，指出风险与简化点，直接不寒暄。",
+    "tools": ["file_read", "file_grep", "git"],
+    "safety_level": "L1",
+}
 ```
 
 **安全守门员：**
 ```python
-{"name":"gatekeeper","model":"qwen2.5-7b-instruct","temperature":0.0,
- "system_prompt":"你审核所有写操作，危险即拦。",
- "tools":["file_read","file_grep"],"safety_level":"L3"}
+{
+    "name": "gatekeeper",
+    "model": "qwen2.5-7b-instruct",
+    "temperature": 0.0,
+    "system_prompt": "你审核所有写操作，危险即拦。",
+    "tools": ["file_read", "file_grep"],
+    "safety_level": "L3",
+}
 ```
 
 > 配置持久化在 `~/.fusion-agent-studio/agents/<id>/.fusion-agent/manifest.json`，重启不丢。

@@ -5,6 +5,7 @@ master (/api/v1/session-store, Bearer-authed). agent-studio needs a
 `cluster` backend so a session checkpointed on node A resumes on node B,
 and DEFAULT_CLUSTER_URL must point at the registered master port 11452.
 """
+
 from __future__ import annotations
 
 import json
@@ -41,12 +42,8 @@ class _FakeMaster(BaseHTTPRequestHandler):
     def _record(self):
         n = int(self.headers.get("Content-Length", 0))
         body = json.loads(self.rfile.read(n)) if n else {}
-        _FakeMaster.state["calls"].append(
-            {"method": self.command, "path": self.path, "body": body}
-        )
-        _FakeMaster.state["auth_headers"].append(
-            self.headers.get("Authorization", "")
-        )
+        _FakeMaster.state["calls"].append({"method": self.command, "path": self.path, "body": body})
+        _FakeMaster.state["auth_headers"].append(self.headers.get("Authorization", ""))
         return body
 
     def do_GET(self):  # noqa: N802
@@ -107,7 +104,6 @@ def fake_master():
 
 
 class TestDefaultClusterUrl:
-
     def test_default_is_registered_master_port(self, monkeypatch):
         from agent_runtime import sandbox_router
 
@@ -123,7 +119,6 @@ class TestDefaultClusterUrl:
 
 
 class TestBackendSelection:
-
     def test_cluster_backend_selected(self, monkeypatch, fake_master):
         monkeypatch.setenv("FUSION_SESSION_STORE", "cluster")
         monkeypatch.setenv("FUSION_CLUSTER_URL", fake_master)
@@ -143,11 +138,13 @@ class TestBackendSelection:
 
 
 class TestClusterStoreRoundtrip:
-
     def test_put_get_list_delete(self, fake_master):
         store = ClusterSessionStore(base_url=fake_master)
-        session = {"id": "chat-a", "title": "node A checkpoint",
-                   "messages": [{"role": "user", "content": "hi"}]}
+        session = {
+            "id": "chat-a",
+            "title": "node A checkpoint",
+            "messages": [{"role": "user", "content": "hi"}],
+        }
         stored = store.put(session)
         assert stored["id"] == "chat-a"
         assert "updated_at" in stored
@@ -181,7 +178,6 @@ class TestClusterStoreRoundtrip:
 
 
 class TestDelegateRunAuth:
-
     async def test_delegate_run_sends_bearer(self, monkeypatch):
         from agent_runtime import sandbox_router
         from agent_runtime.sandbox_router import SandboxTarget

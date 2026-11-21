@@ -44,7 +44,10 @@ def test_injection_anchored_pattern_still_detects_line_start():
 
 
 def test_injection_mid_sentence_prose_not_flagged():
-    assert detect_prompt_injection("The file system: '/data' is mounted read-only")["detected"] is False
+    assert (
+        detect_prompt_injection("The file system: '/data' is mounted read-only")["detected"]
+        is False
+    )
     assert detect_prompt_injection("Guest file system: ntfs")["detected"] is False
 
 

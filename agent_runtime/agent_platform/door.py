@@ -57,8 +57,7 @@ class CapabilityApprovalStore:
 
     def __init__(self, db_path: Optional[str] = None):
         if not db_path:
-            db_path = str(
-                studio_home() / "capability_approvals.db")
+            db_path = str(studio_home() / "capability_approvals.db")
         self.db_path = str(db_path)
         self._init_db()
 
@@ -77,37 +76,59 @@ class CapabilityApprovalStore:
                decided_by TEXT DEFAULT '',
                created_at REAL NOT NULL,
                decided_at REAL,
-               result TEXT DEFAULT '')""")
+               result TEXT DEFAULT '')"""
+        )
         # #446 migration: older stores predate the external-task columns.
-        existing = {row[1] for row in conn.execute(
-            "PRAGMA table_info(capability_approvals)").fetchall()}
-        for column, default in (("kind", "'mutation'"),
-                                ("assigned_to", "''"),
-                                ("title", "''")):
+        existing = {
+            row[1] for row in conn.execute("PRAGMA table_info(capability_approvals)").fetchall()
+        }
+        for column, default in (("kind", "'mutation'"), ("assigned_to", "''"), ("title", "''")):
             if column not in existing:
                 conn.execute(
-                    f"ALTER TABLE capability_approvals ADD COLUMN "
-                    f"{column} TEXT DEFAULT {default}")
+                    f"ALTER TABLE capability_approvals ADD COLUMN {column} TEXT DEFAULT {default}"
+                )
         conn.commit()
         conn.close()
         logger.info("capability approval store ready: %s", self.db_path)
 
-    def create(self, capability_id: str, agent_id: str, version: int,
-               publisher: str, params: dict, requester: str) -> dict:
+    def create(
+        self,
+        capability_id: str,
+        agent_id: str,
+        version: int,
+        publisher: str,
+        params: dict,
+        requester: str,
+    ) -> dict:
         approval_id = uuid.uuid4().hex[:16]
         conn = sqlite3.connect(self.db_path)
         conn.execute(
-            "INSERT INTO capability_approvals VALUES "
-            "(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-            (approval_id, capability_id, agent_id, int(version),
-             publisher, json.dumps(params, ensure_ascii=False), "pending",
-             requester, "", time.time(), None, "", "mutation", "", ""))
+            "INSERT INTO capability_approvals VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (
+                approval_id,
+                capability_id,
+                agent_id,
+                int(version),
+                publisher,
+                json.dumps(params, ensure_ascii=False),
+                "pending",
+                requester,
+                "",
+                time.time(),
+                None,
+                "",
+                "mutation",
+                "",
+                "",
+            ),
+        )
         conn.commit()
         conn.close()
         return self.get(approval_id)
 
-    def create_external(self, title: str, requester: str, assigned_to: str,
-                        params: dict, agent_id: str = "") -> dict:
+    def create_external(
+        self, title: str, requester: str, assigned_to: str, params: dict, agent_id: str = ""
+    ) -> dict:
         """#446: external approval task — an outside consumer's review item.
 
         The payload (`params`) is opaque to the studio: consumers put their
@@ -115,29 +136,45 @@ class CapabilityApprovalStore:
         there; the decision webhook returns it verbatim.
         """
         if requester and assigned_to and requester == assigned_to:
-            raise DoorError(422, "requester and assigned reviewer must "
-                                 "differ (no self-approval)")
+            raise DoorError(422, "requester and assigned reviewer must differ (no self-approval)")
         approval_id = uuid.uuid4().hex[:16]
         conn = sqlite3.connect(self.db_path)
         conn.execute(
-            "INSERT INTO capability_approvals VALUES "
-            "(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-            (approval_id, "external", agent_id or "external", 0, "",
-             json.dumps(params, ensure_ascii=False), "pending",
-             requester, "", time.time(), None, "", "external",
-             assigned_to, title))
+            "INSERT INTO capability_approvals VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (
+                approval_id,
+                "external",
+                agent_id or "external",
+                0,
+                "",
+                json.dumps(params, ensure_ascii=False),
+                "pending",
+                requester,
+                "",
+                time.time(),
+                None,
+                "",
+                "external",
+                assigned_to,
+                title,
+            ),
+        )
         conn.commit()
         conn.close()
-        logger.info("external approval task created: %s requester=%s "
-                    "assigned_to=%s", approval_id, requester, assigned_to)
+        logger.info(
+            "external approval task created: %s requester=%s assigned_to=%s",
+            approval_id,
+            requester,
+            assigned_to,
+        )
         return self.get(approval_id)
 
     def get(self, approval_id: str) -> Optional[dict]:
         conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row
         row = conn.execute(
-            "SELECT * FROM capability_approvals WHERE id = ?",
-            (approval_id,)).fetchone()
+            "SELECT * FROM capability_approvals WHERE id = ?", (approval_id,)
+        ).fetchone()
         conn.close()
         if not row:
             return None
@@ -152,12 +189,12 @@ class CapabilityApprovalStore:
             rows = conn.execute(
                 "SELECT * FROM capability_approvals WHERE status = ? "
                 "ORDER BY created_at DESC LIMIT ?",
-                (status, limit)).fetchall()
+                (status, limit),
+            ).fetchall()
         else:
             rows = conn.execute(
-                "SELECT * FROM capability_approvals "
-                "ORDER BY created_at DESC LIMIT ?",
-                (limit,)).fetchall()
+                "SELECT * FROM capability_approvals ORDER BY created_at DESC LIMIT ?", (limit,)
+            ).fetchall()
         conn.close()
         out = []
         for row in rows:
@@ -166,8 +203,9 @@ class CapabilityApprovalStore:
             out.append(rec)
         return out
 
-    def decide(self, approval_id: str, status: str, decided_by: str,
-               result: str = "") -> Optional[dict]:
+    def decide(
+        self, approval_id: str, status: str, decided_by: str, result: str = ""
+    ) -> Optional[dict]:
         rec = self.get(approval_id)
         if not rec:
             return None
@@ -175,7 +213,8 @@ class CapabilityApprovalStore:
         conn.execute(
             "UPDATE capability_approvals SET status = ?, decided_by = ?, "
             "decided_at = ?, result = ? WHERE id = ?",
-            (status, decided_by, time.time(), result, approval_id))
+            (status, decided_by, time.time(), result, approval_id),
+        )
         conn.commit()
         conn.close()
         return self.get(approval_id)
@@ -184,8 +223,9 @@ class CapabilityApprovalStore:
         cutoff = time.time() - _APPROVAL_TTL_SECONDS
         conn = sqlite3.connect(self.db_path)
         cur = conn.execute(
-            "DELETE FROM capability_approvals WHERE created_at < ? "
-            "AND status != 'pending'", (cutoff,))
+            "DELETE FROM capability_approvals WHERE created_at < ? AND status != 'pending'",
+            (cutoff,),
+        )
         conn.commit()
         n = cur.rowcount
         conn.close()
@@ -201,12 +241,18 @@ class CapabilityDoor:
         self._audit = None
 
     # ── audit ────────────────────────────────────────────────────────
-    def _audit_log(self, *, agent_id: str, capability_id: str,
-                   status_code: int, outcome: str, duration_ms: int,
-                   publisher: str) -> None:
+    def _audit_log(
+        self,
+        *,
+        agent_id: str,
+        capability_id: str,
+        status_code: int,
+        outcome: str,
+        duration_ms: int,
+        publisher: str,
+    ) -> None:
         if self._audit is None:
-            if self._daemon is not None and \
-                    hasattr(self._daemon, "_get_audit_logger"):
+            if self._daemon is not None and hasattr(self._daemon, "_get_audit_logger"):
                 self._audit = self._daemon._get_audit_logger()
             else:
                 try:
@@ -222,9 +268,12 @@ class CapabilityDoor:
                 action="AGENT_CALL",
                 resource_type="agent_capability",
                 resource_id=capability_id,
-                details={"outcome": outcome, "status_code": status_code,
-                         "duration_ms": duration_ms,
-                         "publisher": publisher},
+                details={
+                    "outcome": outcome,
+                    "status_code": status_code,
+                    "duration_ms": duration_ms,
+                    "publisher": publisher,
+                },
                 result="success" if status_code < 400 else "denied",
             )
         except Exception as e:
@@ -246,8 +295,7 @@ class CapabilityDoor:
         # #271: daemon auth ctx (jwt/tid) carries tenant roles when
         # identity is enabled; module-key callers are admin by contract.
         role = ""
-        if self._daemon is not None and \
-                hasattr(self._daemon, "resolve_publisher_role"):
+        if self._daemon is not None and hasattr(self._daemon, "resolve_publisher_role"):
             try:
                 role = self._daemon.resolve_publisher_role(effective) or ""
             except Exception:
@@ -288,23 +336,35 @@ class CapabilityDoor:
             if cap is None:
                 raise DoorError(404, f"unknown capability '{capability_id}'")
             if cap.get("status") != "active":
-                raise DoorError(409, (
-                    f"capability disabled: {capability_id} — its upstream "
-                    f"{cap.get('source')} artifact is disabled or removed"))
+                raise DoorError(
+                    409,
+                    (
+                        f"capability disabled: {capability_id} — its upstream "
+                        f"{cap.get('source')} artifact is disabled or removed"
+                    ),
+                )
 
             # Policy compile at run time (§9): authority = publisher's
             # role ∩ capability write class.
             publisher_role = self._publisher_role(agent_id, publisher)
             if cap.get("mutation"):
                 if version < 1:
-                    raise DoorError(403, (
-                        f"mutations denied for draft agents "
-                        f"({capability_id}); publish the agent first"))
+                    raise DoorError(
+                        403,
+                        (
+                            f"mutations denied for draft agents "
+                            f"({capability_id}); publish the agent first"
+                        ),
+                    )
                 if publisher_role not in WRITE_ROLES:
-                    raise DoorError(403, (
-                        f"publisher '{publisher or '?'}' "
-                        f"({publisher_role or '?'}) lacks write class "
-                        f"'{cap.get('write_class')}' for {capability_id}"))
+                    raise DoorError(
+                        403,
+                        (
+                            f"publisher '{publisher or '?'}' "
+                            f"({publisher_role or '?'}) lacks write class "
+                            f"'{cap.get('write_class')}' for {capability_id}"
+                        ),
+                    )
 
             errors = validate_params(cap, params)
             if errors:
@@ -315,13 +375,17 @@ class CapabilityDoor:
                 # directly — an approval record carries the full params; a
                 # human decides via agent_platform.approve/reject.
                 rec = self.approvals.create(
-                    capability_id, agent_id, version, publisher, params,
-                    requester=f"agent:{agent_id}")
+                    capability_id,
+                    agent_id,
+                    version,
+                    publisher,
+                    params,
+                    requester=f"agent:{agent_id}",
+                )
                 # E5: approval.requested — complements approval.decided so
                 # consumers see both ends of the approval lifecycle.
                 await self._notify_requested(rec)
-                data = {"approval_id": rec["id"],
-                        "status": "pending_approval"}
+                data = {"approval_id": rec["id"], "status": "pending_approval"}
                 outcome = "approval_requested"
                 status_code = 200
             else:
@@ -336,13 +400,18 @@ class CapabilityDoor:
         finally:
             duration_ms = int((time.monotonic() - started) * 1000)
             self._audit_log(
-                agent_id=agent_id, capability_id=capability_id,
-                status_code=status_code, outcome=outcome,
-                duration_ms=duration_ms, publisher=publisher)
+                agent_id=agent_id,
+                capability_id=capability_id,
+                status_code=status_code,
+                outcome=outcome,
+                duration_ms=duration_ms,
+                publisher=publisher,
+            )
 
     # ── dispatch by source (§5.5.3) ──────────────────────────────────
-    async def _dispatch(self, cap: Dict[str, Any],
-                        params: Dict[str, Any]) -> Tuple[int, Dict[str, Any]]:
+    async def _dispatch(
+        self, cap: Dict[str, Any], params: Dict[str, Any]
+    ) -> Tuple[int, Dict[str, Any]]:
         route = cap.get("route") or {}
         kind = route.get("kind")
         if kind == "rest":
@@ -354,9 +423,13 @@ class CapabilityDoor:
         if kind == "skill":
             return await self._dispatch_skill(route, params)
         if kind == "connector":
-            raise DoorError(501, (
-                "connector dispatch lands with the connectors console "
-                "(E3, fusion-plugins-ecosystem)"))
+            raise DoorError(
+                501,
+                (
+                    "connector dispatch lands with the connectors console "
+                    "(E3, fusion-plugins-ecosystem)"
+                ),
+            )
         if kind == "mcp":
             return await self._dispatch_mcp(route, params)
         raise DoorError(500, f"unrouted capability {cap.get('id')}")
@@ -369,8 +442,9 @@ class CapabilityDoor:
 
         return static_module_key()
 
-    async def _dispatch_rest(self, cap: Dict[str, Any],
-                             params: Dict[str, Any]) -> Tuple[int, Dict[str, Any]]:
+    async def _dispatch_rest(
+        self, cap: Dict[str, Any], params: Dict[str, Any]
+    ) -> Tuple[int, Dict[str, Any]]:
         import httpx
 
         route = cap.get("route") or {}
@@ -402,34 +476,35 @@ class CapabilityDoor:
                 if method == "GET":
                     resp = await client.get(url, params=params, headers=headers)
                 else:
-                    resp = await client.request(method, url, json=params,
-                                                headers=headers)
+                    resp = await client.request(method, url, json=params, headers=headers)
         except Exception as e:
-            raise DoorError(502, f"rest dispatch unreachable: "
-                                 f"{type(e).__name__}: {e}")
+            raise DoorError(502, f"rest dispatch unreachable: {type(e).__name__}: {e}")
         try:
             data = resp.json()
         except Exception:
             data = {"raw": resp.text[:500]}
         return resp.status_code, data
 
-    async def _dispatch_node(self, route: Dict[str, Any],
-                             params: Dict[str, Any]) -> Tuple[int, Dict[str, Any]]:
+    async def _dispatch_node(
+        self, route: Dict[str, Any], params: Dict[str, Any]
+    ) -> Tuple[int, Dict[str, Any]]:
         rt = self._runtime()
         tool_name = str(route.get("node") or "")
         try:
             result = await rt.tools.execute(tool_name, params)
         except Exception as e:
-            return 502, {"ok": False,
-                         "error": f"tool '{tool_name}' failed: "
-                                  f"{type(e).__name__}: {e}"}
+            return 502, {
+                "ok": False,
+                "error": f"tool '{tool_name}' failed: {type(e).__name__}: {e}",
+            }
         payload = result if not isinstance(result, str) else {"text": result}
         if not isinstance(payload, dict):
             payload = {"result": payload}
         return 200, {"ok": True, "data": payload}
 
-    async def _dispatch_rag(self, route: Dict[str, Any],
-                            params: Dict[str, Any]) -> Tuple[int, Dict[str, Any]]:
+    async def _dispatch_rag(
+        self, route: Dict[str, Any], params: Dict[str, Any]
+    ) -> Tuple[int, Dict[str, Any]]:
         kb_id = str(route.get("kb") or "")
         from server.fusion_rag_client import FusionRAGClient
 
@@ -441,18 +516,23 @@ class CapabilityDoor:
                 top_k=int(params.get("top_k") or 5),
             )
         except Exception as e:
-            return 502, {"ok": False,
-                         "error": f"kb '{kb_id}' search failed: "
-                                  f"{type(e).__name__}: {e}"}
+            return 502, {
+                "ok": False,
+                "error": f"kb '{kb_id}' search failed: {type(e).__name__}: {e}",
+            }
         chunks = [
-            {"text": getattr(r, "text", ""), "doc_path": getattr(r, "doc_path", ""),
-             "score": getattr(r, "score", 0.0)}
+            {
+                "text": getattr(r, "text", ""),
+                "doc_path": getattr(r, "doc_path", ""),
+                "score": getattr(r, "score", 0.0),
+            }
             for r in (getattr(result, "results", None) or [])
         ]
         return 200, {"ok": True, "kb": kb_id, "chunks": chunks}
 
-    async def _dispatch_skill(self, route: Dict[str, Any],
-                              params: Dict[str, Any]) -> Tuple[int, Dict[str, Any]]:
+    async def _dispatch_skill(
+        self, route: Dict[str, Any], params: Dict[str, Any]
+    ) -> Tuple[int, Dict[str, Any]]:
         name = str(route.get("skill") or "")
         from ..skills_store import SkillsStore
 
@@ -460,12 +540,16 @@ class CapabilityDoor:
         meta = store.load_skill(name)
         if meta is None:
             raise DoorError(404, f"skill '{name}' not installed")
-        return 200, {"ok": True, "skill": name,
-                     "prompt": meta.get("prompt", ""),
-                     "data": {k: v for k, v in meta.items() if k != "prompt"}}
+        return 200, {
+            "ok": True,
+            "skill": name,
+            "prompt": meta.get("prompt", ""),
+            "data": {k: v for k, v in meta.items() if k != "prompt"},
+        }
 
-    async def _dispatch_mcp(self, route: Dict[str, Any],
-                            params: Dict[str, Any]) -> Tuple[int, Dict[str, Any]]:
+    async def _dispatch_mcp(
+        self, route: Dict[str, Any], params: Dict[str, Any]
+    ) -> Tuple[int, Dict[str, Any]]:
         server_id = str(route.get("server") or "")
         tool = str(route.get("tool") or "")
         try:
@@ -473,15 +557,17 @@ class CapabilityDoor:
 
             registry = get_outbound_registry()
             result = await registry.call_tool(server_id, tool, params)
-            return 200, {"ok": True, "server": server_id, "tool": tool,
-                         "data": result}
+            return 200, {"ok": True, "server": server_id, "tool": tool, "data": result}
         except Exception as e:
-            return 502, {"ok": False, "server": server_id, "tool": tool,
-                         "error": f"MCP call failed: {type(e).__name__}: {e}"}
+            return 502, {
+                "ok": False,
+                "server": server_id,
+                "tool": tool,
+                "error": f"MCP call failed: {type(e).__name__}: {e}",
+            }
 
     def _runtime(self):
-        if self._daemon is not None and \
-                hasattr(self._daemon, "_get_runtime"):
+        if self._daemon is not None and hasattr(self._daemon, "_get_runtime"):
             return self._daemon._get_runtime()
         from ..runtime import AgentRuntime
 
@@ -496,10 +582,8 @@ class CapabilityDoor:
         # #446: external tasks with an assigned reviewer are decided by
         # that reviewer (or, if unassigned, any non-requester).
         assigned = rec.get("assigned_to") or ""
-        if rec.get("kind") == "external" and assigned and \
-                decided_by and decided_by != assigned:
-            raise DoorError(403, f"approval assigned to '{assigned}', "
-                                 f"not '{decided_by}'")
+        if rec.get("kind") == "external" and assigned and decided_by and decided_by != assigned:
+            raise DoorError(403, f"approval assigned to '{assigned}', not '{decided_by}'")
 
     async def _notify_requested(self, rec: dict) -> None:
         """E5: fire approval.requested webhook — best-effort like the
@@ -507,18 +591,21 @@ class CapabilityDoor:
         try:
             from .webhooks import get_webhook_registry
 
-            await get_webhook_registry().fire("approval.requested", {
-                "approval_id": rec.get("id"),
-                "kind": rec.get("kind") or "mutation",
-                "capability_id": rec.get("capability_id"),
-                "agent_id": rec.get("agent_id"),
-                "title": rec.get("title") or "",
-                "status": rec.get("status"),
-                "requester": rec.get("requester"),
-                "assigned_to": rec.get("assigned_to"),
-                "created_at": rec.get("created_at"),
-                "params": rec.get("params") or {},
-            })
+            await get_webhook_registry().fire(
+                "approval.requested",
+                {
+                    "approval_id": rec.get("id"),
+                    "kind": rec.get("kind") or "mutation",
+                    "capability_id": rec.get("capability_id"),
+                    "agent_id": rec.get("agent_id"),
+                    "title": rec.get("title") or "",
+                    "status": rec.get("status"),
+                    "requester": rec.get("requester"),
+                    "assigned_to": rec.get("assigned_to"),
+                    "created_at": rec.get("created_at"),
+                    "params": rec.get("params") or {},
+                },
+            )
         except Exception as e:
             logger.warning("approval.requested webhook failed: %s", e)
 
@@ -565,8 +652,7 @@ class CapabilityDoor:
             # no studio capability dispatches, consumers advance their own
             # state from the webhook.
             rec = self.approvals.decide(approval_id, "approved", decided_by)
-            logger.info("external approval approved: %s by=%s",
-                        approval_id, decided_by)
+            logger.info("external approval approved: %s by=%s", approval_id, decided_by)
             await self._notify_decision(rec)
             return rec
         cap = get_capability(rec["capability_id"])
@@ -574,26 +660,27 @@ class CapabilityDoor:
             raise DoorError(404, f"capability '{rec['capability_id']}' removed")
         status_code, data = await self._dispatch(cap, rec.get("params") or {})
         rec = self.approvals.decide(
-            approval_id, "approved", decided_by,
-            result=json.dumps(data, ensure_ascii=False)[:2000])
+            approval_id, "approved", decided_by, result=json.dumps(data, ensure_ascii=False)[:2000]
+        )
         rec["dispatch_status_code"] = status_code
-        logger.info("capability approval approved: %s cap=%s by=%s",
-                    approval_id, rec["capability_id"], decided_by)
+        logger.info(
+            "capability approval approved: %s cap=%s by=%s",
+            approval_id,
+            rec["capability_id"],
+            decided_by,
+        )
         await self._notify_decision(rec)
         return rec
 
-    async def reject(self, approval_id: str, decided_by: str,
-                     reason: str = "") -> dict:
+    async def reject(self, approval_id: str, decided_by: str, reason: str = "") -> dict:
         rec = self.approvals.get(approval_id)
         if not rec:
             raise DoorError(404, f"approval '{approval_id}' not found")
         if rec["status"] != "pending":
             raise DoorError(409, f"approval already {rec['status']}")
         self._check_decider(rec, decided_by)
-        rec = self.approvals.decide(approval_id, "rejected", decided_by,
-                                    result=reason)
-        logger.info("capability approval rejected: %s by=%s",
-                    approval_id, decided_by)
+        rec = self.approvals.decide(approval_id, "rejected", decided_by, result=reason)
+        logger.info("capability approval rejected: %s by=%s", approval_id, decided_by)
         await self._notify_decision(rec, reason=reason)
         return rec
 

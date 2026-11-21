@@ -10,10 +10,14 @@ from fastapi.testclient import TestClient
 
 
 _AGENTS = [
-    {"id": "dep1", "name": "Reconciler", "status": "published",
-     "description": "daily reconciliation", "tools": ["agent.list"]},
-    {"id": "draft1", "name": "WIP", "status": "draft",
-     "description": "not ready", "tools": []},
+    {
+        "id": "dep1",
+        "name": "Reconciler",
+        "status": "published",
+        "description": "daily reconciliation",
+        "tools": ["agent.list"],
+    },
+    {"id": "draft1", "name": "WIP", "status": "draft", "description": "not ready", "tools": []},
 ]
 
 
@@ -37,8 +41,8 @@ def client(monkeypatch, tmp_path):
 
     real_pr = pr_mod.PublishRegistry
     monkeypatch.setattr(
-        pr_mod, "PublishRegistry",
-        lambda path="": real_pr(str(tmp_path / "publish.json")))
+        pr_mod, "PublishRegistry", lambda path="": real_pr(str(tmp_path / "publish.json"))
+    )
     real_pr(str(tmp_path / "publish.json")).set("dep1", "owner-1", "v3")
 
     monkeypatch.setattr(api_server, "_rpc", _rpc_stub)

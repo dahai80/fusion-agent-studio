@@ -70,9 +70,7 @@ def register_cluster_ops(app: FastAPI, require_auth) -> None:
 
     @app.get("/v1/cluster-ops/nodes/{node_id}/metrics")
     async def v1_cluster_node_metrics(node_id: str):
-        return await cluster_ops_forward(
-            "GET", f"/api/v1/nodes/{node_id}/metrics"
-        )
+        return await cluster_ops_forward("GET", f"/api/v1/nodes/{node_id}/metrics")
 
     @app.get("/v1/cluster-ops/autoscaler/config")
     async def v1_cluster_autoscaler_get():
@@ -81,9 +79,7 @@ def register_cluster_ops(app: FastAPI, require_auth) -> None:
     @app.put("/v1/cluster-ops/autoscaler/config", dependencies=[Depends(require_auth)])
     async def v1_cluster_autoscaler_put(request: Request):
         body = await request.json()
-        return await cluster_ops_forward(
-            "PUT", "/api/v1/autoscaler/config", json_body=body
-        )
+        return await cluster_ops_forward("PUT", "/api/v1/autoscaler/config", json_body=body)
 
     @app.get("/v1/cluster-ops/observability/alerts")
     async def v1_cluster_alerts():
@@ -97,9 +93,7 @@ def register_cluster_ops(app: FastAPI, require_auth) -> None:
     async def v1_cluster_logs_export():
         from fastapi import Response
 
-        text = await cluster_ops_forward(
-            "GET", "/api/v1/observability/logs/export", raw=True
-        )
+        text = await cluster_ops_forward("GET", "/api/v1/observability/logs/export", raw=True)
         return Response(
             content=text,
             media_type="text/plain",
@@ -138,9 +132,7 @@ def register_cluster_ops(app: FastAPI, require_auth) -> None:
     @app.post("/v1/cluster-ops/tasks/{task_id}/migrate", dependencies=[Depends(require_auth)])
     async def v1_cluster_task_migrate(task_id: str, request: Request):
         body = await request.json()
-        return await cluster_ops_forward(
-            "POST", f"/api/tasks/{task_id}/migrate", json_body=body
-        )
+        return await cluster_ops_forward("POST", f"/api/tasks/{task_id}/migrate", json_body=body)
 
     @app.get("/v1/cluster-ops/routing/summary")
     async def v1_cluster_routing_summary():
@@ -149,8 +141,6 @@ def register_cluster_ops(app: FastAPI, require_auth) -> None:
     @app.post("/v1/cluster-ops/routing/strategy", dependencies=[Depends(require_auth)])
     async def v1_cluster_routing_strategy(request: Request):
         body = await request.json()
-        return await cluster_ops_forward(
-            "POST", "/api/routing/strategy", json_body=body
-        )
+        return await cluster_ops_forward("POST", "/api/routing/strategy", json_body=body)
 
     logger.info("cluster-ops proxy registered at /v1/cluster-ops/* -> %s", cluster_ops_url())

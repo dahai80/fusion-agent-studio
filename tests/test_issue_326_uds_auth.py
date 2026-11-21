@@ -134,12 +134,8 @@ class TestLoginFlow:
 
 class TestJwtValidation:
     async def test_expired_jwt_401(self, daemon, enforce_on, store_db):
-        expired = issue_local_jwt(
-            os.path.dirname(store_db), ttl_seconds=-3600
-        )
-        resp = await _rpc_call(
-            daemon.socket_path, "task.list", {"_auth": {"jwt": expired["jwt"]}}
-        )
+        expired = issue_local_jwt(os.path.dirname(store_db), ttl_seconds=-3600)
+        resp = await _rpc_call(daemon.socket_path, "task.list", {"_auth": {"jwt": expired["jwt"]}})
         assert resp["error"]["code"] == 401
         assert "expired" in resp["error"]["message"]
 
@@ -152,18 +148,14 @@ class TestJwtValidation:
         # sometimes decodes to identical bytes and the tamper is invisible.)
         flipped = "A" if sig[0] != "A" else "B"
         tampered = f"{head}.{payload}.{flipped}{sig[1:]}"
-        resp = await _rpc_call(
-            daemon.socket_path, "task.list", {"_auth": {"jwt": tampered}}
-        )
+        resp = await _rpc_call(daemon.socket_path, "task.list", {"_auth": {"jwt": tampered}})
         assert resp["error"]["code"] == 401
         assert "signature" in resp["error"]["message"]
 
     async def test_foreign_secret_jwt_401(self, daemon, enforce_on, tmp_path):
         # Signed with a DIFFERENT install's secret -> signature mismatch.
         other = issue_local_jwt(tmp_path / "other-install")
-        resp = await _rpc_call(
-            daemon.socket_path, "task.list", {"_auth": {"jwt": other["jwt"]}}
-        )
+        resp = await _rpc_call(daemon.socket_path, "task.list", {"_auth": {"jwt": other["jwt"]}})
         assert resp["error"]["code"] == 401
 
     async def test_auth_dir_follows_store_path(self, daemon, store_db):

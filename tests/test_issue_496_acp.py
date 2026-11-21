@@ -21,7 +21,8 @@ from tools.registry import ToolRegistry
 def _make_runtime():
     return AgentRuntime(tool_registry=ToolRegistry())
 
-FAKE_AGENT = r'''
+
+FAKE_AGENT = r"""
 import json, os, sys
 
 def send(obj):
@@ -79,7 +80,7 @@ for line in sys.stdin:
     else:
         send({"jsonrpc": "2.0", "id": rid,
               "error": {"code": -32601, "message": "method not found"}})
-'''
+"""
 
 
 @pytest.fixture
@@ -195,7 +196,9 @@ class TestAcpNodeInGraph:
         assert types[-1] == AgentEventType.END
         # final assistant message lands in ctx messages via the THINK summary
         summary = [e for e in events if e.type == AgentEventType.THINK and e.metadata]
-        assert any(e.metadata.get("acp") and e.metadata.get("stop_reason") == "end_turn" for e in summary)
+        assert any(
+            e.metadata.get("acp") and e.metadata.get("stop_reason") == "end_turn" for e in summary
+        )
 
     async def test_graph_missing_cli_yields_error_event(self, tmp_path):
         rt = _make_runtime()
@@ -241,7 +244,9 @@ class TestAcpEventMapping:
 
     def test_message_chunk_maps_to_token(self):
         rt = _make_runtime()
-        evs = rt._acp_event_to_agent_event({"type": "agent_message_chunk", "text": "hi"}, self._node())
+        evs = rt._acp_event_to_agent_event(
+            {"type": "agent_message_chunk", "text": "hi"}, self._node()
+        )
         assert len(evs) == 1
         assert evs[0].type == AgentEventType.TOKEN
         assert evs[0].content == "hi"
@@ -249,7 +254,9 @@ class TestAcpEventMapping:
 
     def test_thought_chunk_maps_to_thinking_token(self):
         rt = _make_runtime()
-        evs = rt._acp_event_to_agent_event({"type": "agent_thought_chunk", "text": "hm"}, self._node())
+        evs = rt._acp_event_to_agent_event(
+            {"type": "agent_thought_chunk", "text": "hm"}, self._node()
+        )
         assert evs[0].type == AgentEventType.THINKING_TOKEN
 
     def test_tool_call_maps_to_start(self):
@@ -264,7 +271,12 @@ class TestAcpEventMapping:
     def test_tool_call_update_maps_to_tool_call(self):
         rt = _make_runtime()
         evs = rt._acp_event_to_agent_event(
-            {"type": "tool_call_update", "tool_call_id": "tc-1", "title": "list files", "status": "completed"},
+            {
+                "type": "tool_call_update",
+                "tool_call_id": "tc-1",
+                "title": "list files",
+                "status": "completed",
+            },
             self._node(),
         )
         assert evs[0].type == AgentEventType.TOOL_CALL
@@ -272,5 +284,8 @@ class TestAcpEventMapping:
 
     def test_unmapped_kinds_ignored(self):
         rt = _make_runtime()
-        assert rt._acp_event_to_agent_event({"type": "user_message_chunk", "text": "q"}, self._node()) == []
+        assert (
+            rt._acp_event_to_agent_event({"type": "user_message_chunk", "text": "q"}, self._node())
+            == []
+        )
         assert rt._acp_event_to_agent_event({"type": "usage_update"}, self._node()) == []

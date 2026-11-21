@@ -28,8 +28,13 @@ def isolated_permissions(tmp_path, monkeypatch):
 class TestIssue384Permissions:
     def test_plan_mode_denies_write_allows_readonly(self):
         engine = PermissionEngine(mode=PermissionMode.PLAN)
-        assert engine.evaluate("write_file", {"path": "/tmp/x"}, readonly_hint=False).decision == "deny"
-        assert engine.evaluate("read_file", {"path": "/tmp/x"}, readonly_hint=True).decision == "allow"
+        assert (
+            engine.evaluate("write_file", {"path": "/tmp/x"}, readonly_hint=False).decision
+            == "deny"
+        )
+        assert (
+            engine.evaluate("read_file", {"path": "/tmp/x"}, readonly_hint=True).decision == "allow"
+        )
         assert engine.stats()["denies"] >= 1
 
     def test_three_layer_rules_persist_roundtrip(self, tmp_path):
@@ -280,8 +285,9 @@ class TestIssue391PermissionsNone:
         outcome = await funnel.admit(ctx=AgentContext(), tool_name="shell_exec", args={})
         assert outcome.allowed is False
         assert outcome.blocked_by == "permission"
-        assert any(e["stage"] == "permission" and e["verdict"] == "deny"
-                   for e in outcome.decision_log)
+        assert any(
+            e["stage"] == "permission" and e["verdict"] == "deny" for e in outcome.decision_log
+        )
         assert any("fail_closed" in r.message for r in caplog.records)
 
     @pytest.mark.asyncio
@@ -291,8 +297,9 @@ class TestIssue391PermissionsNone:
         funnel = ToolFunnel()
         outcome = await funnel.admit(ctx=AgentContext(), tool_name="shell_exec", args={})
         assert outcome.allowed is True
-        assert any(e["stage"] == "permission" and e["verdict"] == "skip"
-                   for e in outcome.decision_log)
+        assert any(
+            e["stage"] == "permission" and e["verdict"] == "skip" for e in outcome.decision_log
+        )
 
     @pytest.mark.asyncio
     async def test_missing_engine_fails_closed_when_required(self, monkeypatch):

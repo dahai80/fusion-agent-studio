@@ -59,7 +59,11 @@ async def test_budget_exceeded_sets_stop_reason():
     async for ev in rt.execute_graph(graph, "hi", token_budget=b):
         events.append(ev)
     # budget gate fires before/at node walk — context must carry the reason
-    assert events[-1].type in (AgentEventType.TOKEN_BUDGET_EXCEEDED, AgentEventType.END, AgentEventType.ERROR)
+    assert events[-1].type in (
+        AgentEventType.TOKEN_BUDGET_EXCEEDED,
+        AgentEventType.END,
+        AgentEventType.ERROR,
+    )
 
 
 async def test_execute_async_completion_carries_stop_reason(tmp_path, monkeypatch):

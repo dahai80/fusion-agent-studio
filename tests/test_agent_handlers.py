@@ -1,6 +1,5 @@
 """Tests for agent.* and marketplace.* daemon handlers."""
 
-
 import pytest
 
 from agent_runtime.daemon_server import DaemonServer

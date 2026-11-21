@@ -34,9 +34,7 @@ class ScriptedClient:
         self.responses = list(responses)
         self.call_count = 0
 
-    async def chat(
-        self, model, messages, tools=None, temperature=0.7, max_tokens=4096, **kwargs
-    ):
+    async def chat(self, model, messages, tools=None, temperature=0.7, max_tokens=4096, **kwargs):
         self.call_count += 1
         if not self.responses:
             return LLMResponse(content="done", tool_calls=[])
@@ -155,9 +153,7 @@ async def test_think_max_tokens_surfaced():
     graph.add_node("end", NodeConfig(type="end", label="End"))
     graph.add_edge("start", "llm")
     graph.add_edge("llm", "end")
-    client = ScriptedClient(
-        [{"content": "truncated outp", "finish_reason": "length"}]
-    )
+    client = ScriptedClient([{"content": "truncated outp", "finish_reason": "length"}])
     rt = AgentRuntime(client, _registry())
     events = await _collect(rt, graph)
     thinks = [e for e in events if e.type == AgentEventType.THINK]

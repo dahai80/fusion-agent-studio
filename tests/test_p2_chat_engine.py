@@ -23,9 +23,7 @@ class MockStreamClient:
         from server.fusion_mlx_client import StreamChunk
 
         for t in self._tokens:
-            yield StreamChunk(
-                delta_content=t, delta_tool_calls=None, finish_reason=None
-            )
+            yield StreamChunk(delta_content=t, delta_tool_calls=None, finish_reason=None)
         yield StreamChunk(delta_content="", delta_tool_calls=None, finish_reason="stop")
 
 
@@ -123,19 +121,13 @@ def test_send_simple_mode(engine):
     class FakeStreamClient:
         async def chat_stream(self, **kwargs):
             for tok in ["Hello", " from", " chat"]:
-                yield StreamChunk(
-                    delta_content=tok, delta_tool_calls=None, finish_reason=None
-                )
-            yield StreamChunk(
-                delta_content="", delta_tool_calls=None, finish_reason="stop"
-            )
+                yield StreamChunk(delta_content=tok, delta_tool_calls=None, finish_reason=None)
+            yield StreamChunk(delta_content="", delta_tool_calls=None, finish_reason="stop")
 
     fake_client = FakeStreamClient()
 
     gw = LLMGateway()
-    gw.register_model(
-        ModelConfig(name="default", provider="local", context_length=4096)
-    )
+    gw.register_model(ModelConfig(name="default", provider="local", context_length=4096))
     gw.set_default_client(fake_client)
 
     mlx = FusionMLXClient.__new__(FusionMLXClient)

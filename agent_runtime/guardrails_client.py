@@ -67,7 +67,9 @@ class GuardrailsClient:
         if not text or not text.strip():
             return {"action": "allow", "reason": "", "category": ""}
         try:
-            async with httpx.AsyncClient(timeout=self._timeout_s, transport=self._transport) as client:
+            async with httpx.AsyncClient(
+                timeout=self._timeout_s, transport=self._transport
+            ) as client:
                 resp = await client.post(
                     f"{self._base_url}{endpoint}",
                     json={"text": text},

@@ -90,7 +90,11 @@ class Playground:
             return {"error": f"trajectory not found: {trace_id}"}
         messages = data.get("messages") or []
         base_output = next(
-            (str(m.get("content", "")) for m in reversed(messages) if m.get("role") == "assistant" and m.get("content")),
+            (
+                str(m.get("content", ""))
+                for m in reversed(messages)
+                if m.get("role") == "assistant" and m.get("content")
+            ),
             "",
         )
         if not any(m.get("role") == "user" and m.get("content") for m in messages):

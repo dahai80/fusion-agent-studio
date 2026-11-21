@@ -35,11 +35,7 @@ _ALL_DISPATCHERS = [
 @pytest.mark.parametrize("dispatcher_cls", _ALL_DISPATCHERS)
 def test_all_handlers_are_coroutine_functions(dispatcher_cls):
     sd = dispatcher_cls(MagicMock())
-    sync = [
-        name
-        for name, fn in sd.get_handlers().items()
-        if not inspect.iscoroutinefunction(fn)
-    ]
+    sync = [name for name, fn in sd.get_handlers().items() if not inspect.iscoroutinefunction(fn)]
     assert sync == [], (
         "daemon dispatch awaits every handler; these handlers are sync and "
         "will 500 at RPC time: %s" % sync

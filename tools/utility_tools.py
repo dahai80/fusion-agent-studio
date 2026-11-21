@@ -1,4 +1,5 @@
 """Utility tools — date/time, UUID, hash, path operations."""
+
 from __future__ import annotations
 
 import hashlib
@@ -16,10 +17,15 @@ class DateTimeTool(BaseTool):
     description = "Get current date/time, format timestamps, or calculate time differences"
     parameters = {
         "operation": {
-            "type": "string", "enum": ["now", "format", "timestamp"],
+            "type": "string",
+            "enum": ["now", "format", "timestamp"],
             "description": "Operation: now=current datetime, format=format a timestamp, timestamp=unix timestamp",
         },
-        "format": {"type": "string", "description": "Output format (strftime)", "default": "%Y-%m-%d %H:%M:%S"},
+        "format": {
+            "type": "string",
+            "description": "Output format (strftime)",
+            "default": "%Y-%m-%d %H:%M:%S",
+        },
         "value": {"type": "number", "description": "Unix timestamp to format", "default": 0},
     }
 
@@ -42,7 +48,12 @@ class UuidTool(BaseTool):
     description = "Generate UUIDs (universally unique identifiers)"
     parameters = {
         "count": {"type": "integer", "description": "Number of UUIDs to generate", "default": 1},
-        "version": {"type": "integer", "enum": [4], "description": "UUID version (only v4 supported)", "default": 4},
+        "version": {
+            "type": "integer",
+            "enum": [4],
+            "description": "UUID version (only v4 supported)",
+            "default": 4,
+        },
     }
 
     async def execute(self, **kwargs) -> str:
@@ -62,8 +73,10 @@ class HashTool(BaseTool):
     parameters = {
         "input": {"type": "string", "description": "Text to hash"},
         "algorithm": {
-            "type": "string", "enum": ["md5", "sha1", "sha256", "sha512"],
-            "description": "Hash algorithm", "default": "sha256",
+            "type": "string",
+            "enum": ["md5", "sha1", "sha256", "sha512"],
+            "description": "Hash algorithm",
+            "default": "sha256",
         },
     }
 
@@ -92,7 +105,16 @@ class PathOpsTool(BaseTool):
         "path": {"type": "string", "description": "Input path"},
         "operation": {
             "type": "string",
-            "enum": ["absolute", "parent", "filename", "stem", "suffix", "exists", "is_file", "is_dir"],
+            "enum": [
+                "absolute",
+                "parent",
+                "filename",
+                "stem",
+                "suffix",
+                "exists",
+                "is_file",
+                "is_dir",
+            ],
             "description": "Path operation to perform",
         },
         "join": {"type": "string", "description": "Path segment to join (optional)", "default": ""},
@@ -144,6 +166,7 @@ class ZipTool(BaseTool):
             return f"Error: Path not found: {p}"
         if op == "list":
             import zipfile
+
             if not p.is_file() or not p.suffix.lower() == ".zip":
                 return f"Error: Not a ZIP file: {p}"
             try:

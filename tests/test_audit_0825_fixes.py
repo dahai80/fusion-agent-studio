@@ -4,6 +4,7 @@ A-3 tool sink hardening (file/code/db/terminal/plugin), A-2 LLM-source
 memory reclassify, P-4 TrajectoryWriter eviction, L-1 node.type validate,
 M-1 Task dead session_id field. P0 网关/锁/生命周期修复在各自 issue 测试覆盖.
 """
+
 import os
 
 import pytest
@@ -53,9 +54,7 @@ async def test_a3_file_edit_blocks_system_path(tmp_path):
 
     tool = FileEditTool()
     # 不存在的 /etc 文件也应被 path gate 挡 (先于 exists 检查)
-    result = await tool.execute(
-        path="/etc/audit_block_edit.conf", old_string="a", new_string="b"
-    )
+    result = await tool.execute(path="/etc/audit_block_edit.conf", old_string="a", new_string="b")
     assert result.startswith("Error:")
     assert "blocked" in result
 
@@ -134,9 +133,7 @@ async def test_a3_db_attach_always_blocked(tmp_path):
 
     db = tmp_path / "test.db"
     tool = SqliteQueryTool()
-    result = await tool.execute(
-        database=str(db), query="ATTACH '/etc/passwd' AS p"
-    )
+    result = await tool.execute(database=str(db), query="ATTACH '/etc/passwd' AS p")
     assert result.startswith("Error:")
     assert "ATTACH" in result
 
@@ -164,6 +161,7 @@ async def test_a3_db_read_allowed(tmp_path):
 
 # ── E-2: PRAGMA write gate — destructive PRAGMA treated as write ──
 
+
 @pytest.mark.asyncio
 async def test_e2_pragma_write_set_form_blocked_by_default(tmp_path):
     # `PRAGMA journal_mode=OFF` 走写门: 默认无 env 必挡 (设式 PRAGMA 含 =)
@@ -171,9 +169,7 @@ async def test_e2_pragma_write_set_form_blocked_by_default(tmp_path):
 
     db = tmp_path / "e2.db"
     tool = SqliteQueryTool()
-    result = await tool.execute(
-        database=str(db), query="PRAGMA journal_mode=OFF"
-    )
+    result = await tool.execute(database=str(db), query="PRAGMA journal_mode=OFF")
     assert result.startswith("Error:")
     assert "blocked" in result
 
@@ -185,9 +181,7 @@ async def test_e2_pragma_writable_schema_blocked_by_default(tmp_path):
 
     db = tmp_path / "e2.db"
     tool = SqliteQueryTool()
-    result = await tool.execute(
-        database=str(db), query="PRAGMA writable_schema=1"
-    )
+    result = await tool.execute(database=str(db), query="PRAGMA writable_schema=1")
     assert result.startswith("Error:")
     assert "blocked" in result
 
@@ -199,9 +193,7 @@ async def test_e2_pragma_wal_checkpoint_name_form_blocked(tmp_path):
 
     db = tmp_path / "e2.db"
     tool = SqliteQueryTool()
-    result = await tool.execute(
-        database=str(db), query="PRAGMA wal_checkpoint"
-    )
+    result = await tool.execute(database=str(db), query="PRAGMA wal_checkpoint")
     assert result.startswith("Error:")
     assert "blocked" in result
 
@@ -215,9 +207,7 @@ async def test_e2_pragma_write_allowed_with_env(tmp_path):
     os.environ["FUSION_DB_ALLOW_WRITE"] = "1"
     try:
         tool = SqliteQueryTool()
-        result = await tool.execute(
-            database=str(db), query="PRAGMA journal_mode=OFF"
-        )
+        result = await tool.execute(database=str(db), query="PRAGMA journal_mode=OFF")
         assert not result.startswith("Error:")
         assert "executed" in result.lower() or "off" in result.lower()
     finally:
@@ -239,9 +229,7 @@ async def test_e2_pragma_read_still_allowed(tmp_path):
     finally:
         os.environ.pop("FUSION_DB_ALLOW_WRITE", None)
     tool = SqliteQueryTool()
-    result = await tool.execute(
-        database=str(db), query="PRAGMA table_info(t)"
-    )
+    result = await tool.execute(database=str(db), query="PRAGMA table_info(t)")
     assert not result.startswith("Error:")
     assert "Columns:" in result or "x" in result
 
@@ -549,9 +537,7 @@ async def test_e10_code_sandbox_ignores_llm_use_sandbox_false(monkeypatch):
 
     monkeypatch.setattr(cs, "CodeSandbox", _FakeSandbox)
     tool = CodeSandboxTool()
-    result = await tool.execute(
-        code="print(1)", language="python", use_sandbox=False
-    )
+    result = await tool.execute(code="print(1)", language="python", use_sandbox=False)
     assert "ok" in result
     assert captured["use_sandbox"] is True, (
         "E-10: server must force use_sandbox=True, ignore LLM use_sandbox=False"

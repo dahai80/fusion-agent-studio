@@ -68,17 +68,13 @@ class FlowStore:
                 );
                 """
             )
-            self._conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_flows_tenant ON flows(tenant_id)"
-            )
+            self._conn.execute("CREATE INDEX IF NOT EXISTS idx_flows_tenant ON flows(tenant_id)")
             self._conn.commit()
         # v2 migration: kind column ('flow' | 'template') on pre-v2 databases
         cols = [r[1] for r in self._conn.execute("PRAGMA table_info(flows)").fetchall()]
         if "kind" not in cols:
             with self._lock:
-                self._conn.execute(
-                    "ALTER TABLE flows ADD COLUMN kind TEXT NOT NULL DEFAULT 'flow'"
-                )
+                self._conn.execute("ALTER TABLE flows ADD COLUMN kind TEXT NOT NULL DEFAULT 'flow'")
                 self._conn.commit()
             logger.info("flow store migrated to v2: added flows.kind")
         logger.info("flow store ready db=%s schema_v=%d", self.db_path, FLOW_SCHEMA_VERSION)
@@ -95,9 +91,7 @@ class FlowStore:
             raise FlowStoreError("flow graph must contain a non-empty 'nodes' array")
         for n in nodes:
             if not isinstance(n, dict) or not n.get("id") or not n.get("type"):
-                raise FlowStoreError(
-                    "flow graph node missing 'id' or 'type' — re-export the flow"
-                )
+                raise FlowStoreError("flow graph node missing 'id' or 'type' — re-export the flow")
 
     def save_flow(
         self,
@@ -118,7 +112,9 @@ class FlowStore:
                     (flow_id, tenant_id),
                 ).fetchone()
                 if row is None:
-                    raise FlowStoreError(f"flow '{flow_id}' not found for tenant '{tenant_id or 'default'}'")
+                    raise FlowStoreError(
+                        f"flow '{flow_id}' not found for tenant '{tenant_id or 'default'}'"
+                    )
                 if row["graph_json"] == graph_json:
                     return {
                         "flow_id": flow_id,
@@ -129,15 +125,31 @@ class FlowStore:
                 new_version = row["version"] + 1
                 self._conn.execute(
                     "UPDATE flows SET graph_json=?, version=?, name=?, description=?, kind=?, updated_at=? WHERE flow_id=? AND tenant_id=?",
-                    (graph_json, new_version, name or row_name(self._conn, flow_id, tenant_id), description, kind, now, flow_id, tenant_id),
+                    (
+                        graph_json,
+                        new_version,
+                        name or row_name(self._conn, flow_id, tenant_id),
+                        description,
+                        kind,
+                        now,
+                        flow_id,
+                        tenant_id,
+                    ),
                 )
                 self._conn.execute(
                     "INSERT INTO flow_versions (flow_id, version, graph_json, created_at) VALUES (?,?,?,?)",
                     (flow_id, new_version, graph_json, now),
                 )
                 self._conn.commit()
-                logger.info("flow saved id=%s version=%d tenant=%s", flow_id, new_version, tenant_id)
-                return {"flow_id": flow_id, "version": new_version, "created": False, "updated_at": now}
+                logger.info(
+                    "flow saved id=%s version=%d tenant=%s", flow_id, new_version, tenant_id
+                )
+                return {
+                    "flow_id": flow_id,
+                    "version": new_version,
+                    "created": False,
+                    "updated_at": now,
+                }
             fid = flow_id or ("flow-" + uuid.uuid4().hex[:12])
             self._conn.execute(
                 "INSERT INTO flows (flow_id, tenant_id, name, description, graph_json, version, kind, created_at, updated_at) VALUES (?,?,?,?,?,1,?,?,?)",
@@ -172,7 +184,9 @@ class FlowStore:
                 (flow_id, tenant_id),
             ).fetchone()
         if row is None:
-            raise FlowStoreError(f"flow '{flow_id}' not found for tenant '{tenant_id or 'default'}'")
+            raise FlowStoreError(
+                f"flow '{flow_id}' not found for tenant '{tenant_id or 'default'}'"
+            )
         try:
             graph = json.loads(row["graph_json"])
         except (json.JSONDecodeError, TypeError) as exc:
@@ -212,7 +226,9 @@ class FlowStore:
                 "SELECT tenant_id FROM flows WHERE flow_id=?", (flow_id,)
             ).fetchone()
             if owner is None or owner["tenant_id"] != tenant_id:
-                raise FlowStoreError(f"flow '{flow_id}' not found for tenant '{tenant_id or 'default'}'")
+                raise FlowStoreError(
+                    f"flow '{flow_id}' not found for tenant '{tenant_id or 'default'}'"
+                )
             rows = self._conn.execute(
                 "SELECT version, created_at FROM flow_versions WHERE flow_id=? ORDER BY version DESC",
                 (flow_id,),
@@ -226,7 +242,9 @@ class FlowStore:
                 (flow_id, tenant_id),
             ).fetchone()
             if row is None:
-                raise FlowStoreError(f"flow '{flow_id}' not found for tenant '{tenant_id or 'default'}'")
+                raise FlowStoreError(
+                    f"flow '{flow_id}' not found for tenant '{tenant_id or 'default'}'"
+                )
             snap = self._conn.execute(
                 "SELECT graph_json FROM flow_versions WHERE flow_id=? AND version=?",
                 (flow_id, version),
@@ -248,7 +266,13 @@ class FlowStore:
                 (flow_id, new_version, snap["graph_json"], now),
             )
             self._conn.commit()
-        logger.info("flow restored id=%s from_v=%d to_v=%d tenant=%s", flow_id, version, new_version, tenant_id)
+        logger.info(
+            "flow restored id=%s from_v=%d to_v=%d tenant=%s",
+            flow_id,
+            version,
+            new_version,
+            tenant_id,
+        )
         return {"flow_id": flow_id, "version": new_version, "restored": True}
 
 

@@ -93,9 +93,7 @@ class TestFileEditTool:
         path = Path(tmp_dir) / "f.txt"
         path.write_text("same")
         tool = FileEditTool()
-        result = await tool.execute(
-            path=str(path), old_string="same", new_string="same"
-        )
+        result = await tool.execute(path=str(path), old_string="same", new_string="same")
         assert "identical" in result
 
     async def test_edit_nonexistent_file(self):
@@ -164,18 +162,14 @@ class TestFileGrepTool:
     async def test_grep_plain_text_not_regex(self, tmp_dir):
         (Path(tmp_dir) / "a.txt").write_text("price: 10$ each\n")
         tool = FileGrepTool()
-        result = await tool.execute(
-            path=tmp_dir, pattern="10$", use_regex=False
-        )
+        result = await tool.execute(path=tmp_dir, pattern="10$", use_regex=False)
         assert "Found 1 match" in result
 
     async def test_grep_include_filter(self, tmp_dir):
         (Path(tmp_dir) / "a.py").write_text("common_word\n")
         (Path(tmp_dir) / "b.md").write_text("common_word\n")
         tool = FileGrepTool()
-        result = await tool.execute(
-            path=tmp_dir, pattern="common_word", include="*.py"
-        )
+        result = await tool.execute(path=tmp_dir, pattern="common_word", include="*.py")
         assert "a.py" in result
         assert "b.md" not in result
 
@@ -216,18 +210,14 @@ class TestFileGlobTool:
         for i in range(10):
             (Path(tmp_dir) / f"f{i}.py").write_text("x")
         tool = FileGlobTool()
-        result = await tool.execute(
-            path=tmp_dir, pattern="*.py", max_results=3
-        )
+        result = await tool.execute(path=tmp_dir, pattern="*.py", max_results=3)
         assert "showing first 3" in result
 
 
 class TestCodeSandboxTool:
     async def test_sandbox_python_runs(self):
         tool = CodeSandboxTool()
-        result = await tool.execute(
-            code="print('sandbox ok')", language="python"
-        )
+        result = await tool.execute(code="print('sandbox ok')", language="python")
         assert "sandbox ok" in result
 
     async def test_sandbox_python_ast_blocks_dangerous(self):
@@ -241,9 +231,7 @@ class TestCodeSandboxTool:
 
     async def test_sandbox_unsupported_language(self):
         tool = CodeSandboxTool()
-        result = await tool.execute(
-            code="whatever", language="cobol"
-        )
+        result = await tool.execute(code="whatever", language="cobol")
         assert "Error" in result
         assert "Unsupported language" in result
 

@@ -4,6 +4,7 @@ The /metrics endpoint was already published (api_server.py:356) but had zero
 test coverage. This validates the Prometheus text exposition format and that
 telemetry counters/latencies + daemon active-executions are exposed correctly.
 """
+
 from __future__ import annotations
 
 import re

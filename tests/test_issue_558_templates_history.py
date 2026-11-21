@@ -293,9 +293,7 @@ async def test_template_tenant_isolation(daemon, monkeypatch):
     import agent_runtime.dispatchers.flow as flow_mod
 
     monkeypatch.setattr(flow_mod, "resolve_tenant_id", lambda: "tenant-a")
-    saved = await daemon.rpc(
-        "flow.template_save", {"name": "a-tpl", "graph": _graph_dict("a-tpl")}
-    )
+    saved = await daemon.rpc("flow.template_save", {"name": "a-tpl", "graph": _graph_dict("a-tpl")})
     assert "error" not in saved
     monkeypatch.setattr(flow_mod, "resolve_tenant_id", lambda: "tenant-b")
     lst = await daemon.rpc("flow.template_list", {})
@@ -333,7 +331,9 @@ def test_summarize_terminal_status():
 def test_save_list_load_roundtrip(tmp_path):
     h = _hist(tmp_path)
     try:
-        h.save_run("r1", "g1", "Graph One", _frames(("start", "", "s"), ("end", "", "e")), started_at=1.0)
+        h.save_run(
+            "r1", "g1", "Graph One", _frames(("start", "", "s"), ("end", "", "e")), started_at=1.0
+        )
         h.save_run("r2", "g2", "Graph Two", _frames(("error", "boom", "llm")), started_at=2.0)
         runs = h.list_runs()
         assert [r["run_id"] for r in runs] == ["r2", "r1"]
@@ -363,8 +363,12 @@ def test_event_frame_cap(tmp_path):
 def test_diff_runs(tmp_path):
     h = _hist(tmp_path)
     try:
-        h.save_run("ra", "g", "G", _frames(("start", "", "s"), ("result", "ok", "n2"), ("end", "", "e")))
-        h.save_run("rb", "g", "G", _frames(("start", "", "s"), ("error", "boom", "n2"), ("end", "", "e")))
+        h.save_run(
+            "ra", "g", "G", _frames(("start", "", "s"), ("result", "ok", "n2"), ("end", "", "e"))
+        )
+        h.save_run(
+            "rb", "g", "G", _frames(("start", "", "s"), ("error", "boom", "n2"), ("end", "", "e"))
+        )
         diff = h.diff_runs("ra", "rb")
         assert diff["changed_count"] == 1
         row = [r for r in diff["nodes"] if r["node_id"] == "n2"][0]
@@ -401,7 +405,9 @@ async def test_history_dispatcher_roundtrip(tmp_path, monkeypatch):
         await d.start()
 
         async def rpc(method, params):
-            resp = await d._dispatch({"jsonrpc": "2.0", "id": 1, "method": method, "params": params})
+            resp = await d._dispatch(
+                {"jsonrpc": "2.0", "id": 1, "method": method, "params": params}
+            )
             if "error" in resp:
                 return {"error": resp["error"]}
             return resp.get("result", {})

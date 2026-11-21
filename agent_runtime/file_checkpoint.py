@@ -13,9 +13,7 @@ from .paths import studio_home
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_SNAPSHOT_DIR = os.path.join(
-    str(studio_home()), "file_checkpoints"
-)
+DEFAULT_SNAPSHOT_DIR = os.path.join(str(studio_home()), "file_checkpoints")
 
 DEFAULT_EXCLUDES = frozenset(
     {
@@ -50,9 +48,7 @@ def _sha256(path: Path) -> str:
 class FileCheckpointStore:
     def __init__(self, snapshot_dir: str = ""):
         self.snapshot_dir = Path(
-            snapshot_dir
-            or os.environ.get("FUSION_FILE_CHECKPOINT_DIR")
-            or DEFAULT_SNAPSHOT_DIR
+            snapshot_dir or os.environ.get("FUSION_FILE_CHECKPOINT_DIR") or DEFAULT_SNAPSHOT_DIR
         )
         self.snapshot_dir.mkdir(parents=True, exist_ok=True)
         logger.info("file checkpoint store ready dir=%s", self.snapshot_dir)
@@ -138,8 +134,10 @@ class FileCheckpointStore:
             json.dumps(meta, ensure_ascii=False), encoding="utf-8"
         )
         entries = self._read_index()
-        entries.append({k: meta[k] for k in ("snapshot_id", "run_id", "label", "root", "bytes", "created_at")}
-                       | {"file_count": len(manifest), "skipped": skipped})
+        entries.append(
+            {k: meta[k] for k in ("snapshot_id", "run_id", "label", "root", "bytes", "created_at")}
+            | {"file_count": len(manifest), "skipped": skipped}
+        )
         self._write_index(entries)
         logger.info(
             "file checkpoint snapshot id=%s root=%s files=%d bytes=%d skipped=%d",
@@ -179,7 +177,7 @@ class FileCheckpointStore:
         entries = self._read_index()
         if run_id:
             entries = [e for e in entries if e.get("run_id") == run_id]
-        return entries[-int(limit):]
+        return entries[-int(limit) :]
 
     def rollback(self, snapshot_id: str, root: str = "") -> dict:
         meta, target = self._load(snapshot_id)

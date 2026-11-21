@@ -168,7 +168,9 @@ class TestSessionDispatcher:
     @pytest.mark.asyncio
     async def test_missing_session_errors(self, daemon):
         assert (await _run(daemon, "sessions.get", {"session_id": "nope"}))["status"] == "error"
-        assert (await _run(daemon, "sessions.messages", {"session_id": "nope"}))["status"] == "error"
+        assert (await _run(daemon, "sessions.messages", {"session_id": "nope"}))[
+            "status"
+        ] == "error"
         assert (await _run(daemon, "sessions.rename", {"session_id": "nope"}))["status"] == "error"
         assert (await _run(daemon, "sessions.fork", {"session_id": "nope"}))["status"] == "error"
 
@@ -359,14 +361,10 @@ class TestFileCheckpoint:
         assert rolled["status"] == "ok"
         assert target.read_text(encoding="utf-8") == "v1"
 
-        deleted = await _run(
-            daemon, "file_checkpoint.delete", {"snapshot_id": snap["snapshot_id"]}
-        )
+        deleted = await _run(daemon, "file_checkpoint.delete", {"snapshot_id": snap["snapshot_id"]})
         assert deleted["deleted"] is True
 
-        missing = await _run(
-            daemon, "file_checkpoint.rollback", {"snapshot_id": "fc-missing"}
-        )
+        missing = await _run(daemon, "file_checkpoint.rollback", {"snapshot_id": "fc-missing"})
         assert missing["status"] == "error"
 
 

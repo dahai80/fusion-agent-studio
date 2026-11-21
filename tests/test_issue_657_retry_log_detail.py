@@ -127,4 +127,7 @@ class TestSecretMasking:
         assert _is_retryable_llm_error(httpx.ReadTimeout("")) is True
         req = httpx.Request("POST", "http://gw/")
         resp401 = httpx.Response(401, request=req)
-        assert _is_retryable_llm_error(httpx.HTTPStatusError("", request=req, response=resp401)) is False
+        assert (
+            _is_retryable_llm_error(httpx.HTTPStatusError("", request=req, response=resp401))
+            is False
+        )

@@ -90,9 +90,7 @@ class TestTerminationSemantics:
             return {"usage": {"total_tokens": 60}}
 
         cm = CronManager(default_handler=spendy)
-        cm.register(
-            _job("j_budget", loop_mode="continuous", token_budget=100)
-        )
+        cm.register(_job("j_budget", loop_mode="continuous", token_budget=100))
         job = cm.get("j_budget")
         await cm._run_single_job(job)
         assert job.enabled, "60/100 must keep running"
@@ -107,9 +105,7 @@ class TestTerminationSemantics:
 
     async def test_max_iterations_stop(self):
         cm = CronManager(default_handler=_ok_handler)
-        cm.register(
-            _job("j_max", loop_mode="continuous", max_iterations=2)
-        )
+        cm.register(_job("j_max", loop_mode="continuous", max_iterations=2))
         job = cm.get("j_max")
         await cm._run_single_job(job)
         assert job.enabled
@@ -327,9 +323,7 @@ class TestDaemonWiring:
 
     async def test_execution_token_usage_sums_spans(self, daemon_stub, tmp_path, monkeypatch):
         evidence_dir = tmp_path / "evidence"
-        monkeypatch.setattr(
-            daemon_stub, "_evidence_dir", lambda team="default": evidence_dir
-        )
+        monkeypatch.setattr(daemon_stub, "_evidence_dir", lambda team="default": evidence_dir)
         daemon_stub._append_run_span(
             "exec_u",
             "default",
@@ -342,6 +336,4 @@ class TestDaemonWiring:
         )
         usage = daemon_stub._execution_token_usage("exec_u", "default")
         assert usage == {"total_tokens": 25}
-        assert daemon_stub._execution_token_usage("exec_missing", "default") == {
-            "total_tokens": 0
-        }
+        assert daemon_stub._execution_token_usage("exec_missing", "default") == {"total_tokens": 0}

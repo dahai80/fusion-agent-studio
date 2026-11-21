@@ -182,14 +182,18 @@ class CoworkWorkflowRunTool(BaseTool):
         try:
             async with httpx.AsyncClient(timeout=30.0) as client:
                 if action == "status":
-                    return await self._poll_status(client, base_url, str(kwargs.get("run_id") or ""))
+                    return await self._poll_status(
+                        client, base_url, str(kwargs.get("run_id") or "")
+                    )
                 return await self._run(client, base_url, kwargs)
         except httpx.ConnectError as e:
             logger.warning("cowork_workflow_run upstream unreachable: %s", e)
-            return _run_output({
-                "error": f"cowork upstream unreachable at {base_url}: {e}",
-                "hint": f"start fusion-cowork web serve or set {COWORK_URL_ENV}",
-            })
+            return _run_output(
+                {
+                    "error": f"cowork upstream unreachable at {base_url}: {e}",
+                    "hint": f"start fusion-cowork web serve or set {COWORK_URL_ENV}",
+                }
+            )
         except httpx.HTTPStatusError as e:
             detail = ""
             try:
@@ -235,16 +239,20 @@ class CoworkWorkflowRunTool(BaseTool):
         started = resp.json()
         run_id = str(started.get("run_id") or "")
         if not run_id:
-            return _run_output({"error": "cowork run start returned no run_id", "response": started})
+            return _run_output(
+                {"error": "cowork run start returned no run_id", "response": started}
+            )
 
         if not wait:
             logger.info("cowork_workflow_run fire-and-forget run_id=%s", run_id)
-            return _run_output({
-                "run_id": run_id,
-                "status": started.get("status", "running"),
-                "mode": "fire_and_forget",
-                "hint": f"poll later with action=status run_id={run_id}",
-            })
+            return _run_output(
+                {
+                    "run_id": run_id,
+                    "status": started.get("status", "running"),
+                    "mode": "fire_and_forget",
+                    "hint": f"poll later with action=status run_id={run_id}",
+                }
+            )
 
         return await self._wait_loop(client, base_url, run_id, timeout_seconds, stall_seconds)
 

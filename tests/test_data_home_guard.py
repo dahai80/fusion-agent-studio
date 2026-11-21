@@ -67,9 +67,7 @@ def test_real_data_home_untouched_by_suite():
     after = _snapshot()
     added = sorted(set(after) - set(BASELINE))
     removed = sorted(set(BASELINE) - set(after))
-    changed = sorted(
-        k for k in set(BASELINE) & set(after) if BASELINE[k] != after[k]
-    )
+    changed = sorted(k for k in set(BASELINE) & set(after) if BASELINE[k] != after[k])
     problems = []
     if added:
         problems.append(f"added: {added[:20]}")
@@ -77,7 +75,6 @@ def test_real_data_home_untouched_by_suite():
         problems.append(f"removed: {removed[:20]}")
     if changed:
         problems.append(f"modified: {changed[:20]}")
-    assert not problems, (
-        "tests wrote to the real ~/.fusion-agent-studio (#591): "
-        + "; ".join(problems)
+    assert not problems, "tests wrote to the real ~/.fusion-agent-studio (#591): " + "; ".join(
+        problems
     )

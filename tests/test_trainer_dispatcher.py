@@ -64,9 +64,7 @@ def test_trainer_sft_requires_model():
 
 def test_trainer_rlsl_requires_model_and_method():
     d = TrainerDispatcher(_FakeDaemon())
-    assert asyncio.run(d._handle_rlsl({})) == {
-        "error": "model parameter required"
-    }
+    assert asyncio.run(d._handle_rlsl({})) == {"error": "model parameter required"}
     assert asyncio.run(d._handle_rlsl({"model": "m"})) == {
         "error": "method parameter required (dpo|orpo|grpo)"
     }
@@ -80,9 +78,7 @@ def test_trainer_runs_status_unknown():
 
 def test_trainer_runs_status_requires_run_id():
     d = TrainerDispatcher(_FakeDaemon())
-    assert asyncio.run(d._handle_runs_status({})) == {
-        "error": "run_id parameter required"
-    }
+    assert asyncio.run(d._handle_runs_status({})) == {"error": "run_id parameter required"}
 
 
 def test_trainer_trajectories_list_limit_validation():
@@ -172,37 +168,27 @@ def test_trainer_runs_list_limit_validation():
 
 def test_trainer_runs_status_full_requires_run_id():
     d = TrainerDispatcher(_FakeDaemon())
-    assert asyncio.run(d._handle_runs_status_full({})) == {
-        "error": "run_id parameter required"
-    }
+    assert asyncio.run(d._handle_runs_status_full({})) == {"error": "run_id parameter required"}
 
 
 def test_trainer_runs_progress_requires_run_id():
     d = TrainerDispatcher(_FakeDaemon())
-    assert asyncio.run(d._handle_runs_progress({})) == {
-        "error": "run_id parameter required"
-    }
+    assert asyncio.run(d._handle_runs_progress({})) == {"error": "run_id parameter required"}
 
 
 def test_trainer_runs_stop_requires_run_id():
     d = TrainerDispatcher(_FakeDaemon())
-    assert asyncio.run(d._handle_runs_stop({})) == {
-        "error": "run_id parameter required"
-    }
+    assert asyncio.run(d._handle_runs_stop({})) == {"error": "run_id parameter required"}
 
 
 def test_trainer_datasets_preview_requires_name():
     d = TrainerDispatcher(_FakeDaemon())
-    assert asyncio.run(d._handle_datasets_preview({})) == {
-        "error": "name parameter required"
-    }
+    assert asyncio.run(d._handle_datasets_preview({})) == {"error": "name parameter required"}
 
 
 def test_trainer_adapters_delete_requires_name():
     d = TrainerDispatcher(_FakeDaemon())
-    assert asyncio.run(d._handle_adapters_delete({})) == {
-        "error": "name parameter required"
-    }
+    assert asyncio.run(d._handle_adapters_delete({})) == {"error": "name parameter required"}
 
 
 # ---------------------------------------------------------------------------
@@ -281,4 +267,3 @@ def test_build_trainer_config_truthy_non_bool_publish():
     )
     # bool() coercion — GUI may send string "true".
     assert cfg.publish_adapter is True
-

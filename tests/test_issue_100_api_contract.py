@@ -72,9 +72,7 @@ class TestRebuildAgentsIndexFromDisk:
         agent_dir = agents_root / aid
         (agent_dir / ".fusion-agent").mkdir(parents=True)
         manifest_path = agent_dir / ".fusion-agent" / "manifest.json"
-        manifest_path.write_text(
-            json.dumps(_make_manifest("BotA")), encoding="utf-8"
-        )
+        manifest_path.write_text(json.dumps(_make_manifest("BotA")), encoding="utf-8")
 
         monkeypatch.setenv("FUSION_AGENT_STUDIO_HOME", str(fake_home / ".fusion-agent-studio"))
         monkeypatch.setattr(api_server, "_daemon", None)
@@ -95,9 +93,7 @@ class TestRebuildAgentsIndexFromDisk:
         agents_root.mkdir(parents=True)
         agent_dir = agents_root / "badid0000000"
         (agent_dir / ".fusion-agent").mkdir(parents=True)
-        (agent_dir / ".fusion-agent" / "manifest.json").write_text(
-            "{not json", encoding="utf-8"
-        )
+        (agent_dir / ".fusion-agent" / "manifest.json").write_text("{not json", encoding="utf-8")
 
         monkeypatch.setenv("FUSION_AGENT_STUDIO_HOME", str(fake_home / ".fusion-agent-studio"))
         monkeypatch.setattr(api_server, "_daemon", None)

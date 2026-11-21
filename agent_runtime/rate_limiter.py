@@ -93,9 +93,7 @@ class RateLimiter:
     def cleanup_expired(self):
         now = time.monotonic()
         expired_keys = [
-            k
-            for k, b in self._key_buckets.items()
-            if (now - b.last_used) > self._CLEANUP_THRESHOLD
+            k for k, b in self._key_buckets.items() if (now - b.last_used) > self._CLEANUP_THRESHOLD
         ]
         expired_agents = [
             k

@@ -76,7 +76,9 @@ def resolve_soul_prompt(
             if res["persona"]:
                 logger.info(
                     "resolve_soul_prompt: persona stack agent=%s layers=%s conflicts=%d",
-                    agent_id, res["layers_applied"], len(res["conflicts"]),
+                    agent_id,
+                    res["layers_applied"],
+                    len(res["conflicts"]),
                 )
             return res["persona"]
         except Exception as e:
@@ -390,14 +392,10 @@ class AgentPackage:
 
     # -- workspace snapshot methods --
 
-    def snapshot_workspace(
-        self, source_dir: str | Path, exclude: list[str] | None = None
-    ) -> dict:
+    def snapshot_workspace(self, source_dir: str | Path, exclude: list[str] | None = None) -> dict:
         source_dir = Path(source_dir)
         if not source_dir.is_dir():
-            logger.error(
-                "snapshot_workspace: source dir does not exist: %s", source_dir
-            )
+            logger.error("snapshot_workspace: source dir does not exist: %s", source_dir)
             return {"files": [], "total_size": 0, "timestamp": ""}
 
         ws_dest = self.workspace_path
@@ -469,9 +467,7 @@ class AgentPackage:
     def restore_workspace(self, target_dir: str | Path) -> int:
         ws_src = self.workspace_path
         if not ws_src.is_dir():
-            logger.warning(
-                "restore_workspace: no workspace snapshot found at %s", ws_src
-            )
+            logger.warning("restore_workspace: no workspace snapshot found at %s", ws_src)
             return 0
 
         target_dir = Path(target_dir)
@@ -517,9 +513,7 @@ class AgentPackage:
         self.knowledge_path.mkdir(parents=True, exist_ok=True)
         with open(self.sources_path, "w", encoding="utf-8") as f:
             json.dump(sources, f, indent=4, ensure_ascii=False)
-        logger.info(
-            "save_sources: wrote %d sources to %s", len(sources), self.sources_path
-        )
+        logger.info("save_sources: wrote %d sources to %s", len(sources), self.sources_path)
 
     def add_source(self, source_type: str, config: dict) -> dict:
         sources = self.load_sources()
@@ -540,14 +534,10 @@ class AgentPackage:
         sources = self.load_sources()
         original_len = len(sources)
         sources = [
-            s
-            for s in sources
-            if not (s.get("type") == source_type and s.get("id") == source_id)
+            s for s in sources if not (s.get("type") == source_type and s.get("id") == source_id)
         ]
         if len(sources) == original_len:
-            logger.warning(
-                "remove_source: no %s source with id=%s found", source_type, source_id
-            )
+            logger.warning("remove_source: no %s source with id=%s found", source_type, source_id)
             return False
         self.save_sources(sources)
         logger.info("remove_source: removed %s source id=%s", source_type, source_id)

@@ -19,9 +19,16 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 def _mcp_handshake(registry: str) -> dict:
     # standard MCP client sequence over stdio, newline-delimited JSON-RPC
     requests = [
-        {"jsonrpc": "2.0", "id": 1, "method": "initialize",
-         "params": {"protocolVersion": "2024-11-05", "capabilities": {},
-                    "clientInfo": {"name": "proof-client", "version": "0"}}},
+        {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": {
+                "protocolVersion": "2024-11-05",
+                "capabilities": {},
+                "clientInfo": {"name": "proof-client", "version": "0"},
+            },
+        },
         {"jsonrpc": "2.0", "method": "notifications/initialized"},
         {"jsonrpc": "2.0", "id": 2, "method": "tools/list"},
     ]
@@ -94,15 +101,12 @@ def _mp(tmp_path):
     mp = AgentMarketplace(store_dir=tmp_path / "market")
 
     def entry(name, visibility="public"):
-        return MarketEntry(
-            name=name, graph_data={"nodes": [name]}, visibility=visibility
-        )
+        return MarketEntry(name=name, graph_data={"nodes": [name]}, visibility=visibility)
 
     return mp, entry
 
 
 class TestMarketplaceTenantIsolation:
-
     def test_private_entry_hidden_from_other_tenant(self, tmp_path):
         mp, entry = _mp(tmp_path)
         mp.publish(entry("secret-agent", "private"), tenant="tenantA")

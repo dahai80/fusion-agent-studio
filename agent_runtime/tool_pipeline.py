@@ -208,9 +208,7 @@ class PipelineScopedFunnel(PersonaScopedFunnel):
                         ),
                         args=args or {},
                     )
-                logger.info(
-                    "destructive gate granted tool=%s call=%s", tool_name, call_id
-                )
+                logger.info("destructive gate granted tool=%s call=%s", tool_name, call_id)
         return self._to_outcome(adapter, out, tool_name)
 
     def _to_outcome(

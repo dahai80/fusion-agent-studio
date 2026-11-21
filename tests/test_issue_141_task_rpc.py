@@ -304,7 +304,10 @@ class _FakeArtifactCreateTool:
         return json.dumps({"status": "ok", "artifact_id": aid, "name": kwargs.get("name", "")})
 
     def openai_schema(self):
-        return {"type": "function", "function": {"name": self.name, "description": self.description}}
+        return {
+            "type": "function",
+            "function": {"name": self.name, "description": self.description},
+        }
 
 
 class TestTaskArtifactWriteback:
@@ -386,9 +389,7 @@ class TestTaskArtifactWriteback:
         graph.add_edge("art", "end")
         daemon.store.save_graph(graph)
 
-        resp = await _rpc_call(
-            daemon.socket_path, "graph.execute", {"graph_id": "g-noart"}
-        )
+        resp = await _rpc_call(daemon.socket_path, "graph.execute", {"graph_id": "g-noart"})
         assert resp["result"]["status"] == "completed"
         assert resp["result"]["artifact_ids"] == ["art-doc"]
         assert resp["result"]["task_id"] == ""
@@ -402,7 +403,9 @@ class TestProjectStoreUnit:
         from agent_runtime.task_store import Task
 
         store.submit(Task(task_id="t1", title="a", project_id="proj-A", status=TASK_STATUS_PENDING))
-        store.submit(Task(task_id="t2", title="b", project_id="proj-A", status=TASK_STATUS_COMPLETED))
+        store.submit(
+            Task(task_id="t2", title="b", project_id="proj-A", status=TASK_STATUS_COMPLETED)
+        )
         store.submit(Task(task_id="t3", title="c", project_id="proj-B", status=TASK_STATUS_RUNNING))
         # project_id 空的不计入聚合.
         store.submit(Task(task_id="t4", title="d", project_id=""))

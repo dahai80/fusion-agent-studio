@@ -167,9 +167,7 @@ class ArtifactManager:
                 for item in data.get("artifacts", []):
                     rec = ArtifactRecord.from_dict(item)
                     self._artifacts[rec.artifact_id] = rec
-                logger.info(
-                    "Loaded %d artifacts from %s", len(self._artifacts), index_path
-                )
+                logger.info("Loaded %d artifacts from %s", len(self._artifacts), index_path)
             except (ValueError, TypeError, OSError, RuntimeError) as e:
                 logger.error("Failed to load artifacts index: %s", e)
 
@@ -243,9 +241,7 @@ class ArtifactManager:
         )
         self._artifacts[record.artifact_id] = record
         self._persist()
-        logger.info(
-            "Created artifact %s (%s) for agent %s", record.artifact_id, name, agent_id
-        )
+        logger.info("Created artifact %s (%s) for agent %s", record.artifact_id, name, agent_id)
         return {
             "status": "ok",
             "artifact_id": record.artifact_id,
@@ -294,12 +290,8 @@ class ArtifactManager:
                 marker_end = f"<!-- end:{anchor} -->"
                 if marker_start in rec.content and marker_end in rec.content:
                     before = rec.content[: rec.content.index(marker_start)]
-                    after = rec.content[
-                        rec.content.index(marker_end) + len(marker_end) :
-                    ]
-                    rec.content = (
-                        f"{before}{marker_start}\n{content}\n{marker_end}{after}"
-                    )
+                    after = rec.content[rec.content.index(marker_end) + len(marker_end) :]
+                    rec.content = f"{before}{marker_start}\n{content}\n{marker_end}{after}"
                 else:
                     rec.content += f"\n{marker_start}\n{content}\n{marker_end}"
             elif operation == "append":
@@ -316,9 +308,7 @@ class ArtifactManager:
                 marker_end = f"<!-- end:{anchor} -->"
                 if marker_start in rec.content and marker_end in rec.content:
                     before = rec.content[: rec.content.index(marker_start)]
-                    after = rec.content[
-                        rec.content.index(marker_end) + len(marker_end) :
-                    ]
+                    after = rec.content[rec.content.index(marker_end) + len(marker_end) :]
                     rec.content = f"{before}{after}"
                 else:
                     return {
@@ -369,11 +359,7 @@ class ArtifactManager:
 
     def list_artifacts(self, agent_id: str = "") -> list[dict[str, Any]]:
         if agent_id:
-            return [
-                a.to_dict()
-                for a in self._artifacts.values()
-                if a.owner_agent_id == agent_id
-            ]
+            return [a.to_dict() for a in self._artifacts.values() if a.owner_agent_id == agent_id]
         return [a.to_dict() for a in self._artifacts.values()]
 
     def list_artifacts_paginated(
@@ -438,18 +424,14 @@ class ArtifactManager:
             return {"status": "error", "message": str(e)}
 
     def get_active_artifacts_context(self, agent_id: str, limit: int = 5) -> str:
-        agent_artifacts = [
-            a for a in self._artifacts.values() if a.owner_agent_id == agent_id
-        ]
+        agent_artifacts = [a for a in self._artifacts.values() if a.owner_agent_id == agent_id]
         agent_artifacts.sort(key=lambda a: a.updated_at, reverse=True)
         recent = agent_artifacts[:limit]
         if not recent:
             return ""
         lines = ["[Active Artifacts]"]
         for a in recent:
-            lines.append(
-                f"- {a.name} ({a.artifact_type}, v{a.version}): {a.content[:200]}"
-            )
+            lines.append(f"- {a.name} ({a.artifact_type}, v{a.version}): {a.content[:200]}")
         return "\n".join(lines)
 
     def get_active_artifacts_context_budget_aware(
@@ -458,9 +440,7 @@ class ArtifactManager:
         context_window: int = 32768,
         limit: int = 5,
     ) -> dict[str, Any]:
-        agent_artifacts = [
-            a for a in self._artifacts.values() if a.owner_agent_id == agent_id
-        ]
+        agent_artifacts = [a for a in self._artifacts.values() if a.owner_agent_id == agent_id]
         agent_artifacts.sort(key=lambda a: a.updated_at, reverse=True)
         recent = agent_artifacts[:limit]
 
@@ -482,9 +462,7 @@ class ArtifactManager:
             context_text = "\n".join(lines)
         elif utilization < 0.9:
             mode = "preview"
-            lines = [
-                "[Active Artifacts (preview — budget at {:.0%})]".format(utilization)
-            ]
+            lines = ["[Active Artifacts (preview — budget at {:.0%})]".format(utilization)]
             for a in recent:
                 sections = a.sections()
                 lines.append(
@@ -500,9 +478,7 @@ class ArtifactManager:
                 )
             ]
             for a in recent:
-                lines.append(
-                    f"- {a.name} (id={a.artifact_id}, type={a.artifact_type}) [BLOCKED]"
-                )
+                lines.append(f"- {a.name} (id={a.artifact_id}, type={a.artifact_type}) [BLOCKED]")
             context_text = "\n".join(lines)
 
         logger.info(
@@ -567,12 +543,8 @@ class ArtifactManager:
                 marker_end = f"<!-- end:{effective_section} -->"
                 if marker_start in rec.content and marker_end in rec.content:
                     before = rec.content[: rec.content.index(marker_start)]
-                    after = rec.content[
-                        rec.content.index(marker_end) + len(marker_end) :
-                    ]
-                    rec.content = (
-                        f"{before}{marker_start}\n{content}\n{marker_end}{after}"
-                    )
+                    after = rec.content[rec.content.index(marker_end) + len(marker_end) :]
+                    rec.content = f"{before}{marker_start}\n{content}\n{marker_end}{after}"
                 else:
                     rec.content += f"\n{marker_start}\n{content}\n{marker_end}"
             else:
@@ -603,7 +575,11 @@ class ArtifactManager:
         rec.version += 1
 
         # WF-3: progressive generation phase enforcement
-        if rec.generation_phase == "skeleton" and operation in ("append", "section_replace", "replace_section"):
+        if rec.generation_phase == "skeleton" and operation in (
+            "append",
+            "section_replace",
+            "replace_section",
+        ):
             rec.generation_phase = "filling"
             logger.info("WF-3 auto-advanced artifact %s to filling phase", artifact_id)
         elif rec.generation_phase == "filling" and operation == "replace" and len(content) > 2000:
@@ -612,13 +588,15 @@ class ArtifactManager:
 
         self._persist()
         logger.info(
-            "Patched artifact %s op=%s v%d phase=%s", artifact_id, operation, rec.version, rec.generation_phase
+            "Patched artifact %s op=%s v%d phase=%s",
+            artifact_id,
+            operation,
+            rec.version,
+            rec.generation_phase,
         )
         return {"status": "ok", "record": rec.to_dict()}
 
-    def advance_generation_phase(
-        self, artifact_id: str, target_phase: str
-    ) -> dict[str, Any]:
+    def advance_generation_phase(self, artifact_id: str, target_phase: str) -> dict[str, Any]:
         rec = self._artifacts.get(artifact_id)
         if not rec:
             return {"status": "error", "message": f"Artifact {artifact_id} not found"}
@@ -628,7 +606,9 @@ class ArtifactManager:
                 "message": f"Invalid phase '{target_phase}', must be {VALID_GENERATION_PHASES}",
             }
         phase_order = ["skeleton", "filling", "completed"]
-        current_idx = phase_order.index(rec.generation_phase) if rec.generation_phase in phase_order else 0
+        current_idx = (
+            phase_order.index(rec.generation_phase) if rec.generation_phase in phase_order else 0
+        )
         target_idx = phase_order.index(target_phase)
         if target_idx < current_idx:
             return {
@@ -640,7 +620,9 @@ class ArtifactManager:
         self._persist()
         logger.info(
             "Advanced artifact %s phase: %s -> %s",
-            artifact_id, rec.generation_phase, target_phase,
+            artifact_id,
+            rec.generation_phase,
+            target_phase,
         )
         return {"status": "ok", "generation_phase": target_phase}
 
@@ -707,9 +689,7 @@ class ArtifactManager:
         artifact_count = len(agent_artifacts)
         by_type: dict[str, int] = {}
         for a in agent_artifacts:
-            by_type[a.artifact_type] = (
-                by_type.get(a.artifact_type, 0) + len(a.content) // 4
-            )
+            by_type[a.artifact_type] = by_type.get(a.artifact_type, 0) + len(a.content) // 4
 
         logger.info(
             "Context budget: agent=%s artifacts=%d tokens~=%d",

@@ -48,9 +48,7 @@ class PromptTemplate:
     def to_dict(self) -> dict:
         return {
             "name": self.name,
-            "template": self.template[:100] + "..."
-            if len(self.template) > 100
-            else self.template,
+            "template": self.template[:100] + "..." if len(self.template) > 100 else self.template,
             "description": self.description,
             "variables": self.variables,
             "category": self.category,

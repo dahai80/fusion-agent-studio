@@ -16,9 +16,7 @@ try:
     _HAS_DATA_INGESTION = True
 except ImportError:
     _HAS_DATA_INGESTION = False
-    logger.warning(
-        "agent_runtime.data_ingestion not available; file ingestion will be skipped"
-    )
+    logger.warning("agent_runtime.data_ingestion not available; file ingestion will be skipped")
 
 try:
     from agent_runtime.knowledge_engine import KnowledgeEngine
@@ -263,9 +261,7 @@ class KnowledgeBaseManager:
         logger.info("Deleted knowledge base %s", kb_id)
         return True
 
-    def list_kbs(
-        self, page: int = 1, limit: int = 20, keyword: str = "", scope: str = ""
-    ) -> dict:
+    def list_kbs(self, page: int = 1, limit: int = 20, keyword: str = "", scope: str = "") -> dict:
         entries = self._load_index()
         filtered = entries
         if keyword:
@@ -283,9 +279,7 @@ class KnowledgeBaseManager:
         start = (page - 1) * limit
         end = start + limit
         page_entries = filtered[start:end]
-        logger.info(
-            "Listed knowledge bases: total=%d, page=%d, limit=%d", total, page, limit
-        )
+        logger.info("Listed knowledge bases: total=%d, page=%d, limit=%d", total, page, limit)
         return {
             "data": [KnowledgeBase.from_dict(e) for e in page_entries],
             "total": total,
@@ -293,9 +287,7 @@ class KnowledgeBaseManager:
             "limit": limit,
         }
 
-    def add_file(
-        self, kb_id: str, file_path: str, content_type: str = ""
-    ) -> KBFileInfo:
+    def add_file(self, kb_id: str, file_path: str, content_type: str = "") -> KBFileInfo:
         kb = self.get_kb(kb_id)
         if kb is None:
             raise ValueError(f"Knowledge base {kb_id} not found")
@@ -352,9 +344,7 @@ class KnowledgeBaseManager:
 
     def _ingest_file(self, kb_id: str, file_path: str, file_info: KBFileInfo):
         if not _HAS_DATA_INGESTION or not _HAS_KNOWLEDGE_ENGINE:
-            logger.warning(
-                "Skipping ingestion for %s: required modules not available", file_path
-            )
+            logger.warning("Skipping ingestion for %s: required modules not available", file_path)
             return
 
         try:
@@ -489,9 +479,7 @@ class KnowledgeBaseManager:
     async def search(self, kb_id: str, query: str, **kwargs) -> dict:
         rag_available = await self.is_rag_available()
         if not rag_available:
-            logger.warning(
-                "fusion-rag not available for search, returning empty results"
-            )
+            logger.warning("fusion-rag not available for search, returning empty results")
             return {
                 "results": [],
                 "kb_id": kb_id,

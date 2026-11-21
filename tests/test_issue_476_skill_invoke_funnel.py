@@ -56,9 +56,7 @@ def _dispatcher(engine, budget=None):
 class TestIssue476SkillInvokeFunnel:
     @pytest.mark.asyncio
     async def test_deny_rule_blocks_skill_invoke(self):
-        engine = PermissionEngine(
-            rules=[PermissionRule(action="deny", tool="skill.invoke")]
-        )
+        engine = PermissionEngine(rules=[PermissionRule(action="deny", tool="skill.invoke")])
         disp, store = _dispatcher(engine)
         result = await disp._handle_invoke({"name": "deploy", "params": {"env": "prod"}})
         assert result["status"] == "error"
@@ -67,9 +65,7 @@ class TestIssue476SkillInvokeFunnel:
 
     @pytest.mark.asyncio
     async def test_allow_rule_reaches_store(self):
-        engine = PermissionEngine(
-            rules=[PermissionRule(action="allow", tool="skill.invoke")]
-        )
+        engine = PermissionEngine(rules=[PermissionRule(action="allow", tool="skill.invoke")])
         disp, store = _dispatcher(engine)
         result = await disp._handle_invoke({"name": "deploy", "params": {"env": "prod"}})
         assert result["status"] == "ok"
@@ -77,9 +73,7 @@ class TestIssue476SkillInvokeFunnel:
 
     @pytest.mark.asyncio
     async def test_budget_exhaustion_blocks_skill_invoke(self):
-        engine = PermissionEngine(
-            rules=[PermissionRule(action="allow", tool="skill.invoke")]
-        )
+        engine = PermissionEngine(rules=[PermissionRule(action="allow", tool="skill.invoke")])
         budget = TokenBudget(day_max_tokens=10)
         budget.record_usage(50, 50)
         disp, store = _dispatcher(engine, budget=budget)
@@ -90,9 +84,7 @@ class TestIssue476SkillInvokeFunnel:
 
     @pytest.mark.asyncio
     async def test_param_validation_precedes_funnel(self):
-        engine = PermissionEngine(
-            rules=[PermissionRule(action="deny", tool="skill.invoke")]
-        )
+        engine = PermissionEngine(rules=[PermissionRule(action="deny", tool="skill.invoke")])
         disp, store = _dispatcher(engine)
         result = await disp._handle_invoke({"name": ""})
         assert result["status"] == "error"
@@ -102,8 +94,6 @@ class TestIssue476SkillInvokeFunnel:
 
 class TestIssue476CommentAccuracy:
     def test_protocol_plane_comment_no_false_tool_claim(self):
-        text = (
-            REPO_ROOT / "agent_runtime" / "protocol_plane.py"
-        ).read_text(encoding="utf-8")
+        text = (REPO_ROOT / "agent_runtime" / "protocol_plane.py").read_text(encoding="utf-8")
         assert "skill.execute" not in text
         assert "skills.invoke" in text

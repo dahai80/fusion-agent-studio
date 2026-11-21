@@ -39,10 +39,14 @@ class MCPServer:
                 "description": meta.get("description", ""),
                 "inputSchema": {"type": "object", "properties": params},
             }
-            schema.update(write_extensions({
-                "origin": "fusion-agent-studio",
-                "readonly": bool(getattr(tool, "readonly", False)),
-            }))
+            schema.update(
+                write_extensions(
+                    {
+                        "origin": "fusion-agent-studio",
+                        "readonly": bool(getattr(tool, "readonly", False)),
+                    }
+                )
+            )
             out.append(schema)
         return out
 
@@ -51,11 +55,14 @@ class MCPServer:
         req_id = req.get("id")
         if method == "initialize":
             self._initialized = True
-            return self._result(req_id, {
-                "protocolVersion": MCP_PROTOCOL_VERSION,
-                "capabilities": {"tools": {}},
-                "serverInfo": {"name": self.server_name, "version": "1.0.0"},
-            })
+            return self._result(
+                req_id,
+                {
+                    "protocolVersion": MCP_PROTOCOL_VERSION,
+                    "capabilities": {"tools": {}},
+                    "serverInfo": {"name": self.server_name, "version": "1.0.0"},
+                },
+            )
         if method == "notifications/initialized":
             return None
         if method == "ping":
@@ -71,16 +78,22 @@ class MCPServer:
                 return self._error(req_id, -32602, f"unknown tool: {name}")
             try:
                 text = await tool.execute(**arguments)
-                return self._result(req_id, {
-                    "content": [{"type": "text", "text": str(text)}],
-                    "isError": str(text).startswith("Error:"),
-                })
+                return self._result(
+                    req_id,
+                    {
+                        "content": [{"type": "text", "text": str(text)}],
+                        "isError": str(text).startswith("Error:"),
+                    },
+                )
             except Exception as e:
                 logger.warning("mcp tools/call failed tool=%s: %s", name, e)
-                return self._result(req_id, {
-                    "content": [{"type": "text", "text": f"Error: {e}"}],
-                    "isError": True,
-                })
+                return self._result(
+                    req_id,
+                    {
+                        "content": [{"type": "text", "text": f"Error: {e}"}],
+                        "isError": True,
+                    },
+                )
         return self._error(req_id, -32601, f"method not found: {method}")
 
     @staticmethod
@@ -98,7 +111,9 @@ class MCPServer:
         loop = asyncio.get_event_loop()
         reader = asyncio.StreamReader()
         await loop.connect_read_pipe(lambda: asyncio.StreamReaderProtocol(reader), sys.stdin)
-        logger.info("mcp stdio server up name=%s tools=%d", self.server_name, len(self._tool_schemas()))
+        logger.info(
+            "mcp stdio server up name=%s tools=%d", self.server_name, len(self._tool_schemas())
+        )
         while True:
             line = await reader.readline()
             if not line:
@@ -134,7 +149,9 @@ def create_mlx_registry(gateway_base: str = ""):
     class MLXChatTool(BaseTool):
         def __init__(self):
             self.name = "mlx_chat"
-            self.description = "Chat completion via the local fusion-mlx gateway (OpenAI-compatible)."
+            self.description = (
+                "Chat completion via the local fusion-mlx gateway (OpenAI-compatible)."
+            )
             self.parameters = {
                 "model": {"type": "string", "description": "model name"},
                 "messages": {"type": "array", "description": "OpenAI-format messages"},
@@ -171,7 +188,9 @@ def create_mlx_registry(gateway_base: str = ""):
 
             async with httpx.AsyncClient(timeout=10) as client:
                 models = await client.get(f"{base}/v1/models", headers=headers)
-            return json.dumps({"status_code": models.status_code, "models": models.json()}, ensure_ascii=False)
+            return json.dumps(
+                {"status_code": models.status_code, "models": models.json()}, ensure_ascii=False
+            )
 
     from tools.registry import ToolRegistry
 
@@ -268,8 +287,7 @@ def create_model_hub_registry(base_url: str = ""):
     from tools.registry import ToolRegistry
 
     base = (
-        base_url
-        or os.environ.get("FUSION_MODEL_HUB_MCP_BASE", "http://localhost:11444")
+        base_url or os.environ.get("FUSION_MODEL_HUB_MCP_BASE", "http://localhost:11444")
     ).rstrip("/")
 
     class ModelListTool(BaseTool):

@@ -12,6 +12,7 @@ This test pins:
      pool.loaded[] shape the client consumes, including TTL-remaining + idle_seconds
      from stats, and the pending_upstream marker for the still-unexposed lease refcount.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -147,6 +148,7 @@ async def daemon(socket_path, store_db, monkeypatch):
     d = DaemonServer(
         socket_path=socket_path, ws_port=0, cluster_port=0, http_port=0, store_path=store_db
     )
+
     # #419: mlx.status now probes engine health when the daemon owns no
     # process handle — a locally running engine would flip running=true and
     # fetch a real pool. Force the "engine unreachable" path for this suite.
@@ -196,9 +198,7 @@ class TestIssue225MlxPoolState:
     @pytest.mark.asyncio
     async def test_fetch_pool_state_merges_models_and_stats(self, monkeypatch):
         # 直接单元测 _fetch_mlx_pool_state: 合并 /admin/api/models + /admin/api/stats.
-        _seed_fake_httpx(
-            monkeypatch, _sample_models_payload(), _sample_stats_payload()
-        )
+        _seed_fake_httpx(monkeypatch, _sample_models_payload(), _sample_stats_payload())
         d = DaemonServer(
             socket_path="/tmp/_nonexistent_pool.sock",
             ws_port=0,
@@ -275,9 +275,7 @@ class TestIssue225MlxPoolState:
         import httpx as _real_httpx
 
         _FakeAsyncClient.responses = {
-            "http://127.0.0.1:11434/admin/api/models": _FakeResp(
-                200, _sample_models_payload()
-            ),
+            "http://127.0.0.1:11434/admin/api/models": _FakeResp(200, _sample_models_payload()),
             "http://127.0.0.1:11434/admin/api/stats": _FakeResp(404, {}),
         }
         _FakeAsyncClient.requested = []

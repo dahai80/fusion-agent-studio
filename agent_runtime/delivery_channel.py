@@ -35,7 +35,10 @@ class WorkerDeliveryChannel:
         summary = self.injector.summarize_delivery(worker_name, content, output_format)
         logger.info(
             "worker delivery run=%s worker=%s artifact=%s summary_len=%d",
-            run_id, worker_name, ref, len(summary),
+            run_id,
+            worker_name,
+            ref,
+            len(summary),
         )
         return WorkerDelivery(worker_name=worker_name, artifact_ref=ref, summary=summary)
 

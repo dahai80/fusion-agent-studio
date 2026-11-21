@@ -149,9 +149,7 @@ class TestDaemonVersionRpcs:
         res = await _run(daemon, "graph.version_list", {"graph_id": gid})
         assert len(res["versions"]) == 2
 
-        restored = await _run(
-            daemon, "graph.version_restore", {"graph_id": gid, "version": 1}
-        )
+        restored = await _run(daemon, "graph.version_restore", {"graph_id": gid, "version": 1})
         assert restored["restored_from"] == 1
         assert restored["nodes"]["end"]["label"] == "hello"
 
@@ -174,4 +172,3 @@ class TestDaemonVersionRpcs:
     async def test_version_list_requires_graph_id(self, daemon):
         with pytest.raises(ValueError, match="graph_id"):
             await _run(daemon, "graph.version_list", {})
-

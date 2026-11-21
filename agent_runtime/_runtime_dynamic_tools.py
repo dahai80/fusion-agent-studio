@@ -3,6 +3,7 @@
 Holds dynamic tool register/unregister + schema + arg validation. Method
 bodies are verbatim moves; AgentRuntime inherits this mixin.
 """
+
 from __future__ import annotations
 
 from typing import TYPE_CHECKING

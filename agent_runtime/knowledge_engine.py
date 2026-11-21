@@ -223,9 +223,7 @@ class KnowledgeEngine:
             logger.info("sqlite-vec extension loaded")
         except Exception as exc:
             self._vec_available = False
-            logger.warning(
-                "sqlite-vec not available, falling back to FTS5-only: %s", exc
-            )
+            logger.warning("sqlite-vec not available, falling back to FTS5-only: %s", exc)
         return conn
 
     def _init_schema(self):
@@ -324,9 +322,7 @@ class KnowledgeEngine:
                 except Exception as e:
                     logger.warning("fusion_store insert failed for %s: %s", entry.id, e)
             self._conn.commit()
-        logger.info(
-            "Ingested entry %s (scope=%s, %d chars)", entry.id, scope, len(content)
-        )
+        logger.info("Ingested entry %s (scope=%s, %d chars)", entry.id, scope, len(content))
         return entry
 
     def delete(self, entry_id: str) -> bool:
@@ -337,12 +333,8 @@ class KnowledgeEngine:
                 pass
             # #251: 丢弃 str_id->fs_id 映射. fusion_store 无单向量删除, 向量孤儿 (记日志).
             if self._fs_backend is not None:
-                self._conn.execute(
-                    "DELETE FROM knowledge_vec_map WHERE str_id=?", (entry_id,)
-                )
-            cursor = self._conn.execute(
-                "DELETE FROM knowledge_entries WHERE id=?", (entry_id,)
-            )
+                self._conn.execute("DELETE FROM knowledge_vec_map WHERE str_id=?", (entry_id,))
+            cursor = self._conn.execute("DELETE FROM knowledge_entries WHERE id=?", (entry_id,))
             self._conn.commit()
         deleted = cursor.rowcount > 0
         if deleted:
@@ -378,9 +370,7 @@ class KnowledgeEngine:
     def _vector_enabled(self) -> bool:
         return self._vec_available or self._fs_backend is not None
 
-    def _search_vector(
-        self, query: str, scope: str, limit: int
-    ) -> list[KnowledgeEntry]:
+    def _search_vector(self, query: str, scope: str, limit: int) -> list[KnowledgeEntry]:
         if not self._vector_enabled():
             logger.warning("Vector search unavailable, falling back to FTS5")
             return self._search_fts(query, scope, limit)
@@ -405,9 +395,7 @@ class KnowledgeEngine:
             rows = self._conn.execute(sql, params).fetchall()
         return [self._row_to_entry(r) for r in rows]
 
-    def _search_vector_fs(
-        self, q_emb: list[float], scope: str, limit: int
-    ) -> list[KnowledgeEntry]:
+    def _search_vector_fs(self, q_emb: list[float], scope: str, limit: int) -> list[KnowledgeEntry]:
         # 拉比 limit 多的候选 (scope 过滤后裁剪), 因为 knn 不过滤 scope.
         raw_k = limit * 4 if scope else limit
         hits = self._fs_backend.search_knn(q_emb, top_k=raw_k)
@@ -455,15 +443,9 @@ class KnowledgeEngine:
         out = [id_to_entry[sid] for sid in ordered_str_ids if sid in id_to_entry]
         return out[:limit]
 
-    def _search_hybrid(
-        self, query: str, scope: str, limit: int
-    ) -> list[KnowledgeEntry]:
+    def _search_hybrid(self, query: str, scope: str, limit: int) -> list[KnowledgeEntry]:
         fts_results = self._search_fts(query, scope, limit * 2)
-        vec_results = (
-            self._search_vector(query, scope, limit * 2)
-            if self._vector_enabled()
-            else []
-        )
+        vec_results = self._search_vector(query, scope, limit * 2) if self._vector_enabled() else []
         fts_ranks = {r.id: i + 1 for i, r in enumerate(fts_results)}
         vec_ranks = {r.id: i + 1 for i, r in enumerate(vec_results)}
         all_ids = set(fts_ranks.keys()) | set(vec_ranks.keys())
@@ -506,9 +488,7 @@ class KnowledgeEngine:
                     "SELECT COUNT(*) FROM knowledge_entries WHERE scope=?", (scope,)
                 ).fetchone()
             else:
-                row = self._conn.execute(
-                    "SELECT COUNT(*) FROM knowledge_entries"
-                ).fetchone()
+                row = self._conn.execute("SELECT COUNT(*) FROM knowledge_entries").fetchone()
         return row[0] if row else 0
 
     def _row_to_entry(self, row: tuple) -> KnowledgeEntry:

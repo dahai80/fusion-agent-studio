@@ -8,9 +8,7 @@ import pytest
 # touch the real ~/.fusion-agent-studio. studio_home() and every derived
 # path read this env var; subprocess-spawned daemons inherit it too.
 if not os.environ.get("FUSION_AGENT_STUDIO_HOME"):
-    os.environ["FUSION_AGENT_STUDIO_HOME"] = tempfile.mkdtemp(
-        prefix="fas-test-home-"
-    )
+    os.environ["FUSION_AGENT_STUDIO_HOME"] = tempfile.mkdtemp(prefix="fas-test-home-")
 
 
 @pytest.fixture(autouse=True)

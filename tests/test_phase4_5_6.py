@@ -65,9 +65,7 @@ class TestChunk:
         assert c.id
 
     def test_to_dict_roundtrip(self):
-        c = Chunk(
-            id="c1", content="text", document_id="d1", index=0, start_char=0, end_char=4
-        )
+        c = Chunk(id="c1", content="text", document_id="d1", index=0, start_char=0, end_char=4)
         restored = Chunk.from_dict(c.to_dict())
         assert restored.id == "c1"
         assert restored.index == 0
@@ -171,9 +169,7 @@ class TestMarkdownChunker:
         chunker = MarkdownChunker()
         chunks = chunker.chunk(doc)
         assert len(chunks) >= 2
-        headings = [
-            c.metadata.get("heading") for c in chunks if c.metadata.get("heading")
-        ]
+        headings = [c.metadata.get("heading") for c in chunks if c.metadata.get("heading")]
         assert "Intro" in headings
         assert "Section 1" in headings
 

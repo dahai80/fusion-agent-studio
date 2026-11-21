@@ -76,8 +76,7 @@ class ChatDispatcher(SubDispatcher):
 
         if content and isinstance(content, list):
             has_image = any(
-                isinstance(part, dict) and part.get("type") == "image_url"
-                for part in content
+                isinstance(part, dict) and part.get("type") == "image_url" for part in content
             )
             if has_image:
                 vision_models = {"llava", "qwen-vl", "phi-vision", "cogvlm", "internvl"}
@@ -175,9 +174,7 @@ class ChatDispatcher(SubDispatcher):
         name = params.get("name", "")
         if not name:
             return {"status": "error", "message": "name parameter required"}
-        return mgr.create(
-            name, params.get("suffix", ""), params.get("output_format", "markdown")
-        )
+        return mgr.create(name, params.get("suffix", ""), params.get("output_format", "markdown"))
 
     async def _handle_style_apply(self, params: dict) -> dict:
         mgr = self._daemon._get_style_manager()

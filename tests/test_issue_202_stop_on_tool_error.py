@@ -41,7 +41,7 @@ class ErrorStringTool(BaseTool):
 
 class ErrorJsonTool(BaseTool):
     name = "error_json_tool"
-    description = "returns {\"error\": ...} JSON"
+    description = 'returns {"error": ...} JSON'
     parameters = {}
 
     async def execute(self, **kwargs) -> str:

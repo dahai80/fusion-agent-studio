@@ -61,8 +61,11 @@ class _StubCluster(BaseHTTPRequestHandler):
         elif self.path == "/api/tasks/t1/migrate":
             self._send(
                 200,
-                {"task_id": "t1", "status": "running",
-                 "assigned_nodes": [body.get("target_node_id", "")]},
+                {
+                    "task_id": "t1",
+                    "status": "running",
+                    "assigned_nodes": [body.get("target_node_id", "")],
+                },
             )
         elif self.path == "/api/routing/strategy":
             self._send(200, {"strategy": body.get("strategy", "")})
@@ -117,9 +120,7 @@ class TestClusterOpsProxy:
 
     def test_observability_alerts_suggestions(self, stub_cluster, client):
         assert client.get("/v1/cluster-ops/observability/alerts").json()["alerts"]
-        assert client.get(
-            "/v1/cluster-ops/observability/suggestions"
-        ).json()["error"] is None
+        assert client.get("/v1/cluster-ops/observability/suggestions").json()["error"] is None
 
     def test_log_export_text_passthrough(self, stub_cluster, client):
         r = client.get("/v1/cluster-ops/observability/logs/export")
@@ -130,16 +131,42 @@ class TestClusterOpsProxy:
 
     def test_task_actions(self, stub_cluster, client):
         assert client.get("/v1/cluster-ops/tasks").json()["total"] == 1
-        r = client.post("/v1/cluster-ops/tasks", json={"name": "x"}, headers={"x-api-key": "fk-cluster-ops-test-583"})
+        r = client.post(
+            "/v1/cluster-ops/tasks",
+            json={"name": "x"},
+            headers={"x-api-key": "fk-cluster-ops-test-583"},
+        )
         assert r.json()["task_id"] == "t-new"
-        r = client.post("/v1/cluster-ops/tasks/t1/migrate", json={"target_node_id": "n2"}, headers={"x-api-key": "fk-cluster-ops-test-583"})
+        r = client.post(
+            "/v1/cluster-ops/tasks/t1/migrate",
+            json={"target_node_id": "n2"},
+            headers={"x-api-key": "fk-cluster-ops-test-583"},
+        )
         assert r.json()["assigned_nodes"] == ["n2"]
-        assert client.post("/v1/cluster-ops/tasks/t1/cancel", json={}, headers={"x-api-key": "fk-cluster-ops-test-583"}).json()["status"] == "cancelled"
-        assert client.post("/v1/cluster-ops/tasks/t1/degrade", json={}, headers={"x-api-key": "fk-cluster-ops-test-583"}).json()["status"] == "degraded"
+        assert (
+            client.post(
+                "/v1/cluster-ops/tasks/t1/cancel",
+                json={},
+                headers={"x-api-key": "fk-cluster-ops-test-583"},
+            ).json()["status"]
+            == "cancelled"
+        )
+        assert (
+            client.post(
+                "/v1/cluster-ops/tasks/t1/degrade",
+                json={},
+                headers={"x-api-key": "fk-cluster-ops-test-583"},
+            ).json()["status"]
+            == "degraded"
+        )
 
     def test_routing_summary_and_strategy(self, stub_cluster, client):
         assert client.get("/v1/cluster-ops/routing/summary").json()["strategy"] == "score"
-        r = client.post("/v1/cluster-ops/routing/strategy", json={"strategy": "round-robin"}, headers={"x-api-key": "fk-cluster-ops-test-583"})
+        r = client.post(
+            "/v1/cluster-ops/routing/strategy",
+            json={"strategy": "round-robin"},
+            headers={"x-api-key": "fk-cluster-ops-test-583"},
+        )
         assert r.json()["strategy"] == "round-robin"
 
     def test_cluster_unreachable_503(self, monkeypatch, client):

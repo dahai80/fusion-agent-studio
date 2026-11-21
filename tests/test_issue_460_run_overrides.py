@@ -44,11 +44,14 @@ def client(monkeypatch):
 
 def test_spec_runs_via_subagent_path(client):
     tc, calls = client
-    resp = tc.post("/v1/runs", json={
-        "goal": "do the thing",
-        "agent_id": "agent-x",
-        "spec": {"tools": ["read_file"], "model": "qwen", "max_turns": 3, "budget_tokens": 500},
-    })
+    resp = tc.post(
+        "/v1/runs",
+        json={
+            "goal": "do the thing",
+            "agent_id": "agent-x",
+            "spec": {"tools": ["read_file"], "model": "qwen", "max_turns": 3, "budget_tokens": 500},
+        },
+    )
     assert resp.status_code == 200
     body = resp.json()
     assert body["run_id"] == "run-460"
@@ -65,11 +68,14 @@ def test_spec_runs_via_subagent_path(client):
 
 def test_top_level_overrides_merged_into_spec(client):
     tc, calls = client
-    resp = tc.post("/v1/runs", json={
-        "goal": "g",
-        "tools": ["shell_exec"],
-        "max_turns": 5,
-    })
+    resp = tc.post(
+        "/v1/runs",
+        json={
+            "goal": "g",
+            "tools": ["shell_exec"],
+            "max_turns": 5,
+        },
+    )
     assert resp.status_code == 200
     assert resp.json()["spec_applied"] is True
     methods = [m for m, _ in calls]
@@ -181,7 +187,9 @@ class TestSubagentRunTask:
 
         runner = _Runner(_Report(ok=True))
         disp = SubAgentDispatcher(_Daemon(_Runtime(runner), store))
-        res = await disp._handle_subagent_run_task({"task_id": "t1", "goal": "goal text", "spec": {"max_turns": 4}})
+        res = await disp._handle_subagent_run_task(
+            {"task_id": "t1", "goal": "goal text", "spec": {"max_turns": 4}}
+        )
         assert res["status"] == "ok"
         await list(disp._run_task_bg_tasks)[0]
         task = store.get("t1")

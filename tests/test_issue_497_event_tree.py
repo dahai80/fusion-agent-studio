@@ -60,7 +60,9 @@ class TestEventTreeStoreUnit:
         ts = EventTreeStore(_store(tmp_path))
         ts.register_run("r1")
         ts.append_event("r1", {"type": "start", "event_id": "e1"}, messages=[])
-        ts.append_event("r1", {"type": "tool_call", "event_id": "e2", "parent_id": "e1"}, messages=[])
+        ts.append_event(
+            "r1", {"type": "tool_call", "event_id": "e2", "parent_id": "e1"}, messages=[]
+        )
         ts.append_event("r1", {"type": "end", "event_id": "e3", "parent_id": "e2"}, messages=[])
         path = ts.path_to_root("r1", "e3")
         assert [e["event_id"] for e in path] == ["e1", "e2", "e3"]
@@ -115,7 +117,9 @@ class TestEventTreeStoreUnit:
         ts = EventTreeStore(_store(tmp_path))
         ts.register_run("r1")
         ts.append_event("r1", {"type": "start", "event_id": "e1"}, messages=[])
-        ts.append_event("r1", {"type": "end", "event_id": "e2"}, messages=[{"role": "user", "content": "x"}])
+        ts.append_event(
+            "r1", {"type": "end", "event_id": "e2"}, messages=[{"role": "user", "content": "x"}]
+        )
         res = ts.fork_run("r1")
         assert res is not None
         assert res["fork_event_id"] == "e2"
@@ -299,9 +303,7 @@ class TestDaemonForkFlow:
 
     async def test_fork_accepts_task_id_and_errors_cleanly(self, daemon):
         daemon.store.save_graph(_flat_graph("fork-task"))
-        run = await self._execute(
-            daemon, "fork-task", "q", extra={"task_id": "task-fork-1"}
-        )
+        run = await self._execute(daemon, "fork-task", "q", extra={"task_id": "task-fork-1"})
         assert run["task_id"] == "task-fork-1"
         # fork keyed by task id (the /v1/runs surface)
         fork = await daemon._handle_run_fork({"run_id": "task-fork-1"})

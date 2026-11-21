@@ -55,7 +55,13 @@ class FSBClient:
                 timeout=self._timeout,
             )
             if resp.status_code >= 400:
-                logger.warning("fsb bind ws=%s agent=%s -> %s %s", workspace_id, agent_id, resp.status_code, resp.text[:200])
+                logger.warning(
+                    "fsb bind ws=%s agent=%s -> %s %s",
+                    workspace_id,
+                    agent_id,
+                    resp.status_code,
+                    resp.text[:200],
+                )
                 return None
             logger.info("fsb bind ok ws=%s agent=%s", workspace_id, agent_id)
             return resp.json()
@@ -74,7 +80,9 @@ class FSBClient:
                 timeout=self._timeout,
             )
             if resp.status_code >= 400:
-                logger.warning("fsb unbind ws=%s -> %s %s", workspace_id, resp.status_code, resp.text[:200])
+                logger.warning(
+                    "fsb unbind ws=%s -> %s %s", workspace_id, resp.status_code, resp.text[:200]
+                )
                 return None
             logger.info("fsb unbind ok ws=%s", workspace_id)
             return resp.json()
@@ -82,7 +90,9 @@ class FSBClient:
             logger.warning("fsb unbind call failed (fail-soft): %s", e)
             return None
 
-    def chat_run(self, workspace_id: str, query: str, input_data: dict | None = None) -> dict[str, Any] | None:
+    def chat_run(
+        self, workspace_id: str, query: str, input_data: dict | None = None
+    ) -> dict[str, Any] | None:
         """NL query -> FSB intent match -> workflow run. Returns FSB run dict or None.
 
         None = FSB disabled/unreachable; 404 (no matching workflow) returned as
@@ -102,7 +112,9 @@ class FSBClient:
                 logger.info("fsb chat_run ws=%s no workflow matched", workspace_id)
                 return {"matched": False, "status": 404}
             if resp.status_code >= 400:
-                logger.warning("fsb chat_run ws=%s -> %s %s", workspace_id, resp.status_code, resp.text[:200])
+                logger.warning(
+                    "fsb chat_run ws=%s -> %s %s", workspace_id, resp.status_code, resp.text[:200]
+                )
                 return None
             data = resp.json()
             logger.info("fsb chat_run ws=%s matched=%s", workspace_id, data.get("matched"))

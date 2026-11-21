@@ -49,9 +49,7 @@ def reject_tools_outside_allowlist(member, requested: list) -> None:
         return
     outside = [t for t in requested if t not in member.tool_allowlist]
     if outside:
-        raise ValueError(
-            f"tools outside member allowlist ({member.name}): {', '.join(outside)}"
-        )
+        raise ValueError(f"tools outside member allowlist ({member.name}): {', '.join(outside)}")
 
 
 def member_persona_gate(member):
@@ -177,7 +175,9 @@ class TeamsDispatcher(SubDispatcher):
         message = str(e or "").replace(str(studio_home()), "~")
         if leaks_machine_detail(message):
             logger.warning("teams.* rejected (detail withheld): %s", detail)
-            return error_payload("invocation_not_allowed", "operation rejected: internal detail withheld")
+            return error_payload(
+                "invocation_not_allowed", "operation rejected: internal detail withheld"
+            )
         code = classify_error(e)
         logger.warning("teams.* rejected (%s): %s", code, detail)
         return error_payload(code, message)
@@ -251,14 +251,17 @@ class TeamsDispatcher(SubDispatcher):
             bus=getattr(self._daemon._get_runtime(), "lifecycle_bus", None)
             if hasattr(self._daemon, "_get_runtime")
             else None,
-            state_dir=str(params.get("state_dir", "") or "") or teams_state_root() + "/" + definition.name,
+            state_dir=str(params.get("state_dir", "") or "")
+            or teams_state_root() + "/" + definition.name,
         )
         try:
             os.makedirs(team_rt.state_dir, exist_ok=True)
         except OSError as e:
             return self._error(e)
         spec_error = _init_spec_file(
-            team_rt.state_dir, definition.name, str(params.get("spec", "") or params.get("spec_text", "") or "")
+            team_rt.state_dir,
+            definition.name,
+            str(params.get("spec", "") or params.get("spec_text", "") or ""),
         )
         if spec_error is not None:
             return self._error(spec_error)
@@ -367,7 +370,9 @@ class TeamsDispatcher(SubDispatcher):
         try:
             team_rt = self._require_team(params)
             brief, member = validate_member_constraints(
-                team_rt.definition, str(params.get("member", "") or ""), dict(params.get("brief") or {})
+                team_rt.definition,
+                str(params.get("member", "") or ""),
+                dict(params.get("brief") or {}),
             )
             reject_tools_outside_allowlist(member, [str(t) for t in (params.get("tools") or [])])
             errors = validate_brief(brief)
@@ -393,7 +398,9 @@ class TeamsDispatcher(SubDispatcher):
                         for f in hv.failures
                     )
                     raise ValueError("handoff verification failed: " + detail)
-            result = await team_rt.run_member(member, str(params.get("task_id", "") or ""), brief, self._agent_fn())
+            result = await team_rt.run_member(
+                member, str(params.get("task_id", "") or ""), brief, self._agent_fn()
+            )
         except Exception as e:
             return self._error(e)
         # #714 part 2: full worker output lands in the kernel artifact channel
@@ -433,9 +440,7 @@ class TeamsDispatcher(SubDispatcher):
             from fusion_harness.tier_policy import recommend_tier
 
             tier, tier_source = recommend_tier("member_execution"), "policy"
-        logger.info(
-            "teams.run_member tier=%s source=%s member=%s", tier, tier_source, member.name
-        )
+        logger.info("teams.run_member tier=%s source=%s member=%s", tier, tier_source, member.name)
         return {
             "status": "ok",
             "result": {
@@ -478,7 +483,9 @@ class TeamsDispatcher(SubDispatcher):
                 transcript=str(params.get("transcript", "") or ""),
             )
             outcome = team_rt.send(msg)
-            delivered = bool(outcome.get("delivered")) if isinstance(outcome, dict) else bool(outcome)
+            delivered = (
+                bool(outcome.get("delivered")) if isinstance(outcome, dict) else bool(outcome)
+            )
             msg_id = outcome.get("msg_id", "") if isinstance(outcome, dict) else ""
         except Exception as e:
             return self._error(e)
@@ -628,9 +635,12 @@ class TeamsDispatcher(SubDispatcher):
             team_rt.definition.member(member)
             message_id = str(params.get("message_id", "") or "")
             decision_raw = str(params.get("decision", "") or "").strip().lower()
-            decision = {"approve": "approved", "accept": "approved", "reject": "rejected", "decline": "rejected"}.get(
-                decision_raw, ""
-            )
+            decision = {
+                "approve": "approved",
+                "accept": "approved",
+                "reject": "rejected",
+                "decline": "rejected",
+            }.get(decision_raw, "")
             if not decision:
                 raise ValueError(
                     "invalid decision %r (valid: approve/reject or accept/decline)" % decision_raw
@@ -673,7 +683,9 @@ class TeamsDispatcher(SubDispatcher):
                 reply_to=message_id,
             )
             outcome = team_rt.send(reply)
-            delivered = bool(outcome.get("delivered")) if isinstance(outcome, dict) else bool(outcome)
+            delivered = (
+                bool(outcome.get("delivered")) if isinstance(outcome, dict) else bool(outcome)
+            )
             reply_id = outcome.get("msg_id", "") if isinstance(outcome, dict) else ""
             if not delivered:
                 raise RuntimeError("mailbox delivery failed for reply to %s" % message_id)
@@ -811,7 +823,11 @@ class TeamsDispatcher(SubDispatcher):
         return {
             "status": "ok",
             "teams": [
-                {"name": k, "lifecycle": v.lifecycle, "members": [m.name for m in v.definition.members]}
+                {
+                    "name": k,
+                    "lifecycle": v.lifecycle,
+                    "members": [m.name for m in v.definition.members],
+                }
                 for k, v in sorted(self._registry().items())
             ],
         }
@@ -842,7 +858,9 @@ class TeamsDispatcher(SubDispatcher):
             # #747: route through _error so the payload carries
             # reason_code=spec_unavailable (message text unchanged for #745
             # clients).
-            logger.warning("teams.spec_read team=%s missing spec path=%s", team_rt.definition.name, path)
+            logger.warning(
+                "teams.spec_read team=%s missing spec path=%s", team_rt.definition.name, path
+            )
             return self._error(
                 FileNotFoundError(f"no SPEC.md exists yet for team {team_rt.definition.name}")
             )
@@ -892,7 +910,9 @@ class TeamsDispatcher(SubDispatcher):
         except (KeyError, LookupError, FileNotFoundError) as e:
             return self._error(e)
         entries = store.entries()
-        logger.info("teams.playbook_render team=%s entries=%d", team_rt.definition.name, len(entries))
+        logger.info(
+            "teams.playbook_render team=%s entries=%d", team_rt.definition.name, len(entries)
+        )
         return {
             "status": "ok",
             "team": team_rt.definition.name,
@@ -971,7 +991,9 @@ class TeamsDispatcher(SubDispatcher):
                         max_stalls=int(params.get("max_stalls", 0) or 3),
                         team_budget=params.get("team_budget"),
                     )
-                    logger.info("teams.lead finished team=%s lead=%s", team_rt.definition.name, lead.lead_id)
+                    logger.info(
+                        "teams.lead finished team=%s lead=%s", team_rt.definition.name, lead.lead_id
+                    )
                     return payload
                 finally:
                     entry["running"] = False
@@ -1064,7 +1086,12 @@ class TeamsDispatcher(SubDispatcher):
         return {
             "status": "ok",
             "entries": [
-                {"id": e.id, "content": e.content, "importance": e.importance, "created_at": e.created_at}
+                {
+                    "id": e.id,
+                    "content": e.content,
+                    "importance": e.importance,
+                    "created_at": e.created_at,
+                }
                 for e in entries
             ],
         }
@@ -1125,8 +1152,18 @@ class TeamsDispatcher(SubDispatcher):
                     )
         except Exception as e:
             return self._error(e)
-        logger.info("teams.runs_list team=%s task=%s runs=%d", team_rt.definition.name, task_id, len(attempts))
-        return {"status": "ok", "team": team_rt.definition.name, "task_id": task_id, "runs": attempts}
+        logger.info(
+            "teams.runs_list team=%s task=%s runs=%d",
+            team_rt.definition.name,
+            task_id,
+            len(attempts),
+        )
+        return {
+            "status": "ok",
+            "team": team_rt.definition.name,
+            "task_id": task_id,
+            "runs": attempts,
+        }
 
     async def _handle_run_messages(self, params: dict) -> dict:
         try:
@@ -1138,7 +1175,12 @@ class TeamsDispatcher(SubDispatcher):
                 raise ValueError("attempt required (positive integer)")
             log = self._load_run_stream(team_rt, task_id, attempt)
             messages = [
-                {"seq": ev.seq, "ts": ev.ts, "type": ev.type, "payload": ev.to_dict().get("payload") or {}}
+                {
+                    "seq": ev.seq,
+                    "ts": ev.ts,
+                    "type": ev.type,
+                    "payload": ev.to_dict().get("payload") or {},
+                }
                 for ev in log.events()
             ]
         except Exception as e:
@@ -1184,7 +1226,9 @@ class TeamsDispatcher(SubDispatcher):
                     rows.append({"attempt": attempt, "status": status, "usage": usage})
         except Exception as e:
             return self._error(e)
-        logger.info("teams.run_usage team=%s task=%s rows=%d", team_rt.definition.name, task_id, len(rows))
+        logger.info(
+            "teams.run_usage team=%s task=%s rows=%d", team_rt.definition.name, task_id, len(rows)
+        )
         return {"status": "ok", "team": team_rt.definition.name, "task_id": task_id, "usage": rows}
 
     # ---------- mid-run steering (#748, harness #64 queue) ----------
@@ -1252,7 +1296,9 @@ class TeamsDispatcher(SubDispatcher):
                         body=f"[steer-late] {origin} note: {content.strip()}",
                     )
                 )
-                delivered = bool(outcome.get("delivered")) if isinstance(outcome, dict) else bool(outcome)
+                delivered = (
+                    bool(outcome.get("delivered")) if isinstance(outcome, dict) else bool(outcome)
+                )
                 if not delivered:
                     raise ValueError("mailbox delivery failed for supplement downgrade")
                 status = "delivered_as_inbox"

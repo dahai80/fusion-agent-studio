@@ -22,9 +22,7 @@ class ModelRecordingClient:
     def add_response(self, content: str):
         self.responses.append(content)
 
-    async def chat(
-        self, model, messages, tools=None, temperature=0.7, max_tokens=4096, **kwargs
-    ):
+    async def chat(self, model, messages, tools=None, temperature=0.7, max_tokens=4096, **kwargs):
         self.models_used.append(model)
         from server.fusion_mlx_client import LLMResponse
 
@@ -202,8 +200,16 @@ def test_ax_locator_structured_match(monkeypatch):
     from tools.computer_use_tools import _resolve_ax_locator
 
     fake_tree = [
-        {"ax_label": "Cancel", "ax_role": "AXButton", "frame": {"x": 10, "y": 20, "width": 80, "height": 30}},
-        {"ax_label": "Submit", "ax_role": "AXButton", "frame": {"x": 100, "y": 200, "width": 60, "height": 40}},
+        {
+            "ax_label": "Cancel",
+            "ax_role": "AXButton",
+            "frame": {"x": 10, "y": 20, "width": 80, "height": 30},
+        },
+        {
+            "ax_label": "Submit",
+            "ax_role": "AXButton",
+            "frame": {"x": 100, "y": 200, "width": 60, "height": 40},
+        },
     ]
 
     class _FakeResult:
@@ -228,7 +234,13 @@ def test_ax_locator_no_match_returns_error(monkeypatch):
     monkeypatch.setenv("FUSION_AX_LOCATOR_ENABLED", "1")
     from tools.computer_use_tools import _resolve_ax_locator
 
-    fake_tree = [{"ax_label": "Other", "ax_role": "AXButton", "frame": {"x": 1, "y": 2, "width": 3, "height": 4}}]
+    fake_tree = [
+        {
+            "ax_label": "Other",
+            "ax_role": "AXButton",
+            "frame": {"x": 1, "y": 2, "width": 3, "height": 4},
+        }
+    ]
 
     class _FakeResult:
         node_tree = __import__("json").dumps(fake_tree)
@@ -303,6 +315,7 @@ async def test_post_action_capture_emits_event():
             return json.dumps({"path": "", "width": 100, "height": 50})
 
     registry.register(_Cap())
+
     # need an echo tool too
     class _Echo(BaseTool):
         name = "echo"
@@ -393,9 +406,9 @@ async def test_post_action_assertion_failure_emits_error():
         events.append(e)
 
     assert_events = [
-        e for e in events
-        if getattr(e, "name", "") == "post_action_assertion"
-        and e.type == AgentEventType.ERROR
+        e
+        for e in events
+        if getattr(e, "name", "") == "post_action_assertion" and e.type == AgentEventType.ERROR
     ]
     assert len(assert_events) == 1, "expected assertion-failure error event"
     assert "UI did not change" in assert_events[0].content
@@ -454,8 +467,8 @@ async def test_post_action_assertion_pass_no_error():
         events.append(e)
 
     assert_errors = [
-        e for e in events
-        if getattr(e, "name", "") == "post_action_assertion"
-        and e.type == AgentEventType.ERROR
+        e
+        for e in events
+        if getattr(e, "name", "") == "post_action_assertion" and e.type == AgentEventType.ERROR
     ]
     assert len(assert_errors) == 0, "passing assertion must not emit error"

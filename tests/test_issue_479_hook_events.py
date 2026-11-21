@@ -126,11 +126,7 @@ class TestIssue479ToolDenyHook:
         graph.add_edge("t", "e")
         async for _ in rt.execute_graph(graph, "go"):
             pass
-        asks = [
-            ev
-            for ev in rt.tool_funnel.lifecycle.replay()
-            if ev.event == "permission_ask"
-        ]
+        asks = [ev for ev in rt.tool_funnel.lifecycle.replay() if ev.event == "permission_ask"]
         assert asks and asks[0].payload["tool_name"] == "probe_tool"
         assert probe.executions == 0
 
@@ -149,9 +145,7 @@ class TestIssue479ApprovalHooks:
         rt = _runtime()
         seen = _hook_recorder(rt, ["APPROVAL_REQUEST", "APPROVAL_RESOLVE"])
         ctx = AgentContext()
-        gen = rt._await_safety_approval(
-            ctx, _FakeSafetyResult(), "tool_call", "n1"
-        )
+        gen = rt._await_safety_approval(ctx, _FakeSafetyResult(), "tool_call", "n1")
         events = []
         async for evt in gen:
             events.append(evt)
@@ -167,9 +161,7 @@ class TestIssue479ApprovalHooks:
         rt = _runtime()
         seen = _hook_recorder(rt, ["APPROVAL_REQUEST", "APPROVAL_RESOLVE"])
         ctx = AgentContext()
-        async for evt in rt._await_safety_approval(
-            ctx, _FakeSafetyResult(), "tool_call", "n1"
-        ):
+        async for evt in rt._await_safety_approval(ctx, _FakeSafetyResult(), "tool_call", "n1"):
             if evt.metadata and evt.metadata.get("action") == "pending_approval":
                 rt.reject_action(evt.metadata["action_id"])
         resolves = [p for p in seen if "decision" in p]
@@ -183,9 +175,7 @@ class TestIssue479FunnelAudit:
         al = AuditLogger(db_path=str(tmp_path / "audit.db"))
         rt.set_audit_logger(al)
         rt.permission_engine.add_rule(PermissionRule(action="deny", tool="probe_tool"))
-        outcome = await rt.tool_funnel.admit(
-            ctx=AgentContext(), tool_name="probe_tool", args={}
-        )
+        outcome = await rt.tool_funnel.admit(ctx=AgentContext(), tool_name="probe_tool", args={})
         assert not outcome.allowed
         rows = al.query_logs(action="funnel.deny.permission", resource_id="probe_tool")
         logs = rows.get("data", [])

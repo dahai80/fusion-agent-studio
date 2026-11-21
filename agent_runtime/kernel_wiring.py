@@ -42,6 +42,7 @@ def _flag(name: str, default: str) -> bool:
 
 # ---------------- 1. token counter ----------------
 
+
 def build_compaction_validator():
     # Issue #775/#131: post-compaction context-rot guard. Checks the
     # compacted state still carries the system prompt and any live task
@@ -117,13 +118,14 @@ def build_compaction_config() -> CompactionConfig | None:
 
 # ---------------- 2. sandbox policy ----------------
 
+
 class SandboxExecRunner:
     # macOS sandbox-exec runner (kernel SandboxRunner protocol). Executes
     # shell-command tools under /usr/bin/sandbox-exec with a profile that
     # denies network + system-path writes. Non-command tools are rejected.
     _PROFILE = (
-        '(version 1)(allow default)'
-        '(deny network*)'
+        "(version 1)(allow default)"
+        "(deny network*)"
         '(deny file-write* (subpath "/usr") (subpath "/bin")'
         ' (subpath "/sbin") (subpath "/etc") (subpath "/private/etc"))'
     )
@@ -139,7 +141,12 @@ class SandboxExecRunner:
             )
         logger.info("sandbox-exec running tool=%s command=%r", tool_name, command[:120])
         proc = await asyncio.create_subprocess_exec(
-            self.bin, "-p", self._PROFILE, "/bin/sh", "-c", command,
+            self.bin,
+            "-p",
+            self._PROFILE,
+            "/bin/sh",
+            "-c",
+            command,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
@@ -195,6 +202,7 @@ def build_sandbox_policy() -> SandboxPolicy | None:
 
 # ---------------- 3. skill registry + derived permissions ----------------
 
+
 def build_skill_registry(runtime) -> tuple[SkillRegistry, int] | None:
     engine = getattr(runtime, "permission_engine", None)
     try:
@@ -225,9 +233,7 @@ def build_skill_registry(runtime) -> tuple[SkillRegistry, int] | None:
             logger.info("kernel skill registered: %s rules=%d", name, len(rules))
         except (SkillError, ValueError, OSError) as e:
             logger.warning("kernel skill skipped name=%s: %s", name, e)
-    logger.info(
-        "kernel skill registry wired: skills=%d derived_rules=%d", len(metas), applied
-    )
+    logger.info("kernel skill registry wired: skills=%d derived_rules=%d", len(metas), applied)
     return registry, applied
 
 
@@ -257,6 +263,7 @@ def _build_skill(store, meta: dict) -> Skill:
 
 
 # ---------------- 4. kernel checkpoints ----------------
+
 
 class KernelCheckpointer:
     def __init__(self, path: str):
@@ -322,6 +329,7 @@ def attach_kernel_checkpointer(runtime) -> KernelCheckpointer | None:
 
 # ---------------- 5. orchestrator ----------------
 
+
 def make_studio_agent_fn(runtime):
     # Bridge a kernel SubagentSpec to a real studio subagent run. Shared by
     # the kernel orchestrator (#701) and the teams dispatcher (#707).
@@ -365,6 +373,7 @@ def build_kernel_orchestrator(runtime) -> dict:
 
 
 # ---------------- entry point ----------------
+
 
 def wire_kernel_surfaces(runtime) -> dict:
     wired: dict = {}

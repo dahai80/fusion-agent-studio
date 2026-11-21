@@ -48,7 +48,9 @@ class TestAggregateRunSpans:
                 "type": "think",
                 "node_id": "llm1",
                 "timestamp": 5.0,
-                "metadata": {"usage": {"prompt_tokens": 100, "completion_tokens": 2, "total_tokens": 102}},
+                "metadata": {
+                    "usage": {"prompt_tokens": 100, "completion_tokens": 2, "total_tokens": 102}
+                },
             },
         ]
         out = _daemon()._aggregate_run_spans(spans)
@@ -60,7 +62,12 @@ class TestAggregateRunSpans:
         spans = [
             {"type": "token", "node_id": "a", "timestamp": 1.0},
             {"type": "token", "node_id": "a", "timestamp": 2.0},
-            {"type": "think", "node_id": "a", "timestamp": 3.0, "metadata": {"usage": {"total_tokens": 50}}},
+            {
+                "type": "think",
+                "node_id": "a",
+                "timestamp": 3.0,
+                "metadata": {"usage": {"total_tokens": 50}},
+            },
         ]
         node = _daemon()._aggregate_run_spans(spans)["nodes"][0]
         assert node["token_events"] == 2
@@ -296,9 +303,9 @@ class TestRpcPrefix:
     def test_rpc_path_carries_api_base(self):
         # #405: the embedded bridge fetches paths at gateway origin root; a
         # bare /v1/rpc lands on the SPA catch-all (HTML). Source-level guard.
-        src = (
-            Path(__file__).resolve().parents[1] / "web" / "src" / "api.ts"
-        ).read_text(encoding="utf-8")
+        src = (Path(__file__).resolve().parents[1] / "web" / "src" / "api.ts").read_text(
+            encoding="utf-8"
+        )
         assert "postJson<T & { status?: string; message?: string }>(`${B()}/v1/rpc`" in src
         assert "postJson<T & { status?: string; message?: string }>('/v1/rpc'" not in src
 
@@ -309,9 +316,7 @@ def test_health_reports_package_version():
 
     from agent_runtime import api_server
 
-    pyproject = (Path(__file__).resolve().parents[1] / "pyproject.toml").read_text(
-        encoding="utf-8"
-    )
+    pyproject = (Path(__file__).resolve().parents[1] / "pyproject.toml").read_text(encoding="utf-8")
     declared = re.search(r'^version = "([^"]+)"', pyproject, re.MULTILINE).group(1)
     assert api_server._app_version() == declared
 

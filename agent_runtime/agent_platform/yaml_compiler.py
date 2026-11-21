@@ -54,10 +54,11 @@ def compile_yaml(text: str) -> Dict[str, Any]:
         line = mark.line + 1 if mark else None
         raise YamlCompileError(
             f"line {line}: invalid YAML: {e.problem or str(e)[:120]}"
-            if line else f"invalid YAML: {str(e)[:160]}") from e
+            if line
+            else f"invalid YAML: {str(e)[:160]}"
+        ) from e
     if not isinstance(doc, dict):
-        raise YamlCompileError("document must be a YAML mapping "
-                               "(name:, model:, system:, tools:…)")
+        raise YamlCompileError("document must be a YAML mapping (name:, model:, system:, tools:…)")
     return _compile_doc(doc)
 
 
@@ -75,8 +76,7 @@ def _compile_doc(doc: Dict[str, Any]) -> Dict[str, Any]:
         errors.append("name: is required")
     system = str(doc.get("system") or "").strip()
     if not system:
-        errors.append("system: is required — say what the agent is and "
-                      "how it should behave")
+        errors.append("system: is required — say what the agent is and how it should behave")
 
     description = str(doc.get("description") or "").strip()
 
@@ -87,12 +87,10 @@ def _compile_doc(doc: Dict[str, Any]) -> Dict[str, Any]:
         model = {}
     model_id = str(model.get("id") or "base").strip()
     if model_id not in _MODEL_IDS:
-        errors.append(f"model.id: '{model_id}' is not one of "
-                      f"{', '.join(_MODEL_IDS)}")
+        errors.append(f"model.id: '{model_id}' is not one of {', '.join(_MODEL_IDS)}")
     effort = str(model.get("effort") or "low").strip().lower()
     if effort not in _EFFORT_TEMPERATURE:
-        errors.append(f"model.effort: '{effort}' is not one of "
-                      f"{', '.join(_EFFORT_TEMPERATURE)}")
+        errors.append(f"model.effort: '{effort}' is not one of {', '.join(_EFFORT_TEMPERATURE)}")
 
     # tools -> capability ids -> AgentToolConfig list
     tools_in = doc.get("tools") or []
@@ -110,8 +108,9 @@ def _compile_doc(doc: Dict[str, Any]) -> Dict[str, Any]:
             if not isinstance(params, dict):
                 params = {}
         else:
-            errors.append(f"tools[{i}]: each tool is a capability id "
-                          f"string, or a mapping with id/config keys")
+            errors.append(
+                f"tools[{i}]: each tool is a capability id string, or a mapping with id/config keys"
+            )
             continue
         if cap_id in seen:
             warnings.append(f"tools: '{cap_id}' listed twice — deduped")
@@ -119,30 +118,33 @@ def _compile_doc(doc: Dict[str, Any]) -> Dict[str, Any]:
         seen.add(cap_id)
         cap = get_capability(cap_id)
         if cap is None:
-            errors.append(f"tools[{i}]: unknown capability '{cap_id}' — "
-                          f"pick ids from GET /v1/agent-platform/capabilities")
+            errors.append(
+                f"tools[{i}]: unknown capability '{cap_id}' — "
+                f"pick ids from GET /v1/agent-platform/capabilities"
+            )
             continue
         if cap.get("status") != "active":
             errors.append(f"tools[{i}]: capability '{cap_id}' is disabled")
             continue
-        tool_defs.append({
-            "name": cap_id,
-            "type": "http",
-            "description": cap.get("description") or cap.get("title"),
-            "endpoint": _DOOR_PATH,
-            "config": {
-                "capability_id": cap_id,
-                "mutation": bool(cap.get("mutation")),
-                "params": params if isinstance(params, dict) else {},
-                # Full param schema embedded AT COMPILE TIME (local
-                # registry): FAS registers the tool with zero network
-                # dependency — the manifest is the contract (§5.5).
-                "cap_params": (cap.get("params") or {}).get("properties")
-                              or {},
-                "cap_mutation": bool(cap.get("mutation")),
-                "cap_title": cap.get("title") or cap_id,
-            },
-        })
+        tool_defs.append(
+            {
+                "name": cap_id,
+                "type": "http",
+                "description": cap.get("description") or cap.get("title"),
+                "endpoint": _DOOR_PATH,
+                "config": {
+                    "capability_id": cap_id,
+                    "mutation": bool(cap.get("mutation")),
+                    "params": params if isinstance(params, dict) else {},
+                    # Full param schema embedded AT COMPILE TIME (local
+                    # registry): FAS registers the tool with zero network
+                    # dependency — the manifest is the contract (§5.5).
+                    "cap_params": (cap.get("params") or {}).get("properties") or {},
+                    "cap_mutation": bool(cap.get("mutation")),
+                    "cap_title": cap.get("title") or cap_id,
+                },
+            }
+        )
 
     # metadata.template passthrough (lineage for seeded agents)
     meta = doc.get("metadata") or {}
@@ -191,15 +193,16 @@ def decompile(definition: Dict[str, Any]) -> str:
         # {name, temperature, max_tokens} dict our compiler produces.
         model = {"name": model}
     temp = float(model.get("temperature") or 0.2)
-    effort = min(_EFFORT_TEMPERATURE.items(),
-                 key=lambda kv: abs(kv[1] - temp))[0]
+    effort = min(_EFFORT_TEMPERATURE.items(), key=lambda kv: abs(kv[1] - temp))[0]
     meta = definition.get("metadata") or {}
     model_id = meta.get("model_slot") or model.get("name") or "base"
     if model_id not in _MODEL_IDS:
         model_id = "base"
-    tools = [t.get("name") if isinstance(t, dict) else str(t)
-             for t in (definition.get("tools") or [])
-             if (t.get("name") if isinstance(t, dict) else str(t))]
+    tools = [
+        t.get("name") if isinstance(t, dict) else str(t)
+        for t in (definition.get("tools") or [])
+        if (t.get("name") if isinstance(t, dict) else str(t))
+    ]
     doc: Dict[str, Any] = {
         "name": definition.get("name") or "",
         "description": definition.get("description") or "",
@@ -209,5 +212,4 @@ def decompile(definition: Dict[str, Any]) -> str:
     }
     if meta.get("template"):
         doc["metadata"] = {"template": meta["template"]}
-    return yaml.safe_dump(doc, sort_keys=False, allow_unicode=True,
-                          width=100)
+    return yaml.safe_dump(doc, sort_keys=False, allow_unicode=True, width=100)

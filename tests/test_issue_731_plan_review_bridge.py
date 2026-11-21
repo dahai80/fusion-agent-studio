@@ -85,8 +85,12 @@ async def test_request_changes_persists_review_and_keeps_pending(daemon):
 async def test_question_verdict_keeps_pending(daemon):
     plan_id = await _plan(daemon)
     res = await _run(
-        daemon, "planner.approve_plan",
-        {"plan_id": plan_id, "review": {"comments": [{"comment": "why this order?"}], "verdict": "question"}},
+        daemon,
+        "planner.approve_plan",
+        {
+            "plan_id": plan_id,
+            "review": {"comments": [{"comment": "why this order?"}], "verdict": "question"},
+        },
     )
     assert res["approved"] is False and res["review_attached"] is True
     plan = (await _run(daemon, "planner.get_plan", {"plan_id": plan_id}))["plan"]
@@ -96,12 +100,14 @@ async def test_question_verdict_keeps_pending(daemon):
 async def test_invalid_review_rejected(daemon):
     plan_id = await _plan(daemon)
     bad = await _run(
-        daemon, "planner.approve_plan",
+        daemon,
+        "planner.approve_plan",
         {"plan_id": plan_id, "review": {"comments": ["not-a-dict"], "verdict": "approve"}},
     )
     assert bad["status"] == "error"
     bad_verdict = await _run(
-        daemon, "planner.approve_plan",
+        daemon,
+        "planner.approve_plan",
         {"plan_id": plan_id, "review": {"comments": [], "verdict": "maybe"}},
     )
     assert bad_verdict["status"] == "error"

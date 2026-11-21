@@ -105,8 +105,7 @@ class SessionManager:
                 chat = self.store.load_chat_session(session_id)
                 if chat is not None and chat.messages:
                     parent_messages = [
-                        m.to_dict() if hasattr(m, "to_dict") else dict(m)
-                        for m in chat.messages
+                        m.to_dict() if hasattr(m, "to_dict") else dict(m) for m in chat.messages
                     ]
             except Exception as e:
                 logger.warning("fork: chat session load failed %s: %s", session_id, e)
@@ -120,7 +119,8 @@ class SessionManager:
                 except Exception as cp_err:
                     logger.warning(
                         "fork: checkpoint fallback load failed %s: %s",
-                        session_id, cp_err,
+                        session_id,
+                        cp_err,
                     )
         if summarize and parent_messages:
             try:
@@ -155,7 +155,10 @@ class SessionManager:
         self._tasks[bg.id] = task
         logger.info(
             "Forked background session %s from %s mode=%s parent_msgs=%d",
-            bg.id, session_id, bg.metadata.get("fork_mode"), len(parent_messages),
+            bg.id,
+            session_id,
+            bg.metadata.get("fork_mode"),
+            len(parent_messages),
         )
         return bg
 
@@ -243,9 +246,7 @@ class SessionManager:
                             pass
                 consumed, bg.injected = bg.injected, []
                 if consumed:
-                    logger.info(
-                        "injected turns consumed session=%s count=%d", bg.id, len(consumed)
-                    )
+                    logger.info("injected turns consumed session=%s count=%d", bg.id, len(consumed))
                     pending.extend(consumed)
 
             output = ""
@@ -262,9 +263,7 @@ class SessionManager:
             bg.output = output
             bg.status = SessionStatus.COMPLETED
             bg.finished_at = time.time()
-            logger.info(
-                "Background session %s completed, output len=%d", bg.id, len(output)
-            )
+            logger.info("Background session %s completed, output len=%d", bg.id, len(output))
 
         except asyncio.CancelledError:
             bg.status = SessionStatus.KILLED
@@ -304,9 +303,7 @@ class SessionManager:
         q: asyncio.Queue = asyncio.Queue(maxsize=1000)
         bg._subscribers.append(q)
         buffered = list(bg.event_buffer)
-        logger.info(
-            "Attached to background session %s, buffered=%d", session_id, len(buffered)
-        )
+        logger.info("Attached to background session %s, buffered=%d", session_id, len(buffered))
         return buffered
 
     def detach(self, session_id: str) -> bool:

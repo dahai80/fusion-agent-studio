@@ -21,9 +21,7 @@ class TestAgentEvent:
         assert before <= event.timestamp <= after
 
     def test_to_dict(self):
-        event = AgentEvent(
-            type=AgentEventType.TOOL_CALL, name="read_file", args={"path": "/tmp"}
-        )
+        event = AgentEvent(type=AgentEventType.TOOL_CALL, name="read_file", args={"path": "/tmp"})
         d = event.to_dict()
         assert d["type"] == "tool_call"
         assert d["name"] == "read_file"

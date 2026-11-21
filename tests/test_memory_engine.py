@@ -221,9 +221,7 @@ class TestMemoryEngineAutoSummarize:
 
 class TestMemoryTier:
     def test_to_dict(self):
-        tier = MemoryTier(
-            name="test", max_entries=50, max_age_hours=12.0, importance_threshold=5
-        )
+        tier = MemoryTier(name="test", max_entries=50, max_age_hours=12.0, importance_threshold=5)
         d = tier.to_dict()
         assert d["name"] == "test"
         assert d["max_entries"] == 50
@@ -491,4 +489,3 @@ class TestMemoryThreadSafety:
         assert len(ids) == 8
         assert len(set(ids)) == 8
         assert engine.count(scope="cc") == 8
-

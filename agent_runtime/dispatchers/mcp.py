@@ -24,8 +24,19 @@ logger = logging.getLogger(__name__)
 _METADATA_IPS = ("169.254.169.254", "169.254.170.2", "100.100.100.200")
 _SSRF_BLOCK_HOSTS = ("metadata.google.internal", "metadata.aws.internal")
 _DANGEROUS_STDIO = (
-    "curl", "wget", "nc", "ncat", "bash", "sh", "zsh", "python", "python3",
-    "perl", "ruby", "node", "php",
+    "curl",
+    "wget",
+    "nc",
+    "ncat",
+    "bash",
+    "sh",
+    "zsh",
+    "python",
+    "python3",
+    "perl",
+    "ruby",
+    "node",
+    "php",
 )
 
 
@@ -100,7 +111,9 @@ class McpDispatcher(SubDispatcher):
         return None
 
     async def _handle_protocol_list(self, params: dict) -> dict:
-        return {"artifacts": self._get_protocol_plane().list(kind=str(params.get("kind", "") or ""))}
+        return {
+            "artifacts": self._get_protocol_plane().list(kind=str(params.get("kind", "") or ""))
+        }
 
     async def _handle_protocol_register(self, params: dict) -> dict:
         kind = str(params.get("kind", "") or "")
@@ -188,7 +201,8 @@ class McpDispatcher(SubDispatcher):
             for tool_name in registered:
                 extensions = mcp_reg.tool_extensions(tool_name)
                 plane.register(
-                    kind="mcp", name=tool_name,
+                    kind="mcp",
+                    name=tool_name,
                     origin=server_url or str(stdio_cmd),
                     extensions=extensions,
                 )
@@ -229,7 +243,9 @@ class McpDispatcher(SubDispatcher):
         if server_url:
             if server_url not in servers:
                 logger.warning("mcp.list_resources blocked: server_url not registered")
-                return self._err("server_url is not registered; register first via mcp.register_server")
+                return self._err(
+                    "server_url is not registered; register first via mcp.register_server"
+                )
             target_key = server_url
         else:
             target_key = next(iter(servers), "")
@@ -261,7 +277,9 @@ class McpDispatcher(SubDispatcher):
         if server_url:
             if server_url not in servers:
                 logger.warning("mcp.list_prompts blocked: server_url not registered")
-                return self._err("server_url is not registered; register first via mcp.register_server")
+                return self._err(
+                    "server_url is not registered; register first via mcp.register_server"
+                )
             target_key = server_url
         else:
             target_key = next(iter(servers), "")

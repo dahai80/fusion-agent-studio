@@ -44,6 +44,7 @@ if _PLATFORM_OK:
             kCGWindowImageDefault,
             kCGWindowListOptionOnScreenOnly,
         )
+
         _QUARTZ_OK = True
     except ImportError:
         _QUARTZ_OK = False
@@ -230,6 +231,7 @@ class ScreenCaptureTool(BaseTool):
 
             if fmt == "path":
                 import tempfile
+
                 path = tempfile.mktemp(suffix=".png", prefix="fusion_capture_")
                 with open(path, "wb") as f:
                     f.write(data_bytes)
@@ -283,7 +285,7 @@ class MouseTool(BaseTool):
             "type": "object",
             "description": "#282: optional AX-tree locator (env-gated FUSION_AX_LOCATOR_ENABLED). "
             "Resolves target via fusion-executor inspect_tree before issuing CGEvent. "
-            "e.g. {\"ax_label\": \"Submit\", \"ax_role\": \"AXButton\"}. Overrides x/y when set.",
+            'e.g. {"ax_label": "Submit", "ax_role": "AXButton"}. Overrides x/y when set.',
         },
     }
 
@@ -334,7 +336,9 @@ class MouseTool(BaseTool):
                 )
                 CGEventPost(kCGHIDEventTap, move_event)
                 time.sleep(0.02)
-                down_event = CGEventCreateMouseEvent(source, down_type, (from_x, from_y), CGMouseButton.kCGMouseButtonLeft)
+                down_event = CGEventCreateMouseEvent(
+                    source, down_type, (from_x, from_y), CGMouseButton.kCGMouseButtonLeft
+                )
                 CGEventPost(kCGHIDEventTap, down_event)
                 time.sleep(0.05)
                 steps = max(1, int(((x - from_x) ** 2 + (y - from_y) ** 2) ** 0.5 / 20))
@@ -347,7 +351,9 @@ class MouseTool(BaseTool):
                     )
                     CGEventPost(kCGHIDEventTap, drag_event)
                     time.sleep(0.01)
-                up_event = CGEventCreateMouseEvent(source, up_type, (x, y), CGMouseButton.kCGMouseButtonLeft)
+                up_event = CGEventCreateMouseEvent(
+                    source, up_type, (x, y), CGMouseButton.kCGMouseButtonLeft
+                )
                 CGEventPost(kCGHIDEventTap, up_event)
                 return f"Dragged from ({from_x}, {from_y}) to ({x}, {y})"
 
@@ -389,18 +395,49 @@ class MouseTool(BaseTool):
 
 _KEY_MAP: dict[str, int] = {}
 if _QUARTZ_OK:
-    _KEY_MAP.update({
-        "return": 0x24, "enter": 0x24, "tab": 0x30, "space": 0x31,
-        "delete": 0x33, "backspace": 0x33, "escape": 0x35, "esc": 0x35,
-        "command": 0x37, "cmd": 0x37, "shift": 0x38, "capslock": 0x39,
-        "option": 0x3A, "alt": 0x3A, "control": 0x3B, "ctrl": 0x3B,
-        "right_shift": 0x3C, "right_option": 0x3D, "right_control": 0x3E,
-        "f1": 0x7A, "f2": 0x78, "f3": 0x63, "f4": 0x76, "f5": 0x60,
-        "f6": 0x61, "f7": 0x62, "f8": 0x64, "f9": 0x65, "f10": 0x6D,
-        "f11": 0x67, "f12": 0x6F,
-        "home": 0x73, "end": 0x77, "pageup": 0x74, "pagedown": 0x79,
-        "left_arrow": 0x7B, "right_arrow": 0x7C, "down_arrow": 0x7D, "up_arrow": 0x7E,
-    })
+    _KEY_MAP.update(
+        {
+            "return": 0x24,
+            "enter": 0x24,
+            "tab": 0x30,
+            "space": 0x31,
+            "delete": 0x33,
+            "backspace": 0x33,
+            "escape": 0x35,
+            "esc": 0x35,
+            "command": 0x37,
+            "cmd": 0x37,
+            "shift": 0x38,
+            "capslock": 0x39,
+            "option": 0x3A,
+            "alt": 0x3A,
+            "control": 0x3B,
+            "ctrl": 0x3B,
+            "right_shift": 0x3C,
+            "right_option": 0x3D,
+            "right_control": 0x3E,
+            "f1": 0x7A,
+            "f2": 0x78,
+            "f3": 0x63,
+            "f4": 0x76,
+            "f5": 0x60,
+            "f6": 0x61,
+            "f7": 0x62,
+            "f8": 0x64,
+            "f9": 0x65,
+            "f10": 0x6D,
+            "f11": 0x67,
+            "f12": 0x6F,
+            "home": 0x73,
+            "end": 0x77,
+            "pageup": 0x74,
+            "pagedown": 0x79,
+            "left_arrow": 0x7B,
+            "right_arrow": 0x7C,
+            "down_arrow": 0x7D,
+            "up_arrow": 0x7E,
+        }
+    )
     for i in range(26):
         _KEY_MAP[chr(ord("a") + i)] = 0x04 + i
     for i in range(10):
@@ -439,7 +476,7 @@ class KeyboardTool(BaseTool):
             "type": "object",
             "description": "#282: optional AX-tree locator (env-gated FUSION_AX_LOCATOR_ENABLED). "
             "Resolves a focus target via fusion-executor inspect_tree and clicks it "
-            "to focus before typing. e.g. {\"ax_label\": \"Search\", \"ax_role\": \"AXTextField\"}.",
+            'to focus before typing. e.g. {"ax_label": "Search", "ax_role": "AXTextField"}.',
         },
     }
 
@@ -472,9 +509,7 @@ class KeyboardTool(BaseTool):
                     )
                     CGEventPost(kCGHIDEventTap, up_event)
                     time.sleep(0.05)
-                    logger.info(
-                        "keyboard locator focused (%d,%d) before typing", fx, fy
-                    )
+                    logger.info("keyboard locator focused (%d,%d) before typing", fx, fy)
                 except Exception as e:
                     logger.warning("keyboard locator focus click failed: %s", e)
             else:
@@ -614,8 +649,7 @@ class ClipboardTool(BaseTool):
 
             if action == "read":
                 result = subprocess.run(
-                    ["pbpaste", "-Prefer", "txt"],
-                    capture_output=True, text=True, timeout=5
+                    ["pbpaste", "-Prefer", "txt"], capture_output=True, text=True, timeout=5
                 )
                 if result.returncode == 0:
                     content = result.stdout
@@ -625,8 +659,7 @@ class ClipboardTool(BaseTool):
             elif action == "write":
                 text = kwargs.get("text", "")
                 result = subprocess.run(
-                    ["pbcopy"],
-                    input=text, capture_output=True, text=True, timeout=5
+                    ["pbcopy"], input=text, capture_output=True, text=True, timeout=5
                 )
                 if result.returncode == 0:
                     return f"Copied {len(text)} characters to clipboard"

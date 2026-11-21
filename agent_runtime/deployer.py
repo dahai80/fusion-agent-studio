@@ -18,9 +18,7 @@ class GraphDeployer:
         return path
 
     @staticmethod
-    def export_as_python(
-        graph: AgentGraph, filepath: str | Path, with_server: bool = True
-    ) -> Path:
+    def export_as_python(graph: AgentGraph, filepath: str | Path, with_server: bool = True) -> Path:
         """Export graph as a standalone Python script."""
         from .exporter import GraphExporter
 
@@ -40,9 +38,7 @@ class GraphDeployer:
         return path
 
     @staticmethod
-    def export_as_fastapi(
-        graph: AgentGraph, filepath: str | Path, port: int = 11453
-    ) -> Path:
+    def export_as_fastapi(graph: AgentGraph, filepath: str | Path, port: int = 11453) -> Path:
         """Export graph as a FastAPI server that can be run independently."""
         llm_model = graph.find_llm_model() or "qwen3.5-9b"
         code = f'''#!/usr/bin/env python3

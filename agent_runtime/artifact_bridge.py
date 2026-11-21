@@ -146,7 +146,9 @@ class ArtifactBridge:
                     params["section"] = section
                 result = await self._rpc("artifact.load", params)
                 logger.info("artifact.load via remote: id=%s", artifact_id)
-                return self._scan_loaded({"status": "ok", "source": "remote", **result}, artifact_id)
+                return self._scan_loaded(
+                    {"status": "ok", "source": "remote", **result}, artifact_id
+                )
             except (httpx.HTTPError, RuntimeError, OSError) as e:
                 logger.warning("artifact.load remote failed, fallback local: %s", e)
         result = self.local.load_artifact(
@@ -346,11 +348,7 @@ class ArtifactBridge:
         context_window: int = 32768,
         limit: int = 5,
     ) -> dict[str, Any]:
-        return self.local.get_active_artifacts_context_budget_aware(
-            agent_id, context_window, limit
-        )
+        return self.local.get_active_artifacts_context_budget_aware(agent_id, context_window, limit)
 
-    def advance_generation_phase(
-        self, artifact_id: str, target_phase: str
-    ) -> dict[str, Any]:
+    def advance_generation_phase(self, artifact_id: str, target_phase: str) -> dict[str, Any]:
         return self.local.advance_generation_phase(artifact_id, target_phase)

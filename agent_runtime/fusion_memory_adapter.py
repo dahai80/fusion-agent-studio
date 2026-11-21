@@ -55,15 +55,11 @@ class FusionMemoryAdapter:
         timeout: float = DEFAULT_TIMEOUT,
     ) -> None:
         self._base_url = (
-            base_url
-            or os.environ.get("FUSION_MEMORY_BASE_URL")
-            or DEFAULT_BASE_URL
+            base_url or os.environ.get("FUSION_MEMORY_BASE_URL") or DEFAULT_BASE_URL
         ).rstrip("/")
         self._api_key = api_key or os.environ.get("FUSION_MEMORY_API_KEY")
         if not self._api_key:
-            raise RuntimeError(
-                "FUSION_MEMORY_API_KEY 未配置 (fm-server Bearer 鉴权, B5)"
-            )
+            raise RuntimeError("FUSION_MEMORY_API_KEY 未配置 (fm-server Bearer 鉴权, B5)")
         self._timeout = timeout
         self._client = httpx.Client(
             base_url=self._base_url,

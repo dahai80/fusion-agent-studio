@@ -1,15 +1,18 @@
 """#486: approval-noise metric (asks per 100 calls) in telemetry gauges."""
+
 from agent_runtime.telemetry import TelemetryEngine
 
 
 def test_record_permission_noise_computes_rate():
     engine = TelemetryEngine()
-    rate = engine.record_permission_noise({
-        "asks": 15,
-        "auto_allow_readonly": 60,
-        "auto_allow_loopback": 20,
-        "denies": 5,
-    })
+    rate = engine.record_permission_noise(
+        {
+            "asks": 15,
+            "auto_allow_readonly": 60,
+            "auto_allow_loopback": 20,
+            "denies": 5,
+        }
+    )
     assert rate == 15.0
     gauges = engine.metrics()["gauges"]
     assert gauges["approval_asks_per_100_calls"] == 15.0

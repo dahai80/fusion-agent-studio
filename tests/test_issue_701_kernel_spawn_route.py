@@ -36,7 +36,9 @@ def _runtime_with_kernel(**kwargs):
 class TestKernelSpawnRoute:
     @pytest.mark.asyncio
     async def test_spawn_executes_via_kernel_runner(self, daemon, tmp_path):
-        rt, _client, orch = _runtime_with_kernel(responses=[_llm_response(content="kernel report body")])
+        rt, _client, orch = _runtime_with_kernel(
+            responses=[_llm_response(content="kernel report body")]
+        )
         daemon._get_runtime = lambda: rt
         kernel_runner = orch["runner"]
         assert kernel_runner._counter == 0
@@ -55,7 +57,8 @@ class TestKernelSpawnRoute:
         daemon._get_runtime = lambda: rt
         before = orch["runner"]._counter
         res = await _run(
-            daemon, "subagent.run",
+            daemon,
+            "subagent.run",
             {"spec": {"name": "w2", "task": "do it"}, "brief": {"objective": "half-baked"}},
         )
         assert res["status"] == "error"
@@ -104,8 +107,13 @@ class TestKernelSpawnRoute:
         rt, _client, orch = _runtime_with_kernel(responses=[_llm_response(content="x")])
         daemon._get_runtime = lambda: rt
         brief = {
-            "objective": "deep", "output_format": "report", "tool_guidance": "none",
-            "boundaries": "none", "token_budget": 100, "concurrency": 1, "depth": 4,
+            "objective": "deep",
+            "output_format": "report",
+            "tool_guidance": "none",
+            "boundaries": "none",
+            "token_budget": 100,
+            "concurrency": 1,
+            "depth": 4,
         }
         res = await _run(
             daemon, "subagent.run", {"spec": {"name": "w6", "task": "go"}, "brief": brief}

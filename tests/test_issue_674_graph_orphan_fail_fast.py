@@ -38,7 +38,7 @@ class _FakeDaemon:
     async def _task_submit(self, params: dict) -> dict:
         self._seq += 1
         task = Task(
-            task_id=params.get("task_id", "") or f"run-{int(time.time()*1000)}-{self._seq}",
+            task_id=params.get("task_id", "") or f"run-{int(time.time() * 1000)}-{self._seq}",
             title=params.get("title", ""),
             description=params.get("description", ""),
             agent_id=params.get("agent_id", ""),

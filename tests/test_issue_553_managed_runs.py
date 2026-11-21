@@ -1,5 +1,6 @@
 """#553: managed SSE runs — run_started frame, seq frames, resume without
 duplicates, cancel endpoint, registry reap/cap."""
+
 from __future__ import annotations
 
 import asyncio
@@ -82,13 +83,10 @@ def _parse_sse(body: str) -> list[dict]:
 
 
 class TestSSEManagedRun:
-
     def test_stream_yields_run_started_and_seq_frames(self, patched_api):
         client = TestClient(app)
         graph = patched_api["graph"]
-        with client.stream(
-            "GET", f"/v1/graphs/{graph.id}/execute/stream?input=hi"
-        ) as resp:
+        with client.stream("GET", f"/v1/graphs/{graph.id}/execute/stream?input=hi") as resp:
             assert resp.status_code == 200
             body = b""
             for chunk in resp.iter_bytes():
@@ -106,9 +104,7 @@ class TestSSEManagedRun:
     def test_resume_replays_only_frames_past_last_seq(self, patched_api):
         client = TestClient(app)
         graph = patched_api["graph"]
-        with client.stream(
-            "GET", f"/v1/graphs/{graph.id}/execute/stream?input=hi"
-        ) as resp:
+        with client.stream("GET", f"/v1/graphs/{graph.id}/execute/stream?input=hi") as resp:
             body = b""
             for chunk in resp.iter_bytes():
                 body += chunk
@@ -133,9 +129,7 @@ class TestSSEManagedRun:
     def test_resume_past_done_terminates(self, patched_api):
         client = TestClient(app)
         graph = patched_api["graph"]
-        with client.stream(
-            "GET", f"/v1/graphs/{graph.id}/execute/stream?input=hi"
-        ) as resp:
+        with client.stream("GET", f"/v1/graphs/{graph.id}/execute/stream?input=hi") as resp:
             body = b""
             for chunk in resp.iter_bytes():
                 body += chunk
@@ -154,9 +148,7 @@ class TestSSEManagedRun:
 
     def test_resume_unknown_run_404(self, patched_api):
         client = TestClient(app)
-        resp = client.get(
-            "/v1/graphs/g1/execute/stream?input=hi&resume_run_id=run-nope"
-        )
+        resp = client.get("/v1/graphs/g1/execute/stream?input=hi&resume_run_id=run-nope")
         assert resp.status_code == 404
 
     def test_cancel_endpoint(self, patched_api):
@@ -167,16 +159,12 @@ class TestSSEManagedRun:
         # pretend the background task exists and is running
         run.done = False
         registry._runs[run.run_id] = run
-        resp = client.post(
-            f"/v1/graphs/{graph.id}/execute/stream/{run.run_id}/cancel"
-        )
+        resp = client.post(f"/v1/graphs/{graph.id}/execute/stream/{run.run_id}/cancel")
         assert resp.status_code == 200
         assert resp.json()["cancelled"] is True
         assert run.cancelled is True
         # unknown run
-        resp2 = client.post(
-            f"/v1/graphs/{graph.id}/execute/stream/run-missing/cancel"
-        )
+        resp2 = client.post(f"/v1/graphs/{graph.id}/execute/stream/run-missing/cancel")
         assert resp2.status_code == 404
 
     def test_only_node_runs_through_managed_path(self, patched_api):
@@ -197,7 +185,6 @@ class TestSSEManagedRun:
 
 
 class TestRunRegistry:
-
     def test_publish_assigns_seq_and_caps_buffer(self):
         from agent_runtime.run_registry import MAX_BUFFER
 

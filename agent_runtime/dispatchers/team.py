@@ -146,7 +146,9 @@ class TeamDispatcher(SubDispatcher):
     async def _handle_team_mailbox_stats(self, params: dict) -> dict:
         return self._mailbox().stats()
 
-    async def _fire_team_message(self, kind: str, sender: str = "", content: str = "", **extra) -> None:
+    async def _fire_team_message(
+        self, kind: str, sender: str = "", content: str = "", **extra
+    ) -> None:
         # N8 #391: TEAM_MESSAGE hook — observe inter-agent traffic without
         # blocking the dispatcher (hook failures are logged, never raised).
         get_hooks = getattr(self._daemon, "_get_hooks", None)
@@ -208,9 +210,7 @@ class TeamDispatcher(SubDispatcher):
 
     async def _handle_team_swarm_escalate(self, params: dict) -> dict:
         swarm = self._daemon._get_swarm()
-        delegation = swarm.escalate(
-            params["delegation_id"], reason=params.get("reason", "")
-        )
+        delegation = swarm.escalate(params["delegation_id"], reason=params.get("reason", ""))
         return {"delegation": self._daemon._serialize(delegation)}
 
     async def _handle_team_swarm_stats(self, params: dict) -> dict:
@@ -331,9 +331,7 @@ class TeamDispatcher(SubDispatcher):
                     merge_strategy=params.get("merge_strategy", "concat"),
                 )
             elif pattern == "master_worker":
-                res = await orch.master_worker(
-                    build(params["supervisor"]), agents, input_text
-                )
+                res = await orch.master_worker(build(params["supervisor"]), agents, input_text)
             elif pattern == "supervisor":
                 res = await orch.supervisor(
                     build(params["supervisor"]),
@@ -410,7 +408,12 @@ class TeamDispatcher(SubDispatcher):
         max_concurrency = _task_max_concurrency()
         logger.info(
             "team.health: team=%s pending=%d running=%d total=%d failures=%d queue=%d",
-            team, pending, running, total, recent_failures, lease_queue_depth,
+            team,
+            pending,
+            running,
+            total,
+            recent_failures,
+            lease_queue_depth,
         )
         return {
             "team": team,

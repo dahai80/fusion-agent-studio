@@ -117,20 +117,14 @@ class TestConditionEngineLogical:
     def test_and_true(self, engine, variables):
         ctx = AgentContext()
         ctx.iteration_count = 5
-        assert (
-            engine.evaluate("iteration >= 3 and iteration < 10", ctx, variables)
-            == "true"
-        )
+        assert engine.evaluate("iteration >= 3 and iteration < 10", ctx, variables) == "true"
 
     def test_and_one_false(self, engine, variables):
         ctx = AgentContext()
         ctx.iteration_count = 5
         assert (
-            engine.evaluate("iteration >= 3 and has_error", ctx, variables)
-            == "true"
-            == "false"
-            or engine.evaluate("iteration >= 3 and has_error", ctx, variables)
-            == "false"
+            engine.evaluate("iteration >= 3 and has_error", ctx, variables) == "true" == "false"
+            or engine.evaluate("iteration >= 3 and has_error", ctx, variables) == "false"
         )
 
     def test_not(self, engine, ctx, variables):
@@ -157,15 +151,11 @@ class TestConditionEngineComplex:
     def test_compound_expression(self, engine, variables):
         ctx = AgentContext()
         ctx.iteration_count = 3
-        assert (
-            engine.evaluate("iteration >= 1 and not has_error", ctx, variables)
-            == "true"
-        )
+        assert engine.evaluate("iteration >= 1 and not has_error", ctx, variables) == "true"
 
     def test_multiple_or(self, engine, variables):
         ctx = AgentContext()
         ctx.error = "timeout"
         assert (
-            engine.evaluate("has_tool_calls or has_error or has_result", ctx, variables)
-            == "true"
+            engine.evaluate("has_tool_calls or has_error or has_result", ctx, variables) == "true"
         )

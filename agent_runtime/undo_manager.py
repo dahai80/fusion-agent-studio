@@ -30,10 +30,7 @@ class UndoManager:
     def record(self, nodes: dict, edges: list, selected: str = "") -> None:
         """Record a snapshot before a mutation."""
         snap = CanvasSnapshot(
-            nodes={
-                k: dict(v) if hasattr(v, "to_dict") else dict(v)
-                for k, v in nodes.items()
-            },
+            nodes={k: dict(v) if hasattr(v, "to_dict") else dict(v) for k, v in nodes.items()},
             edges=[dict(e) if hasattr(e, "to_dict") else dict(e) for e in edges],
             selected_node_id=selected,
         )

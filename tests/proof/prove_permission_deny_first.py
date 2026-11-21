@@ -102,7 +102,8 @@ def prove_mode_matrix():
 
 async def prove_funnel_deny_first_integration():
     engine = PermissionEngine(
-        rules=[PermissionRule(action="deny", tool="dangerous_tool", layer="global")], mode="approved"
+        rules=[PermissionRule(action="deny", tool="dangerous_tool", layer="global")],
+        mode="approved",
     )
     safety = SafetyStub()
     funnel = ToolFunnel(permissions=engine, safety_gateway=safety)

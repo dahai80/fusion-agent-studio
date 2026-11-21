@@ -887,8 +887,13 @@ class TaskStore:
                     "RETURNING task_id"
                 )
                 params: tuple = (
-                    TASK_STATUS_RUNNING, owner_agent, token, now, now,
-                    TASK_STATUS_PENDING, TASK_STATUS_PENDING,
+                    TASK_STATUS_RUNNING,
+                    owner_agent,
+                    token,
+                    now,
+                    now,
+                    TASK_STATUS_PENDING,
+                    TASK_STATUS_PENDING,
                 )
             else:
                 sql = (
@@ -902,8 +907,14 @@ class TaskStore:
                     "RETURNING task_id"
                 )
                 params = (
-                    TASK_STATUS_RUNNING, owner_agent, token, now, now,
-                    team, TASK_STATUS_PENDING, TASK_STATUS_PENDING,
+                    TASK_STATUS_RUNNING,
+                    owner_agent,
+                    token,
+                    now,
+                    now,
+                    team,
+                    TASK_STATUS_PENDING,
+                    TASK_STATUS_PENDING,
                 )
             row = self._conn.execute(sql, params).fetchone()
             if row is None:
@@ -954,7 +965,9 @@ class TaskStore:
             if dep is None or dep.status != TASK_STATUS_COMPLETED:
                 logger.info(
                     "task %s blocked by dep %s (status=%s)",
-                    task_id, dep_id, dep.status if dep else "missing",
+                    task_id,
+                    dep_id,
+                    dep.status if dep else "missing",
                 )
                 return False
         return True
@@ -984,7 +997,9 @@ class TaskStore:
         )
         logger.info(
             "Task %s requeued for retry (attempt %d, reason=%s)",
-            task_id, task.retry_count, reason,
+            task_id,
+            task.retry_count,
+            reason,
         )
         return task
 
@@ -997,8 +1012,7 @@ class TaskStore:
         now = time.time()
         with self._write_lock:
             rows = self._conn.execute(
-                "SELECT task_id FROM tasks "
-                "WHERE status = ? AND owner_agent = ?",
+                "SELECT task_id FROM tasks WHERE status = ? AND owner_agent = ?",
                 (TASK_STATUS_RUNNING, owner_agent),
             ).fetchall()
             ids = [r[0] for r in rows]

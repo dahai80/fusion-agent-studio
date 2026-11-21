@@ -1,4 +1,3 @@
-
 import pytest
 from fusion_harness.code_mode import CodeModeTurn
 from fusion_harness.funnels import ToolFunnel

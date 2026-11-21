@@ -228,9 +228,7 @@ _register(
             "nodes": [
                 _start_node("start"),
                 _llm_node("analyze", "{{analysis_prompt}}\n\nInput:\n{{input}}"),
-                _llm_node(
-                    "transform", "{{transform_prompt}}\n\nAnalysis:\n{{prev_output}}"
-                ),
+                _llm_node("transform", "{{transform_prompt}}\n\nAnalysis:\n{{prev_output}}"),
                 _llm_node(
                     "output",
                     "Format the following as a final deliverable:\n{{prev_output}}",
@@ -398,7 +396,5 @@ def instantiate_template(
             for key, val in merged_vars.items():
                 config["prompt"] = config["prompt"].replace("{{" + key + "}}", val)
 
-    logger.info(
-        "Instantiated template %s with %d variables", template_id, len(merged_vars)
-    )
+    logger.info("Instantiated template %s with %d variables", template_id, len(merged_vars))
     return graph_data

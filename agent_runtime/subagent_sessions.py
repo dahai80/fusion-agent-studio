@@ -14,9 +14,7 @@ from .paths import studio_home
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_DB = os.path.join(
-    str(studio_home()), "subagents.db"
-)
+DEFAULT_DB = os.path.join(str(studio_home()), "subagents.db")
 
 
 def _db_path(path: str | None = None) -> str:
@@ -129,8 +127,7 @@ class SubAgentTranscriptStore:
                 existing = []
             existing.extend(m for m in messages if isinstance(m, dict))
             conn.execute(
-                "UPDATE subagent_transcripts SET messages = ?, updated_at = ? "
-                "WHERE agent_id = ?",
+                "UPDATE subagent_transcripts SET messages = ?, updated_at = ? WHERE agent_id = ?",
                 (json.dumps(existing, ensure_ascii=False), time.time(), agent_id),
             )
 
@@ -151,8 +148,16 @@ class SubAgentTranscriptStore:
             conn.execute(
                 "UPDATE subagent_transcripts SET status = ?, partial = ?, turns = ?, "
                 "tokens_used = ?, report = ?, error = ?, updated_at = ? WHERE agent_id = ?",
-                (status, 1 if partial else 0, int(turns), int(tokens_used),
-                 report[:20000], error[:4000], time.time(), agent_id),
+                (
+                    status,
+                    1 if partial else 0,
+                    int(turns),
+                    int(tokens_used),
+                    report[:20000],
+                    error[:4000],
+                    time.time(),
+                    agent_id,
+                ),
             )
         logger.info(
             "subagent transcript finished agent_id=%s status=%s partial=%s turns=%d",
@@ -185,9 +190,7 @@ class SubAgentTranscriptStore:
 
     def delete(self, agent_id: str) -> bool:
         with _connect(self.path) as conn:
-            cur = conn.execute(
-                "DELETE FROM subagent_transcripts WHERE agent_id = ?", (agent_id,)
-            )
+            cur = conn.execute("DELETE FROM subagent_transcripts WHERE agent_id = ?", (agent_id,))
         logger.info("subagent transcript delete agent_id=%s ok=%s", agent_id, cur.rowcount > 0)
         return cur.rowcount > 0
 
@@ -251,13 +254,15 @@ class SubAgentTaskManager:
             report = await self.runner.run(spec, parent_ctx, agent_id=agent_id)
             self._reports[agent_id] = report.to_dict()
         except asyncio.CancelledError:
-            self.store.finish(agent_id, ok=False, partial=False, turns=0,
-                              tokens_used=0, error="cancelled")
+            self.store.finish(
+                agent_id, ok=False, partial=False, turns=0, tokens_used=0, error="cancelled"
+            )
             raise
         except Exception as e:
             logger.error("subagent task failed agent_id=%s err=%s", agent_id, e)
-            self.store.finish(agent_id, ok=False, partial=False, turns=0,
-                              tokens_used=0, error=str(e))
+            self.store.finish(
+                agent_id, ok=False, partial=False, turns=0, tokens_used=0, error=str(e)
+            )
             self._reports[agent_id] = {"name": spec.name, "ok": False, "error": str(e)}
 
     async def wait(self, agent_id: str, timeout: float = 0) -> dict | None:
@@ -310,5 +315,10 @@ class SubAgentTaskManager:
                 }
             )
         running = sum(1 for n in nodes if n["status"] == "running")
-        logger.info("subagent tree parent=%s nodes=%d running=%d", parent_session or "-", len(nodes), running)
+        logger.info(
+            "subagent tree parent=%s nodes=%d running=%d",
+            parent_session or "-",
+            len(nodes),
+            running,
+        )
         return {"parent_session": parent_session, "nodes": nodes, "running": running}

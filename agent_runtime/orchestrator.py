@@ -130,9 +130,7 @@ class MultiAgentOrchestrator:
                 ctx.metadata["agent_name"] = agent_config.name
 
                 events = []
-                async for event in runtime.execute_graph(
-                    agent_config.graph, current_input, ctx
-                ):
+                async for event in runtime.execute_graph(agent_config.graph, current_input, ctx):
                     events.append(event)
 
                 final_content = self._extract_final_output(events, ctx)
@@ -170,23 +168,17 @@ class MultiAgentOrchestrator:
         start = time.time()
         semaphore = asyncio.Semaphore(self.max_concurrent)
 
-        async def run_single(
-            agent_config: AgentConfig, agent_input: str
-        ) -> dict[str, Any]:
+        async def run_single(agent_config: AgentConfig, agent_input: str) -> dict[str, Any]:
             async with semaphore:
                 try:
                     from .runtime import AgentRuntime
 
-                    runtime = AgentRuntime(
-                        tool_registry=self.tools, llm_gateway=self.llm_gateway
-                    )
+                    runtime = AgentRuntime(tool_registry=self.tools, llm_gateway=self.llm_gateway)
                     ctx = AgentContext()
                     ctx.metadata["agent_name"] = agent_config.name
 
                     events = []
-                    async for event in runtime.execute_graph(
-                        agent_config.graph, agent_input, ctx
-                    ):
+                    async for event in runtime.execute_graph(agent_config.graph, agent_input, ctx):
                         events.append(event)
 
                     final_content = self._extract_final_output(events, ctx)
@@ -257,15 +249,11 @@ class MultiAgentOrchestrator:
         )
 
         master_events = []
-        async for event in master_runtime.execute_graph(
-            master.graph, decompose_prompt, master_ctx
-        ):
+        async for event in master_runtime.execute_graph(master.graph, decompose_prompt, master_ctx):
             master_events.append(event)
 
         sub_tasks = self._extract_sub_tasks(master_ctx, len(workers))
-        logger.info(
-            "Master decomposed task into %d sub-tasks: %s", len(sub_tasks), sub_tasks
-        )
+        logger.info("Master decomposed task into %d sub-tasks: %s", len(sub_tasks), sub_tasks)
 
         worker_results = await self.parallel(
             workers,
@@ -276,10 +264,7 @@ class MultiAgentOrchestrator:
             f"Original task: {task}\n\n"
             f"Worker results:\n"
             + json.dumps(
-                [
-                    {"worker": r["agent"], "output": r["output"]}
-                    for r in worker_results.results
-                ],
+                [{"worker": r["agent"], "output": r["output"]} for r in worker_results.results],
                 indent=2,
                 ensure_ascii=False,
             )
@@ -288,9 +273,7 @@ class MultiAgentOrchestrator:
 
         summary_ctx = AgentContext()
         summary_events = []
-        async for event in master_runtime.execute_graph(
-            master.graph, summary_prompt, summary_ctx
-        ):
+        async for event in master_runtime.execute_graph(master.graph, summary_prompt, summary_ctx):
             summary_events.append(event)
 
         summary = self._extract_final_output(summary_events, summary_ctx)
@@ -345,9 +328,7 @@ class MultiAgentOrchestrator:
                     agent_input = accumulated_context
 
                 events = []
-                async for event in runtime.execute_graph(
-                    agent_config.graph, agent_input, ctx
-                ):
+                async for event in runtime.execute_graph(agent_config.graph, agent_input, ctx):
                     events.append(event)
 
                 final_content = self._extract_final_output(events, ctx)
@@ -388,22 +369,13 @@ class MultiAgentOrchestrator:
                         )
                     nxt = agents[i + 1]
                     if not self.swarm_router.get_agent(nxt.name):
-                        self.swarm_router.register_agent(
-                            SwarmAgent(id=nxt.name, name=nxt.name)
-                        )
+                        self.swarm_router.register_agent(SwarmAgent(id=nxt.name, name=nxt.name))
                     swarm_ctx = SwarmHandoffContext(
-                        conversation=[
-                            {"role": agent_config.name, "content": final_content}
-                        ],
+                        conversation=[{"role": agent_config.name, "content": final_content}],
                         hop_count=i,
                         task_id=task_id,
                     )
-                    if (
-                        self.swarm_router.handoff(
-                            agent_config.name, nxt.name, swarm_ctx
-                        )
-                        is None
-                    ):
+                    if self.swarm_router.handoff(agent_config.name, nxt.name, swarm_ctx) is None:
                         logger.info(
                             "SwarmRouter blocked handoff at hop %d, stopping chain",
                             i + 1,
@@ -464,9 +436,7 @@ class MultiAgentOrchestrator:
                 try:
                     self.plaza.broadcast(channel_name, r["agent"], r.get("output", ""))
                 except Exception as e:
-                    logger.warning(
-                        "Plaza broadcast record failed for %s: %s", r["agent"], e
-                    )
+                    logger.warning("Plaza broadcast record failed for %s: %s", r["agent"], e)
 
         merged = self._merge_outputs(outputs, merge_strategy)
 
@@ -558,9 +528,7 @@ class MultiAgentOrchestrator:
             worker_instruction = route_decision.get("instruction", current_task)
 
             if worker_name not in worker_map:
-                logger.warning(
-                    "Supervisor chose unknown worker '%s', picking first", worker_name
-                )
+                logger.warning("Supervisor chose unknown worker '%s', picking first", worker_name)
                 worker_name = next(iter(worker_map))
 
             worker_config = worker_map[worker_name]
@@ -607,9 +575,7 @@ class MultiAgentOrchestrator:
                 current_task = worker_output
 
             except Exception as e:
-                logger.exception(
-                    "Worker %s failed in supervisor round %d", worker_name, round_num
-                )
+                logger.exception("Worker %s failed in supervisor round %d", worker_name, round_num)
                 routing_history.append(
                     {
                         "worker": worker_name,
@@ -727,9 +693,7 @@ class MultiAgentOrchestrator:
         elif strategy == "json":
             return json.dumps(outputs, ensure_ascii=False, indent=2)
         else:
-            logger.warning(
-                "Unknown merge strategy '%s', falling back to concat", strategy
-            )
+            logger.warning("Unknown merge strategy '%s', falling back to concat", strategy)
             return self._merge_outputs(outputs, "concat")
 
     def _parse_route_decision(self, output: str) -> dict[str, Any]:
@@ -782,15 +746,11 @@ class MultiAgentOrchestrator:
                     if isinstance(tasks, list):
                         return [str(t) for t in tasks[:expected_count]]
                 except (ValueError, TypeError):
-                    lines = [
-                        line.strip() for line in content.split("\n") if line.strip()
-                    ]
+                    lines = [line.strip() for line in content.split("\n") if line.strip()]
                     return lines[:expected_count]
         return [f"Sub-task {i + 1}" for i in range(expected_count)]
 
-    def set_limits(
-        self, max_concurrent: int | None = None, max_depth: int | None = None
-    ) -> dict:
+    def set_limits(self, max_concurrent: int | None = None, max_depth: int | None = None) -> dict:
         if max_concurrent is not None:
             self._limits["max_concurrent"] = max_concurrent
             self.max_concurrent = max_concurrent

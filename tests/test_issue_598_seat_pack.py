@@ -22,9 +22,7 @@ from agent_runtime.seat_pack import load_seat_specs
 def pack_home(tmp_path, monkeypatch):
     fake_home = tmp_path / "home"
     fake_home.mkdir()
-    monkeypatch.setenv(
-        "FUSION_AGENT_STUDIO_HOME", str(fake_home / ".fusion-agent-studio")
-    )
+    monkeypatch.setenv("FUSION_AGENT_STUDIO_HOME", str(fake_home / ".fusion-agent-studio"))
     return fake_home / ".fusion-agent-studio"
 
 
@@ -112,9 +110,7 @@ def test_user_override_dir_wins(pack_home):
 def test_invalid_override_fails_visibly(pack_home, caplog):
     override_dir = pack_home / "seats"
     override_dir.mkdir(parents=True)
-    (override_dir / "broken.yaml").write_text(
-        "seats: [not, a, mapping]\n", encoding="utf-8"
-    )
+    (override_dir / "broken.yaml").write_text("seats: [not, a, mapping]\n", encoding="utf-8")
     (override_dir / "good.yaml").write_text(
         yaml.safe_dump(
             {

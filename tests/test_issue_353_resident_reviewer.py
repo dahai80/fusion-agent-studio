@@ -1,6 +1,5 @@
 """#353 N14: verify-node resident reviewer on the event stream."""
 
-
 from agent_runtime.context import AgentContext, AgentEvent, AgentEventType
 from agent_runtime.graph import AgentGraph, NodeConfig
 from agent_runtime.resident_reviewer import (
@@ -99,7 +98,9 @@ async def test_runtime_resident_emits_findings(monkeypatch):
     rt = AgentRuntime(tool_registry=ToolRegistry())
     g = _graph(True)
 
-    async def fake_inner(graph, initial_input, ctx, token_budget, stream=False, max_iterations=None):
+    async def fake_inner(
+        graph, initial_input, ctx, token_budget, stream=False, max_iterations=None
+    ):
         yield _ev(AgentEventType.START, node_id="llm1")
         yield _ev(AgentEventType.RESULT, node_id="end")
 
@@ -117,7 +118,9 @@ async def test_runtime_non_resident_no_reviewer_events(monkeypatch):
     rt = AgentRuntime(tool_registry=ToolRegistry())
     g = _graph(False)
 
-    async def fake_inner(graph, initial_input, ctx, token_budget, stream=False, max_iterations=None):
+    async def fake_inner(
+        graph, initial_input, ctx, token_budget, stream=False, max_iterations=None
+    ):
         yield _ev(AgentEventType.START, node_id="llm1")
         yield _ev(AgentEventType.RESULT, node_id="end")
 
@@ -143,13 +146,19 @@ async def test_resident_verify_node_announces_and_skips_oneshot(monkeypatch):
     rt = AgentRuntime(tool_registry=ToolRegistry())
     g = AgentGraph(name="rv-resident")
     g.add_node("start", NodeConfig(type="start", label="start"))
-    g.add_node("verify1", NodeConfig(type="verify", label="verify1", tool_params={"resident": True}))
+    g.add_node(
+        "verify1", NodeConfig(type="verify", label="verify1", tool_params={"resident": True})
+    )
     g.add_node("end", NodeConfig(type="end", label="end"))
     g.add_edge("start", "verify1")
     g.add_edge("verify1", "end")
     saw_announce = False
     async for ev in rt.execute_graph(g, "run"):
-        if ev.name == "resident_reviewer" and ev.metadata.get("resident") and "[resident]" not in ev.content:
+        if (
+            ev.name == "resident_reviewer"
+            and ev.metadata.get("resident")
+            and "[resident]" not in ev.content
+        ):
             saw_announce = True
     assert saw_announce
     assert called["n"] == 0

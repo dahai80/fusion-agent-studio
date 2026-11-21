@@ -135,11 +135,13 @@ def parse_agent_md(content: str, fallback_name: str = "") -> AgentDefinition:
     body = content
     m = _FRONTMATTER_RE.match(content)
     if m:
-        body = content[m.end():]
+        body = content[m.end() :]
         try:
             loaded = yaml.safe_load(m.group(1)) or {}
         except yaml.YAMLError as e:
-            logger.warning("agent definition frontmatter parse failed name=%s: %s", fallback_name, e)
+            logger.warning(
+                "agent definition frontmatter parse failed name=%s: %s", fallback_name, e
+            )
             loaded = {}
         if isinstance(loaded, dict):
             meta = loaded

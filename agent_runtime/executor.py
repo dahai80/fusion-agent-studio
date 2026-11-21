@@ -41,16 +41,12 @@ class NodeExecutor:
         )
 
     def get_handler(self, node_type: str):
-        raise NotImplementedError(
-            "NodeExecutor is deprecated. Use AgentRuntime directly."
-        )
+        raise NotImplementedError("NodeExecutor is deprecated. Use AgentRuntime directly.")
 
     async def _handle_start(
         self, node: NodeConfig, ctx: "AgentContext", **kwargs
     ) -> dict[str, Any]:
         return {"action": "next", "output": ""}
 
-    async def _handle_end(
-        self, node: NodeConfig, ctx: "AgentContext", **kwargs
-    ) -> dict[str, Any]:
+    async def _handle_end(self, node: NodeConfig, ctx: "AgentContext", **kwargs) -> dict[str, Any]:
         return {"action": "stop", "output": ""}

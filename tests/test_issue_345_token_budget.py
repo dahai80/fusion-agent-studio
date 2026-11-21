@@ -15,7 +15,9 @@ async def test_pre_llm_budget_gate_blocks_when_exceeded():
     f = LLMFunnel(lifecycle_bus=bus)
     b = _budget(100)
     f.set_budget_ref(b)
-    ok, reason, msgs = await f.pre_llm({}, node_label="n", messages=[{"role": "user", "content": "hi"}])
+    ok, reason, msgs = await f.pre_llm(
+        {}, node_label="n", messages=[{"role": "user", "content": "hi"}]
+    )
     assert ok is False
     assert "budget" in reason
     events = bus.replay(domain="agent")

@@ -128,7 +128,7 @@ Checkpoint interplay (868/918-922): checkpoint state already serializes
 ```python
 plan_mode: bool = False
 tool_call_chain_count: int = 0
-variables: dict = field(default_factory=dict)   # snapshot, NOT a manager
+variables: dict = field(default_factory=dict)  # snapshot, NOT a manager
 ```
 
 Wait — `VariableManager` is not a dataclass-friendly snapshot. Re-decide: store the

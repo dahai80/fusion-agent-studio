@@ -136,12 +136,8 @@ class MetricsEngine:
                 timestamp REAL NOT NULL
             )
         """)
-        self._conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_inf_ts ON inference_metrics(timestamp)"
-        )
-        self._conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_sess_ts ON session_records(timestamp)"
-        )
+        self._conn.execute("CREATE INDEX IF NOT EXISTS idx_inf_ts ON inference_metrics(timestamp)")
+        self._conn.execute("CREATE INDEX IF NOT EXISTS idx_sess_ts ON session_records(timestamp)")
         self._conn.commit()
         logger.info("Metrics DB initialized: %s", self.db_path)
 

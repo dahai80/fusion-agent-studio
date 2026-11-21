@@ -92,9 +92,7 @@ class TestChatEngineEviction:
         engine._sessions = {}
         engine._sessions_lock = MagicMock()
         engine.MAX_CACHED_SESSIONS = 128
-        engine._sessions["s1"] = ChatSession(
-            id="s1", title="t", mode="simple", messages=[]
-        )
+        engine._sessions["s1"] = ChatSession(id="s1", title="t", mode="simple", messages=[])
         engine._evict_sessions()
         assert len(engine._sessions) == 1
 

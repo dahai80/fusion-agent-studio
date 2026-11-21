@@ -61,9 +61,7 @@ async def test_parallel_error_marks_task_blocked(orchestrator, tmp_path, monkeyp
     by_agent = {r["agent"]: r for r in result.results}
     assert by_agent["ok-agent"]["via"] == "kernel-team-runtime"
     team = by_agent["ok-agent"]["team"]
-    state = json.loads(
-        (tmp_path / "home" / "orchestrator_teams" / team / "state.json").read_text()
-    )
+    state = json.loads((tmp_path / "home" / "orchestrator_teams" / team / "state.json").read_text())
     tasks = state.get("tasks") or {}
     statuses = {t["title"].split(":")[-1]: t["status"] for t in tasks.values()}
     assert statuses.get("ok-agent") == "done"
@@ -90,9 +88,7 @@ async def test_broadcast_inherits_kernel_stamps(orchestrator):
 
 
 async def test_supervisor_stamps_kernel_team(orchestrator):
-    supervisor = AgentConfig(
-        name="sup", graph=make_agent_graph("sup"), system_prompt="route"
-    )
+    supervisor = AgentConfig(name="sup", graph=make_agent_graph("sup"), system_prompt="route")
     workers = _agents("w1", "w2")
     result = await orchestrator.supervisor(supervisor, workers, task="do it", max_rounds=1)
     stamped = [r for r in result.results if r.get("agent") in ("w1", "w2")]
@@ -114,11 +110,19 @@ def test_public_api_signatures_unchanged():
         method = getattr(MultiAgentOrchestrator, name)
         assert callable(method), f"pattern {name} missing"
     assert list(inspect.signature(MultiAgentOrchestrator.parallel).parameters) == [
-        "self", "agents", "input_template", "per_agent_inputs",
+        "self",
+        "agents",
+        "input_template",
+        "per_agent_inputs",
     ]
     assert list(inspect.signature(MultiAgentOrchestrator.master_worker).parameters) == [
-        "self", "master", "workers", "task",
+        "self",
+        "master",
+        "workers",
+        "task",
     ]
     assert list(inspect.signature(MultiAgentOrchestrator.sequential).parameters) == [
-        "self", "agents", "initial_input",
+        "self",
+        "agents",
+        "initial_input",
     ]

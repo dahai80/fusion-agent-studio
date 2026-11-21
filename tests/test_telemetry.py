@@ -19,9 +19,7 @@ class TestSpan:
         assert len(d["span_id"]) == 16
 
     def test_span_from_dict(self):
-        s = Span.from_dict(
-            {"trace_id": "t1", "span_id": "s1", "name": "test", "status": "error"}
-        )
+        s = Span.from_dict({"trace_id": "t1", "span_id": "s1", "name": "test", "status": "error"})
         assert s.trace_id == "t1"
         assert s.status == "error"
 

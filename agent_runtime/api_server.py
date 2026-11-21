@@ -84,6 +84,7 @@ app.add_middleware(
     allow_headers=["x-api-key", "content-type", "authorization"],
 )
 
+
 # E3: W3C traceparent continuation — an inbound request carrying a valid
 # traceparent opens an http.request span linked to the upstream trace
 # (internal trace id = upstream trace id prefix, parent = upstream span id).
@@ -582,9 +583,7 @@ async def get_dashboard(request: Request):
         if metrics
         else []
     )
-    error_count = len(
-        [s for s in today_sessions if getattr(s, "status", "") == "error"]
-    )
+    error_count = len([s for s in today_sessions if getattr(s, "status", "") == "error"])
     dashboard = {
         "today_requests": len(today_sessions),
         "total_token_consumption": tele_metrics.get("tokens", {}).get("total", 0),
@@ -610,14 +609,20 @@ async def get_dashboard(request: Request):
 # ── Graph endpoints ──
 
 
-@app.post("/v1/graphs", response_model=GraphResponse, dependencies=[Depends(_require_auth_if_configured)])
+@app.post(
+    "/v1/graphs", response_model=GraphResponse, dependencies=[Depends(_require_auth_if_configured)]
+)
 async def v1_create_graph(req: GraphCreateRequest):
     from agent_runtime.graph import AgentGraph
 
     if not isinstance(req.graph_data, dict):
         raise_api_error(ErrorCode.PARAM_FORMAT_ERROR, param="graph_data")
     if "nodes" not in req.graph_data:
-        raise_api_error(ErrorCode.PARAM_FORMAT_ERROR, param="graph_data", detail="graph_data must contain 'nodes'")
+        raise_api_error(
+            ErrorCode.PARAM_FORMAT_ERROR,
+            param="graph_data",
+            detail="graph_data must contain 'nodes'",
+        )
 
     # #546: from_dict itself can raise on malformed payloads (nodes as scalar,
     # edge missing keys, unknown node types) — that surfaced as a 500. Reject
@@ -785,7 +790,9 @@ async def v1_save_flow(flow_id: str, req: FlowSaveRequest):
             flow_id=flow_id,
         )
     except FlowStoreError as exc:
-        code = ErrorCode.AGENT_NOT_FOUND if "not found" in str(exc) else ErrorCode.PARAM_FORMAT_ERROR
+        code = (
+            ErrorCode.AGENT_NOT_FOUND if "not found" in str(exc) else ErrorCode.PARAM_FORMAT_ERROR
+        )
         err = ErrorResponse.from_error_code(code, param="graph")
         err.message = str(exc)
         status = 404 if "not found" in str(exc) else 422
@@ -831,14 +838,22 @@ async def v1_restore_flow(flow_id: str, req: FlowRestoreRequest):
     try:
         out = store.restore_version(flow_id, req.version, tenant_id=tenant)
     except FlowStoreError as exc:
-        code = ErrorCode.AGENT_NOT_FOUND if "not exist" in str(exc) or "not found" in str(exc) else ErrorCode.PARAM_FORMAT_ERROR
+        code = (
+            ErrorCode.AGENT_NOT_FOUND
+            if "not exist" in str(exc) or "not found" in str(exc)
+            else ErrorCode.PARAM_FORMAT_ERROR
+        )
         err = ErrorResponse.from_error_code(code, param="version")
         err.message = str(exc)
         raise HTTPException(status_code=404, detail={"error": err.to_dict()}) from exc
     return {**out, "tenant_id": tenant}
 
 
-@app.post("/v1/graphs/{graph_id}/execute", response_model=ExecutionResponse, dependencies=[Depends(_require_auth_if_configured)])
+@app.post(
+    "/v1/graphs/{graph_id}/execute",
+    response_model=ExecutionResponse,
+    dependencies=[Depends(_require_auth_if_configured)],
+)
 async def v1_execute_graph(graph_id: str, req: GraphExecuteRequest):
     graph = _get_store().load_graph(graph_id)
     if graph is None:
@@ -870,9 +885,7 @@ async def v1_execute_graph(graph_id: str, req: GraphExecuteRequest):
     events = []
     try:
         async for event in rt.execute_graph(graph, req.input_text):
-            ev_dict = (
-                event.to_dict() if hasattr(event, "to_dict") else {"type": str(event)}
-            )
+            ev_dict = event.to_dict() if hasattr(event, "to_dict") else {"type": str(event)}
             events.append(ev_dict)
     except Exception:
         logger.exception("Graph execution failed: %s", graph_id)
@@ -885,9 +898,7 @@ async def v1_execute_graph(graph_id: str, req: GraphExecuteRequest):
 
 
 @app.get("/v1/agents")
-async def v1_list_agents(
-    page: int = 1, limit: int = 20, status: str = "", keyword: str = ""
-):
+async def v1_list_agents(page: int = 1, limit: int = 20, status: str = "", keyword: str = ""):
     agents_index = _load_agents_index()
     agents = list(agents_index.values())
     if status:
@@ -980,9 +991,7 @@ async def v1_test_agent(
     if not meta:
         raise_api_error(ErrorCode.AGENT_NOT_FOUND, param="agent_id")
     effective_kb = kb_id or (
-        meta.get("knowledge_base_ids", [""])[0]
-        if meta.get("knowledge_base_ids")
-        else ""
+        meta.get("knowledge_base_ids", [""])[0] if meta.get("knowledge_base_ids") else ""
     )
     return {
         "agent_id": agent_id,
@@ -1051,7 +1060,10 @@ async def v1_list_agent_versions(agent_id: str, page: int = 1, limit: int = 20):
     return _paginate(items, page, limit)
 
 
-@app.post("/v1/agents/{agent_id}/versions/{version_id}/restore", dependencies=[Depends(_require_auth_if_configured)])
+@app.post(
+    "/v1/agents/{agent_id}/versions/{version_id}/restore",
+    dependencies=[Depends(_require_auth_if_configured)],
+)
 async def v1_restore_agent_version(agent_id: str, version_id: str):
     vs = _get_version_store()
     snapshot = vs.restore_version(agent_id, version_id)
@@ -1129,23 +1141,27 @@ async def v1_submit_run(request: Request):
     if agent_overrides is not None:
         if not isinstance(agent_overrides, dict):
             raise_api_error(
-                ErrorCode.PARAM_FORMAT_ERROR, param="agent_overrides",
+                ErrorCode.PARAM_FORMAT_ERROR,
+                param="agent_overrides",
                 detail="agent_overrides must be an object",
             )
         _OVERRIDE_KEYS = {
-            "tools", "disallowed_tools", "model", "max_turns", "budget_tokens",
+            "tools",
+            "disallowed_tools",
+            "model",
+            "max_turns",
+            "budget_tokens",
         }
         unknown = sorted(set(agent_overrides) - _OVERRIDE_KEYS)
         if unknown:
             raise_api_error(
-                ErrorCode.PARAM_FORMAT_ERROR, param="agent_overrides",
+                ErrorCode.PARAM_FORMAT_ERROR,
+                param="agent_overrides",
                 detail=f"unsupported agent_overrides keys: {', '.join(unknown)}",
             )
         for key in ("tools", "disallowed_tools"):
             if key in agent_overrides and not isinstance(agent_overrides[key], list):
-                raise_api_error(
-                    ErrorCode.PARAM_FORMAT_ERROR, param=f"agent_overrides.{key}"
-                )
+                raise_api_error(ErrorCode.PARAM_FORMAT_ERROR, param=f"agent_overrides.{key}")
         if "model" in agent_overrides and not isinstance(agent_overrides["model"], str):
             raise_api_error(ErrorCode.PARAM_FORMAT_ERROR, param="agent_overrides.model")
         try:
@@ -1160,14 +1176,24 @@ async def v1_submit_run(request: Request):
         for key, val in dict(agent_overrides).items():
             spec.setdefault(key, val)
     _SPEC_ALLOWED_KEYS = {
-        "name", "model", "tools", "max_turns", "budget_tokens", "system_prompt",
-        "disallowed_tools", "mcp_servers", "skills", "permission_mode", "effort",
+        "name",
+        "model",
+        "tools",
+        "max_turns",
+        "budget_tokens",
+        "system_prompt",
+        "disallowed_tools",
+        "mcp_servers",
+        "skills",
+        "permission_mode",
+        "effort",
         "team",
     }
     unknown = sorted(set(spec) - _SPEC_ALLOWED_KEYS)
     if unknown:
         raise_api_error(
-            ErrorCode.PARAM_FORMAT_ERROR, param="spec",
+            ErrorCode.PARAM_FORMAT_ERROR,
+            param="spec",
             detail=f"unsupported spec keys: {', '.join(unknown)}",
         )
     if spec:
@@ -1181,13 +1207,19 @@ async def v1_submit_run(request: Request):
             if "budget_tokens" in spec:
                 spec["budget_tokens"] = int(spec["budget_tokens"])
         except (TypeError, ValueError):
-            raise_api_error(ErrorCode.PARAM_FORMAT_ERROR, param="spec.max_turns, spec.budget_tokens")
+            raise_api_error(
+                ErrorCode.PARAM_FORMAT_ERROR, param="spec.max_turns, spec.budget_tokens"
+            )
         if "max_turns" in spec and spec["max_turns"] <= 0:
-            raise_api_error(ErrorCode.PARAM_FORMAT_ERROR, param="spec.max_turns",
-                            detail="max_turns must be > 0")
+            raise_api_error(
+                ErrorCode.PARAM_FORMAT_ERROR, param="spec.max_turns", detail="max_turns must be > 0"
+            )
         if "budget_tokens" in spec and spec["budget_tokens"] < 0:
-            raise_api_error(ErrorCode.PARAM_FORMAT_ERROR, param="spec.budget_tokens",
-                            detail="budget_tokens must be >= 0")
+            raise_api_error(
+                ErrorCode.PARAM_FORMAT_ERROR,
+                param="spec.budget_tokens",
+                detail="budget_tokens must be >= 0",
+            )
     # #461: resolve effective overrides BEFORE task.submit so a 400 never
     # leaves an orphan pending task behind. Tools are constraints: the
     # caller allowlist is intersected with the target agent's own tools
@@ -1204,7 +1236,8 @@ async def v1_submit_run(request: Request):
                 unknown_tools = sorted({str(t) for t in spec["tools"]} - available)
                 if unknown_tools:
                     raise_api_error(
-                        ErrorCode.PARAM_FORMAT_ERROR, param="agent_overrides.tools",
+                        ErrorCode.PARAM_FORMAT_ERROR,
+                        param="agent_overrides.tools",
                         detail=f"unknown tool names: {', '.join(unknown_tools)}",
                     )
                 if agent_id:
@@ -1218,19 +1251,19 @@ async def v1_submit_run(request: Request):
                     except Exception as exc:
                         logger.warning(
                             "/v1/runs agent.get for override intersection failed agent=%s: %s",
-                            agent_id, exc,
+                            agent_id,
+                            exc,
                         )
                     if own_tools:
                         spec["tools"] = [t for t in spec["tools"] if t in own_tools]
                         effective_overrides["tools"] = list(spec["tools"])
                         logger.info(
                             "/v1/runs override intersection agent=%s effective_tools=%s",
-                            agent_id, spec["tools"],
+                            agent_id,
+                            spec["tools"],
                         )
             else:
-                logger.warning(
-                    "/v1/runs toolset unavailable — skipping tool name validation"
-                )
+                logger.warning("/v1/runs toolset unavailable — skipping tool name validation")
     # #432: sandbox selection — local (default) or multi-node:<node_id>.
     from agent_runtime.sandbox_router import delegate_run, parse_sandbox
 
@@ -1376,7 +1409,11 @@ async def v1_submit_run(request: Request):
                     run_id,
                     mark_exc,
                 )
-    return {"run_id": run_id, "status": task.get("status", "pending"), "deduped": res.get("deduped", False)}
+    return {
+        "run_id": run_id,
+        "status": task.get("status", "pending"),
+        "deduped": res.get("deduped", False),
+    }
 
 
 # ---------------- #455: inbound webhooks ----------------
@@ -1426,8 +1463,9 @@ async def v1_create_webhook(request: Request):
 @app.delete("/v1/webhooks/{hook_id}", dependencies=[Depends(_require_auth_if_configured)])
 async def v1_delete_webhook(hook_id: str):
     if not _webhook_mgr().delete(hook_id):
-        raise_api_error(ErrorCode.AGENT_NOT_FOUND, param="hook_id",
-                        detail=f"webhook not found: {hook_id}")
+        raise_api_error(
+            ErrorCode.AGENT_NOT_FOUND, param="hook_id", detail=f"webhook not found: {hook_id}"
+        )
     _get_audit_logger().log_action(
         actor_id="api",
         action="webhook.delete",
@@ -1444,8 +1482,9 @@ async def v1_set_webhook_enabled(hook_id: str, request: Request):
     enabled = bool(body.get("enabled", True))
     webhook = _webhook_mgr().set_enabled(hook_id, enabled)
     if webhook is None:
-        raise_api_error(ErrorCode.AGENT_NOT_FOUND, param="hook_id",
-                        detail=f"webhook not found: {hook_id}")
+        raise_api_error(
+            ErrorCode.AGENT_NOT_FOUND, param="hook_id", detail=f"webhook not found: {hook_id}"
+        )
     return {"webhook": webhook.to_dict()}
 
 
@@ -1456,8 +1495,9 @@ async def v1_invoke_webhook(hook_id: str, request: Request):
     mgr = _webhook_mgr()
     webhook = mgr.get(hook_id)
     if webhook is None or not webhook.enabled:
-        raise_api_error(ErrorCode.AGENT_NOT_FOUND, param="hook_id",
-                        detail=f"webhook not found: {hook_id}")
+        raise_api_error(
+            ErrorCode.AGENT_NOT_FOUND, param="hook_id", detail=f"webhook not found: {hook_id}"
+        )
     content_length = int(request.headers.get("content-length", 0) or 0)
     if content_length > WEBHOOK_MAX_BODY_BYTES or content_length < 0:
         raise HTTPException(status_code=413, detail="payload exceeds 64KB limit")
@@ -1477,8 +1517,7 @@ async def v1_invoke_webhook(hook_id: str, request: Request):
             details={"ip": client_ip, "sig_valid": False, "run_id": ""},
             result="failure",
         )
-        raise_api_error(ErrorCode.API_KEY_INVALID,
-                        detail="invalid or missing X-Signature")
+        raise_api_error(ErrorCode.API_KEY_INVALID, detail="invalid or missing X-Signature")
     if not mgr.check_rate_limit(webhook):
         _get_audit_logger().log_action(
             actor_id=f"webhook:{hook_id}",
@@ -1488,23 +1527,27 @@ async def v1_invoke_webhook(hook_id: str, request: Request):
             details={"ip": client_ip, "sig_valid": True, "rate_limited": True},
             result="failure",
         )
-        raise_api_error(ErrorCode.RATE_LIMIT_REACHED,
-                        detail="webhook rate limit exceeded, retry later")
+        raise_api_error(
+            ErrorCode.RATE_LIMIT_REACHED, detail="webhook rate limit exceeded, retry later"
+        )
     try:
         payload = json.loads(raw_body.decode("utf-8")) if raw_body else {}
     except (UnicodeDecodeError, ValueError):
-        raise_api_error(ErrorCode.PARAM_FORMAT_ERROR, param="body",
-                        detail="body must be valid JSON")
+        raise_api_error(
+            ErrorCode.PARAM_FORMAT_ERROR, param="body", detail="body must be valid JSON"
+        )
     if not isinstance(payload, dict):
-        raise_api_error(ErrorCode.PARAM_FORMAT_ERROR, param="body",
-                        detail="body must be a JSON object")
+        raise_api_error(
+            ErrorCode.PARAM_FORMAT_ERROR, param="body", detail="body must be a JSON object"
+        )
     idem_key = request.headers.get("x-idempotency-key", "")
     if idem_key:
         cache_key = f"{hook_id}:{idem_key}"
         prior_run_id = mgr.idempotent_run_id(cache_key)
         if prior_run_id:
-            logger.info("webhook invoke deduped hook=%s key=%s run_id=%s",
-                        hook_id, idem_key, prior_run_id)
+            logger.info(
+                "webhook invoke deduped hook=%s key=%s run_id=%s", hook_id, idem_key, prior_run_id
+            )
             return {"run_id": prior_run_id, "status": "deduplicated", "deduped": True}
     goal = str(payload.get("input") or payload.get("goal") or "").strip()
     submit_params = {
@@ -1539,16 +1582,23 @@ async def v1_invoke_webhook(hook_id: str, request: Request):
     logger.info("webhook invoke hook=%s run_id=%s latency_ms=%s", hook_id, run_id, latency_ms)
     if webhook.graph_id and run_id:
         try:
-            await _rpc("graph.execute_async", {
-                "graph_id": webhook.graph_id,
-                "input": submit_params["input"],
-                "task_id": run_id,
-            })
+            await _rpc(
+                "graph.execute_async",
+                {
+                    "graph_id": webhook.graph_id,
+                    "input": submit_params["input"],
+                    "task_id": run_id,
+                },
+            )
         except Exception as exc:
-            logger.exception("webhook graph.execute_async for %s failed (task queued): %s",
-                             run_id, exc)
-    return {"run_id": run_id, "status": task.get("status", "pending"),
-            "deduped": bool(res.get("deduped")) if isinstance(res, dict) else False}
+            logger.exception(
+                "webhook graph.execute_async for %s failed (task queued): %s", run_id, exc
+            )
+    return {
+        "run_id": run_id,
+        "status": task.get("status", "pending"),
+        "deduped": bool(res.get("deduped")) if isinstance(res, dict) else False,
+    }
 
 
 # ---------------- #501: automation trigger REST ----------------
@@ -1567,8 +1617,9 @@ async def v1_list_cron_jobs():
 async def v1_create_cron_job(request: Request):
     body = await request.json()
     if not isinstance(body, dict):
-        raise_api_error(ErrorCode.PARAM_FORMAT_ERROR, param="body",
-                        detail="body must be a JSON object")
+        raise_api_error(
+            ErrorCode.PARAM_FORMAT_ERROR, param="body", detail="body must be a JSON object"
+        )
     graph_id = str(body.get("graph_id", "") or "")
     if not graph_id:
         raise_api_error(ErrorCode.PARAM_REQUIRED, param="graph_id")
@@ -1590,8 +1641,9 @@ async def v1_list_cron_executions(request: Request):
     try:
         limit = int(request.query_params.get("limit", "20"))
     except ValueError:
-        raise_api_error(ErrorCode.PARAM_FORMAT_ERROR, param="limit",
-                        detail="limit must be an integer")
+        raise_api_error(
+            ErrorCode.PARAM_FORMAT_ERROR, param="limit", detail="limit must be an integer"
+        )
     return await _rpc("cron.list_executions", {"job_id": job_id, "limit": limit})
 
 
@@ -1601,16 +1653,18 @@ async def v1_get_cron_job(job_id: str):
     for job in jobs:
         if job.get("id") == job_id:
             return {"job": job}
-    raise_api_error(ErrorCode.AGENT_NOT_FOUND, param="job_id",
-                    detail=f"cron job not found: {job_id}")
+    raise_api_error(
+        ErrorCode.AGENT_NOT_FOUND, param="job_id", detail=f"cron job not found: {job_id}"
+    )
 
 
 @app.delete("/v1/cron/{job_id}", dependencies=[Depends(_require_auth_if_configured)])
 async def v1_delete_cron_job(job_id: str):
     jobs = (await _rpc("cron.list", {})).get("jobs", [])
     if not any(job.get("id") == job_id for job in jobs):
-        raise_api_error(ErrorCode.AGENT_NOT_FOUND, param="job_id",
-                        detail=f"cron job not found: {job_id}")
+        raise_api_error(
+            ErrorCode.AGENT_NOT_FOUND, param="job_id", detail=f"cron job not found: {job_id}"
+        )
     res = await _rpc("cron.unregister", {"id": job_id})
     _get_audit_logger().log_action(
         actor_id="api",
@@ -1627,8 +1681,11 @@ async def v1_delete_cron_job(job_id: str):
 async def v1_trigger_cron_job(job_id: str):
     res = await _rpc("cron.trigger", {"id": job_id})
     if isinstance(res, dict) and res.get("status") == "error":
-        raise_api_error(ErrorCode.PARAM_FORMAT_ERROR, param="job_id",
-                        detail=str(res.get("message", "trigger failed")))
+        raise_api_error(
+            ErrorCode.PARAM_FORMAT_ERROR,
+            param="job_id",
+            detail=str(res.get("message", "trigger failed")),
+        )
     _get_audit_logger().log_action(
         actor_id="api",
         action="cron.trigger",
@@ -1645,7 +1702,9 @@ async def v1_get_run(run_id: str):
     res = await _rpc("task.get", {"task_id": run_id})
     task = res.get("task") if isinstance(res, dict) else None
     if not task:
-        raise_api_error(ErrorCode.AGENT_NOT_FOUND, param="run_id", detail=f"run not found: {run_id}")
+        raise_api_error(
+            ErrorCode.AGENT_NOT_FOUND, param="run_id", detail=f"run not found: {run_id}"
+        )
     status = task.get("status", "pending")
     progress = {
         "events": int((task.get("last_result") or {}).get("events", 0)),
@@ -1671,15 +1730,19 @@ async def v1_get_run_result(run_id: str):
     res = await _rpc("task.get", {"task_id": run_id})
     task = res.get("task") if isinstance(res, dict) else None
     if not task:
-        raise_api_error(ErrorCode.AGENT_NOT_FOUND, param="run_id", detail=f"run not found: {run_id}")
+        raise_api_error(
+            ErrorCode.AGENT_NOT_FOUND, param="run_id", detail=f"run not found: {run_id}"
+        )
     last_result = task.get("last_result") or {}
     # steps: best-effort extraction from last_result.events count + tool_errors.
     steps = []
     if isinstance(last_result, dict):
-        steps.append({
-            "session_id": last_result.get("session_id", ""),
-            "events": int(last_result.get("events", 0)),
-        })
+        steps.append(
+            {
+                "session_id": last_result.get("session_id", ""),
+                "events": int(last_result.get("events", 0)),
+            }
+        )
     return {
         "run_id": run_id,
         "status": task.get("status", "pending"),
@@ -1703,7 +1766,6 @@ async def v1_get_run_events(run_id: str):
 @app.get("/api/v1/runs/{run_id}/events")
 async def api_v1_get_run_events(run_id: str):
     return await v1_get_run_events(run_id)
-
 
 
 # #432: run event stream for the fusion-agent CLI — SSE tail of a run's
@@ -1774,11 +1836,14 @@ async def v1_fork_run(run_id: str, request: Request):
         body = await request.json()
     except Exception:
         body = {}
-    res = await _rpc("run.fork", {
-        "run_id": run_id,
-        "at_event_id": str((body or {}).get("at_event_id", "") or ""),
-        "title": str((body or {}).get("title", "") or ""),
-    })
+    res = await _rpc(
+        "run.fork",
+        {
+            "run_id": run_id,
+            "at_event_id": str((body or {}).get("at_event_id", "") or ""),
+            "title": str((body or {}).get("title", "") or ""),
+        },
+    )
     if isinstance(res, dict) and res.get("status") == "error":
         raise_api_error(ErrorCode.AGENT_NOT_FOUND, param="run_id", detail=res.get("message", ""))
     logger.info("/v1/runs forked run_id=%s -> %s", run_id, res.get("run_id"))
@@ -1800,9 +1865,7 @@ async def v1_list_run_branches(run_id: str):
 async def v1_activate_run_branch(run_id: str, branch_id: str):
     res = await _rpc("run.branch.activate", {"run_id": run_id, "branch_id": branch_id})
     if isinstance(res, dict) and res.get("status") == "error":
-        raise_api_error(
-            ErrorCode.AGENT_NOT_FOUND, param="branch_id", detail=res.get("message", "")
-        )
+        raise_api_error(ErrorCode.AGENT_NOT_FOUND, param="branch_id", detail=res.get("message", ""))
     logger.info("/v1/runs branch activated run_id=%s branch=%s", run_id, branch_id)
     return res
 
@@ -1833,9 +1896,7 @@ async def _session_rpc_or_error(method: str, params: dict):
                         f" (expected=chat_session, actual=run) — use /v1/runs/{sid}"
                     ),
                 )
-            raise_api_error(
-                ErrorCode.SESSION_NOT_FOUND, param="session_id", detail=message
-            )
+            raise_api_error(ErrorCode.SESSION_NOT_FOUND, param="session_id", detail=message)
         raise_api_error(ErrorCode.AGENT_NOT_FOUND, param="session_id", detail=message)
     return res
 
@@ -1904,7 +1965,10 @@ async def v1_inject_session_input(session_id: str, request: Request):
 @app.get("/v1/runs")
 async def v1_list_runs(status: str = "", limit: int = 100, agent_id: str = ""):
     res = await _rpc("task.list", {"status": status, "agent_id": agent_id, "limit": limit})
-    return {"runs": res.get("tasks", []) if isinstance(res, dict) else [], "total": res.get("total", 0) if isinstance(res, dict) else 0}
+    return {
+        "runs": res.get("tasks", []) if isinstance(res, dict) else [],
+        "total": res.get("total", 0) if isinstance(res, dict) else 0,
+    }
 
 
 # ── Shell ext fields (#407): palette search + notification sources ──
@@ -1931,7 +1995,7 @@ async def v1_search(q: str = "", limit: int = 20):
         logger.exception("/v1/search graph scan failed")
     try:
         res = await _rpc("task.list", {"limit": 100})
-        for t in (res.get("tasks", []) if isinstance(res, dict) else []):
+        for t in res.get("tasks", []) if isinstance(res, dict) else []:
             title = str(t.get("title") or t.get("task_id") or "")
             tid = str(t.get("task_id") or "")
             if tid and (query in title.lower() or query in tid.lower()):
@@ -1960,13 +2024,15 @@ async def v1_notifications_runs(limit: int = 32):
             tid = str(t.get("task_id") or "")
             if not tid:
                 continue
-            items.append({
-                "id": tid,
-                "title": f"运行结束: {t.get('title') or tid} ({status})",
-                "route": f"/runs/{tid}",
-                "level": "error" if status in {"failed", "cancelled", "canceled"} else "info",
-                "ts": float(t.get("updated_at") or 0),
-            })
+            items.append(
+                {
+                    "id": tid,
+                    "title": f"运行结束: {t.get('title') or tid} ({status})",
+                    "route": f"/runs/{tid}",
+                    "level": "error" if status in {"failed", "cancelled", "canceled"} else "info",
+                    "ts": float(t.get("updated_at") or 0),
+                }
+            )
             if len(items) >= max(1, limit):
                 break
     except Exception:
@@ -2003,9 +2069,7 @@ async def v1_create_kb(request: Request):
 
 
 @app.get("/v1/knowledge-bases")
-async def v1_list_kbs(
-    page: int = 1, limit: int = 20, keyword: str = "", scope: str = ""
-):
+async def v1_list_kbs(page: int = 1, limit: int = 20, keyword: str = "", scope: str = ""):
     mgr = _get_kb_manager()
     return mgr.list_kbs(page=page, limit=limit, keyword=keyword, scope=scope)
 
@@ -2065,9 +2129,7 @@ async def v1_upload_kb_file(kb_id: str, request: Request):
             raise_api_error(ErrorCode.PARAM_REQUIRED, param="file")
         import tempfile
 
-        with tempfile.NamedTemporaryFile(
-            delete=False, suffix=f"_{upload.filename}"
-        ) as tmp:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=f"_{upload.filename}") as tmp:
             content = await upload.read()
             tmp.write(content)
             tmp_path = tmp.name
@@ -2101,7 +2163,10 @@ async def v1_list_kb_files(kb_id: str):
     return {"files": [f.to_dict() for f in files]}
 
 
-@app.delete("/v1/knowledge-bases/{kb_id}/files/{file_id}", dependencies=[Depends(_require_auth_if_configured)])
+@app.delete(
+    "/v1/knowledge-bases/{kb_id}/files/{file_id}",
+    dependencies=[Depends(_require_auth_if_configured)],
+)
 async def v1_delete_kb_file(kb_id: str, file_id: str):
     mgr = _get_kb_manager()
     deleted = mgr.delete_file(kb_id, file_id)
@@ -2399,7 +2464,9 @@ async def v1_delete_connector(connector_id: str, request: Request):
 # ── Legacy endpoints (no /v1 prefix, for backward compat) ──
 
 
-@app.post("/graphs", response_model=GraphResponse, dependencies=[Depends(_require_auth_if_configured)])
+@app.post(
+    "/graphs", response_model=GraphResponse, dependencies=[Depends(_require_auth_if_configured)]
+)
 async def create_graph(req: GraphCreateRequest):
     return await v1_create_graph(req)
 
@@ -2432,7 +2499,11 @@ async def delete_graph(graph_id: str):
     return await v1_delete_graph(graph_id)
 
 
-@app.post("/graphs/{graph_id}/execute", response_model=ExecutionResponse, dependencies=[Depends(_require_auth_if_configured)])
+@app.post(
+    "/graphs/{graph_id}/execute",
+    response_model=ExecutionResponse,
+    dependencies=[Depends(_require_auth_if_configured)],
+)
 async def execute_graph(graph_id: str, req: GraphExecuteRequest):
     return await v1_execute_graph(graph_id, req)
 
@@ -2474,9 +2545,7 @@ async def ws_execute(websocket: WebSocket, graph_id: str):
 
         async def _ws_stream():
             async for event in rt.execute_graph_stream(graph, input_text, token_budget=budget):
-                ev_dict = (
-                    event.to_dict() if hasattr(event, "to_dict") else {"type": str(event)}
-                )
+                ev_dict = event.to_dict() if hasattr(event, "to_dict") else {"type": str(event)}
                 await websocket.send_json(ev_dict)
 
         if _sem_ctx is not None:
@@ -2574,9 +2643,7 @@ async def v1_execute_graph_stream(
     # dropped client can resume (replay only frames past last_seq) and the
     # run can be canceled server-side while streaming.
     if resume_run_id:
-        run = getattr(app.state, "run_registry", None) and app.state.run_registry.get(
-            resume_run_id
-        )
+        run = getattr(app.state, "run_registry", None) and app.state.run_registry.get(resume_run_id)
         if run is None:
             raise_api_error(ErrorCode.AGENT_NOT_FOUND, param="resume_run_id")
         logger.info("SSE resume run=%s after_seq=%d graph=%s", run.run_id, last_seq, graph_id)
@@ -2612,7 +2679,10 @@ async def v1_execute_graph_stream(
                 d = _daemon
                 parked_run.task = asyncio.create_task(
                     _execute_managed_run(
-                        parked_run, rt, g, req.get("input", ""),
+                        parked_run,
+                        rt,
+                        g,
+                        req.get("input", ""),
                         budget=d.token_budget_ref if d is not None else None,
                         sem=d.graph_semaphore if d is not None else None,
                         thinking=bool(req.get("thinking", True)),
@@ -2627,8 +2697,15 @@ async def v1_execute_graph_stream(
         run = registry.create(graph_id)
         run.task = asyncio.create_task(
             _execute_managed_run(
-                run, rt, graph, input, budget=budget, sem=sem,
-                thinking=thinking, stop_after=stop_after, daemon=daemon,
+                run,
+                rt,
+                graph,
+                input,
+                budget=budget,
+                sem=sem,
+                thinking=thinking,
+                stop_after=stop_after,
+                daemon=daemon,
                 run_budget=rb,
             )
         )
@@ -2680,7 +2757,15 @@ async def v1_execute_graph_stream(
 
 
 async def _execute_managed_run(
-    run, rt, graph, input, budget=None, sem=None, thinking=True, stop_after="", daemon=None,
+    run,
+    rt,
+    graph,
+    input,
+    budget=None,
+    sem=None,
+    thinking=True,
+    stop_after="",
+    daemon=None,
     run_budget=None,
 ):
     """#553: background pump — publishes every event to the run buffer/queue."""
@@ -2691,7 +2776,10 @@ async def _execute_managed_run(
 
         async def _pump():
             agen = rt.execute_graph_stream(
-                graph, input, token_budget=budget, show_thinking=thinking,
+                graph,
+                input,
+                token_budget=budget,
+                show_thinking=thinking,
                 run_budget=run_budget,
             )
             stop_types = {"result", "tool_result", "end", "error", "verify"}
@@ -2700,9 +2788,7 @@ async def _execute_managed_run(
                     if run.cancelled:
                         logger.info("managed run %s stop on cancel", run.run_id)
                         break
-                    ev_dict = (
-                        event.to_dict() if hasattr(event, "to_dict") else {"type": str(event)}
-                    )
+                    ev_dict = event.to_dict() if hasattr(event, "to_dict") else {"type": str(event)}
                     run.publish(ev_dict)
                     if ev_dict.get("type") == "token_budget_exceeded":
                         # #646: budget exhaustion is a parkable usage_limit
@@ -2730,7 +2816,8 @@ async def _execute_managed_run(
                         except Exception as e:
                             logger.warning(
                                 "run.budget_reached webhook fire failed run=%s: %s",
-                                run.run_id, e,
+                                run.run_id,
+                                e,
                             )
                     if (
                         stop_after
@@ -2765,7 +2852,16 @@ async def _execute_managed_run(
             from agent_runtime.parked_runs import ParkedRunStore, compute_reset_at
 
             reset_at = compute_reset_at(budget, time.time())
-            run.park(reset_at, "usage_limit", {"graph_id": graph.id, "input": input, "thinking": thinking, "run_budget": run_budget})
+            run.park(
+                reset_at,
+                "usage_limit",
+                {
+                    "graph_id": graph.id,
+                    "input": input,
+                    "thinking": thinking,
+                    "run_budget": run_budget,
+                },
+            )
             ParkedRunStore().upsert(
                 {
                     "run_id": run.run_id,
@@ -2886,9 +2982,7 @@ async def v1_execute_agent_stream(agent_id: str, input: str = "", thinking: bool
                     token_budget=budget,
                     show_thinking=thinking,
                 ):
-                    ev_dict = (
-                        event.to_dict() if hasattr(event, "to_dict") else {"type": str(event)}
-                    )
+                    ev_dict = event.to_dict() if hasattr(event, "to_dict") else {"type": str(event)}
                     yield f"data: {json.dumps(ev_dict, ensure_ascii=False)}\n\n"
 
             if sem is not None:
@@ -2962,9 +3056,7 @@ async def test_agent_with_project(
 # Mirror the agent read endpoints under the /api/v1 prefix so external
 # clients using the /api convention resolve without code changes upstream.
 @app.get("/api/v1/agents")
-async def api_v1_list_agents(
-    page: int = 1, limit: int = 20, status: str = "", keyword: str = ""
-):
+async def api_v1_list_agents(page: int = 1, limit: int = 20, status: str = "", keyword: str = ""):
     return await v1_list_agents(page=page, limit=limit, status=status, keyword=keyword)
 
 
@@ -3063,7 +3155,9 @@ async def api_v1_chat_agent_bind(req: FSBBindRequest):
     upstream = None
     if is_fsb_enabled():
         upstream = get_fsb_client().bind(req.workspace_id, req.agent_id)
-    logger.info("chat.agent.bind ws=%s agent=%s fsb=%s", req.workspace_id, req.agent_id, is_fsb_enabled())
+    logger.info(
+        "chat.agent.bind ws=%s agent=%s fsb=%s", req.workspace_id, req.agent_id, is_fsb_enabled()
+    )
     return {"status": "ok", "bound": True, "upstream": upstream}
 
 
@@ -3129,9 +3223,16 @@ async def api_v1_chat_notify(req: FSBNotifyRequest):
     if hasattr(_daemon, "_broadcast_event"):
         await _daemon._broadcast_event(
             "chat_notify",
-            {"session_id": session_id, "workspace_id": req.workspaceId, "run": run, "message": notify_text},
+            {
+                "session_id": session_id,
+                "workspace_id": req.workspaceId,
+                "run": run,
+                "message": notify_text,
+            },
         )
-    logger.info("chat.notify delivered ws=%s session=%s run=%s", req.workspaceId, session_id, run_id)
+    logger.info(
+        "chat.notify delivered ws=%s session=%s run=%s", req.workspaceId, session_id, run_id
+    )
     return {"status": "ok", "delivered": True, "session_id": session_id}
 
 
@@ -3169,8 +3270,9 @@ _CONSOLE_DIR = Path(__file__).resolve().parent.parent / "web" / "console"
 if _CONSOLE_DIR.is_dir():
     from fastapi.staticfiles import StaticFiles
 
-    app.mount("/console", StaticFiles(directory=str(_CONSOLE_DIR), html=True),
-              name="agents-console")
+    app.mount(
+        "/console", StaticFiles(directory=str(_CONSOLE_DIR), html=True), name="agents-console"
+    )
     logger.info("agents console served at /console from %s", _CONSOLE_DIR)
 
 
@@ -3201,7 +3303,9 @@ if _WEB_DIST.is_dir():
     app.mount("/", StaticFiles(directory=str(_WEB_DIST), html=True), name="webui")
     logger.info("web UI dist served at / from %s", _WEB_DIST)
 else:
-    logger.info("web UI dist not found at %s — build web/ (bun install && bun run build)", _WEB_DIST)
+    logger.info(
+        "web UI dist not found at %s — build web/ (bun install && bun run build)", _WEB_DIST
+    )
 
 
 def run_server(host: str = "127.0.0.1", port: int = 11442):

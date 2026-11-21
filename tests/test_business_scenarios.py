@@ -275,9 +275,7 @@ class TestMemoryScenario:
         delete = await _run(daemon, "memory.delete", {"entry_id": entry_id})
         assert delete["deleted"] is True
 
-        del_scope = await _run(
-            daemon, "memory.delete_scope", {"scope": "user_preferences"}
-        )
+        del_scope = await _run(daemon, "memory.delete_scope", {"scope": "user_preferences"})
         assert "deleted_count" in del_scope
 
 
@@ -415,9 +413,7 @@ class TestTemplateScenario:
             get = await _run(daemon, "template.get", {"template_id": tmpl["id"]})
             assert get["template"]["id"] == tmpl["id"]
 
-            inst = await _run(
-                daemon, "template.instantiate", {"template_id": tmpl["id"]}
-            )
+            inst = await _run(daemon, "template.instantiate", {"template_id": tmpl["id"]})
             assert "graph_data" in inst or inst.get("status") == "error"
 
 

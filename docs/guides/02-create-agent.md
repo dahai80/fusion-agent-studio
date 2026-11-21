@@ -42,9 +42,13 @@ fusion-agent-studio 有**两条创建路径**，本篇都带你走一遍，并�
 ```python
 from rpc import rpc
 import asyncio
+
+
 async def main():
     print("daemon:", await rpc("ping"))
     print("mlx:", await rpc("mlx.health"))
+
+
 asyncio.run(main())
 ```
 
@@ -58,19 +62,24 @@ asyncio.run(main())
 from rpc import rpc
 import asyncio
 
+
 async def main():
-    r = await rpc("agent.create", {
-        "name": "my-first-agent",
-        "description": "我的第一个智能体",
-        "model": "qwen2.5-3b-instruct",
-        "system_prompt": "你是一个简洁的中文助手，回答控制在 100 字以内。",
-        "tools": [],                 # 空表示纯对话，不带工具
-        "temperature": 0.7,
-        "max_tokens": 2048,
-        "context_window": 32768,
-        "safety_level": "L1",
-    })
+    r = await rpc(
+        "agent.create",
+        {
+            "name": "my-first-agent",
+            "description": "我的第一个智能体",
+            "model": "qwen2.5-3b-instruct",
+            "system_prompt": "你是一个简洁的中文助手，回答控制在 100 字以内。",
+            "tools": [],  # 空表示纯对话，不带工具
+            "temperature": 0.7,
+            "max_tokens": 2048,
+            "context_window": 32768,
+            "safety_level": "L1",
+        },
+    )
     print(r)
+
 
 asyncio.run(main())
 ```
@@ -89,7 +98,8 @@ asyncio.run(main())
 from rpc import rpc
 import asyncio
 
-AGENT_ID = "a1b2c3d4e5f6"   # 换成上一步拿到的
+AGENT_ID = "a1b2c3d4e5f6"  # 换成上一步拿到的
+
 
 async def main():
     r = await rpc("agent.execute", {"agent_id": AGENT_ID, "input": "用一句话介绍你自己"})
@@ -97,7 +107,8 @@ async def main():
     print("graph_id:", r["graph_id"])
     print("session_id:", r["session_id"])
     for ev in r["events"]:
-        print(f"  [{ev['type']}] {str(ev.get('content',''))[:80]}")
+        print(f"  [{ev['type']}] {str(ev.get('content', ''))[:80]}")
+
 
 asyncio.run(main())
 ```
@@ -107,9 +118,9 @@ asyncio.run(main())
 ### 查看 / 列出 / 删除
 
 ```python
-await rpc("agent.get", {"agent_id": AGENT_ID})     # 详情
-await rpc("agent.list", {})                         # 全部智能体
-await rpc("agent.delete", {"agent_id": AGENT_ID})   # 删除
+await rpc("agent.get", {"agent_id": AGENT_ID})  # 详情
+await rpc("agent.list", {})  # 全部智能体
+await rpc("agent.delete", {"agent_id": AGENT_ID})  # 删除
 ```
 
 智能体持久化在磁盘 `~/.fusion-agent-studio/agents/<agent_id>/.fusion-agent/`（manifest.json / soul.md / skills/ 等），重启 daemon 不丢。
@@ -147,26 +158,40 @@ GRAPH = {
     "name": "First Graph",
     "description": "读文件 → LLM 分析 → 输出",
     "nodes": {
-        "start": {"type": "start", "label": "Start",
-                  "system_prompt": "你是代码分析助手，阅读代码并给出改进建议。"},
-        "read":   {"type": "tool", "label": "Read File",
-                   "tool_name": "file_read", "tool_params": {"path": "README.md"}},
-        "analyze":{"type": "llm", "label": "Analyze",
-                   "model": "qwen2.5-3b-instruct", "temperature": 0.3, "max_tokens": 2048},
-        "end":    {"type": "end", "label": "Done"}
+        "start": {
+            "type": "start",
+            "label": "Start",
+            "system_prompt": "你是代码分析助手，阅读代码并给出改进建议。",
+        },
+        "read": {
+            "type": "tool",
+            "label": "Read File",
+            "tool_name": "file_read",
+            "tool_params": {"path": "README.md"},
+        },
+        "analyze": {
+            "type": "llm",
+            "label": "Analyze",
+            "model": "qwen2.5-3b-instruct",
+            "temperature": 0.3,
+            "max_tokens": 2048,
+        },
+        "end": {"type": "end", "label": "Done"},
     },
     "edges": [
         {"source_id": "start", "target_id": "read"},
         {"source_id": "read", "target_id": "analyze"},
-        {"source_id": "analyze", "target_id": "end"}
+        {"source_id": "analyze", "target_id": "end"},
     ],
     "start_node_id": "start",
-    "version": "1.0"
+    "version": "1.0",
 }
+
 
 async def main():
     r = await rpc("graph.create", {"graph_data": GRAPH})
     print(r)
+
 
 asyncio.run(main())
 ```
@@ -181,16 +206,21 @@ asyncio.run(main())
 from rpc import rpc
 import asyncio
 
+
 async def main():
-    r = await rpc("graph.execute", {
-        "graph_id": "first-graph-001",
-        "input": "分析 README.md",
-        "session_id": "sess-1",       # 可选，留空自动生成
-        "variables": {"lang": "zh"},  # 可选，节点里用 {{ lang }} 插值
-    })
+    r = await rpc(
+        "graph.execute",
+        {
+            "graph_id": "first-graph-001",
+            "input": "分析 README.md",
+            "session_id": "sess-1",  # 可选，留空自动生成
+            "variables": {"lang": "zh"},  # 可选，节点里用 {{ lang }} 插值
+        },
+    )
     print("status:", r.get("status"))
     for ev in r.get("events", []):
-        print(f"  [{ev['type']}] {str(ev.get('content',''))[:80]}")
+        print(f"  [{ev['type']}] {str(ev.get('content', ''))[:80]}")
+
 
 asyncio.run(main())
 ```

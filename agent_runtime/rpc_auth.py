@@ -115,7 +115,9 @@ def issue_local_jwt(
     now = int(time.time())
     header = {"alg": "HS256", "typ": "JWT"}
     payload = {"iss": JWT_ISSUER, "sub": sub, "tid": tid, "iat": now, "exp": now + ttl_seconds}
-    signing_input = f"{_b64url(json.dumps(header).encode())}.{_b64url(json.dumps(payload).encode())}"
+    signing_input = (
+        f"{_b64url(json.dumps(header).encode())}.{_b64url(json.dumps(payload).encode())}"
+    )
     sig = hmac.new(secret, signing_input.encode("ascii"), hashlib.sha256).digest()
     token = f"{signing_input}.{_b64url(sig)}"
     logger.info("rpc_auth: issued local jwt tid=%s sub=%s ttl=%ss", tid, sub, ttl_seconds)

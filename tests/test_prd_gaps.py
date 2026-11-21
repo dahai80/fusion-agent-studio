@@ -342,9 +342,7 @@ class TestAgentFork:
         new_pkg = pkg.fork()
         assert new_pkg.agent_id != "original_agent"
         new_manifest = new_pkg.load_manifest()
-        assert "copy" in new_manifest.name.lower() or new_manifest.name.startswith(
-            "Test Agent"
-        )
+        assert "copy" in new_manifest.name.lower() or new_manifest.name.startswith("Test Agent")
         assert new_manifest.status == "draft"
         assert new_manifest.version_int == 1
 

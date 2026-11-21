@@ -33,7 +33,9 @@ class WorkspaceBinder:
             return
         with self._lock:
             self._bindings[workspace_id] = {"agent_id": agent_id, "session_id": session_id}
-        logger.info("workspace binder bind ws=%s agent=%s session=%s", workspace_id, agent_id, session_id)
+        logger.info(
+            "workspace binder bind ws=%s agent=%s session=%s", workspace_id, agent_id, session_id
+        )
 
     def unbind(self, workspace_id: str) -> None:
         with self._lock:

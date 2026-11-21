@@ -83,7 +83,9 @@ def prove_queue_concurrency():
     # Assertions.
     assert len(claims) == 20, f"expected 20 claims, got {len(claims)}"
     task_ids = [c[1] for c in claims]
-    assert len(set(task_ids)) == 20, f"duplicate claims: {len(task_ids)} claims, {len(set(task_ids))} unique"
+    assert len(set(task_ids)) == 20, (
+        f"duplicate claims: {len(task_ids)} claims, {len(set(task_ids))} unique"
+    )
     for owner, group in owners.items():
         assert len(set(group)) == len(group), f"owner {owner} has duplicate task_ids: {group}"
     assert history_rows >= 20, f"expected >=20 history rows, got {history_rows}"
@@ -91,9 +93,12 @@ def prove_queue_concurrency():
 
     # Cleanup.
     import shutil
+
     shutil.rmtree(tmpdir, ignore_errors=True)
 
-    print(f"PROOF queue_concurrency PASS: 20 tasks, 4 workers, 0 duplicates, {history_rows} history rows, {elapsed:.2f}s")
+    print(
+        f"PROOF queue_concurrency PASS: 20 tasks, 4 workers, 0 duplicates, {history_rows} history rows, {elapsed:.2f}s"
+    )
     return True
 
 

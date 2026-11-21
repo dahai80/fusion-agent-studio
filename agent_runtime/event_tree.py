@@ -114,14 +114,16 @@ class EventTreeStore:
             )
         logger.info(
             "event tree run registered run=%s graph=%s task=%s parent=%s root=%s",
-            run_id, graph_id, task_id, parent_run_id, root_run_id,
+            run_id,
+            graph_id,
+            task_id,
+            parent_run_id,
+            root_run_id,
         )
 
     def get_run_meta(self, run_id: str) -> dict | None:
         with self.store._cursor() as conn:
-            row = conn.execute(
-                "SELECT * FROM run_meta WHERE run_id = ?", (run_id,)
-            ).fetchone()
+            row = conn.execute("SELECT * FROM run_meta WHERE run_id = ?", (run_id,)).fetchone()
         return dict(row) if row is not None else None
 
     def resolve_run(self, run_id: str) -> dict | None:
@@ -138,9 +140,7 @@ class EventTreeStore:
 
     # -- event append / read ----------------------------------------------
 
-    def append_event(
-        self, run_id: str, event: dict, messages: list | None = None
-    ) -> None:
+    def append_event(self, run_id: str, event: dict, messages: list | None = None) -> None:
         event_type = str(event.get("type") or "")
         if event_type in _SKIPPED_EVENT_TYPES:
             return
@@ -283,7 +283,10 @@ class EventTreeStore:
             )
         logger.info(
             "event tree forked run=%s -> %s at_event=%s events=%d",
-            source_run, new_run, at_event_id, len(path),
+            source_run,
+            new_run,
+            at_event_id,
+            len(path),
         )
         return {
             "run_id": new_run,

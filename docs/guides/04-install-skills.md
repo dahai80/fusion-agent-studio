@@ -38,9 +38,13 @@ Skill 是一段**结构化的固定操作序列**，存在智能体包里。和�
 ```python
 from rpc import rpc
 import asyncio
+
+
 async def main():
     r = await rpc("agent.create", {"name": "ops", "model": "qwen2.5-7b-instruct"})
     print(r["agent_id"])
+
+
 asyncio.run(main())
 ```
 
@@ -90,20 +94,33 @@ AGENT_ID = "..."
 SKILL_DISK = {
     "system_prompt": "你是运维助手，执行命令并报告结果。",
     "steps": [
-        {"name": "df", "action": "terminal",
-         "command": "df -h /", "timeout": 10, "capture_to": "disk_info"},
-        {"name": "report", "action": "generate",
-         "prompt": "根据磁盘信息：{disk_info}，判断 / 分区是否需要清理，给一句话结论。"}
-    ]
+        {
+            "name": "df",
+            "action": "terminal",
+            "command": "df -h /",
+            "timeout": 10,
+            "capture_to": "disk_info",
+        },
+        {
+            "name": "report",
+            "action": "generate",
+            "prompt": "根据磁盘信息：{disk_info}，判断 / 分区是否需要清理，给一句话结论。",
+        },
+    ],
 }
 
+
 async def main():
-    r = await rpc("agent.add_skill", {
-        "agent_id": AGENT_ID,
-        "skill_name": "check_disk",
-        "skill_def": SKILL_DISK,
-    })
+    r = await rpc(
+        "agent.add_skill",
+        {
+            "agent_id": AGENT_ID,
+            "skill_name": "check_disk",
+            "skill_def": SKILL_DISK,
+        },
+    )
     print(r)
+
 
 asyncio.run(main())
 ```
@@ -118,24 +135,37 @@ asyncio.run(main())
 SKILL_AUTOCOMMIT = {
     "system_prompt": "你是提交助手，查看改动、生成提交信息、提交。",
     "steps": [
-        {"name": "diff", "action": "terminal",
-         "command": "git diff --stat", "cwd": "/Users/dahai/fusion/fusion-agent-studio",
-         "capture_to": "diff_stat"},
-        {"name": "compose", "action": "generate",
-         "prompt": "根据改动统计：{diff_stat}，写一行简洁的中文提交信息（祈使句）。",
-         "capture_to": "commit_msg"},
-        {"name": "commit", "action": "terminal",
-         "command": "git commit -m \"{commit_msg}\"",
-         "cwd": "/Users/dahai/fusion/fusion-agent-studio",
-         "name": "do_commit"}
-    ]
+        {
+            "name": "diff",
+            "action": "terminal",
+            "command": "git diff --stat",
+            "cwd": "/Users/dahai/fusion/fusion-agent-studio",
+            "capture_to": "diff_stat",
+        },
+        {
+            "name": "compose",
+            "action": "generate",
+            "prompt": "根据改动统计：{diff_stat}，写一行简洁的中文提交信息（祈使句）。",
+            "capture_to": "commit_msg",
+        },
+        {
+            "name": "commit",
+            "action": "terminal",
+            "command": 'git commit -m "{commit_msg}"',
+            "cwd": "/Users/dahai/fusion/fusion-agent-studio",
+            "name": "do_commit",
+        },
+    ],
 }
 
-await rpc("agent.add_skill", {
-    "agent_id": AGENT_ID,
-    "skill_name": "autocommit",
-    "skill_def": SKILL_AUTOCOMMIT,
-})
+await rpc(
+    "agent.add_skill",
+    {
+        "agent_id": AGENT_ID,
+        "skill_name": "autocommit",
+        "skill_def": SKILL_AUTOCOMMIT,
+    },
+)
 ```
 
 流程：`git diff --stat` 输出存进 `diff_stat` → LLM 据此生成提交信息存进 `commit_msg` → `git commit -m` 用 `{commit_msg}` 插值提交。
@@ -152,15 +182,20 @@ await rpc("agent.add_skill", {
 from rpc import rpc
 import asyncio
 
+
 async def main():
-    r = await rpc("skill.execute", {
-        "agent_id": AGENT_ID,
-        "skill_name": "check_disk",
-        "input": "检查磁盘",
-    })
+    r = await rpc(
+        "skill.execute",
+        {
+            "agent_id": AGENT_ID,
+            "skill_name": "check_disk",
+            "input": "检查磁盘",
+        },
+    )
     print("status:", r.get("status"))
     for step in r.get("steps", []):
-        print(f"  [{step['name']}] {str(step.get('output',''))[:80]}")
+        print(f"  [{step['name']}] {str(step.get('output', ''))[:80]}")
+
 
 asyncio.run(main())
 ```
@@ -174,7 +209,7 @@ asyncio.run(main())
 ## 管理技能
 
 ```python
-await rpc("agent.list_skills", {"agent_id": AGENT_ID})      # 列出已装技能
+await rpc("agent.list_skills", {"agent_id": AGENT_ID})  # 列出已装技能
 await rpc("agent.delete_skill", {"agent_id": AGENT_ID, "skill_name": "check_disk"})
 ```
 

@@ -51,30 +51,30 @@ def fake_docker(monkeypatch, tmp_path):
     shim = tmp_path / "docker"
     shim.write_text(
         "#!/bin/bash\n"
-        "[ \"$1\" = \"info\" ] && exit 0\n"
-        "args=(\"$@\")\n"
-        "host=\"\"\n"
+        '[ "$1" = "info" ] && exit 0\n'
+        'args=("$@")\n'
+        'host=""\n'
         "for ((i=0; i<${#args[@]}; i++)); do\n"
-        "  if [ \"${args[$i]}\" = \"-v\" ]; then\n"
-        "    host=\"${args[$((i+1))]}\"\n"
-        "    host=\"${host%%:/workspace}\"\n"
+        '  if [ "${args[$i]}" = "-v" ]; then\n'
+        '    host="${args[$((i+1))]}"\n'
+        '    host="${host%%:/workspace}"\n'
         "  fi\n"
         "done\n"
         "for ((i=0; i<${#args[@]}; i++)); do\n"
-        "  if [ \"${args[$i]}\" = \"-lc\" ] || [ \"${args[$i]}\" = \"-c\" ]; then\n"
-        "    cmd=\"${args[$((i+1))]}\"\n"
-        "    [ -n \"$host\" ] && cmd=\"${cmd//\\/workspace\\//$host/}\"\n"
-        "    exec bash -lc \"$cmd\"\n"
+        '  if [ "${args[$i]}" = "-lc" ] || [ "${args[$i]}" = "-c" ]; then\n'
+        '    cmd="${args[$((i+1))]}"\n'
+        '    [ -n "$host" ] && cmd="${cmd//\\/workspace\\//$host/}"\n'
+        '    exec bash -lc "$cmd"\n'
         "  fi\n"
         "done\n"
         "for ((i=0; i<${#args[@]}; i++)); do\n"
-        "  if [ \"${args[$i]}\" = \"python3\" ]; then\n"
-        "    script=\"${args[$((i+1))]}\"\n"
-        "    [ -n \"$host\" ] && script=\"${script/\\/workspace/$host}\"\n"
-        "    exec python3 \"$script\"\n"
+        '  if [ "${args[$i]}" = "python3" ]; then\n'
+        '    script="${args[$((i+1))]}"\n'
+        '    [ -n "$host" ] && script="${script/\\/workspace/$host}"\n'
+        '    exec python3 "$script"\n'
         "  fi\n"
         "done\n"
-        "exec bash \"$@\"\n",
+        'exec bash "$@"\n',
         encoding="utf-8",
     )
     shim.chmod(shim.stat().st_mode | stat.S_IEXEC)
@@ -149,8 +149,14 @@ class TestRunInContainer:
         assert result.success is False
 
     def test_container_inner_argv(self):
-        assert container_inner_argv("python", "/workspace/script.py") == ["python3", "/workspace/script.py"]
-        assert container_inner_argv("shell", "/workspace/script.sh") == ["bash", "/workspace/script.sh"]
+        assert container_inner_argv("python", "/workspace/script.py") == [
+            "python3",
+            "/workspace/script.py",
+        ]
+        assert container_inner_argv("shell", "/workspace/script.sh") == [
+            "bash",
+            "/workspace/script.sh",
+        ]
 
 
 class TestTerminalToolBackends:

@@ -90,9 +90,7 @@ class RunRegistry:
     def reap(self):
         now = time.time()
         expired = [
-            rid
-            for rid, r in self._runs.items()
-            if r.done and now - r.created_at > RUN_TTL_SECONDS
+            rid for rid, r in self._runs.items() if r.done and now - r.created_at > RUN_TTL_SECONDS
         ]
         for rid in expired:
             del self._runs[rid]

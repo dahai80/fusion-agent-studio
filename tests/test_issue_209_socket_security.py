@@ -105,9 +105,7 @@ class TestPeerUidCheck:
             except Exception:
                 pass
 
-        server = await asyncio.start_unix_server(
-            _close, path=socket_path
-        )
+        server = await asyncio.start_unix_server(_close, path=socket_path)
         try:
             _, writer = await asyncio.open_unix_connection(socket_path)
             try:
@@ -162,9 +160,7 @@ class TestPeerUidCheck:
         await daemon.start()
         try:
             # Force the deny path.
-            monkeypatch.setattr(
-                "agent_runtime.daemon_server._verify_peer_uid", lambda w: False
-            )
+            monkeypatch.setattr("agent_runtime.daemon_server._verify_peer_uid", lambda w: False)
 
             reader, writer = await asyncio.open_unix_connection(socket_path)
             writer.write(b'{"jsonrpc":"2.0","id":1,"method":"ping","params":{}}\n')
@@ -179,9 +175,7 @@ class TestPeerUidCheck:
                 pass
 
             # Now restore allow + confirm daemon still serves a real call.
-            monkeypatch.setattr(
-                "agent_runtime.daemon_server._verify_peer_uid", lambda w: True
-            )
+            monkeypatch.setattr("agent_runtime.daemon_server._verify_peer_uid", lambda w: True)
             reader2, writer2 = await asyncio.open_unix_connection(socket_path)
             try:
                 writer2.write(b'{"jsonrpc":"2.0","id":2,"method":"ping","params":{}}\n')

@@ -72,7 +72,7 @@ async def _fast_ping_handler(reader: asyncio.StreamReader, writer: asyncio.Strea
 
 
 async def _start_server(sock_path: str, handler):
-    server = await asyncio.start_unix_server(handler, sock_path, limit=2 ** 20)
+    server = await asyncio.start_unix_server(handler, sock_path, limit=2**20)
     return server
 
 

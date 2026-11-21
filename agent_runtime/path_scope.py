@@ -111,21 +111,15 @@ class PathScope:
             # outside the allowlist must not pass on its literal name.
             if has_glob:
                 if _glob_match(resolved_str, pattern):
-                    logger.debug(
-                        "%s allowed %s via pattern %s", self.label, resolved_str, pattern
-                    )
+                    logger.debug("%s allowed %s via pattern %s", self.label, resolved_str, pattern)
                     return normalized
             else:
                 # bare absolute root: the root itself + everything beneath
                 root = os.path.normpath(pat)
                 if resolved_str == root or resolved_str.startswith(root + os.sep):
-                    logger.debug(
-                        "%s allowed %s via root %s", self.label, resolved_str, root
-                    )
+                    logger.debug("%s allowed %s via root %s", self.label, resolved_str, root)
                     return normalized
-        raise PathScopeError(
-            str(candidate), f"outside allowlist ({self.label}: {self.allowed})"
-        )
+        raise PathScopeError(str(candidate), f"outside allowlist ({self.label}: {self.allowed})")
 
     def check_many(self, candidates: list[str]) -> list[Path]:
         return [self.check(c) for c in candidates]

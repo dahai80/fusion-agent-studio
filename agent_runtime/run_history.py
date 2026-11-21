@@ -103,7 +103,9 @@ class RunHistoryStore:
                 ),
             )
             self._conn.commit()
-        logger.info("run archived id=%s graph=%s status=%s frames=%d", run_id, graph_id, status, len(frames))
+        logger.info(
+            "run archived id=%s graph=%s status=%s frames=%d", run_id, graph_id, status, len(frames)
+        )
         return {"run_id": run_id, "status": status, "frames": len(frames)}
 
     def list_runs(self, graph_id: str = "", limit: int = 20) -> list[dict]:
@@ -156,7 +158,12 @@ class RunHistoryStore:
         na, nb = a.get("node_status") or {}, b.get("node_status") or {}
         nodes = sorted(set(na) | set(nb))
         rows = [
-            {"node_id": n, "a": na.get(n, ""), "b": nb.get(n, ""), "changed": na.get(n, "") != nb.get(n, "")}
+            {
+                "node_id": n,
+                "a": na.get(n, ""),
+                "b": nb.get(n, ""),
+                "changed": na.get(n, "") != nb.get(n, ""),
+            }
             for n in nodes
         ]
         return {

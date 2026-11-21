@@ -254,9 +254,7 @@ class AgentContext:
             # or OpenAI `completion_tokens_details.reasoning_tokens`.
             details = usage.get("completion_tokens_details")
             reasoning += usage.get("reasoning_tokens", 0) or (
-                details.get("reasoning_tokens", 0)
-                if isinstance(details, dict)
-                else 0
+                details.get("reasoning_tokens", 0) if isinstance(details, dict) else 0
             )
         return {
             "prompt_tokens": prompt,
