@@ -1,13 +1,13 @@
 # Fusion-MLX Agent Studio — local agent development platform for Apple Silicon.
-# Generated from PyPI 0.18.13 dependency resolution by gen_formula.py;
+# Generated from PyPI 0.18.14 dependency resolution by gen_formula.py;
 # regenerate on version bumps (see packaging/homebrew/README.md).
 class FusionAgentStudio < Formula
   include Language::Python::Virtualenv
 
   desc "Local-first AI agent orchestration platform (daemon RPC + REST + CLI)"
   homepage "https://github.com/dahai80/fusion-agent-studio"
-  url "https://files.pythonhosted.org/packages/8d/e8/2368d43c59b22a37c7d23c575326e7add9a656106dd69657b8d76da6d90f/fusion_agent_studio-0.18.13.tar.gz"
-  sha256 "9145452d97aad57d449432617257d764142467f25b7132a7130f4074287949ec"
+  url "https://files.pythonhosted.org/packages/80/bc/a8f49c1643c0101422c6d56f32b871e5bbb6355ac5d1dffbdd261d32f43c/fusion_agent_studio-0.18.14.tar.gz"
+  sha256 "0959342b5a137f7c76ab99c482451a6e3b013fe8ea53547cb81a82f7d80f1a93"
   license "Apache-2.0"
 
   depends_on "python@3.12"
@@ -49,8 +49,8 @@ class FusionAgentStudio < Formula
     sha256 "c647aa4a12dfbad9333ca4e71fe62ddc36f4e63b2d260a37a8b83d2f043ac309"
   end
   resource "certifi" do
-    url "https://files.pythonhosted.org/packages/32/d1/a3652fe2c19134d0d15922177821d863cbd7e842d53a21bbe7e8e3a1b5ac/certifi-2026.10.23-py3-none-any.whl"
-    sha256 "e9b54de76e530bb6cf0ccd036787103acb58fd42ba930ea8bf948ddbaa2f61d1"
+    url "https://files.pythonhosted.org/packages/6d/39/5eec3296860b94ac20bb8ed807725b88f6adfab3f343df592afd975f5f86/certifi-2026.11.20-py3-none-any.whl"
+    sha256 "7422df25243767b9877031a2248cb14d09ddac9beee846f4cef3d5c9191d488f"
   end
   resource "click" do
     url "https://files.pythonhosted.org/packages/31/7d/164b7ffc8624fe9efb4221bf9af485d5c1e41b9ae118045d2b6dc5457d8b/click-8.5.1-py3-none-any.whl"
@@ -69,8 +69,8 @@ class FusionAgentStudio < Formula
     sha256 "1bc481ee218b009aaacde8c7dda57a40e33050efc84acf6cf9df0ba07c9bb33f"
   end
   resource "fusion-harness" do
-    url "https://files.pythonhosted.org/packages/97/78/2be0222eb705ebb56a99581f68a08471da241b66206fa7b00b60def26438/fusion_harness-0.27.0-py3-none-any.whl"
-    sha256 "adb6c97d903166f5822fdbbc86737bb8952cbf447ffe0bec0712349a286cbfeb"
+    url "https://files.pythonhosted.org/packages/60/f1/ab66a9c0b7cf693f2bc63232ef8ac6ec270e5c94c1524bdf33fdfacba7d4/fusion_harness-0.30.0-py3-none-any.whl"
+    sha256 "e1792dbbb85321a9bf3a761acdfa666818e6d4657fd5aba081ed87aed751bc6d"
   end
   resource "h11" do
     url "https://files.pythonhosted.org/packages/04/4b/29cac41a4d98d144bf5f6d33995617b185d14b22401f75ca86f384e87ff1/h11-0.16.0-py3-none-any.whl"
@@ -139,8 +139,8 @@ class FusionAgentStudio < Formula
         sha256 "a9bcf23628860d5a90cacdc188ee3b7d0547a38eb985214f03e7002a6ca0e558"
       end
       resource "pyyaml" do
-        url "https://files.pythonhosted.org/packages/89/a0/6cf41a19a1f2f3feab0e9c0b74134aa2ce6849093d5517a0c550fe37a648/pyyaml-6.0.3-cp312-cp312-macosx_11_0_arm64.whl"
-        sha256 "fc09d0aa354569bc501d4e787133afc08552722d3ab34836a80547331bb5d4a0"
+        url "https://files.pythonhosted.org/packages/c7/30/efaabf2d135d11f32cbd4752f3b7df0d592894ee3ca252bbba013a7d5891/pyyaml-6.0.4-cp312-cp312-macosx_11_0_arm64.whl"
+        sha256 "4d30c2f186612bd2f9f07c08a4c96721af59cfc8da3ec7cb27dfa2834e8bb019"
       end
     end
     on_intel do
@@ -153,8 +153,8 @@ class FusionAgentStudio < Formula
         sha256 "24d23de96195ff9637e5940a7fbde3bea6a355b26fb5f491737dd803aa5d5a93"
       end
       resource "pyyaml" do
-        url "https://files.pythonhosted.org/packages/d1/33/422b98d2195232ca1826284a76852ad5a86fe23e31b009c9886b2d0fb8b2/pyyaml-6.0.3-cp312-cp312-macosx_10_13_x86_64.whl"
-        sha256 "7f047e29dcae44602496db43be01ad42fc6f1cc0d8cd6c83d342306c32270196"
+        url "https://files.pythonhosted.org/packages/86/df/5aec8a8c65e4c11fab31b55d53029d8013e5ccfcf409c20f8175e3e267c7/pyyaml-6.0.4-cp312-cp312-macosx_10_15_x86_64.whl"
+        sha256 "1088ad740f50c13178dad16fbc2fa1f634c791d42c7009fdb390e38e5b90b788"
       end
     end
   end
