@@ -17,7 +17,9 @@ def dec_guard():
 
 def test_hook_event_26_members_and_new_names():
     members = list(HookEvent)
-    assert len(members) == 26
+    # 26 original members + TURN_INTERRUPT/TURN_REBIND (fusion-harness #156
+    # cancellation idempotency contract; AS hard-depends on the kernel).
+    assert len(members) == 28
     names = {m.value for m in members}
     for expected in (
         "SESSION_START",
@@ -46,6 +48,8 @@ def test_hook_event_26_members_and_new_names():
         "CHECKPOINT",
         "TEAM_MESSAGE",
         "PERSONA_RELOADED",
+        "TURN_INTERRUPT",
+        "TURN_REBIND",
     ):
         assert expected in names, f"missing hook event {expected}"
 
