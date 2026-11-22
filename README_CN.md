@@ -532,6 +532,11 @@ python my_agent.py
 - ✅ **画布界面** — 模板库按钮 + 弹窗（内置/自定义徽标，点击实例化）；"存为模板"行；运行历史面板（状态配色、逐节点状态行、回放恢复节点状态 + 治理事件、两次勾选 Diff 表格）；空画布自动打开模板库。
 - 测试：`tests/test_issue_558_templates_history.py`（15 — v1 迁移、kind 过滤、内置模板校验、LLM/iteration/人工审批模板实跑、模板 RPC 往返 + 租户隔离 + 名称必填、summarize/save/list/load、500 帧截断、diff、history dispatcher 往返 + 惰性 store）+ 画布测试（2 — 模板库实例化触发 `flow.template_instantiate` + `graph.create`；历史面板回放/Diff 触发历史 RPC）。
 
+### 证据驱动的工具裁剪遥测（v0.18.16）— #799
+- ✅ **逐会话工具使用台账** — 每次放行的工具准入都记录（会话，工具）到 `~/.fusion-agent-studio/tool_usage_ledger.json`（原子写入，只保留最近 60 个会话，fail-soft：台账故障绝不影响准入）。工作面工具（file/shell/git 类）同样记录但永不进入裁剪提议。
+- ✅ **确定性的未用连击提议** — `tool.pruning_report`（daemon RPC）对每个已加载工具按会话从新到旧走查，连续 ≥5 个会话未用即提议（`mcp_*`/`computer_*` 等低频类阈值 ×3；任何一次使用都会重置连击）。报告附带每工具 schema token 估算与合计 `est_tokens_saved_per_request`，在真正启用裁剪前即可量化潜在节省。设计上只做遥测——把排除项写入设置是另一独立的显式步骤（借鉴 TokenEconomizer 的决策/执行分离；裁剪路径零模型调用）。
+- 测试：`tests/test_issue_799_tool_pruning.py`（17 — 台账往返/裁剪/坏文件降级、连击重置、低频类倍率、报告形态、RPC 启停、管线准入记录 + fail-soft）。
+
 ### 集成
 - ✅ **fusion-mlx** — Apple Silicon 优化模型服务
 - ✅ **OpenAI 兼容 API** — 兼容任何 OpenAI 兼容后端

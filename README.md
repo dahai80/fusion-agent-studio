@@ -710,6 +710,11 @@ Audit `audit/fusion-agent-studio-vs-langflow-audit-1020.md` closed end-to-end; s
 - ✅ **Template gallery empty state** — the auto-opened gallery now shows "No templates available" instead of a blank dialog when the list is empty.
 - Tests: `tests/test_issue_330_rpc_bridge.py` +5 allowlist contract rows; web suite 110/110.
 
+### Evidence-Based Tool Pruning Telemetry (v0.18.16) — #799
+- ✅ **Per-session tool-usage ledger** — every allowed tool admission is recorded (session, tool) into `~/.fusion-agent-studio/tool_usage_ledger.json` (atomic writes, most-recent 60 sessions kept, fail-soft: a broken ledger never affects admission). Work-surface tools (file/shell/git-class) are recorded too but never proposed for pruning.
+- ✅ **Deterministic unused-streak proposals** — `tool.pruning_report` (daemon RPC) walks each loaded tool newest-first across sessions and proposes tools unused for ≥5 consecutive sessions (rarely-needed classes such as `mcp_*`/`computer_*` get a 3× longer streak; any observed use resets the streak). The report attaches per-tool schema token estimates and an aggregate `est_tokens_saved_per_request`, so the would-be saving is measurable before any pruning is enabled. Telemetry-only by design — writing exclusions into settings is a separate explicit step (borrowed from TokenEconomizer's decide-vs-apply separation; zero model calls in the pruning path).
+- Tests: `tests/test_issue_799_tool_pruning.py` (17 — ledger roundtrip/pruning/corrupt-file degrade, streak reset, rare-class multiplier, report shape, RPC enable/disable, pipeline admission recording + fail-soft).
+
 ### Integration
 - ✅ **fusion-mlx** — Apple Silicon optimized model serving
 - ✅ **OpenAI-compatible API** — Works with any OpenAI-compatible backend
