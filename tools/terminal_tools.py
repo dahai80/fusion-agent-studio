@@ -24,7 +24,10 @@ _CATASTROPHIC_PATTERNS = [
     # rm 带 -r (递归) 标志 + 目标是根树 (以 / 开头: / /usr /opt /var ...)
     # 或家目录展开 (~ / $HOME / $USERPROFILE) / /Users/*. 这些是递归删系统树
     # 或用户家, 不可逆. 注: 仅挡递归 rm, 单文件 rm 不挡 (rm file.txt 正常).
-    re.compile(r"\brm\s+(-[a-zA-Z]*r[a-zA-Z]*\s+)+(/[^\s]*|~[^\s]*|\\?\$HOME|\\?\$USERPROFILE)", re.IGNORECASE),
+    re.compile(
+        r"\brm\s+(-[a-zA-Z]*r[a-zA-Z]*\s+)+(/[^\s]*|~[^\s]*|\\?\$HOME|\\?\$USERPROFILE)",
+        re.IGNORECASE,
+    ),
     re.compile(r"\bmkfs\b"),
     # dd 写块设备: 含裸盘 rdisk + 相对穿越.
     re.compile(r"\bdd\b.*\bof=/dev/(r?)(sd|nvme|disk|hd)"),
@@ -45,9 +48,7 @@ _CATASTROPHIC_PATTERNS = [
 
 # #640: host-side paths that can never resolve inside the workspace-scoped
 # container (only the session workdir is mounted at /workspace).
-_HOST_PATH_PATTERN = re.compile(
-    r"(?:/Users/\S+|/home/\S+|~/\S+|~|/app/\S+)", re.IGNORECASE
-)
+_HOST_PATH_PATTERN = re.compile(r"(?:/Users/\S+|/home/\S+|~/\S+|~|/app/\S+)", re.IGNORECASE)
 
 
 def _find_host_path(command: str) -> str:
@@ -100,7 +101,11 @@ class TerminalTool(BaseTool):
         logger.info("terminal exec workdir=%s cmd=%s", workdir or "(cwd)", command[:300])
 
         # 审计 A-3: 灾难性命令黑名单 (secure-by-default). 放开需显式 env.
-        unrestricted = os.environ.get("FUSION_TERMINAL_UNRESTRICTED", "").strip().lower() in ("1", "true", "yes")
+        unrestricted = os.environ.get("FUSION_TERMINAL_UNRESTRICTED", "").strip().lower() in (
+            "1",
+            "true",
+            "yes",
+        )
         if not unrestricted:
             for pat in _CATASTROPHIC_PATTERNS:
                 if pat.search(command):
@@ -146,7 +151,11 @@ class TerminalTool(BaseTool):
             if result.success:
                 out = result.stdout.strip()
                 if result.stderr.strip():
-                    out = f"{out}\n[STDERR]\n{result.stderr.strip()}" if out else result.stderr.strip()
+                    out = (
+                        f"{out}\n[STDERR]\n{result.stderr.strip()}"
+                        if out
+                        else result.stderr.strip()
+                    )
                 return out if out else "Command completed (exit code 0, no output)"
             prefix = f"Error: Command exited with code {result.exit_code}"
             detail = result.stderr.strip() or result.stdout.strip()
@@ -165,9 +174,7 @@ class TerminalTool(BaseTool):
             )
 
             try:
-                stdout, stderr = await asyncio.wait_for(
-                    proc.communicate(), timeout=timeout
-                )
+                stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
             except asyncio.TimeoutError:
                 proc.kill()
                 await proc.wait()

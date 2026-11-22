@@ -1,4 +1,4 @@
-#598 rework: seat definitions are config, code is only the loader.
+# 598 rework: seat definitions are config, code is only the loader.
 #
 # Shipped defaults: agent_runtime/seats/delivery_seats.yaml (package data).
 # User overrides: ~/.fusion-agent-studio/seats/*.yaml|json, merged per
@@ -30,8 +30,8 @@ _REVIEWER_PROMPT_TEMPLATE = (
     "means the task is ready for gate C).\n\n"
     "Checklist (fixed, do not skip items):\n{checklist}\n\n"
     "Output contract (machine-consumable, output ONLY this JSON):\n"
-    "{{\"verdict\": {verdicts},\n"
-    " \"findings\": [{{{fields}}}]}}\n"
+    '{{"verdict": {verdicts},\n'
+    ' "findings": [{{{fields}}}]}}\n'
     "verdict=blocking iff any finding is {blocking}. No prose outside "
     "the JSON.\n\n"
     "Severity calibration is shared across all reviewer seats: "
@@ -42,12 +42,8 @@ _REVIEWER_PROMPT_TEMPLATE = (
 
 def _render_reviewer_prompt(spec: dict) -> str:
     schema = spec.get("findings_schema") or {}
-    checklist = "\n".join(
-        f"- {item}" for item in (spec.get("checklist") or [])
-    )
-    fields = ", ".join(
-        f'"{f}": "<{f}>"' for f in schema.get("finding_fields", [])
-    )
+    checklist = "\n".join(f"- {item}" for item in (spec.get("checklist") or []))
+    fields = ", ".join(f'"{f}": "<{f}>"' for f in schema.get("finding_fields", []))
     severities = schema.get("severities", [])
     blocking = " or ".join(schema.get("blocking_severities", []))
     severities_note = (
@@ -70,9 +66,7 @@ def _render_reviewer_prompt(spec: dict) -> str:
 def _load_pack_file(path: Path) -> dict:
     with open(path, "r", encoding="utf-8") as f:
         data = yaml.safe_load(f)
-    if not isinstance(data, dict) or not isinstance(
-        data.get("seats"), dict
-    ):
+    if not isinstance(data, dict) or not isinstance(data.get("seats"), dict):
         raise ValueError(f"seat pack {path} has no 'seats' mapping")
     seats = {}
     for seat_id, spec in data["seats"].items():
@@ -110,15 +104,11 @@ def load_seat_specs() -> dict:
         try:
             overrides = _load_pack_file(path)
         except Exception as e:
-            logger.error(
-                "Skipping invalid seat pack override %s: %s", path, e
-            )
+            logger.error("Skipping invalid seat pack override %s: %s", path, e)
             continue
         for seat_id, spec in overrides.items():
             if seat_id in specs:
-                logger.info(
-                    "Seat %s overridden by user pack %s", seat_id, path
-                )
+                logger.info("Seat %s overridden by user pack %s", seat_id, path)
             specs[seat_id] = spec
     return specs
 

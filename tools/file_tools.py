@@ -16,25 +16,41 @@ logger = logging.getLogger(__name__)
 # 本就能读, 读非破坏). env FUSION_FILE_ALLOW_SYSTEM=1 显式放开 (受控场景).
 # 可选白名单根目录 env FUSION_FILE_ROOTS (冒号分隔), 设了则写仅限这些根内.
 _SYSTEM_PATH_PREFIXES = (
-    "/etc/", "/System/", "/Library/", "/usr/", "/private/etc/",
-    "/bin/", "/sbin/",
-    "/opt/", "/root/",
+    "/etc/",
+    "/System/",
+    "/Library/",
+    "/usr/",
+    "/private/etc/",
+    "/bin/",
+    "/sbin/",
+    "/opt/",
+    "/root/",
 )
 # 审计 E-9: 原子串匹配 (`part in sparts`) 假阳性 — `.ssh-backup` 含 `.ssh` 被挡,
 # `credentials_backup` 含 `credentials` 被挡. 改路径分量精确匹配: 目录名精确相等
 # (.ssh/.aws/...), 文件名精确相等 (id_rsa/credentials/...). 消假阳性, 不漏真敏感.
 _CATASTROPHIC_DIR_PARTS = (
-    ".ssh", ".aws", ".gnupg", ".config", ".kube",
+    ".ssh",
+    ".aws",
+    ".gnupg",
+    ".config",
+    ".kube",
 )
 _CATASTROPHIC_FILE_NAMES = (
-    "id_rsa", "id_ed25519", "credentials", ".netrc",
-    "id_dsa", "id_ecdsa", ".env",
+    "id_rsa",
+    "id_ed25519",
+    "credentials",
+    ".netrc",
+    "id_dsa",
+    "id_ecdsa",
+    ".env",
 )
 # 审计 E-9: ~/Library/LaunchAgents|LaunchDaemons 解析成 /Users/<u>/Library/...,
 # startswith("/Library/") 为 False -> 不挡 -> LaunchAgent 持久化可写.
 # 用分量名精确匹配 LaunchAgents/LaunchDaemons (不分系统/用户 Library, 均挡写).
 _CATASTROPHIC_PERSIST_DIRS = (
-    "LaunchAgents", "LaunchDaemons",
+    "LaunchAgents",
+    "LaunchDaemons",
 )
 
 
@@ -69,7 +85,11 @@ def _is_write_blocked(filepath: Path) -> str | None:
             scope.check(str(filepath))
         except PathScopeError as e:
             return f"path outside FUSION_FILE_ROOTS allowlist: {filepath} ({e.reason})"
-    allow_system = os.environ.get("FUSION_FILE_ALLOW_SYSTEM", "").strip().lower() in ("1", "true", "yes")
+    allow_system = os.environ.get("FUSION_FILE_ALLOW_SYSTEM", "").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+    )
     if allow_system:
         return None
     spath = str(filepath)
@@ -110,12 +130,11 @@ def resolve_workpath(path: str) -> Path:
         return (workspace_root() / p).resolve()
     spath = str(p)
     if spath == _CONTAINER_APP_ROOT or spath.startswith(_CONTAINER_APP_ROOT + "/"):
-        rel = spath[len(_CONTAINER_APP_ROOT):].lstrip("/")
+        rel = spath[len(_CONTAINER_APP_ROOT) :].lstrip("/")
         resolved = (workspace_root() / rel).resolve() if rel else workspace_root().resolve()
         logger.info("remapped container path %s to workspace %s", path, resolved)
         return resolved
     return p.resolve()
-
 
 
 class FileReadTool(BaseTool):
@@ -166,7 +185,9 @@ class FileReadTool(BaseTool):
         if max_bytes > 0 and size > max_bytes:
             logger.warning(
                 "file_read blocked large file path=%s size=%d max=%d",
-                filepath, size, max_bytes,
+                filepath,
+                size,
+                max_bytes,
             )
             return (
                 f"Error: File too large ({size} bytes > max {max_bytes}). "
@@ -371,7 +392,9 @@ class FileEditTool(BaseTool):
         # 撑爆内存. 复用 _check_file_size 预检 (默认 1MB, FUSION_FILE_MAX_BYTES 调).
         ok, size, max_bytes = _check_file_size(filepath)
         if not ok:
-            logger.warning("file_edit blocked large file path=%s size=%d max=%d", filepath, size, max_bytes)
+            logger.warning(
+                "file_edit blocked large file path=%s size=%d max=%d", filepath, size, max_bytes
+            )
             return (
                 f"Error: File too large ({size} bytes > max {max_bytes}). "
                 f"Set FUSION_FILE_MAX_BYTES higher, or edit via terminal/sed."
@@ -419,9 +442,7 @@ class FileDeleteTool(BaseTool):
     """Delete a single file from the filesystem (refuses directories)."""
 
     name = "file_delete"
-    description = (
-        "Delete a single file at the given path. Refuses to delete directories."
-    )
+    description = "Delete a single file at the given path. Refuses to delete directories."
     parameters = {
         "path": {
             "type": "string",
@@ -538,13 +559,21 @@ class FileGrepTool(BaseTool):
             for file_path in sorted(root.rglob(include or "*")):
                 if not file_path.is_file():
                     continue
-                if any(part.startswith(".") and part not in (".",) for part in file_path.relative_to(root).parts[:-1]):
+                if any(
+                    part.startswith(".") and part not in (".",)
+                    for part in file_path.relative_to(root).parts[:-1]
+                ):
                     continue
                 # 审计 P1-12/E-19: rglob 逐文件 read_text 无大小预检, 遍历含大文件
                 # 目录撑爆内存. 超限跳过该文件 (grep 已对权限错误静默跳过, 一致).
                 g_ok, g_size, g_max = _check_file_size(file_path)
                 if not g_ok:
-                    logger.debug("file_grep skipped large file path=%s size=%d max=%d", file_path, g_size, g_max)
+                    logger.debug(
+                        "file_grep skipped large file path=%s size=%d max=%d",
+                        file_path,
+                        g_size,
+                        g_max,
+                    )
                     continue
                 try:
                     text = file_path.read_text(encoding="utf-8", errors="ignore")

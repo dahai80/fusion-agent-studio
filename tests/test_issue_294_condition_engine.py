@@ -74,20 +74,20 @@ class TestIssue294TypeErrorTraceability:
         variables.set("scalar", "done")
         with caplog.at_level(logging.WARNING, logger="agent_runtime.runtime"):
             engine.evaluate("items >= scalar", ctx, variables)
-        assert any(
-            "TypeError swallowed" in rec.message for rec in caplog.records
-        ), "TypeError swallow must log a warning"
+        assert any("TypeError swallowed" in rec.message for rec in caplog.records), (
+            "TypeError swallow must log a warning"
+        )
 
     def test_compare_logs_resolved_types_debug(self, engine, ctx, variables, caplog):
         with caplog.at_level(logging.DEBUG, logger="agent_runtime.runtime"):
             engine.evaluate("publish_status == publish_ok", ctx, variables)
-        assert any(
-            "condition compare" in rec.message for rec in caplog.records
-        ), "compare must debug-log resolved types"
+        assert any("condition compare" in rec.message for rec in caplog.records), (
+            "compare must debug-log resolved types"
+        )
 
     def test_bareword_logs_debug(self, engine, ctx, variables, caplog):
         with caplog.at_level(logging.DEBUG, logger="agent_runtime.runtime"):
             engine.evaluate("status == publish_ok", ctx, variables)
-        assert any(
-            "bareword" in rec.message for rec in caplog.records
-        ), "bareword fallthrough must debug-log"
+        assert any("bareword" in rec.message for rec in caplog.records), (
+            "bareword fallthrough must debug-log"
+        )

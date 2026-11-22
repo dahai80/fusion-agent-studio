@@ -23,9 +23,20 @@ class GitTool(BaseTool):
                 "pull, push, fetch, checkout, merge, rebase, reset, stash, show"
             ),
             "enum": [
-                "status", "log", "diff", "commit", "branch", "pull",
-                "push", "fetch", "checkout", "merge", "rebase", "reset",
-                "stash", "show",
+                "status",
+                "log",
+                "diff",
+                "commit",
+                "branch",
+                "pull",
+                "push",
+                "fetch",
+                "checkout",
+                "merge",
+                "rebase",
+                "reset",
+                "stash",
+                "show",
             ],
         },
         "repo_path": {
@@ -40,9 +51,7 @@ class GitTool(BaseTool):
         },
         "branch": {
             "type": "string",
-            "description": (
-                "Branch name (checkout/merge/rebase/push/fetch target branch)"
-            ),
+            "description": ("Branch name (checkout/merge/rebase/push/fetch target branch)"),
             "default": "",
         },
         "remote": {
@@ -52,9 +61,7 @@ class GitTool(BaseTool):
         },
         "target": {
             "type": "string",
-            "description": (
-                "Commit hash / ref for show/reset (e.g. HEAD, HEAD~1, a1b2c3d)"
-            ),
+            "description": ("Commit hash / ref for show/reset (e.g. HEAD, HEAD~1, a1b2c3d)"),
             "default": "",
         },
         "mode": {
@@ -93,9 +100,20 @@ class GitTool(BaseTool):
         pop = bool(kwargs.get("pop", False))
 
         valid_actions = [
-            "status", "log", "diff", "commit", "branch", "pull",
-            "push", "fetch", "checkout", "merge", "rebase", "reset",
-            "stash", "show",
+            "status",
+            "log",
+            "diff",
+            "commit",
+            "branch",
+            "pull",
+            "push",
+            "fetch",
+            "checkout",
+            "merge",
+            "rebase",
+            "reset",
+            "stash",
+            "show",
         ]
         if action not in valid_actions:
             return f"Error: Unknown action: {action}"
@@ -111,8 +129,9 @@ class GitTool(BaseTool):
         if action == "status":
             return await self._git_cmd(repo, "status", "--short")
         elif action == "log":
-            result = await self._git_cmd(repo, "log", f"--max-count={max_results}",
-                                         "--oneline", "--decorate")
+            result = await self._git_cmd(
+                repo, "log", f"--max-count={max_results}", "--oneline", "--decorate"
+            )
             if not result or result == "(no output)":
                 return "No commits found"
             return f"Recent commits (last {max_results}):\n{result}"

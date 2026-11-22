@@ -87,7 +87,8 @@ class FusionMLXProcessManager:
             if self._health_check():
                 logger.info(
                     "fusion-mlx started on %s (%.1fs)",
-                    self.base_url, time.time() - start_time,
+                    self.base_url,
+                    time.time() - start_time,
                 )
                 return True
             time.sleep(0.5)
@@ -96,7 +97,9 @@ class FusionMLXProcessManager:
         stdout, stderr = self._capture_output()
         logger.error(
             "fusion-mlx failed to start within %.0fs\nstdout: %s\nstderr: %s",
-            wait_timeout, stdout[:1000], stderr[:1000],
+            wait_timeout,
+            stdout[:1000],
+            stderr[:1000],
         )
         self.stop()
         return False
@@ -141,6 +144,7 @@ class FusionMLXProcessManager:
     def _health_check(self) -> bool:
         """Check if the fusion-mlx HTTP server is responding."""
         import httpx
+
         try:
             resp = httpx.get(self._health_check_url, timeout=1.0)
             return resp.status_code == 200

@@ -309,9 +309,7 @@ class ChatEngine:
     ) -> AsyncIterator[ChatEvent]:
         session = self.get_session(session_id)
         if not session:
-            yield ChatEvent(
-                type=ChatEventType.ERROR, content=f"Session {session_id} not found"
-            )
+            yield ChatEvent(type=ChatEventType.ERROR, content=f"Session {session_id} not found")
             return
 
         effective_mode = mode or session.mode
@@ -406,9 +404,7 @@ class ChatEngine:
         )
         return branched
 
-    def edit(
-        self, session_id: str, message_id: str, new_content: str
-    ) -> ChatMessage | None:
+    def edit(self, session_id: str, message_id: str, new_content: str) -> ChatMessage | None:
         session = self.get_session(session_id)
         if not session:
             logger.warning("ChatEngine edit: session %s not found", session_id)
@@ -457,14 +453,10 @@ class ChatEngine:
             return False
         session.active_branch = message_id
         self._persist_session(session)
-        logger.info(
-            "ChatEngine switch_branch session=%s -> msg=%s", session_id, message_id
-        )
+        logger.info("ChatEngine switch_branch session=%s -> msg=%s", session_id, message_id)
         return True
 
-    def get_branches(
-        self, session_id: str, message_id: str = ""
-    ) -> list[dict[str, Any]]:
+    def get_branches(self, session_id: str, message_id: str = "") -> list[dict[str, Any]]:
         session = self.get_session(session_id)
         if not session:
             return []
@@ -536,7 +528,9 @@ class ChatEngine:
             ctx, "chat.simple", "default", history
         )
         if not proceed:
-            logger.warning("chat simple blocked by llm_funnel session=%s reason=%s", session.id, block_reason)
+            logger.warning(
+                "chat simple blocked by llm_funnel session=%s reason=%s", session.id, block_reason
+            )
             yield ChatEvent(type=ChatEventType.ERROR, content=block_reason)
             return
         usage: dict = {}
@@ -549,9 +543,7 @@ class ChatEngine:
                 ):
                     if chunk.get("delta_content"):
                         content_parts.append(chunk["delta_content"])
-                        yield ChatEvent(
-                            type=ChatEventType.TOKEN, content=chunk["delta_content"]
-                        )
+                        yield ChatEvent(type=ChatEventType.TOKEN, content=chunk["delta_content"])
                     if chunk.get("usage"):
                         usage = chunk["usage"]
                     if chunk.get("delta_tool_calls"):
@@ -562,9 +554,7 @@ class ChatEngine:
                                 args=tc,
                             )
             else:
-                resp = await self.runtime.llm_gateway.chat(
-                    messages=history, model="default"
-                )
+                resp = await self.runtime.llm_gateway.chat(messages=history, model="default")
                 # 审计 E-12: gateway finish_reason=="error" 哨兵 content="" 不代表成功.
                 if getattr(resp, "finish_reason", "") == "error":
                     err = (getattr(resp, "usage", None) or {}).get("error", "gateway error")
@@ -573,7 +563,9 @@ class ChatEngine:
                 if resp.content:
                     content_parts.append(resp.content)
                     yield ChatEvent(type=ChatEventType.TOKEN, content=resp.content)
-            funnel.post_llm(ctx, "chat.simple", "default", usage=usage, content="".join(content_parts))
+            funnel.post_llm(
+                ctx, "chat.simple", "default", usage=usage, content="".join(content_parts)
+            )
         except Exception as e:
             logger.error("ChatEngine _execute_simple error: %s", e)
             yield ChatEvent(type=ChatEventType.ERROR, content=str(e))
@@ -584,9 +576,7 @@ class ChatEngine:
         message: str,
     ) -> AsyncIterator[ChatEvent]:
         if not self.runtime:
-            yield ChatEvent(
-                type=ChatEventType.ERROR, content="no runtime for agent mode"
-            )
+            yield ChatEvent(type=ChatEventType.ERROR, content="no runtime for agent mode")
             return
 
         graph_id = session.graph_id
@@ -720,8 +710,7 @@ class ChatEngine:
         message: str,
     ) -> AsyncIterator[ChatEvent]:
         code_prompt = (
-            f"You are a code assistant. Help with coding tasks.\n\n"
-            f"User request: {message}"
+            f"You are a code assistant. Help with coding tasks.\n\nUser request: {message}"
         )
         async for event in self._execute_simple(session, code_prompt):
             yield event

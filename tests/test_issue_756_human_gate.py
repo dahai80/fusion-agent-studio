@@ -110,7 +110,9 @@ async def test_roundtrip_via_rpc_surface_unchanged():
     assert results and json.loads(results[-1].content)["decision"] == "go"
     # resolved question leaves the pending list
     pend = await listing({})
-    assert all(i["input_id"] not in {e.metadata.get("input_id") for e in events} for i in pend["inputs"])
+    assert all(
+        i["input_id"] not in {e.metadata.get("input_id") for e in events} for i in pend["inputs"]
+    )
 
 
 async def test_double_resolve_returns_false_no_raise():
@@ -124,9 +126,14 @@ async def test_double_resolve_returns_false_no_raise():
             events.append(ev)
             if ev.type == AgentEventType.SAFETY_APPROVAL:
                 input_id = ev.metadata["input_id"]
-                assert rt.resolve_human_input(input_id, {"approved": True, "value": "first"}) is True
+                assert (
+                    rt.resolve_human_input(input_id, {"approved": True, "value": "first"}) is True
+                )
                 # single-winner: second resolve loses, no exception
-                assert rt.resolve_human_input(input_id, {"approved": False, "reason": "second"}) is False
+                assert (
+                    rt.resolve_human_input(input_id, {"approved": False, "reason": "second"})
+                    is False
+                )
 
     await asyncio.wait_for(run(), timeout=10)
     results = [ev for ev in events if ev.type == AgentEventType.RESULT and "decision" in ev.content]
@@ -154,13 +161,17 @@ async def test_queue_state_survives_runtime_restart(tmp_path):
     except asyncio.CancelledError:
         pass
 
-    gate_path = os.path.join(os.environ["FUSION_AGENT_STUDIO_HOME"], "human_gate", "human_gate_queue.json")
+    gate_path = os.path.join(
+        os.environ["FUSION_AGENT_STUDIO_HOME"], "human_gate", "human_gate_queue.json"
+    )
     assert os.path.exists(gate_path), "gate queue persisted on disk"
 
     rt2 = _runtime()
     pend = rt2.pending_human_inputs()
     assert any(p["input_id"] == captured["input_id"] for p in pend)
-    assert rt2.resolve_human_input(captured["input_id"], {"approved": True, "value": "late"}) is True
+    assert (
+        rt2.resolve_human_input(captured["input_id"], {"approved": True, "value": "late"}) is True
+    )
     pend2 = rt2.pending_human_inputs()
     assert all(p["input_id"] != captured["input_id"] for p in pend2)
 

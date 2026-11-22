@@ -135,6 +135,7 @@ class TestE18MlxReconnect:
         import inspect
 
         from agent_runtime import daemon_server
+
         assert hasattr(daemon_server.DaemonServer, "_handle_mlx_reconnect")
         src = inspect.getsource(daemon_server.DaemonServer._core_handlers)
         assert '"mlx.reconnect"' in src
@@ -181,6 +182,7 @@ class TestBundle5PriorFixesRegression:
         import inspect
 
         from agent_runtime import daemon_server
+
         src = inspect.getsource(daemon_server.DaemonServer._core_handlers)
         assert '"daemon.ping"' in src
         assert '"graph.resume"' in src
@@ -193,6 +195,7 @@ class TestBundle5PriorFixesRegression:
     def test_e21_interpolate_complex_types_json(self):
         # E-21: dict/list/None/bool 插值产合法 JSON, 非 Python repr.
         from agent_runtime.variable_manager import VariableManager
+
         vm = VariableManager()
         vm.set("data", {"a": 1, "b": True})
         vm.set("lst", [1, "x", None])
@@ -211,6 +214,7 @@ class TestBundle5PriorFixesRegression:
         import inspect
 
         from agent_runtime import chat_engine, planner, verifier, workflow_engine
+
         targets = {
             planner: "_plan_with_llm",
             workflow_engine: "_run_agent",
@@ -222,7 +226,7 @@ class TestBundle5PriorFixesRegression:
             if fn is None:
                 # 方法名可能不同, 退而扫模块源含哨兵检查.
                 src = inspect.getsource(mod)
-                assert 'finish_reason' in src and '"error"' in src, (
+                assert "finish_reason" in src and '"error"' in src, (
                     f"{mod.__name__} missing error sentinel check"
                 )
                 continue
@@ -232,6 +236,7 @@ class TestBundle5PriorFixesRegression:
 
 def asyncio_run(coro):
     import asyncio
+
     try:
         loop = asyncio.get_event_loop()
     except RuntimeError:

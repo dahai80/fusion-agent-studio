@@ -44,9 +44,7 @@ def notify_peers(team: str = "") -> int:
     urls = peer_notify_urls()
     if not urls:
         return 0
-    thread = threading.Thread(
-        target=_post_all, args=(urls, team, peer_notify_key()), daemon=True
-    )
+    thread = threading.Thread(target=_post_all, args=(urls, team, peer_notify_key()), daemon=True)
     thread.start()
     return len(urls)
 

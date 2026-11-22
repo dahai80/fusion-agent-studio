@@ -121,13 +121,7 @@ def _event_records(record: TrajectoryRecord) -> list[KernelTrajectoryRecord]:
         event = _map_legacy_event(raw_event, payload)
         if event == "model_call_meta":
             payload = _sanitize_mc_meta(payload)
-        node_id = str(
-            ev.get("node_id")
-            or record.graph_id
-            or record.session_id
-            or run_id
-            or "run"
-        )
+        node_id = str(ev.get("node_id") or record.graph_id or record.session_id or run_id or "run")
         try:
             out.append(
                 KernelTrajectoryRecord(
@@ -192,9 +186,7 @@ def read_run(path) -> dict | None:
             ]
             if not recs:
                 return None
-            end = next(
-                (r for r in reversed(recs) if r.get("event") == "end"), recs[-1]
-            )
+            end = next((r for r in reversed(recs) if r.get("event") == "end"), recs[-1])
             run = dict(end.get("payload") or {})
             run["trace_id"] = end.get("run_id", run.get("trace_id", ""))
             run["status"] = end.get("status") or run.get("status", "")
@@ -271,7 +263,9 @@ class TrajectoryWriter:
         self._evict_if_needed()
         logger.debug(
             "Trajectory started: trace=%s session=%s graph=%s",
-            record.trace_id, session_id, graph_name,
+            record.trace_id,
+            session_id,
+            graph_name,
         )
         return record.trace_id
 
@@ -280,9 +274,7 @@ class TrajectoryWriter:
         # 现落盘 (status=evicted_abandoned) 保数据, 仅释放内存.
         if len(self._records) <= self._MAX_RECORDS:
             return
-        oldest = sorted(
-            self._records.items(), key=lambda kv: kv[1].started_at
-        )
+        oldest = sorted(self._records.items(), key=lambda kv: kv[1].started_at)
         evict_count = len(self._records) - self._MAX_RECORDS
         for sid, rec in oldest[:evict_count]:
             self._records.pop(sid, None)
@@ -290,7 +282,9 @@ class TrajectoryWriter:
             logger.warning(
                 "TrajectoryWriter evicted abandoned record to disk (session=%s "
                 "trace=%s events=%d) — flush never called (SSE early-cancel?)",
-                sid, rec.trace_id, len(rec.events),
+                sid,
+                rec.trace_id,
+                len(rec.events),
             )
 
     def record_event(self, session_id: str, event: dict) -> None:
@@ -302,17 +296,21 @@ class TrajectoryWriter:
         etype = event.get("type", "")
         node_id = event.get("node_id", "")
         if node_id and etype in ("start", "think", "tool_call", "tool_result"):
-            record.node_transitions.append({
-                "node_id": node_id,
-                "iteration": record.iteration_count,
-                "timestamp": event.get("timestamp", time.time()),
-            })
+            record.node_transitions.append(
+                {
+                    "node_id": node_id,
+                    "iteration": record.iteration_count,
+                    "timestamp": event.get("timestamp", time.time()),
+                }
+            )
         if etype == "tool_call" or etype == "tool_call_start":
-            record.tool_calls.append({
-                "name": event.get("name", ""),
-                "args": event.get("args", {}),
-                "timestamp": event.get("timestamp", time.time()),
-            })
+            record.tool_calls.append(
+                {
+                    "name": event.get("name", ""),
+                    "args": event.get("args", {}),
+                    "timestamp": event.get("timestamp", time.time()),
+                }
+            )
         if etype == "error":
             record.status = "error"
             record.error = event.get("content", "")
@@ -380,7 +378,10 @@ class TrajectoryWriter:
             kwriter.write(_end_record(record, final_status))
             logger.info(
                 "Trajectory flushed: %s (%d event records, %d tool_calls, status=%s)",
-                fpath.name, written, len(record.tool_calls), final_status,
+                fpath.name,
+                written,
+                len(record.tool_calls),
+                final_status,
             )
             # 审计 P1-13/3M-1: flush 后按文件数轮转. 原每会话写一个 JSON 永不删,
             # 长跑积累 GB 级轨迹. 超 max (默认 1000, FUSION_TRAJECTORY_MAX_FILES
@@ -441,9 +442,7 @@ class TrajectoryWriter:
             if f.suffix == ".jsonl":
                 try:
                     n_events = sum(
-                        1
-                        for line in f.read_text(encoding="utf-8").splitlines()
-                        if line.strip()
+                        1 for line in f.read_text(encoding="utf-8").splitlines() if line.strip()
                     )
                     started_at = 0
                     for line in f.read_text(encoding="utf-8").splitlines():
@@ -452,27 +451,31 @@ class TrajectoryWriter:
                             break
                 except (OSError, json.JSONDecodeError):
                     n_events, started_at = 0, 0
-                results.append({
-                    "trace_id": run.get("trace_id", ""),
-                    "session_id": run.get("session_id", ""),
-                    "graph_name": run.get("graph_name", ""),
-                    "status": run.get("status", ""),
-                    "started_at": started_at,
-                    "duration_ms": run.get("duration_ms", 0),
-                    "events": n_events,
-                    "file": f.name,
-                })
+                results.append(
+                    {
+                        "trace_id": run.get("trace_id", ""),
+                        "session_id": run.get("session_id", ""),
+                        "graph_name": run.get("graph_name", ""),
+                        "status": run.get("status", ""),
+                        "started_at": started_at,
+                        "duration_ms": run.get("duration_ms", 0),
+                        "events": n_events,
+                        "file": f.name,
+                    }
+                )
             else:
-                results.append({
-                    "trace_id": run.get("trace_id", ""),
-                    "session_id": run.get("session_id", ""),
-                    "graph_name": run.get("graph_name", ""),
-                    "status": run.get("status", ""),
-                    "started_at": run.get("started_at", 0),
-                    "duration_ms": run.get("duration_ms", 0),
-                    "events": len(run.get("events", [])),
-                    "file": f.name,
-                })
+                results.append(
+                    {
+                        "trace_id": run.get("trace_id", ""),
+                        "session_id": run.get("session_id", ""),
+                        "graph_name": run.get("graph_name", ""),
+                        "status": run.get("status", ""),
+                        "started_at": run.get("started_at", 0),
+                        "duration_ms": run.get("duration_ms", 0),
+                        "events": len(run.get("events", [])),
+                        "file": f.name,
+                    }
+                )
         return results
 
 

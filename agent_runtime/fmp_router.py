@@ -131,9 +131,7 @@ class AgentCircuitBreaker:
         self._failures[agent_id] = count
         if count >= self.threshold:
             self._trip_times[agent_id] = time.time()
-            logger.warning(
-                "Circuit breaker TRIPPED for agent %s (%d failures)", agent_id, count
-            )
+            logger.warning("Circuit breaker TRIPPED for agent %s (%d failures)", agent_id, count)
 
     def is_open(self, agent_id: str) -> bool:
         if agent_id not in self._trip_times:
@@ -161,9 +159,7 @@ class MessageDedup:
 
     def is_duplicate(self, message_id: str) -> bool:
         now = time.time()
-        expired = [
-            mid for mid, ts in self._seen.items() if now - ts > self.window_seconds
-        ]
+        expired = [mid for mid, ts in self._seen.items() if now - ts > self.window_seconds]
         for mid in expired:
             del self._seen[mid]
 

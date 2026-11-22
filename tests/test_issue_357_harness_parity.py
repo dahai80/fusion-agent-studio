@@ -86,7 +86,5 @@ def test_kernel_import_error_is_loud():
         "    sys.exit(0)\n"
         "print('UNEXPECTED_SUCCESS')\n"
     )
-    out = subprocess.run(
-        [sys.executable, "-c", code], capture_output=True, text=True
-    )
+    out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
     assert "LOUD_IMPORT_ERROR" in out.stdout, out.stdout + out.stderr

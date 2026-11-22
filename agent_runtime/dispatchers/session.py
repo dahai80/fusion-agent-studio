@@ -50,12 +50,8 @@ class SessionDispatcher(SubDispatcher):
         tag = str(params.get("tag", "") or "")
         rows = self._store().list(limit=limit + offset)
         if tag:
-            rows = [
-                r
-                for r in rows
-                if tag in (r.get("metadata", {}) or {}).get("tags", [])
-            ]
-        rows = rows[offset: offset + limit]
+            rows = [r for r in rows if tag in (r.get("metadata", {}) or {}).get("tags", [])]
+        rows = rows[offset : offset + limit]
         out = []
         for row in rows:
             out.append(
@@ -73,7 +69,9 @@ class SessionDispatcher(SubDispatcher):
                     "updated_at": row.get("updated_at", 0),
                 }
             )
-        logger.info("sessions.list limit=%d offset=%d tag=%s count=%d", limit, offset, tag or "-", len(out))
+        logger.info(
+            "sessions.list limit=%d offset=%d tag=%s count=%d", limit, offset, tag or "-", len(out)
+        )
         return {"status": "ok", "sessions": out, "total": len(out), "offset": offset}
 
     async def _handle_get(self, params: dict) -> dict:
@@ -176,7 +174,10 @@ class SessionDispatcher(SubDispatcher):
         summary = feed.summary(session_id)
         logger.info(
             "sessions.lifecycle session=%s events=%d restored=%d domains=%s",
-            session_id, len(events), restored, summary.get("by_domain"),
+            session_id,
+            len(events),
+            restored,
+            summary.get("by_domain"),
         )
         return {
             "status": "ok",

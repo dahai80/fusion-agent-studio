@@ -58,7 +58,9 @@ class Audit:
 
 def _block_hooks(reason):
     eng = HookEngine(auto_register_decorators=False)
-    eng.register(HookConfig(event="PRE_TOOL_USE", callback=lambda p: {"decision": "block", "reason": reason}))
+    eng.register(
+        HookConfig(event="PRE_TOOL_USE", callback=lambda p: {"decision": "block", "reason": reason})
+    )
     return eng
 
 
@@ -75,7 +77,9 @@ def _rewrite_hooks(updated):
 
 async def prove_hook_block():
     bus = LifecycleBus()
-    funnel = ToolFunnel(hooks=_block_hooks("proof-deny"), permissions=PermissionEngine(), lifecycle_bus=bus)
+    funnel = ToolFunnel(
+        hooks=_block_hooks("proof-deny"), permissions=PermissionEngine(), lifecycle_bus=bus
+    )
     executed = []
 
     async def executor(args):
@@ -112,7 +116,10 @@ async def prove_safety_block_and_approval():
 
 
 async def prove_permission_deny_first():
-    engine = PermissionEngine(rules=[PermissionRule(action="deny", tool="dangerous_tool", layer="global")], mode="approved")
+    engine = PermissionEngine(
+        rules=[PermissionRule(action="deny", tool="dangerous_tool", layer="global")],
+        mode="approved",
+    )
     safety = SafetyStub(Verdict(SafetyAction.BLOCK, approval=False))
     funnel = ToolFunnel(permissions=engine, safety_gateway=safety)
     out = await funnel.admit(ctx=Ctx(), tool_name="dangerous_tool", args={})
@@ -128,7 +135,12 @@ async def prove_budget_and_allow():
 
     bus = LifecycleBus()
     audit = Audit()
-    f2 = ToolFunnel(permissions=PermissionEngine(), lifecycle_bus=bus, budget_ref=Budget(False), audit_logger=audit)
+    f2 = ToolFunnel(
+        permissions=PermissionEngine(),
+        lifecycle_bus=bus,
+        budget_ref=Budget(False),
+        audit_logger=audit,
+    )
     executed = []
 
     async def executor(args):
@@ -154,7 +166,13 @@ async def prove_llm_funnel():
     from agent_runtime.compactor import CompactionConfig, Compactor
 
     compactor = Compactor(
-        CompactionConfig(context_window=200, warning_buffer=100, error_buffer=40, manual_buffer=150, keep_recent_rounds=1)
+        CompactionConfig(
+            context_window=200,
+            warning_buffer=100,
+            error_buffer=40,
+            manual_buffer=150,
+            keep_recent_rounds=1,
+        )
     )
     funnel = LLMFunnel(compactor=compactor, lifecycle_bus=bus)
     msgs = [

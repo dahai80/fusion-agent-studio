@@ -68,7 +68,9 @@ async def main() -> None:
 
     # 4. Non-streaming variant returns the full result.
     result = await agent.query(client, "Hello", stream=False)
-    print("non-stream result keys:", list(result.keys()) if isinstance(result, dict) else type(result))
+    print(
+        "non-stream result keys:", list(result.keys()) if isinstance(result, dict) else type(result)
+    )
 
 
 if __name__ == "__main__":

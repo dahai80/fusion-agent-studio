@@ -68,9 +68,7 @@ def main() -> int:
     compactor = Compactor(config=config)
     messages = build_session()
     before = compactor.estimate_tokens(messages)
-    logger.info(
-        "synthetic long session rounds=%d msgs=%d tokens=%d", ROUNDS, len(messages), before
-    )
+    logger.info("synthetic long session rounds=%d msgs=%d tokens=%d", ROUNDS, len(messages), before)
 
     levels = []
     current = messages

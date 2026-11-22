@@ -34,9 +34,7 @@ def cron_api(monkeypatch):
     from agent_runtime import api_server
 
     calls: list[tuple[str, dict]] = []
-    jobs: dict[str, dict] = {
-        "cron-1": {"id": "cron-1", "name": "nightly", "graph_id": "g1"}
-    }
+    jobs: dict[str, dict] = {"cron-1": {"id": "cron-1", "name": "nightly", "graph_id": "g1"}}
 
     async def fake_rpc(method: str, params: dict) -> dict:
         calls.append((method, params))
@@ -62,9 +60,7 @@ def cron_api(monkeypatch):
     monkeypatch.setattr(
         api_server,
         "_get_audit_logger",
-        lambda: type(
-            "_NoopAudit", (), {"log_action": staticmethod(lambda **kw: None)}
-        )(),
+        lambda: type("_NoopAudit", (), {"log_action": staticmethod(lambda **kw: None)})(),
     )
     return TestClient(api_server.app), calls
 
@@ -92,7 +88,7 @@ class TestCronRestSurface:
                 "name": "nightly",
                 "expression": "0 3 * * *",
                 "graph_id": "g1",
-                "input_data": "{\"input\": \"run nightly\"}",
+                "input_data": '{"input": "run nightly"}',
             },
         )
         assert resp.status_code == 200

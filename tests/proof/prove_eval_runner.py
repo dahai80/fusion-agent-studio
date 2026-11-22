@@ -52,9 +52,7 @@ def _dataset(n: int = 20) -> EvalDataset:
 
 
 def prove_eval_runner() -> int:
-    runner = EvalRunner(
-        runtime=DeterministicRuntime(), graph_loader=lambda gid: object()
-    )
+    runner = EvalRunner(runtime=DeterministicRuntime(), graph_loader=lambda gid: object())
     ds = _dataset()
     r1 = asyncio.run(runner.run(ds))
     r2 = asyncio.run(runner.run(ds))
@@ -79,11 +77,22 @@ def prove_eval_runner() -> int:
         return 1
     # trace replay round-trip
     rec = {
-        "trace_id": "trace-proof-0001", "session_id": "s", "graph_id": "g",
-        "graph_name": "n", "agent_id": "", "started_at": 0, "finished_at": 0,
-        "status": "completed", "iteration_count": 1, "max_iterations": 25,
-        "events": [], "tool_calls": [], "node_transitions": [], "error": "",
-        "token_usage": {}, "duration_ms": 1,
+        "trace_id": "trace-proof-0001",
+        "session_id": "s",
+        "graph_id": "g",
+        "graph_name": "n",
+        "agent_id": "",
+        "started_at": 0,
+        "finished_at": 0,
+        "status": "completed",
+        "iteration_count": 1,
+        "max_iterations": 25,
+        "events": [],
+        "tool_calls": [],
+        "node_transitions": [],
+        "error": "",
+        "token_usage": {},
+        "duration_ms": 1,
         "messages": [
             {"role": "user", "content": "replay question"},
             {"role": "assistant", "content": "replay answer"},

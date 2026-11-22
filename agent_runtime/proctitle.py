@@ -4,6 +4,7 @@ Layered resolution: fusion_core.set_process_title (shared in-tree helper)
 first, then a direct setproctitle import, then a no-op fallback so every
 entrypoint still starts when neither is importable.
 """
+
 import logging
 
 logger = logging.getLogger(__name__)

@@ -100,8 +100,13 @@ async def test_non_sensitive_connector_needs_no_approval_ref(infra):
 
 async def test_sensitive_scopes_survive_persistence(tmp_path):
     mgr = ConnectorManager(tmp_path)
-    mgr.create("Audited", "api_key", {"api_key": "k"}, connector_id="connector.a",
-               sensitive_scopes=["pii.read"])
+    mgr.create(
+        "Audited",
+        "api_key",
+        {"api_key": "k"},
+        connector_id="connector.a",
+        sensitive_scopes=["pii.read"],
+    )
     reloaded = ConnectorManager(tmp_path)
     stored = reloaded.get("connector.a")
     assert stored["sensitive_scopes"] == ["pii.read"]
@@ -115,8 +120,9 @@ def test_connector_capability_passes_sensitive_scopes_through():
     saved = copy.deepcopy(caps_mod.CAPABILITIES)
     try:
         caps_mod.add_connector_capabilities(
-            "erp", [{"id": "orders.list", "title": "Orders",
-                     "sensitive_scopes": ["pii.read"]}], "test"
+            "erp",
+            [{"id": "orders.list", "title": "Orders", "sensitive_scopes": ["pii.read"]}],
+            "test",
         )
         caps = {c["id"]: c for c in caps_mod.active_capabilities()}
         assert caps["connector.erp.orders.list"]["sensitive_scopes"] == ["pii.read"]

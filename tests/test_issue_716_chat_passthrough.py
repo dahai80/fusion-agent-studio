@@ -72,10 +72,14 @@ async def _active(daemon):
 async def test_send_full_extension_roundtrip(daemon, _home):
     await _active(daemon)
     res = await _run(
-        daemon, "teams.send",
+        daemon,
+        "teams.send",
         {
-            "team": "chat-pair", "from": "worker-a", "to": "worker-b",
-            "type": "text", "body": "see attached",
+            "team": "chat-pair",
+            "from": "worker-a",
+            "to": "worker-b",
+            "type": "text",
+            "body": "see attached",
             "reply_to": "msg_deadbeef",
             "mentions": ["worker-b"],
             "attachments": ["run/worker-a.text"],
@@ -94,18 +98,22 @@ async def test_send_full_extension_roundtrip(daemon, _home):
     assert m["audio_ref"] == "run/worker-a.wav"
     assert m["transcript"] == "voice note text"
     assert m["msg_id"] == res["msg_id"]
-    on_disk = json.loads(
-        (_home / "teams" / "chat-pair" / "inboxes" / "worker-b.json").read_text()
-    )
+    on_disk = json.loads((_home / "teams" / "chat-pair" / "inboxes" / "worker-b.json").read_text())
     assert on_disk[0]["msg_id"] == res["msg_id"]
 
 
 async def test_send_bad_reply_to_rejected(daemon):
     await _active(daemon)
     res = await _run(
-        daemon, "teams.send",
-        {"team": "chat-pair", "from": "worker-a", "to": "worker-b",
-         "reply_to": "not-a-msg-id", "body": "x"},
+        daemon,
+        "teams.send",
+        {
+            "team": "chat-pair",
+            "from": "worker-a",
+            "to": "worker-b",
+            "reply_to": "not-a-msg-id",
+            "body": "x",
+        },
     )
     assert res["status"] == "error"
 
@@ -113,9 +121,15 @@ async def test_send_bad_reply_to_rejected(daemon):
 async def test_send_unknown_mention_rejected(daemon):
     await _active(daemon)
     res = await _run(
-        daemon, "teams.send",
-        {"team": "chat-pair", "from": "worker-a", "to": "worker-b",
-         "mentions": ["ghost"], "body": "x"},
+        daemon,
+        "teams.send",
+        {
+            "team": "chat-pair",
+            "from": "worker-a",
+            "to": "worker-b",
+            "mentions": ["ghost"],
+            "body": "x",
+        },
     )
     assert res["status"] == "error"
 
@@ -123,9 +137,9 @@ async def test_send_unknown_mention_rejected(daemon):
 async def test_broadcast_mentions_passthrough(daemon):
     await _active(daemon)
     res = await _run(
-        daemon, "teams.broadcast",
-        {"team": "chat-pair", "from": "worker-a", "body": "all hands",
-         "mentions": ["worker-b"]},
+        daemon,
+        "teams.broadcast",
+        {"team": "chat-pair", "from": "worker-a", "body": "all hands", "mentions": ["worker-b"]},
     )
     assert res["delivered"] == 1
     inbox = await _run(daemon, "teams.inbox", {"team": "chat-pair", "member": "worker-b"})
@@ -135,7 +149,8 @@ async def test_broadcast_mentions_passthrough(daemon):
 async def test_broadcast_unknown_mention_rejects_all(daemon):
     await _active(daemon)
     res = await _run(
-        daemon, "teams.broadcast",
+        daemon,
+        "teams.broadcast",
         {"team": "chat-pair", "from": "worker-a", "body": "x", "mentions": ["ghost"]},
     )
     assert res["status"] == "error"
@@ -146,13 +161,20 @@ async def test_broadcast_unknown_mention_rejects_all(daemon):
 async def test_msg_id_persisted_and_inbox_surface(daemon, _home):
     await _active(daemon)
     r1 = await _run(
-        daemon, "teams.send",
+        daemon,
+        "teams.send",
         {"team": "chat-pair", "from": "worker-a", "to": "worker-b", "body": "one"},
     )
     r2 = await _run(
-        daemon, "teams.send",
-        {"team": "chat-pair", "from": "worker-a", "to": "worker-b", "body": "two",
-         "reply_to": r1["msg_id"]},
+        daemon,
+        "teams.send",
+        {
+            "team": "chat-pair",
+            "from": "worker-a",
+            "to": "worker-b",
+            "body": "two",
+            "reply_to": r1["msg_id"],
+        },
     )
     assert r2["status"] == "ok" and r2["msg_id"] != r1["msg_id"]
     inbox = await _run(daemon, "teams.inbox", {"team": "chat-pair", "member": "worker-b"})

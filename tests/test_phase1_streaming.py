@@ -38,9 +38,7 @@ class MockStreamClient:
         self._StreamChunk = StreamChunk
         self._chunks = chunks or [
             StreamChunk(delta_content="Hello", delta_tool_calls=[], finish_reason=None),
-            StreamChunk(
-                delta_content=" world", delta_tool_calls=[], finish_reason=None
-            ),
+            StreamChunk(delta_content=" world", delta_tool_calls=[], finish_reason=None),
             StreamChunk(delta_content="", delta_tool_calls=[], finish_reason="stop"),
         ]
 
@@ -70,12 +68,8 @@ class MockGateway(LLMGateway):
         self.set_default_client(client)
         from agent_runtime.llm_gateway import ModelConfig
 
-        self.register_model(
-            ModelConfig(name="test-model", provider="local", context_length=4096)
-        )
-        self.register_model(
-            ModelConfig(name="test", provider="local", context_length=4096)
-        )
+        self.register_model(ModelConfig(name="test-model", provider="local", context_length=4096))
+        self.register_model(ModelConfig(name="test", provider="local", context_length=4096))
 
 
 class MockStore:

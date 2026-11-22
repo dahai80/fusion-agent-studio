@@ -94,10 +94,7 @@ class TestExecution:
         )
         graph_id = created["graph_id"]
         # EventSource cannot set headers — the SSE endpoint accepts ?api_key=
-        url = (
-            f"{daemon_base}/v1/graphs/{graph_id}/execute/stream"
-            f"?input=hello&api_key={E2E_API_KEY}"
-        )
+        url = f"{daemon_base}/v1/graphs/{graph_id}/execute/stream?input=hello&api_key={E2E_API_KEY}"
         # EventSource from about:blank is cross-origin (no CORS on the
         # endpoint) — load a real page first so the stream is same-origin,
         # exactly like the GUI's own usage

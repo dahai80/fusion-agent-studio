@@ -1,4 +1,5 @@
 """HTTP request tool — make HTTP requests to external APIs."""
+
 from __future__ import annotations
 
 from .base import BaseTool
@@ -8,15 +9,24 @@ class HttpRequestTool(BaseTool):
     name = "http_request"
     description = "Make HTTP requests to external APIs (GET, POST, PUT, DELETE, PATCH)"
     parameters = {
-        "method": {"type": "string", "enum": ["GET", "POST", "PUT", "DELETE", "PATCH"], "description": "HTTP method"},
+        "method": {
+            "type": "string",
+            "enum": ["GET", "POST", "PUT", "DELETE", "PATCH"],
+            "description": "HTTP method",
+        },
         "url": {"type": "string", "description": "Request URL"},
         "headers": {"type": "object", "description": "HTTP headers (JSON object)", "default": {}},
-        "body": {"type": "string", "description": "Request body (for POST/PUT/PATCH)", "default": ""},
+        "body": {
+            "type": "string",
+            "description": "Request body (for POST/PUT/PATCH)",
+            "default": "",
+        },
         "timeout": {"type": "integer", "description": "Timeout in seconds", "default": 30},
     }
 
     async def execute(self, **kwargs) -> str:
         import httpx
+
         method = kwargs.get("method", "GET").upper()
         url = kwargs.get("url", "")
         headers = kwargs.get("headers", {}) or {}

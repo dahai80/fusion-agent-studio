@@ -103,9 +103,7 @@ class BundleManifest:
 
 def load_bundle_manifest(path: str | Path) -> BundleManifest | None:
     base = Path(path)
-    candidates = (
-        [base] if base.name == MANIFEST_NAME and base.is_file() else [base / MANIFEST_NAME]
-    )
+    candidates = [base] if base.name == MANIFEST_NAME and base.is_file() else [base / MANIFEST_NAME]
     candidates.extend([base / ".fusion-agent" / MANIFEST_NAME])
     for candidate in candidates:
         if not candidate.is_file():
@@ -132,7 +130,7 @@ def _credential_value(key: str, value: str) -> tuple[str, str]:
             return "", f"{key}: env {env_name} is not set"
         return resolved, ""
     if value.startswith("keychain:"):
-        item = value[len("keychain:"):].strip()
+        item = value[len("keychain:") :].strip()
         try:
             out = subprocess.run(
                 ["security", "find-generic-password", "-w", "-s", item],
@@ -146,9 +144,7 @@ def _credential_value(key: str, value: str) -> tuple[str, str]:
         if out.returncode != 0 or not out.stdout.strip():
             return "", f"{key}: keychain item {item} not found"
         return out.stdout.strip(), ""
-    return "", (
-        f"{key}: inline credentials are not allowed; use env:NAME or keychain:item"
-    )
+    return "", (f"{key}: inline credentials are not allowed; use env:NAME or keychain:item")
 
 
 class BundleInstaller:

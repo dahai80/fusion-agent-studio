@@ -5,6 +5,7 @@ dynamic proxy (#232 contract, UpstreamFor) cannot resolve /shell/<id>/
 to the daemon. Fix: manifest.json carries `upstream`; api_key is injected
 at registration time from static_module_key() (never in the repo file).
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -20,14 +21,18 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class TestResolveUpstream:
-
     def test_env_override_wins(self, monkeypatch):
         monkeypatch.setenv("FUSION_SHELL_UPSTREAM", "http://127.0.0.1:7777/")
-        assert shell_registry.resolve_upstream({"upstream": "http://x:1"}) == "http://127.0.0.1:7777"
+        assert (
+            shell_registry.resolve_upstream({"upstream": "http://x:1"}) == "http://127.0.0.1:7777"
+        )
 
     def test_manifest_value_fallback(self, monkeypatch):
         monkeypatch.delenv("FUSION_SHELL_UPSTREAM", raising=False)
-        assert shell_registry.resolve_upstream({"upstream": "http://10.0.0.5:11442"}) == "http://10.0.0.5:11442"
+        assert (
+            shell_registry.resolve_upstream({"upstream": "http://10.0.0.5:11442"})
+            == "http://10.0.0.5:11442"
+        )
 
     def test_default_when_missing(self, monkeypatch):
         monkeypatch.delenv("FUSION_SHELL_UPSTREAM", raising=False)
@@ -40,7 +45,6 @@ class TestResolveUpstream:
 
 
 class TestRegistrationPayload:
-
     def test_injects_upstream_and_api_key(self, monkeypatch):
         monkeypatch.setenv("FUSION_AGENT_STUDIO_API_KEY", "fk-mod-secret")
         payload = shell_registry.build_registration_payload({"id": "m", "upstream": "http://h:1"})
@@ -67,7 +71,6 @@ class TestRegistrationPayload:
 
 
 class TestLoopWiring:
-
     def _run_one_tick(self, monkeypatch, tmp_path, manifest, env_upstream=None):
         path = tmp_path / "manifest.json"
         path.write_text(json.dumps(manifest))
@@ -113,7 +116,9 @@ class TestLoopWiring:
 
     def test_loop_env_upstream_override(self, monkeypatch, tmp_path):
         captured = self._run_one_tick(
-            monkeypatch, tmp_path, {"id": "mod-x"},
+            monkeypatch,
+            tmp_path,
+            {"id": "mod-x"},
             env_upstream="http://127.0.0.1:7788",
         )
         body = json.loads(captured[0].content)
@@ -121,6 +126,8 @@ class TestLoopWiring:
 
     def test_loop_aborts_on_bad_upstream(self, monkeypatch, tmp_path):
         captured = self._run_one_tick(
-            monkeypatch, tmp_path, {"id": "mod-x", "upstream": "not-a-url"},
+            monkeypatch,
+            tmp_path,
+            {"id": "mod-x", "upstream": "not-a-url"},
         )
         assert captured == []

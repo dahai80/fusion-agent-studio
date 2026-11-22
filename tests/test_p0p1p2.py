@@ -227,9 +227,7 @@ class TestSafetyGatewayL1L2:
 
     def test_l2_file_write_requires_preview(self):
         client = MockGuardClient(
-            verdict=MockVerdict(
-                action="preview", risk_level="l2", requires_approval=True
-            )
+            verdict=MockVerdict(action="preview", risk_level="l2", requires_approval=True)
         )
         gw = SafetyGateway(level=SafetyLevel.L2, guard_client=client)
         verdict = gw.evaluate_action(CAT_FILE_WRITE, "write to file.py")
@@ -339,9 +337,7 @@ class TestGatewayResponse:
 class TestLLMGatewayProxy:
     def test_register_default_local(self):
         gw = LLMGateway()
-        config = gw.register_default_local(
-            name="test-local", base_url="http://localhost:11434/v1"
-        )
+        config = gw.register_default_local(name="test-local", base_url="http://localhost:11434/v1")
         assert config.name == "test-local"
         assert config.provider == "local"
         assert gw._default_model == "test-local"
@@ -425,16 +421,12 @@ class TestRAGPipeline:
 
 class TestMemoryTier:
     def test_init(self):
-        t = MemoryTier(
-            name="short_term", max_entries=50, max_age_hours=24, importance_threshold=7
-        )
+        t = MemoryTier(name="short_term", max_entries=50, max_age_hours=24, importance_threshold=7)
         assert t.name == "short_term"
         assert t.max_entries == 50
 
     def test_to_dict_from_dict(self):
-        t = MemoryTier(
-            name="archive", max_entries=500, max_age_hours=0, importance_threshold=0
-        )
+        t = MemoryTier(name="archive", max_entries=500, max_age_hours=0, importance_threshold=0)
         d = t.to_dict()
         restored = MemoryTier.from_dict(d)
         assert restored.name == "archive"
@@ -450,9 +442,7 @@ class TestMemoryAutoCompression:
         engine.close()
 
     def test_auto_compress_on_threshold(self, tmp_path):
-        engine = MemoryEngine(
-            db_path=str(tmp_path / "mem.db"), max_entries=10, summary_batch=5
-        )
+        engine = MemoryEngine(db_path=str(tmp_path / "mem.db"), max_entries=10, summary_batch=5)
         for i in range(15):
             engine.store(f"memory entry {i}", scope="test", importance=3)
         count = engine.count(scope="test")

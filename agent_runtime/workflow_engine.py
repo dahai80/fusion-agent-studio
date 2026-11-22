@@ -204,9 +204,7 @@ class WorkflowEngine:
             self._workflow_semaphore = asyncio.Semaphore(self._workflow_concurrency_limit)
         return self._workflow_semaphore
 
-    def create_workflow(
-        self, name: str, phases: list[dict], **kwargs
-    ) -> WorkflowConfig:
+    def create_workflow(self, name: str, phases: list[dict], **kwargs) -> WorkflowConfig:
         phase_objects = [WorkflowPhase.from_dict(p) for p in phases]
         wf = WorkflowConfig(
             name=name,
@@ -221,9 +219,7 @@ class WorkflowEngine:
                 self.store.save_workflow(wf.id, wf.name, wf.to_dict())
             except Exception:
                 logger.exception("persist workflow %s failed", wf.id)
-        logger.info(
-            "Created workflow %s id=%s with %d phases", name, wf.id, len(phase_objects)
-        )
+        logger.info("Created workflow %s id=%s with %d phases", name, wf.id, len(phase_objects))
         return wf
 
     def get_workflow(self, workflow_id: str) -> WorkflowConfig | None:
@@ -456,9 +452,7 @@ class WorkflowEngine:
         final_output = results[-1]["output"] if results else current_input
         return {"output": final_output, "stage_results": results}
 
-    async def _exec_parallel_barrier(
-        self, phase: WorkflowPhase, current_input: str
-    ) -> dict:
+    async def _exec_parallel_barrier(self, phase: WorkflowPhase, current_input: str) -> dict:
         if not phase.agent_configs:
             return {"output": current_input}
 
@@ -503,9 +497,7 @@ class WorkflowEngine:
         merged = "\n\n".join(combined_output) if combined_output else ""
         return {"output": merged, "agent_results": results}
 
-    async def _exec_loop_until_dry(
-        self, phase: WorkflowPhase, current_input: str
-    ) -> dict:
+    async def _exec_loop_until_dry(self, phase: WorkflowPhase, current_input: str) -> dict:
         max_dry = phase.config.get("dry_threshold", 2)
         max_iterations = phase.config.get("max_iterations", 10)
         dry_count = 0
@@ -572,10 +564,7 @@ class WorkflowEngine:
                 break
 
             token_acc = []
-            tasks = [
-                self._run_agent(cfg, current_input, token_acc)
-                for cfg in phase.agent_configs
-            ]
+            tasks = [self._run_agent(cfg, current_input, token_acc) for cfg in phase.agent_configs]
             outputs = await asyncio.gather(*tasks, return_exceptions=True)
 
             for out in outputs:
@@ -598,22 +587,14 @@ class WorkflowEngine:
             "estimated_budget": estimated,
         }
 
-    async def _exec_adversarial_verify(
-        self, phase: WorkflowPhase, current_input: str
-    ) -> dict:
+    async def _exec_adversarial_verify(self, phase: WorkflowPhase, current_input: str) -> dict:
         voter_count = phase.config.get("voter_count", 3)
         threshold = phase.config.get("threshold", 0.6)
 
         tasks = []
         for i in range(voter_count):
-            cfg = (
-                phase.agent_configs[i % len(phase.agent_configs)]
-                if phase.agent_configs
-                else {}
-            )
-            prompt_prefix = (
-                f"You are skeptic #{i + 1}. Try to REFUTE the following claim. "
-            )
+            cfg = phase.agent_configs[i % len(phase.agent_configs)] if phase.agent_configs else {}
+            prompt_prefix = f"You are skeptic #{i + 1}. Try to REFUTE the following claim. "
             tasks.append(self._run_agent(cfg, prompt_prefix + current_input))
 
         votes = await asyncio.gather(*tasks, return_exceptions=True)
@@ -624,9 +605,7 @@ class WorkflowEngine:
         for i, vote in enumerate(votes):
             if isinstance(vote, Exception):
                 refuted += 1
-                vote_details.append(
-                    {"voter": i, "verdict": "refuted", "error": str(vote)}
-                )
+                vote_details.append({"voter": i, "verdict": "refuted", "error": str(vote)})
             else:
                 is_refute = (
                     "refuted" in vote.lower() or "false" in vote.lower()
@@ -726,9 +705,7 @@ class WorkflowEngine:
                 soul = resolve_soul_prompt(agent_id, fallback=system_prompt)
                 if soul and soul != system_prompt:
                     system_prompt = soul
-                    logger.info(
-                        "workflow _run_agent loaded soul for agent_id=%s", agent_id
-                    )
+                    logger.info("workflow _run_agent loaded soul for agent_id=%s", agent_id)
             except Exception as e:
                 logger.warning("workflow soul resolve failed for agent_id=%s: %s", agent_id, e)
 
@@ -778,9 +755,7 @@ class WorkflowEngine:
                 # 审计 P2-14: 图路径从 ctx 真实 token 用量记账.
                 _record_tokens(ctx.token_usage())
 
-                logger.info(
-                    "Agent %s completed, output len=%d", agent_name, len(output)
-                )
+                logger.info("Agent %s completed, output len=%d", agent_name, len(output))
                 return output
 
             except Exception:
@@ -796,7 +771,9 @@ class WorkflowEngine:
 
                 # 审计 P-2: workflow direct path must pass LLMFunnel
                 # (lifecycle llm_before/llm_after + budget + hooks).
-                fctx = SimpleNamespace(session_id=f"workflow:{agent_name}", plan_mode=False, role="all")
+                fctx = SimpleNamespace(
+                    session_id=f"workflow:{agent_name}", plan_mode=False, role="all"
+                )
                 funnel = self._get_llm_funnel()
                 proceed, block_reason, messages = await funnel.pre_llm(
                     fctx, f"workflow.{agent_name}", "default", messages
@@ -827,9 +804,7 @@ class WorkflowEngine:
                     usage=getattr(response, "usage", None) or {},
                     content=content,
                 )
-                logger.info(
-                    "LLM call for agent %s, output len=%d", agent_name, len(content)
-                )
+                logger.info("LLM call for agent %s, output len=%d", agent_name, len(content))
                 return content
             except Exception:
                 logger.exception("LLM call failed for agent %s", agent_name)

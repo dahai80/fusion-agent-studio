@@ -30,9 +30,7 @@ class TestStopReasonLogging:
     async def test_stop_logs_reason_default_unknown(self, daemon, caplog):
         with caplog.at_level(logging.INFO, logger="agent_runtime.daemon_server"):
             await daemon.stop()
-        assert any(
-            "Daemon stopped (stop_reason=unknown)" in r.getMessage() for r in caplog.records
-        )
+        assert any("Daemon stopped (stop_reason=unknown)" in r.getMessage() for r in caplog.records)
 
     async def test_stop_logs_signal_reason(self, daemon, caplog):
         daemon.stop_reason = "signal:SIGTERM"

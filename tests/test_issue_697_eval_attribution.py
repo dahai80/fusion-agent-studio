@@ -15,6 +15,7 @@ from agent_runtime.trajectory_writer import TrajectoryWriter
 
 # ---------------- RubricScorer ----------------
 
+
 class _JudgeClient:
     def __init__(self, reply: str):
         self.reply = reply
@@ -61,6 +62,7 @@ def test_rubric_score_clamped():
 
 # ---------------- FailureTagger ----------------
 
+
 def test_failure_tagger_classes():
     assert FailureTagger.tag({"passed": False, "reason": "execution error: boom"}) == "FC1"
     assert (
@@ -69,13 +71,16 @@ def test_failure_tagger_classes():
     )
     assert FailureTagger.tag({"passed": False, "reason": "missing"}, expected="answer it") == "FC2"
     assert (
-        FailureTagger.tag({"passed": False, "reason": "missing"}, expected="use the file tool", tool_calls=[])
+        FailureTagger.tag(
+            {"passed": False, "reason": "missing"}, expected="use the file tool", tool_calls=[]
+        )
         == "FC3"
     )
     assert FailureTagger.tag({"passed": True, "reason": ""}) == ""
 
 
 # ---------------- Hit provenance ----------------
+
 
 def test_ctx_hit_provenance_field():
     ctx = AgentContext()
@@ -164,6 +169,7 @@ def test_replay_provenance_identical_on_second_replay(tmp_path, monkeypatch):
 
 
 # ---------------- Report aggregation ----------------
+
 
 def test_report_histogram_and_hit_counts():
     runner = EvalRunner()

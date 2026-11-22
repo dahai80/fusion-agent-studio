@@ -51,9 +51,7 @@ def test_merge_layers_conflicts():
     high = "## Role\nlead\n## Extra\nx"
     res = merge_persona_layers([("low", low), ("high", high)])
     assert res["layers_applied"] == ["low", "high"]
-    assert res["conflicts"] == [
-        {"section": "Role", "winner": "high", "loser": "lower layer"}
-    ]
+    assert res["conflicts"] == [{"section": "Role", "winner": "high", "loser": "lower layer"}]
     assert "## Role\n\nlead" in res["persona"]
     assert "## Tone\n\ncalm" in res["persona"]
     assert "## Extra\n\nx" in res["persona"]
@@ -116,9 +114,7 @@ def test_persona_rpcs(persona_root, agents_root):
         pass
 
     d = AgentDispatcher.__new__(AgentDispatcher)
-    res = asyncio.run(
-        d._handle_agent_resolve_persona({"agent_id": "a9", "team_id": "ops"})
-    )
+    res = asyncio.run(d._handle_agent_resolve_persona({"agent_id": "a9", "team_id": "ops"}))
     assert res["layers_applied"] == ["agent:a9"]
     saved = asyncio.run(
         d._handle_agent_set_persona_layer(
@@ -130,5 +126,7 @@ def test_persona_rpcs(persona_root, agents_root):
     assert "team rule" in got["content"]
     err = asyncio.run(d._handle_agent_set_persona_layer({"layer": "bogus", "content": "x"}))
     assert err["status"] == "error"
-    err2 = asyncio.run(d._handle_agent_resolve_persona({"agent_id": "a9", "run_override": "## R\nrun"}))
+    err2 = asyncio.run(
+        d._handle_agent_resolve_persona({"agent_id": "a9", "run_override": "## R\nrun"})
+    )
     assert "## R\n\nrun" in err2["persona"]

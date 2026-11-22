@@ -158,8 +158,13 @@ class PluginDispatcher(SubDispatcher):
         for tool_name in tool_names:
             self._plane().unregister("plugin", tool_name)
         logger.info("plugin.uninstall: name=%s removed=%s tools=%s", name, removed, tool_names)
-        return {"status": "ok" if removed else "not_found", "implemented": True,
-                "name": name, "removed": removed, "tools": tool_names}
+        return {
+            "status": "ok" if removed else "not_found",
+            "implemented": True,
+            "name": name,
+            "removed": removed,
+            "tools": tool_names,
+        }
 
     async def _handle_plugin_package(self, params: dict) -> dict:
         name = str(params.get("name", "") or "")

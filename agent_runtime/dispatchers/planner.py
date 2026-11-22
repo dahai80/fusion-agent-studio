@@ -88,8 +88,7 @@ class PlannerDispatcher(SubDispatcher):
                 return {"status": "error", "message": "review must be an object"}
             comments = review.get("comments", [])
             if not isinstance(comments, list) or not all(
-                isinstance(c, dict) and isinstance(c.get("comment", ""), str)
-                for c in comments
+                isinstance(c, dict) and isinstance(c.get("comment", ""), str) for c in comments
             ):
                 return {
                     "status": "error",

@@ -1,4 +1,4 @@
-#588: built-in multi-repo governance steward agent — seeded on daemon
+# 588: built-in multi-repo governance steward agent — seeded on daemon
 # startup, visible in agent.list with zero manual setup; manifest carries
 # the G1-G5 gate model, the approval/webhook/labels surface, decided_by=owner
 # default and the requester != reviewer self-approval guard.
@@ -16,9 +16,7 @@ from agent_runtime.daemon_server import DaemonServer
 def daemon(tmp_path, monkeypatch):
     fake_home = tmp_path / "home"
     fake_home.mkdir()
-    monkeypatch.setenv(
-        "FUSION_AGENT_STUDIO_HOME", str(fake_home / ".fusion-agent-studio")
-    )
+    monkeypatch.setenv("FUSION_AGENT_STUDIO_HOME", str(fake_home / ".fusion-agent-studio"))
     d = DaemonServer(socket_path=str(tmp_path / "test.sock"))
     d._load_agents_index()
     yield d
@@ -103,9 +101,7 @@ def test_rest_index_loader_seeds_steward(monkeypatch, tmp_path):
     # steward must appear there too, before any authenticated RPC ran.
     fake_home = tmp_path / "home"
     (fake_home / ".fusion-agent-studio").mkdir(parents=True)
-    monkeypatch.setenv(
-        "FUSION_AGENT_STUDIO_HOME", str(fake_home / ".fusion-agent-studio")
-    )
+    monkeypatch.setenv("FUSION_AGENT_STUDIO_HOME", str(fake_home / ".fusion-agent-studio"))
     from agent_runtime import api_server
 
     index = api_server._load_agents_index()

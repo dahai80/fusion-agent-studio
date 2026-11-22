@@ -257,12 +257,8 @@ class AgentPermissionsConfig:
     def from_dict(cls, data: dict[str, Any]) -> AgentPermissionsConfig:
         return cls(
             read_knowledge=data.get("readKnowledge", data.get("read_knowledge", True)),
-            write_knowledge=data.get(
-                "writeKnowledge", data.get("write_knowledge", False)
-            ),
-            delete_knowledge=data.get(
-                "deleteKnowledge", data.get("delete_knowledge", False)
-            ),
+            write_knowledge=data.get("writeKnowledge", data.get("write_knowledge", False)),
+            delete_knowledge=data.get("deleteKnowledge", data.get("delete_knowledge", False)),
             execute_code=data.get("executeCode", data.get("execute_code", True)),
             access_network=data.get("accessNetwork", data.get("access_network", True)),
         )
@@ -280,13 +276,9 @@ class AgentDefinition:
     model: AgentModelConfig = field(default_factory=AgentModelConfig)
     tools: list[AgentToolConfig] = field(default_factory=list)
     knowledge: AgentKnowledgeConfig = field(default_factory=AgentKnowledgeConfig)
-    orchestration: AgentOrchestrationConfig = field(
-        default_factory=AgentOrchestrationConfig
-    )
+    orchestration: AgentOrchestrationConfig = field(default_factory=AgentOrchestrationConfig)
     metadata: AgentMetadataConfig = field(default_factory=AgentMetadataConfig)
-    context_injection: ContextInjectionConfig = field(
-        default_factory=ContextInjectionConfig
-    )
+    context_injection: ContextInjectionConfig = field(default_factory=ContextInjectionConfig)
     artifact_policy: ArtifactPolicyConfig = field(default_factory=ArtifactPolicyConfig)
     permissions: AgentPermissionsConfig = field(default_factory=AgentPermissionsConfig)
     status: str = "draft"
@@ -324,16 +316,10 @@ class AgentDefinition:
             model=AgentModelConfig.from_dict(data.get("model", {})),
             tools=[AgentToolConfig.from_dict(t) for t in data.get("tools", [])],
             knowledge=AgentKnowledgeConfig.from_dict(data.get("knowledge", {})),
-            orchestration=AgentOrchestrationConfig.from_dict(
-                data.get("orchestration", {})
-            ),
+            orchestration=AgentOrchestrationConfig.from_dict(data.get("orchestration", {})),
             metadata=AgentMetadataConfig.from_dict(data.get("metadata", {})),
-            context_injection=ContextInjectionConfig.from_dict(
-                data.get("context_injection", {})
-            ),
-            artifact_policy=ArtifactPolicyConfig.from_dict(
-                data.get("artifact_policy", {})
-            ),
+            context_injection=ContextInjectionConfig.from_dict(data.get("context_injection", {})),
+            artifact_policy=ArtifactPolicyConfig.from_dict(data.get("artifact_policy", {})),
             permissions=AgentPermissionsConfig.from_dict(data.get("permissions", {})),
             status=data.get("status", "draft"),
         )
@@ -345,9 +331,7 @@ class AgentDefinition:
         if not self.system_prompt:
             errors.append("system_prompt is required")
         if self.context_injection.mode not in ("full", "recent_n", "rag"):
-            errors.append(
-                f"invalid context_injection.mode: {self.context_injection.mode}"
-            )
+            errors.append(f"invalid context_injection.mode: {self.context_injection.mode}")
         if self.artifact_policy.trigger_strategy not in (
             "auto",
             "fence",
@@ -369,9 +353,7 @@ class AgentDefinition:
         return cls.from_dict(json.loads(json_str))
 
     @classmethod
-    def from_manifest(
-        cls, manifest_dict: dict[str, Any], agent_id: str = ""
-    ) -> AgentDefinition:
+    def from_manifest(cls, manifest_dict: dict[str, Any], agent_id: str = "") -> AgentDefinition:
         model_cfg = AgentModelConfig(
             model_name=manifest_dict.get("model", ""),
             temperature=manifest_dict.get("temperature", 0.7),

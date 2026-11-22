@@ -46,9 +46,7 @@ def client(monkeypatch, tmp_path):
 
 
 def _create_hook(client) -> dict:
-    resp = client.post(
-        "/v1/webhooks", json={"name": "demo", "graph_id": "graph-1"}
-    )
+    resp = client.post("/v1/webhooks", json={"name": "demo", "graph_id": "graph-1"})
     assert resp.status_code == 200
     return resp.json()["webhook"]
 
@@ -80,7 +78,10 @@ def test_invoke_valid_signature_starts_run(client):
     resp = tc.post(
         f"/v1/webhooks/{hook['id']}/invoke",
         content=body,
-        headers={"content-type": "application/json", "x-signature": _hmac_sig(hook["secret"], body)},
+        headers={
+            "content-type": "application/json",
+            "x-signature": _hmac_sig(hook["secret"], body),
+        },
     )
     assert resp.status_code == 200
     assert resp.json()["run_id"] == "run-123"

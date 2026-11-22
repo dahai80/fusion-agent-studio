@@ -20,11 +20,17 @@ class _Ctx:
 
 
 def _deny_engine(tool):
-    return PermissionEngine(rules=[PermissionRule(action="deny", tool=tool, layer="global", description="blocked")], mode="approved")
+    return PermissionEngine(
+        rules=[PermissionRule(action="deny", tool=tool, layer="global", description="blocked")],
+        mode="approved",
+    )
 
 
 def _allow_engine(tool):
-    return PermissionEngine(rules=[PermissionRule(action="allow", tool=tool, layer="global", description="ok")], mode="approved")
+    return PermissionEngine(
+        rules=[PermissionRule(action="allow", tool=tool, layer="global", description="ok")],
+        mode="approved",
+    )
 
 
 def test_mode_normalize_unknown_falls_back_default():
@@ -140,7 +146,10 @@ def test_env_armed_default_asks(monkeypatch):
 def test_save_and_load_file_roundtrip(tmp_path: Path):
     p = tmp_path / "perm.json"
     eng = PermissionEngine(mode="approved")
-    eng.add_rule(PermissionRule(action="deny", tool="secret_tool", layer="global", description="d1"), layer="global")
+    eng.add_rule(
+        PermissionRule(action="deny", tool="secret_tool", layer="global", description="d1"),
+        layer="global",
+    )
     assert eng.save_to_file(p) is True
     data = json.loads(p.read_text())
     assert data["rules"][0]["tool"] == "secret_tool"
@@ -157,7 +166,9 @@ def test_load_missing_file_returns_zero(tmp_path: Path):
 
 def test_list_rules_and_rule_to_from_dict():
     eng = PermissionEngine(mode="approved")
-    eng.add_rule(PermissionRule(action="ask", tool="t9", layer="node", description="dd"), layer="node")
+    eng.add_rule(
+        PermissionRule(action="ask", tool="t9", layer="node", description="dd"), layer="node"
+    )
     listed = eng.list_rules()
     assert listed[0]["action"] == "ask" and listed[0]["layer"] == "node"
     d = PermissionRule.from_dict({"action": "deny", "tool": "x", "layer": "weird"})

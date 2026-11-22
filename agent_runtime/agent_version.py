@@ -69,14 +69,10 @@ class AgentVersionStore:
         agent_dir.mkdir(parents=True, exist_ok=True)
         versions_file = self._versions_file(agent_id)
         raw = [record.to_dict() for record in records]
-        versions_file.write_text(
-            json.dumps(raw, ensure_ascii=False, indent=2), encoding="utf-8"
-        )
+        versions_file.write_text(json.dumps(raw, ensure_ascii=False, indent=2), encoding="utf-8")
         logger.debug("Saved %d versions for agent_id=%s", len(records), agent_id)
 
-    def save_snapshot(
-        self, agent_id: str, snapshot_data: dict, label: str = ""
-    ) -> VersionRecord:
+    def save_snapshot(self, agent_id: str, snapshot_data: dict, label: str = "") -> VersionRecord:
         version_id = uuid.uuid4().hex
         created_at = time.time()
         record = VersionRecord(

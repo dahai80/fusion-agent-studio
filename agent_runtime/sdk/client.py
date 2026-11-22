@@ -11,7 +11,6 @@ logger = logging.getLogger(__name__)
 class AgentClient:
     def __init__(self, socket_path: str = "", default_timeout: float | None = None):
         if not socket_path:
-
             socket_path = str(studio_home() / "daemon.sock")
         self.socket_path = socket_path
         # #207: per-call timeout fallback. None keeps legacy hang-forever so
@@ -67,9 +66,7 @@ class AgentClient:
 
             if "error" in response:
                 logger.error("RPC error for %s: %s", method, response["error"])
-                return {
-                    "error": response["error"].get("message", str(response["error"]))
-                }
+                return {"error": response["error"].get("message", str(response["error"]))}
 
             return response.get("result", {})
 
@@ -94,9 +91,7 @@ class AgentClient:
 
         # asyncio StreamReader 默认 limit=64KB, graph.execute 全量 events 等大响应
         # 单行 JSON 会超限抛 LimitOverrunError. 提高到 16MB 覆盖业务 DAG 响应.
-        reader, writer = await asyncio.open_unix_connection(
-            self.socket_path, limit=2**24
-        )
+        reader, writer = await asyncio.open_unix_connection(self.socket_path, limit=2**24)
         return reader, writer
 
     async def ping(self) -> dict:
@@ -110,9 +105,7 @@ class AgentClient:
         return await self.call("agent.create", params)
 
     async def execute_agent(self, agent_id: str, input_text: str) -> dict:
-        return await self.call(
-            "agent.execute", {"agent_id": agent_id, "input": input_text}
-        )
+        return await self.call("agent.execute", {"agent_id": agent_id, "input": input_text})
 
     async def list_tools(self) -> dict:
         return await self.call("tool.list")
@@ -151,6 +144,4 @@ class AgentClient:
 
     async def configure_agent(self, agent_id: str, config: dict) -> dict:
         # C12: SDK agent 配置门面 -> agent.configure RPC.
-        return await self.call(
-            "agent.configure", {"agent_id": agent_id, "config": config}
-        )
+        return await self.call("agent.configure", {"agent_id": agent_id, "config": config})

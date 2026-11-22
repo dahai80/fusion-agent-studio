@@ -169,14 +169,10 @@ class PlannerEngine:
             verify_steps = self._generate_verify_steps(task, steps)
             for vs in verify_steps:
                 plan.steps.append(vs)
-            logger.info(
-                "Added %d verification steps to plan %s", len(verify_steps), plan_id
-            )
+            logger.info("Added %d verification steps to plan %s", len(verify_steps), plan_id)
 
         self._plans[plan_id] = plan
-        logger.info(
-            "Plan %s created: %d steps, risk=%s", plan_id, len(plan.steps), risk
-        )
+        logger.info("Plan %s created: %d steps, risk=%s", plan_id, len(plan.steps), risk)
         return plan
 
     def get_plan(self, plan_id: str) -> ExecutionPlan | None:
@@ -188,9 +184,7 @@ class PlannerEngine:
             logger.warning("approve_plan: plan %s not found", plan_id)
             return False
         if plan.status != "pending_approval":
-            logger.warning(
-                "approve_plan: plan %s status=%s, cannot approve", plan_id, plan.status
-            )
+            logger.warning("approve_plan: plan %s status=%s, cannot approve", plan_id, plan.status)
             return False
         plan.status = "approved"
         for step in plan.steps:
@@ -205,9 +199,7 @@ class PlannerEngine:
             logger.warning("reject_plan: plan %s not found", plan_id)
             return False
         if plan.status not in ("pending_approval", "draft"):
-            logger.warning(
-                "reject_plan: plan %s status=%s, cannot reject", plan_id, plan.status
-            )
+            logger.warning("reject_plan: plan %s status=%s, cannot reject", plan_id, plan.status)
             return False
         plan.status = "rejected"
         if reason:
@@ -256,14 +248,10 @@ class PlannerEngine:
             raise ValueError(f"Step {step_id} not found in plan {plan_id}")
 
         if step.status not in ("approved", "pending"):
-            logger.warning(
-                "execute_step: step %s status=%s, cannot execute", step_id, step.status
-            )
+            logger.warning("execute_step: step %s status=%s, cannot execute", step_id, step.status)
             return step
 
-        logger.info(
-            "Executing step %s of plan %s: %s", step_id, plan_id, step.description
-        )
+        logger.info("Executing step %s of plan %s: %s", step_id, plan_id, step.description)
         step.status = "executing"
 
         if step.dependencies:
@@ -271,9 +259,7 @@ class PlannerEngine:
                 dep_step = next((s for s in plan.steps if s.id == dep_id), None)
                 if dep_step and dep_step.status not in ("completed", "skipped"):
                     step.status = "failed"
-                    step.result = (
-                        f"Dependency {dep_id} not completed (status={dep_step.status})"
-                    )
+                    step.result = f"Dependency {dep_id} not completed (status={dep_step.status})"
                     logger.error(
                         "Step %s blocked by dependency %s (status=%s)",
                         step_id,
@@ -325,14 +311,10 @@ class PlannerEngine:
             result_step = self.execute_step(plan_id, step.id)
             if result_step.status == "failed":
                 all_completed = False
-                logger.warning(
-                    "Plan %s step %s failed, stopping execution", plan_id, step.id
-                )
+                logger.warning("Plan %s step %s failed, stopping execution", plan_id, step.id)
                 break
 
-        if all_completed and all(
-            s.status in ("completed", "skipped") for s in plan.steps
-        ):
+        if all_completed and all(s.status in ("completed", "skipped") for s in plan.steps):
             plan.status = "completed"
             logger.info("Plan %s completed successfully", plan_id)
         else:
@@ -352,9 +334,7 @@ class PlannerEngine:
             logger.warning("cancel_plan: plan %s not found", plan_id)
             return False
         if plan.status in ("completed", "rejected"):
-            logger.warning(
-                "cancel_plan: plan %s status=%s, cannot cancel", plan_id, plan.status
-            )
+            logger.warning("cancel_plan: plan %s status=%s, cannot cancel", plan_id, plan.status)
             return False
         plan.status = "rejected"
         plan.metadata["cancelled"] = True
@@ -378,9 +358,7 @@ class PlannerEngine:
 
         return "low"
 
-    def _generate_verify_steps(
-        self, task: str, steps: list[PlanStep]
-    ) -> list[PlanStep]:
+    def _generate_verify_steps(self, task: str, steps: list[PlanStep]) -> list[PlanStep]:
         verify_steps = []
         for i, step in enumerate(steps):
             if step.action in ("create", "modify"):
@@ -484,9 +462,7 @@ class PlannerEngine:
 
         return steps
 
-    def _generate_steps_stub(
-        self, task: str, context: str, files: list[str]
-    ) -> list[PlanStep]:
+    def _generate_steps_stub(self, task: str, context: str, files: list[str]) -> list[PlanStep]:
         logger.info("Generating stub plan for task: %s", task[:80])
         target_files = files if files else ["unknown_file"]
         step = PlanStep(

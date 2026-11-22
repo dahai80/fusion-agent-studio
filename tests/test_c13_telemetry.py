@@ -43,23 +43,25 @@ class MockMLXClient:
         self.call_count = 0
         self.responses: list[dict] = []
 
-    def add_response(self, content: str, tool_calls: list | None = None,
-                     usage: dict | None = None):
-        self.responses.append({
-            "content": content,
-            "tool_calls": tool_calls or [],
-            "usage": usage or {"prompt_tokens": 12, "completion_tokens": 8},
-        })
+    def add_response(self, content: str, tool_calls: list | None = None, usage: dict | None = None):
+        self.responses.append(
+            {
+                "content": content,
+                "tool_calls": tool_calls or [],
+                "usage": usage or {"prompt_tokens": 12, "completion_tokens": 8},
+            }
+        )
 
-    async def chat(self, model, messages, tools=None, temperature=0.7,
-                   max_tokens=4096, **kwargs):
+    async def chat(self, model, messages, tools=None, temperature=0.7, max_tokens=4096, **kwargs):
         self.call_count += 1
         if not self.responses:
-            return LLMResponse(content="done", tool_calls=[],
-                               usage={"prompt_tokens": 5, "completion_tokens": 3})
+            return LLMResponse(
+                content="done", tool_calls=[], usage={"prompt_tokens": 5, "completion_tokens": 3}
+            )
         resp = self.responses.pop(0)
-        return LLMResponse(content=resp["content"], tool_calls=resp["tool_calls"],
-                           usage=resp["usage"])
+        return LLMResponse(
+            content=resp["content"], tool_calls=resp["tool_calls"], usage=resp["usage"]
+        )
 
 
 @pytest.fixture
@@ -98,8 +100,9 @@ async def _drain(runtime, graph, text="hi"):
 
 
 class TestInstrumentationFires:
-    async def test_graph_execute_span_counted(self, mlx_client, tool_registry,
-                                              telemetry, graph_with_tool):
+    async def test_graph_execute_span_counted(
+        self, mlx_client, tool_registry, telemetry, graph_with_tool
+    ):
         mlx_client.add_response("answer")
         rt = AgentRuntime(mlx_client, tool_registry, telemetry_engine=telemetry)
         await _drain(rt, graph_with_tool)
@@ -107,8 +110,9 @@ class TestInstrumentationFires:
         assert m["counters"]["graph_executions"] >= 1
         assert m["counters"]["llm_calls"] >= 1
 
-    async def test_llm_call_tokens_recorded(self, mlx_client, tool_registry,
-                                            telemetry, graph_with_tool):
+    async def test_llm_call_tokens_recorded(
+        self, mlx_client, tool_registry, telemetry, graph_with_tool
+    ):
         mlx_client.add_response("answer", usage={"prompt_tokens": 40, "completion_tokens": 20})
         rt = AgentRuntime(mlx_client, tool_registry, telemetry_engine=telemetry)
         await _drain(rt, graph_with_tool)
@@ -117,12 +121,19 @@ class TestInstrumentationFires:
         assert m["counters"]["tokens_prompt"] >= 40
         assert m["counters"]["tokens_completion"] >= 20
 
-    async def test_tool_call_span_counted(self, mlx_client, tool_registry,
-                                          telemetry, graph_with_tool):
-        mlx_client.add_response("call tool", tool_calls=[
-            {"id": "c1", "type": "function",
-             "function": {"name": "echo_tool", "arguments": '{"input": "x"}'}},
-        ])
+    async def test_tool_call_span_counted(
+        self, mlx_client, tool_registry, telemetry, graph_with_tool
+    ):
+        mlx_client.add_response(
+            "call tool",
+            tool_calls=[
+                {
+                    "id": "c1",
+                    "type": "function",
+                    "function": {"name": "echo_tool", "arguments": '{"input": "x"}'},
+                },
+            ],
+        )
         mlx_client.add_response("final")
         rt = AgentRuntime(mlx_client, tool_registry, telemetry_engine=telemetry)
         await _drain(rt, graph_with_tool)
@@ -130,8 +141,7 @@ class TestInstrumentationFires:
         assert m["counters"]["tool_calls"] >= 1
         assert m["counters"]["llm_calls"] >= 1
 
-    async def test_latency_populated(self, mlx_client, tool_registry,
-                                     telemetry, graph_with_tool):
+    async def test_latency_populated(self, mlx_client, tool_registry, telemetry, graph_with_tool):
         mlx_client.add_response("answer")
         rt = AgentRuntime(mlx_client, tool_registry, telemetry_engine=telemetry)
         await _drain(rt, graph_with_tool)
@@ -156,8 +166,7 @@ class TestInstrumentationFires:
         m = telemetry.metrics()
         assert m["counters"]["errors"] >= 1
 
-    async def test_no_telemetry_engine_no_crash(self, mlx_client, tool_registry,
-                                                graph_with_tool):
+    async def test_no_telemetry_engine_no_crash(self, mlx_client, tool_registry, graph_with_tool):
         mlx_client.add_response("answer")
         rt = AgentRuntime(mlx_client, tool_registry, telemetry_engine=None)
         events = await _drain(rt, graph_with_tool)
@@ -166,8 +175,7 @@ class TestInstrumentationFires:
 
 class TestOTLPExport:
     def test_otlp_payload_structure(self, telemetry):
-        s = telemetry.start_span("llm.call", trace_id="t1",
-                                 attributes={"prompt_tokens": 10})
+        s = telemetry.start_span("llm.call", trace_id="t1", attributes={"prompt_tokens": 10})
         telemetry.end_span(s.span_id)
         payload = telemetry.export("otlp")
         data = json.loads(payload)
@@ -185,17 +193,17 @@ class TestOTLPExport:
         assert "resourceSpans" in payload
 
     def test_otlp_push_posts_to_endpoint(self, telemetry):
-        telemetry.configure({"enabled": True,
-                             "endpoint": "http://otel:4318/v1/traces"})
-        s = telemetry.start_span("tool.call", trace_id="t2",
-                                 attributes={"tool": "echo"})
+        telemetry.configure({"enabled": True, "endpoint": "http://otel:4318/v1/traces"})
+        s = telemetry.start_span("tool.call", trace_id="t2", attributes={"tool": "echo"})
         telemetry.end_span(s.span_id)
         captured = {}
 
         class FakeResp:
             status = 200
+
             def __enter__(self):
                 return self
+
             def __exit__(self, *a):
                 return False
 
@@ -214,20 +222,17 @@ class TestOTLPExport:
         assert captured["timeout"] == 5
 
     def test_otlp_push_failure_logs_only(self, telemetry):
-        telemetry.configure({"enabled": True,
-                             "endpoint": "http://bad:4318/v1/traces"})
+        telemetry.configure({"enabled": True, "endpoint": "http://bad:4318/v1/traces"})
         s = telemetry.start_span("graph.execute", trace_id="t3")
         telemetry.end_span(s.span_id)
-        with patch("urllib.request.urlopen",
-                   side_effect=URLError("connection refused")):
+        with patch("urllib.request.urlopen", side_effect=URLError("connection refused")):
             payload = telemetry.export("otlp", push=True)
         assert "resourceSpans" in payload
 
 
 class TestTelemetryExportRPC:
     async def _rpc(self, daemon, method, params=None):
-        reader, writer = await asyncio.open_unix_connection(daemon.socket_path,
-                                                            limit=2**20)
+        reader, writer = await asyncio.open_unix_connection(daemon.socket_path, limit=2**20)
         req = {"jsonrpc": "2.0", "id": 1, "method": method}
         if params:
             req["params"] = params
@@ -244,12 +249,18 @@ class TestTelemetryExportRPC:
         import tempfile
 
         from agent_runtime.daemon_server import DaemonServer
+
         # AF_UNIX path limit ~108 bytes on Linux. CI tmp_path is deep, so put
         # the socket under /tmp with a short name; store stays in tmp_path.
         sock_dir = tempfile.mkdtemp(prefix="c13_", dir="/tmp")
         sock = os.path.join(sock_dir, "d.sock")
-        d = DaemonServer(socket_path=sock, ws_port=0, cluster_port=0,
-                         http_port=0, store_path=str(tmp_path / "s.db"))
+        d = DaemonServer(
+            socket_path=sock,
+            ws_port=0,
+            cluster_port=0,
+            http_port=0,
+            store_path=str(tmp_path / "s.db"),
+        )
         await d.start()
         d._gateway._default_client = None
         d._gateway._default_model = ""
@@ -260,22 +271,21 @@ class TestTelemetryExportRPC:
         os.rmdir(sock_dir)
 
     async def test_export_rpc_passes_push_false(self, daemon):
-        resp = await self._rpc(daemon, "telemetry.export",
-                               {"format": "json", "push": False})
+        resp = await self._rpc(daemon, "telemetry.export", {"format": "json", "push": False})
         assert resp["result"]["format"] == "json"
         assert resp["result"]["push"] is False
         assert '"spans"' in resp["result"]["data"]
 
     async def test_export_rpc_push_true_no_endpoint_no_raise(self, daemon):
-        resp = await self._rpc(daemon, "telemetry.export",
-                               {"format": "otlp", "push": True})
+        resp = await self._rpc(daemon, "telemetry.export", {"format": "otlp", "push": True})
         assert resp["result"]["push"] is True
         assert "resourceSpans" in resp["result"]["data"]
 
     async def test_metrics_rpc_after_instrumented_run(self, daemon):
         eng = daemon._get_telemetry_engine()
-        s = eng.start_span("llm.call", trace_id="t",
-                           attributes={"prompt_tokens": 7, "completion_tokens": 3})
+        s = eng.start_span(
+            "llm.call", trace_id="t", attributes={"prompt_tokens": 7, "completion_tokens": 3}
+        )
         eng.end_span(s.span_id)
         resp = await self._rpc(daemon, "telemetry.metrics")
         assert resp["result"]["counters"]["llm_calls"] >= 1

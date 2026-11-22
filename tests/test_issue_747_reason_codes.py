@@ -118,18 +118,58 @@ CASES = [
     # (label, exc kind, harness message, expected code)
     ("unknown team", "KeyError", "team not registered: ghost", "team_not_registered"),
     ("unknown member", "TeamDefError", "unknown member: ghost-member", "member_unknown"),
-    ("bad permission mode", "TeamDefError", "unknown permission mode: bypassPermissions", "permission_mode_unknown"),
+    (
+        "bad permission mode",
+        "TeamDefError",
+        "unknown permission mode: bypassPermissions",
+        "permission_mode_unknown",
+    ),
     ("task unknown", "TeamStateError", "unknown task: t-99", "task_not_found"),
-    ("paused team op", "TeamStateError", "team not ACTIVE (state=PAUSED)", "invocation_not_allowed"),
-    ("illegal transition", "TeamStateError", "illegal task transition done -> todo (task=t-1)", "invocation_not_allowed"),
+    (
+        "paused team op",
+        "TeamStateError",
+        "team not ACTIVE (state=PAUSED)",
+        "invocation_not_allowed",
+    ),
+    (
+        "illegal transition",
+        "TeamStateError",
+        "illegal task transition done -> todo (task=t-1)",
+        "invocation_not_allowed",
+    ),
     ("duplicate task", "TeamStateError", "duplicate task id: t-1", "invocation_not_allowed"),
-    ("depth overflow", "TeamStateError", "orchestration depth overflow: caller depth 2 + team max_depth 2 exceeds 3", "depth_overflow"),
-    ("brief over member cap", "SpawnBriefError", "brief token_budget 5000 exceeds member cap 4000 (worker-a)", "budget_exhausted"),
+    (
+        "depth overflow",
+        "TeamStateError",
+        "orchestration depth overflow: caller depth 2 + team max_depth 2 exceeds 3",
+        "depth_overflow",
+    ),
+    (
+        "brief over member cap",
+        "SpawnBriefError",
+        "brief token_budget 5000 exceeds member cap 4000 (worker-a)",
+        "budget_exhausted",
+    ),
     ("lead budget", "LeadBudgetError", "lead budget exhausted", "budget_exhausted"),
     ("no lead registered", "KeyError", "no lead for team: rc-team", "lead_not_running"),
-    ("spec missing", "FileNotFoundError", "no SPEC.md exists yet for team rc-team", "spec_unavailable"),
-    ("playbook gated", "ValueError", "playbook disabled on team rc-team (definition.playbook=false)", "invocation_not_allowed"),
-    ("runner offline", "ValueError", "kernel runner is not wired for this runtime", "runtime_offline"),
+    (
+        "spec missing",
+        "FileNotFoundError",
+        "no SPEC.md exists yet for team rc-team",
+        "spec_unavailable",
+    ),
+    (
+        "playbook gated",
+        "ValueError",
+        "playbook disabled on team rc-team (definition.playbook=false)",
+        "invocation_not_allowed",
+    ),
+    (
+        "runner offline",
+        "ValueError",
+        "kernel runner is not wired for this runtime",
+        "runtime_offline",
+    ),
 ]
 
 
@@ -163,7 +203,11 @@ async def test_rpc_permission_mode_unknown(daemon):
     res = await _run(
         daemon,
         "teams.register",
-        {"definition": _definition(members=[{"name": "w", "role": "r", "permission_mode": "bogus"}])},
+        {
+            "definition": _definition(
+                members=[{"name": "w", "role": "r", "permission_mode": "bogus"}]
+            )
+        },
     )
     assert res["status"] == "error"
     assert res["reason_code"] == "permission_mode_unknown"
@@ -171,7 +215,9 @@ async def test_rpc_permission_mode_unknown(daemon):
 
 async def test_rpc_task_not_found(daemon):
     await _register(daemon)
-    res = await _run(daemon, "teams.transition", {"team": "rc-team", "task_id": "t-99", "to": "done"})
+    res = await _run(
+        daemon, "teams.transition", {"team": "rc-team", "task_id": "t-99", "to": "done"}
+    )
     assert res["status"] == "error"
     assert res["reason_code"] == "task_not_found"
 
@@ -246,7 +292,9 @@ async def test_studio_home_paths_do_not_collapse(daemon):
     from agent_runtime.paths import studio_home
 
     home = str(studio_home())
-    out = TeamsDispatcher._error(FileNotFoundError(f"state file missing under {home}/teams/rc-team"))
+    out = TeamsDispatcher._error(
+        FileNotFoundError(f"state file missing under {home}/teams/rc-team")
+    )
     assert out["status"] == "error"
     assert home not in out["message"]
     assert "~" in out["message"]

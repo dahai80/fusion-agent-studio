@@ -161,7 +161,11 @@ class ClusterSessionStore(SessionStore):
 
         self.base_url = (base_url or cluster_url()).rstrip("/")
         self.token = token or os.environ.get("FUSION_CLUSTER_TOKEN", "")
-        logger.info("ClusterSessionStore ready base=%s auth=%s", self.base_url, "bearer" if self.token else "none")
+        logger.info(
+            "ClusterSessionStore ready base=%s auth=%s",
+            self.base_url,
+            "bearer" if self.token else "none",
+        )
 
     def _headers(self) -> dict:
         headers = {"content-type": "application/json"}
@@ -169,20 +173,27 @@ class ClusterSessionStore(SessionStore):
             headers["Authorization"] = f"Bearer {self.token}"
         return headers
 
-    def _request(self, method: str, path: str, json_body: dict | None = None,
-                 params: dict | None = None):
+    def _request(
+        self, method: str, path: str, json_body: dict | None = None, params: dict | None = None
+    ):
         import httpx
 
         url = f"{self.base_url}{path}"
         try:
-            resp = httpx.request(method, url, json=json_body, params=params,
-                                 headers=self._headers(), timeout=10.0)
+            resp = httpx.request(
+                method, url, json=json_body, params=params, headers=self._headers(), timeout=10.0
+            )
         except Exception as e:
             logger.error("cluster session store unreachable method=%s url=%s: %s", method, url, e)
             raise RuntimeError(f"cluster session store unreachable: {e}") from e
         if resp.status_code >= 500:
-            logger.error("cluster session store error method=%s url=%s status=%s body=%s",
-                         method, url, resp.status_code, resp.text[:200])
+            logger.error(
+                "cluster session store error method=%s url=%s status=%s body=%s",
+                method,
+                url,
+                resp.status_code,
+                resp.text[:200],
+            )
             raise RuntimeError(f"cluster session store {url} returned {resp.status_code}")
         return resp
 
@@ -209,8 +220,11 @@ class ClusterSessionStore(SessionStore):
         resp = self._request("PUT", f"/api/v1/session-store/{session_id}", json_body=payload)
         resp.raise_for_status()
         stored = resp.json().get("session") or payload
-        logger.info("session put id=%s messages=%d backend=cluster",
-                    session_id, len(payload.get("messages") or []))
+        logger.info(
+            "session put id=%s messages=%d backend=cluster",
+            session_id,
+            len(payload.get("messages") or []),
+        )
         return stored
 
     def delete(self, session_id: str) -> bool:
@@ -223,7 +237,9 @@ class ClusterSessionStore(SessionStore):
 
     def fork(self, session_id: str, title: str = "") -> dict | None:
         if title:
-            logger.info("session fork title ignored backend=cluster (cluster API has no title param)")
+            logger.info(
+                "session fork title ignored backend=cluster (cluster API has no title param)"
+            )
         resp = self._request("POST", f"/api/v1/session-store/{session_id}/fork")
         if resp.status_code == 404:
             return None

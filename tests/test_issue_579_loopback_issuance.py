@@ -143,8 +143,12 @@ async def test_uds_end_to_end_recovery(tmp_path):
     await ds.start()
     try:
         reader, writer = await asyncio.open_unix_connection(sock_path)
-        req = {"jsonrpc": "2.0", "id": 7, "method": "apikey.loopback_create",
-               "params": {"name": "e2e-recover"}}
+        req = {
+            "jsonrpc": "2.0",
+            "id": 7,
+            "method": "apikey.loopback_create",
+            "params": {"name": "e2e-recover"},
+        }
         writer.write(json.dumps(req).encode() + b"\n")
         await writer.drain()
         line = await asyncio.wait_for(reader.readline(), timeout=10)

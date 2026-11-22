@@ -48,14 +48,12 @@ class EcomClient:
     degrade to "capabilities unavailable", never crash the agent runtime.
     """
 
-    def __init__(self, base_url: str | None = None,
-                 timeout: float | None = None):
+    def __init__(self, base_url: str | None = None, timeout: float | None = None):
         self._base_url = (base_url or _ecom_url()).rstrip("/")
         self._timeout = timeout if timeout is not None else _TIMEOUT
 
     def _headers(self) -> dict[str, str]:
-        return {"Authorization": f"Bearer {_bridge_key()}"} \
-            if _bridge_key() else {}
+        return {"Authorization": f"Bearer {_bridge_key()}"} if _bridge_key() else {}
 
     def capabilities(self) -> list[dict[str, Any]] | None:
         """Agent tool manifest for the console's curated registry."""
@@ -66,19 +64,26 @@ class EcomClient:
         try:
             resp = httpx.get(
                 f"{self._base_url}/api/ecommerce/agent-platform/capabilities",
-                headers=self._headers(), timeout=self._timeout)
+                headers=self._headers(),
+                timeout=self._timeout,
+            )
             if resp.status_code >= 400:
-                logger.warning("ecom capabilities -> %s %s",
-                               resp.status_code, resp.text[:200])
+                logger.warning("ecom capabilities -> %s %s", resp.status_code, resp.text[:200])
                 return None
             return resp.json().get("capabilities") or []
         except Exception as e:
             logger.warning("ecom capabilities failed (fail-soft): %s", e)
             return None
 
-    def call(self, capability_id: str, params: dict[str, Any] | None,
-             *, agent_id: str, version: int, publisher: str) \
-            -> dict[str, Any] | None:
+    def call(
+        self,
+        capability_id: str,
+        params: dict[str, Any] | None,
+        *,
+        agent_id: str,
+        version: int,
+        publisher: str,
+    ) -> dict[str, Any] | None:
         """Dispatch one capability through the audited door.
 
         Returns the console's envelope {capability, source, mutation, data},
@@ -101,20 +106,24 @@ class EcomClient:
                     "version": version,
                     "publisher": publisher,
                 },
-                timeout=self._timeout)
+                timeout=self._timeout,
+            )
             if resp.status_code >= 400:
                 try:
                     detail = resp.json().get("detail", resp.text[:200])
                 except Exception:
                     detail = resp.text[:200]
-                logger.warning("ecom call %s agent=%s -> %s %s",
-                               capability_id, agent_id, resp.status_code,
-                               str(detail)[:200])
+                logger.warning(
+                    "ecom call %s agent=%s -> %s %s",
+                    capability_id,
+                    agent_id,
+                    resp.status_code,
+                    str(detail)[:200],
+                )
                 return {"error": detail, "status": resp.status_code}
             return resp.json()
         except Exception as e:
-            logger.warning("ecom call %s failed (fail-soft): %s",
-                           capability_id, e)
+            logger.warning("ecom call %s failed (fail-soft): %s", capability_id, e)
             return None
 
 

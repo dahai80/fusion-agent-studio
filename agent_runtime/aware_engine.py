@@ -183,9 +183,7 @@ class ModelGateLayer:
                 path=path,
                 tier=3,
                 significant=result,
-                reason="Heuristic gate (no model)"
-                if not result
-                else "Heuristic gate: significant",
+                reason="Heuristic gate (no model)" if not result else "Heuristic gate: significant",
                 event=event,
             )
 

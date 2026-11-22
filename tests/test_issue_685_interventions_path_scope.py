@@ -23,6 +23,7 @@ from tools.file_tools import _is_write_blocked
 
 # ---------------- PathScope ----------------
 
+
 def _tmp_root(tmp_path, name="root"):
     root = tmp_path / name
     root.mkdir(exist_ok=True)
@@ -88,6 +89,7 @@ def test_pattern_must_be_absolute():
 
 # ---------------- file_tools migration ----------------
 
+
 def test_file_write_roots_allow_and_block(tmp_path, monkeypatch):
     root = _tmp_root(tmp_path)
     monkeypatch.setenv("FUSION_FILE_ROOTS", str(root))
@@ -117,9 +119,7 @@ from tests._safety_mock import MockGuardClient  # noqa: E402
 
 
 def _gateway(tmp_path, monkeypatch):
-    monkeypatch.setattr(
-        "agent_runtime.guard_client._RULES_CACHE_PATH", str(tmp_path / "rc.json")
-    )
+    monkeypatch.setattr("agent_runtime.guard_client._RULES_CACHE_PATH", str(tmp_path / "rc.json"))
     from agent_runtime.safety import SafetyGateway
 
     client = MockGuardClient()
@@ -167,9 +167,7 @@ def test_reload_resurfaces_pending(tmp_path, monkeypatch):
     gw.approve_action(req2.action_id, approver="carol")
 
     # "restart": fresh gateway, same store
-    monkeypatch.setattr(
-        "agent_runtime.guard_client._RULES_CACHE_PATH", str(tmp_path / "rc.json")
-    )
+    monkeypatch.setattr("agent_runtime.guard_client._RULES_CACHE_PATH", str(tmp_path / "rc.json"))
     from agent_runtime.safety import SafetyGateway
 
     gw2 = SafetyGateway(level=SafetyLevel.L3, guard_client=MockGuardClient())

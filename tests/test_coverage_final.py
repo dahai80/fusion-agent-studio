@@ -174,12 +174,8 @@ class TestGitToolFinal:
         """Line 73: commit with message succeeds."""
         with tempfile.TemporaryDirectory() as tmpdir:
             repo = await self._repo(tmpdir, commit=False)
-            r = await GitTool().execute(
-                action="commit", repo_path=str(repo), message="test"
-            )
-            assert (
-                "commit" in r.lower() or "file" in r.lower() or "changed" in r.lower()
-            )
+            r = await GitTool().execute(action="commit", repo_path=str(repo), message="test")
+            assert "commit" in r.lower() or "file" in r.lower() or "changed" in r.lower()
 
     @pytest.mark.asyncio
     async def test_branch_list(self):

@@ -68,7 +68,7 @@ def import_pack(engine, in_dir: str, scope: str = "") -> dict:
             meta = yaml.safe_load(m.group(1)) or {}
         except yaml.YAMLError:
             meta = {}
-        body = text[m.end():].strip()
+        body = text[m.end() :].strip()
         if not body:
             skipped += 1
             continue

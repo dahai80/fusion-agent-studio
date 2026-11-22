@@ -38,22 +38,42 @@ async def example_1_basic_agent():
 
     # Build graph
     graph = AgentGraph(name="Code Analyzer", description="Read, analyze, and save")
-    graph.add_node("start", NodeConfig(
-        type="start", label="Start",
-        system_prompt="You are a code analyzer. Read code and provide analysis.",
-    ))
-    graph.add_node("read", NodeConfig(
-        type="tool", label="Read File", tool_name="file_read",
-        tool_params={"path": "README.md"},
-    ))
-    graph.add_node("analyze", NodeConfig(
-        type="llm", label="Analyze", model="qwen3.5-9b",
-        temperature=0.3, max_tokens=2048,
-    ))
-    graph.add_node("save", NodeConfig(
-        type="tool", label="Save Analysis", tool_name="file_write",
-        tool_params={"path": "/tmp/analysis.md"},
-    ))
+    graph.add_node(
+        "start",
+        NodeConfig(
+            type="start",
+            label="Start",
+            system_prompt="You are a code analyzer. Read code and provide analysis.",
+        ),
+    )
+    graph.add_node(
+        "read",
+        NodeConfig(
+            type="tool",
+            label="Read File",
+            tool_name="file_read",
+            tool_params={"path": "README.md"},
+        ),
+    )
+    graph.add_node(
+        "analyze",
+        NodeConfig(
+            type="llm",
+            label="Analyze",
+            model="qwen3.5-9b",
+            temperature=0.3,
+            max_tokens=2048,
+        ),
+    )
+    graph.add_node(
+        "save",
+        NodeConfig(
+            type="tool",
+            label="Save Analysis",
+            tool_name="file_write",
+            tool_params={"path": "/tmp/analysis.md"},
+        ),
+    )
     graph.add_node("end", NodeConfig(type="end", label="Done"))
     graph.add_edge("start", "read")
     graph.add_edge("read", "analyze")
@@ -168,8 +188,10 @@ async def example_5_export_graph():
 
     graph = AgentGraph(name="Exported Agent", description="A test export")
     graph.add_node("start", NodeConfig(type="start", label="Start"))
-    graph.add_node("llm", NodeConfig(type="llm", label="Think", model="qwen3.5-9b",
-                                        system_prompt="You are helpful."))
+    graph.add_node(
+        "llm",
+        NodeConfig(type="llm", label="Think", model="qwen3.5-9b", system_prompt="You are helpful."),
+    )
     graph.add_node("end", NodeConfig(type="end", label="End"))
     graph.add_edge("start", "llm")
     graph.add_edge("llm", "end")

@@ -36,9 +36,7 @@ class ExitPlanModeTool(BaseTool):
     }
 
     async def execute(self, plan: str = "", ready: bool = True, **kwargs) -> str:
-        logger.info(
-            "ExitPlanMode called: ready=%s plan_len=%d", ready, len(plan)
-        )
+        logger.info("ExitPlanMode called: ready=%s plan_len=%d", ready, len(plan))
         if not ready:
             return "Plan not ready. Continue exploring in read-only mode."
         if not plan:

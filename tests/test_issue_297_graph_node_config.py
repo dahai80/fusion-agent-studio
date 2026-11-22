@@ -226,9 +226,7 @@ class TestIssue297GraphUpdateRoundTrip:
 
 class TestIssue297NodeConfigFromDictTolerance:
     def test_from_dict_ignores_unknown_keys(self):
-        cfg = NodeConfig.from_dict(
-            {"type": "llm", "label": "L", "model": "m", "unknown_future": 1}
-        )
+        cfg = NodeConfig.from_dict({"type": "llm", "label": "L", "model": "m", "unknown_future": 1})
         assert cfg.model == "m"
         assert cfg.type == "llm"
         assert not hasattr(cfg, "unknown_future")

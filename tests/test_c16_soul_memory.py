@@ -282,9 +282,7 @@ class TestMemoryDispatcherTypePassthrough:
     async def test_recall_passes_type(self, dispatcher, memory_engine):
         memory_engine.store("i am a dev", memory_type="user")
         memory_engine.store("proj note", memory_type="project")
-        res = await dispatcher._handle_memory_recall(
-            {"query": "dev", "memory_type": "user"}
-        )
+        res = await dispatcher._handle_memory_recall({"query": "dev", "memory_type": "user"})
         assert all(e["memory_type"] == "user" for e in res["entries"])
 
     @pytest.mark.asyncio

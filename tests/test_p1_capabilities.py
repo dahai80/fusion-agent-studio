@@ -216,9 +216,7 @@ class TestJsonSchemaValidator:
         assert result is None
 
     def test_to_instruction(self):
-        v = JsonSchemaValidator(
-            {"type": "object", "properties": {"name": {"type": "string"}}}
-        )
+        v = JsonSchemaValidator({"type": "object", "properties": {"name": {"type": "string"}}})
         instruction = v.to_instruction()
         assert "name" in instruction
         assert "string" in instruction
@@ -258,9 +256,7 @@ class TestPromptTemplate:
         assert len(errors) == 0
 
     def test_to_dict(self):
-        t = PromptTemplate(
-            name="test", template="Hello", description="A test", category="general"
-        )
+        t = PromptTemplate(name="test", template="Hello", description="A test", category="general")
         d = t.to_dict()
         assert d["name"] == "test"
 

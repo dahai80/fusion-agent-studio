@@ -69,12 +69,14 @@ class FakeDaemon:
     def _inject_knowledge_context(self, *a, **k):
         async def _nope(*a, **k):
             return ""
+
         return _nope()
 
     def _get_style_manager(self):
         class _SM:
             def apply(self, prompt, style):
                 return {"system_prompt": prompt}
+
         return _SM()
 
     def register_execution(self, scope, key_id):
@@ -93,12 +95,16 @@ def _make_agent_dir(tmp_path, name="sse-agent"):
     agent_dir = tmp_path / name
     pkg_dir = agent_dir / ".fusion-agent"
     pkg_dir.mkdir(parents=True, exist_ok=True)
-    (pkg_dir / "manifest.json").write_text(json.dumps({
-        "name": name,
-        "system_prompt": "you are helpful",
-        "model": "test-model",
-        "tools": [],
-    }))
+    (pkg_dir / "manifest.json").write_text(
+        json.dumps(
+            {
+                "name": name,
+                "system_prompt": "you are helpful",
+                "model": "test-model",
+                "tools": [],
+            }
+        )
+    )
     return agent_dir
 
 
@@ -128,12 +134,11 @@ def _parse_sse(body: str):
     for block in body.split("\n\n"):
         for line in block.splitlines():
             if line.startswith("data: "):
-                frames.append(json.loads(line[len("data: "):]))
+                frames.append(json.loads(line[len("data: ") :]))
     return frames
 
 
 class TestAgentStreamSSE:
-
     def test_stream_ok_token_and_done(self, sse_daemon):
         client = TestClient(app)
         with client.stream(
@@ -177,9 +182,7 @@ class TestAgentStreamSSE:
     def test_stream_unknown_agent(self, sse_daemon, tmp_path):
         from agent_runtime import api_server
 
-        daemon = FakeDaemon(
-            tmp_path / "no-such-agent", sse_daemon._rt, sse_daemon.store
-        )
+        daemon = FakeDaemon(tmp_path / "no-such-agent", sse_daemon._rt, sse_daemon.store)
         api_server.set_daemon(daemon)
         try:
             client = TestClient(app)

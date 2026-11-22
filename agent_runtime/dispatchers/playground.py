@@ -73,7 +73,9 @@ class PlaygroundDispatcher(SubDispatcher):
         if content is None:
             return {"error": "content required"}
         try:
-            rec = self._registry().put(kind, name, str(content), created_by=str(params.get("created_by", "") or ""))
+            rec = self._registry().put(
+                kind, name, str(content), created_by=str(params.get("created_by", "") or "")
+            )
         except ValueError as e:
             return {"error": str(e)}
         logger.info("asset.put %s/%s v%s", kind, name, rec.get("version"))

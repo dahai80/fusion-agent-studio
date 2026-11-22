@@ -52,30 +52,41 @@ source_of_truth:
 from rpc import rpc
 import asyncio
 
+
 async def main():
     # JSON（最常用）
-    r = await rpc("deploy.export", {
-        "graph_id": "first-graph-001",
-        "format": "json",
-        "filepath": "~/.fusion-agent-studio/exports/first-graph.json",
-    })
-    print(r)   # {"status":"ok","path":"...","format":"json"}
+    r = await rpc(
+        "deploy.export",
+        {
+            "graph_id": "first-graph-001",
+            "format": "json",
+            "filepath": "~/.fusion-agent-studio/exports/first-graph.json",
+        },
+    )
+    print(r)  # {"status":"ok","path":"...","format":"json"}
 
     # Python 脚本（with_server=True 带启动代码）
-    r = await rpc("deploy.export", {
-        "graph_id": "first-graph-001",
-        "format": "python",
-        "filepath": "~/.fusion-agent-studio/exports/first_graph.py",
-        "with_server": True,
-    })
+    r = await rpc(
+        "deploy.export",
+        {
+            "graph_id": "first-graph-001",
+            "format": "python",
+            "filepath": "~/.fusion-agent-studio/exports/first_graph.py",
+            "with_server": True,
+        },
+    )
 
     # 独立 FastAPI 服务（默认 port 11453）
-    r = await rpc("deploy.export", {
-        "graph_id": "first-graph-001",
-        "format": "fastapi",
-        "filepath": "~/.fusion-agent-studio/exports/first_graph_api.py",
-        "port": 11460,
-    })
+    r = await rpc(
+        "deploy.export",
+        {
+            "graph_id": "first-graph-001",
+            "format": "fastapi",
+            "filepath": "~/.fusion-agent-studio/exports/first_graph_api.py",
+            "port": 11460,
+        },
+    )
+
 
 asyncio.run(main())
 ```
@@ -84,16 +95,19 @@ asyncio.run(main())
 
 `deploy.list_formats` 查支持格式：
 ```python
-await rpc("deploy.list_formats", {})   # {"formats": ["json","python","yaml","fastapi"]}
+await rpc("deploy.list_formats", {})  # {"formats": ["json","python","yaml","fastapi"]}
 ```
 
 ### 导入
 
 ```python
-r = await rpc("deploy.import", {
-    "filepath": "~/.fusion-agent-studio/exports/first-graph.json",
-})
-print(r)   # {"graph_id": ..., "name": ..., "nodes": N, "edges": M}
+r = await rpc(
+    "deploy.import",
+    {
+        "filepath": "~/.fusion-agent-studio/exports/first-graph.json",
+    },
+)
+print(r)  # {"graph_id": ..., "name": ..., "nodes": N, "edges": M}
 ```
 
 **安全约束**：`deploy.import` 只接受 `~/.fusion-agent-studio/exports/` 目录下的文件（resolve + relative_to 校验，防 `../` 穿越）。导出和导入自成闭环——导出写到 exports/，导入只读 exports/。外部文件先拷进该目录再导入。
@@ -108,12 +122,14 @@ import asyncio
 
 AGENT_ID = "..."
 
+
 async def main():
     r = await rpc("agent.publish", {"agent_id": AGENT_ID})
     print(r)
     # {"agent_id": ..., "status": "published",
     #  "version": 2, "published_at": 1234567890,
     #  "api_endpoint": "http://localhost:11434/v1/agents/<id>/chat"}
+
 
 asyncio.run(main())
 ```
@@ -122,9 +138,9 @@ asyncio.run(main())
 
 管理发布状态：
 ```python
-await rpc("agent.unpublish", {"agent_id": AGENT_ID})   # 回到 draft
-await rpc("agent.archive", {"agent_id": AGENT_ID})     # 归档
-await rpc("agent.published_list", {})                  # 已发布列表
+await rpc("agent.unpublish", {"agent_id": AGENT_ID})  # 回到 draft
+await rpc("agent.archive", {"agent_id": AGENT_ID})  # 归档
+await rpc("agent.published_list", {})  # 已发布列表
 ```
 
 状态流转：`draft` → `published` →（`archived` / `unpublish` 回 `draft`）。已发布的不能重复 publish（报 "already published"）。
@@ -139,21 +155,26 @@ await rpc("agent.published_list", {})                  # 已发布列表
 from rpc import rpc
 import asyncio
 
+
 async def main():
-    r = await rpc("marketplace.publish", {
-        "name": "Daily Disk Inspector",
-        "author": "dahai",
-        "description": "每日磁盘巡检智能体",
-        "category": "ops",
-        "tags": ["disk", "ops", "cron"],
-        "version": "1.0.0",
-        "graph_data": {  # 图定义（可从已存图取）
-            "nodes": {"start": {"type": "start"}, "end": {"type": "end"}},
-            "edges": [{"source_id": "start", "target_id": "end"}],
-            "start_node_id": "start",
+    r = await rpc(
+        "marketplace.publish",
+        {
+            "name": "Daily Disk Inspector",
+            "author": "dahai",
+            "description": "每日磁盘巡检智能体",
+            "category": "ops",
+            "tags": ["disk", "ops", "cron"],
+            "version": "1.0.0",
+            "graph_data": {  # 图定义（可从已存图取）
+                "nodes": {"start": {"type": "start"}, "end": {"type": "end"}},
+                "edges": [{"source_id": "start", "target_id": "end"}],
+                "start_node_id": "start",
+            },
         },
-    })
-    print(r)   # {"entry_id": "..."}
+    )
+    print(r)  # {"entry_id": "..."}
+
 
 asyncio.run(main())
 ```

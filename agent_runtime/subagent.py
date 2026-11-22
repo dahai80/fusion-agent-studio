@@ -100,9 +100,7 @@ class SubAgentSpec:
             ),
             mcp_servers=list(data.get("mcp_servers", data.get("mcpServers", [])) or []),
             skills=list(data.get("skills", []) or []),
-            permission_mode=str(
-                data.get("permission_mode", data.get("permissionMode", "")) or ""
-            ),
+            permission_mode=str(data.get("permission_mode", data.get("permissionMode", "")) or ""),
             effort=str(data.get("effort", "") or ""),
             auto_compact_window=int(
                 data.get("auto_compact_window", data.get("autoCompactWindow", 0)) or 0
@@ -268,9 +266,7 @@ class SubAgentRunner:
                 continue
             reg.register(tool)
         if denied:
-            logger.info(
-                "subagent registry denied tools=%s name=%s", denied, spec.name
-            )
+            logger.info("subagent registry denied tools=%s name=%s", denied, spec.name)
         return reg, missing
 
     @staticmethod
@@ -281,7 +277,7 @@ class SubAgentRunner:
             if pattern == name or fnmatch.fnmatch(name, pattern):
                 return True
             if pattern.startswith("mcp__"):
-                server = pattern[len("mcp__"):].split("__", 1)[0]
+                server = pattern[len("mcp__") :].split("__", 1)[0]
                 tool_server = str(getattr(tool, "mcp_server", "") or "")
                 if tool_server and tool_server == server:
                     return True
@@ -350,9 +346,7 @@ class SubAgentRunner:
         if not context:
             logger.info("subagent memory recall empty scope=%s name=%s", scope, spec.name)
             return
-        ctx.messages.insert(
-            0, {"role": "system", "content": f"[Scoped memory {scope}]\n{context}"}
-        )
+        ctx.messages.insert(0, {"role": "system", "content": f"[Scoped memory {scope}]\n{context}"})
         logger.info(
             "subagent memory injected scope=%s name=%s chars=%d",
             scope,
@@ -432,7 +426,9 @@ class SubAgentRunner:
         graph.add_edge("llm1", "end")
         return graph
 
-    def _build_sub_context(self, spec: SubAgentSpec, parent_ctx: AgentContext | None) -> AgentContext:
+    def _build_sub_context(
+        self, spec: SubAgentSpec, parent_ctx: AgentContext | None
+    ) -> AgentContext:
         if parent_ctx is not None:
             session_id = f"{parent_ctx.session_id}:sub:{spec.name}"
         else:
@@ -510,7 +506,9 @@ class SubAgentRunner:
         except Exception as e:
             logger.warning(
                 "roster register failed agent=%s name=%s err=%s",
-                agent_id, spec.name, e,
+                agent_id,
+                spec.name,
+                e,
             )
         self._emit_lifecycle(
             "subagent_start",
@@ -524,21 +522,21 @@ class SubAgentRunner:
             },
             session_id,
         )
-        await self._fire_hook("SUBAGENT_START", {"name": spec.name, "task": spec.task, "team": spec.team})
+        await self._fire_hook(
+            "SUBAGENT_START", {"name": spec.name, "task": spec.task, "team": spec.team}
+        )
         report: SubAgentReport | None = None
         try:
-            report = await self._run_inner(
-                spec, parent_ctx, model, seed_messages=seed_messages
-            )
+            report = await self._run_inner(spec, parent_ctx, model, seed_messages=seed_messages)
         except Exception as e:
             logger.error("subagent run failed name=%s err=%s", spec.name, e)
-            report = SubAgentReport(name=spec.name, ok=False, report="", error=str(e), team=spec.team)
+            report = SubAgentReport(
+                name=spec.name, ok=False, report="", error=str(e), team=spec.team
+            )
         report.agent_id = agent_id
         report.duration_ms = int((time.monotonic() - started) * 1000)
         if self.last_ctx is not None:
-            transcripts.append(
-                agent_id, self.last_ctx.messages[self.last_seeded_count:]
-            )
+            transcripts.append(agent_id, self.last_ctx.messages[self.last_seeded_count :])
         transcripts.finish(
             agent_id,
             ok=report.ok,
@@ -579,11 +577,7 @@ class SubAgentRunner:
         # #702: worker delivery discipline — full report lands on disk via
         # ArtifactStore; the parent context only receives a summary + artifact
         # ref, injected front-of-context (idempotent). Fail-open.
-        if (
-            report.ok
-            and str(report.report or "").strip()
-            and _worker_artifacts_enabled()
-        ):
+        if report.ok and str(report.report or "").strip() and _worker_artifacts_enabled():
             try:
                 from .delivery_channel import WorkerDeliveryChannel
 
@@ -612,9 +606,7 @@ class SubAgentRunner:
 
         reg, missing = self._build_registry(spec)
         if missing:
-            logger.warning(
-                "subagent allowlist missing tools=%s name=%s", missing, spec.name
-            )
+            logger.warning("subagent allowlist missing tools=%s name=%s", missing, spec.name)
             return SubAgentReport(
                 name=spec.name,
                 ok=False,
@@ -645,9 +637,7 @@ class SubAgentRunner:
         if seed_messages:
             base_len = len(sub_ctx.messages)
             sub_ctx.messages = list(seed_messages) + sub_ctx.messages[base_len:]
-            logger.info(
-                "subagent resume seeded name=%s messages=%d", spec.name, len(seed_messages)
-            )
+            logger.info("subagent resume seeded name=%s messages=%d", spec.name, len(seed_messages))
         self._inject_scoped_memory(spec, sub_ctx)
         seeded_count = len(sub_ctx.messages)
         self.last_seeded_count = seeded_count
@@ -790,9 +780,7 @@ class SubAgentRunner:
         # partial-with-empty-report as before.
         gateway = getattr(self.parent_runtime, "llm_gateway", None)
         if gateway is None:
-            logger.warning(
-                "subagent reserve report turn skipped name=%s: no gateway", spec.name
-            )
+            logger.warning("subagent reserve report turn skipped name=%s: no gateway", spec.name)
             return ""
         instruction = (
             "Your turn budget is exhausted. Do NOT use any tools. From the "

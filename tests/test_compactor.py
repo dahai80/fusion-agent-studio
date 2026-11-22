@@ -25,9 +25,7 @@ class MockMLXClient:
     def add_response(self, content, tool_calls=None):
         self.responses.append({"content": content, "tool_calls": tool_calls or []})
 
-    async def chat(
-        self, model, messages, tools=None, temperature=0.7, max_tokens=4096, **kwargs
-    ):
+    async def chat(self, model, messages, tools=None, temperature=0.7, max_tokens=4096, **kwargs):
         self.call_count += 1
         from server.fusion_mlx_client import LLMResponse
 
@@ -49,9 +47,7 @@ def _msgs():
 
 def test_estimate_tokens_and_thresholds():
     c = Compactor(
-        CompactionConfig(
-            context_window=100, warning_buffer=30, error_buffer=50, manual_buffer=10
-        )
+        CompactionConfig(context_window=100, warning_buffer=30, error_buffer=50, manual_buffer=10)
     )
     assert c.estimate_tokens([{"role": "user", "content": "a" * 400}]) == 100
     assert c.should_compact([{"role": "user", "content": "a" * 40}]) == "none"
@@ -69,9 +65,7 @@ def test_microcompact_truncates_tool_results():
 def test_smart_truncate_keeps_recent_rounds():
     c = Compactor(CompactionConfig(keep_recent_rounds=1))
     out = c._smart_truncate(_msgs())
-    assert any(
-        m.get("role") == "system" and "Compacted" in m.get("content", "") for m in out
-    )
+    assert any(m.get("role") == "system" and "Compacted" in m.get("content", "") for m in out)
     assert out[-1]["content"] == "yo"
 
 
@@ -106,12 +100,9 @@ def test_compact_pipeline_reduces_tokens():
     # goal is re-pinned.
     out = c.compact(msgs, level="error")
     assert out[-1]["content"] == "final"
-    assert not any(
-        m.get("role") == "assistant" and m.get("content") == "A" * 200 for m in out
-    )
+    assert not any(m.get("role") == "assistant" and m.get("content") == "A" * 200 for m in out)
     assert any(
-        m.get("role") == "system" and "[Pinned task goal]" in str(m.get("content"))
-        for m in out
+        m.get("role") == "system" and "[Pinned task goal]" in str(m.get("content")) for m in out
     )
 
 
@@ -248,9 +239,7 @@ class TestGatewayReactive413:
             calls["n"] += 1
             if calls["n"] == 1:
                 raise Exception("This model's maximum context length is 8192 tokens")
-            return GatewayResponse(
-                content="ok", model=config.name, finish_reason="stop"
-            )
+            return GatewayResponse(content="ok", model=config.name, finish_reason="stop")
 
         gw._call_model_async = fake_call
         # #478: retry is gated on the surface generation actually advancing —

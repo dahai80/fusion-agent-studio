@@ -305,12 +305,26 @@ class AgentGraph:
     # 审计 L-1: runtime 支持的合法 node.type 集合 (与 runtime.py dispatch
     # 的 elif 分支一一对应). validate() 据此拒绝未知类型, 避免未知类型节点
     # 进入图后在 runtime 静默空转至 max_iterations.
-    _VALID_NODE_TYPES = frozenset({
-        "start", "llm", "tool", "condition", "loop", "error_handler",
-        "rag", "planner", "verify", "parallel", "acp", "end",
-        "iteration", "variable_aggregator",
-        "human_input", "sub_flow",
-    })
+    _VALID_NODE_TYPES = frozenset(
+        {
+            "start",
+            "llm",
+            "tool",
+            "condition",
+            "loop",
+            "error_handler",
+            "rag",
+            "planner",
+            "verify",
+            "parallel",
+            "acp",
+            "end",
+            "iteration",
+            "variable_aggregator",
+            "human_input",
+            "sub_flow",
+        }
+    )
 
     def validate(self, tool_registry: Any = None) -> list[str]:
         # #215: 校验结构 + (可选) 内容 schema. 传 tool_registry 则查 tool_name 注册,
@@ -355,9 +369,7 @@ class AgentGraph:
             # tool_name ∈ registry (拼写/注册错 create 时即报)
             if node.type == "tool" and node.tool_name:
                 if tool_registry is not None and node.tool_name not in known_tool_names:
-                    errors.append(
-                        f"Node '{nid}' tool_name '{node.tool_name}' not in registry"
-                    )
+                    errors.append(f"Node '{nid}' tool_name '{node.tool_name}' not in registry")
             # condition_expr 预解析 (语法错 create 时报). 需 registry — 属内容 schema,
             # 无 registry (runtime 执行前结构校验) 不查, 否则误杀合法条件节点的异常路径.
             if node.type == "condition" and node.condition_expr and tool_registry is not None:
@@ -371,12 +383,14 @@ class AgentGraph:
                 is_or = bool(_re.search(r"\bor\b", low))
                 is_and = bool(_re.search(r"\band\b", low))
                 if not (is_lit or is_ctx or is_comp or is_in or is_not or is_or or is_and):
-                    errors.append(
-                        f"Node '{nid}' condition_expr unparseable: {expr[:60]!r}"
-                    )
+                    errors.append(f"Node '{nid}' condition_expr unparseable: {expr[:60]!r}")
             # tool_params 未知 key warning (output_mapping 是约定 key, 跳过)
             if node.type == "tool" and node.tool_name and tool_registry is not None:
-                tool = tool_registry.get(node.tool_name) if node.tool_name in known_tool_names else None
+                tool = (
+                    tool_registry.get(node.tool_name)
+                    if node.tool_name in known_tool_names
+                    else None
+                )
                 if tool is not None:
                     schema_params = set()
                     for p in getattr(tool, "parameters", []) or []:

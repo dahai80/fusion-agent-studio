@@ -47,7 +47,9 @@ class TestOfflineReviewer:
         assert report["flagged"] == 0
 
     async def test_rules_can_be_overridden(self):
-        rules = [{"id": "deny-browser", "tool": "browser_navigate", "pattern": ".", "severity": "high"}]
+        rules = [
+            {"id": "deny-browser", "tool": "browser_navigate", "pattern": ".", "severity": "high"}
+        ]
         r = OfflineReviewer(rules=rules)
         events = [_ev("tool_call", "browser_navigate", 1.0, "e1", {"url": "http://x"})]
         report = await r.review_run("run-1", events)

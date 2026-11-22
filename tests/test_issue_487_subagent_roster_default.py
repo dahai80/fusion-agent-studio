@@ -1,4 +1,5 @@
 """#487: subagents auto-register into DurableRoster; subagent_spawn default-on."""
+
 import pytest
 
 from agent_runtime.context import AgentContext
@@ -40,9 +41,7 @@ async def test_spawn_registers_into_durable_roster(tmp_path, monkeypatch):
     monkeypatch.setenv("FUSION_TEAM_DB", str(tmp_path / "team.db"))
     rt = _runtime()
     runner = SubAgentRunner(rt)
-    report = await runner.run(
-        SubAgentSpec(name="scout", task="do thing", team="alpha", tools=[])
-    )
+    report = await runner.run(SubAgentSpec(name="scout", task="do thing", team="alpha", tools=[]))
     assert report.ok is True
     roster = DurableRoster()
     entry = roster.get(report.agent_id)
@@ -123,8 +122,6 @@ async def test_parent_ctx_session_id_unaffected(tmp_path, monkeypatch):
     rt = _runtime()
     runner = SubAgentRunner(rt)
     parent = AgentContext(session_id="p1")
-    report = await runner.run(
-        SubAgentSpec(name="w", task="t", team="beta"), parent_ctx=parent
-    )
+    report = await runner.run(SubAgentSpec(name="w", task="t", team="beta"), parent_ctx=parent)
     assert report.ok is True
     assert DurableRoster().get(report.agent_id)["team"] == "beta"

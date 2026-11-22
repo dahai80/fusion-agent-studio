@@ -31,26 +31,31 @@ logger = logging.getLogger(__name__)
 _SAFE_NAME_RE = re.compile(r"[^a-zA-Z0-9_]")
 
 
-async def _bridge_call(capability_id: str, params: dict, *, agent_id: str,
-                       version: int, publisher: str, timeout: float) -> str:
+async def _bridge_call(
+    capability_id: str, params: dict, *, agent_id: str, version: int, publisher: str, timeout: float
+) -> str:
     """Dispatch one capability through the studio's audited door
     (in-process since #437); returns a JSON string envelope (or an honest
     error string) for the LLM context."""
     from .agent_platform.door import DoorError, get_default_door
 
     try:
-        _, data = await get_default_door().call({
-            "capability_id": capability_id, "params": params,
-            "agent_id": agent_id, "version": version,
-            "publisher": publisher})
+        _, data = await get_default_door().call(
+            {
+                "capability_id": capability_id,
+                "params": params,
+                "agent_id": agent_id,
+                "version": version,
+                "publisher": publisher,
+            }
+        )
         return json.dumps(data, ensure_ascii=False, default=str)
     except DoorError as e:
         return json.dumps({"error": e.detail, "status_code": e.status_code})
     except Exception as e:
         # include the exception TYPE: timeout errors (TimeoutError) have an
         # empty str() — "unreachable: " with no reason was undiagnosable
-        return json.dumps({"error": f"capability door failed: "
-                                    f"{type(e).__name__}: {e}"})
+        return json.dumps({"error": f"capability door failed: {type(e).__name__}: {e}"})
 
 
 def sane_name(capability_id: str) -> str:
@@ -64,8 +69,7 @@ def bridge_tool_name(agent_id: str, capability_id: str) -> str:
     return f"bt_{re.sub(r'[^a-zA-Z0-9]', '', agent_id)[:8]}_{sane_name(capability_id)}"
 
 
-def _make_bridge_tool(name: str, description: str,
-                      required_params: dict, runner) -> object:
+def _make_bridge_tool(name: str, description: str, required_params: dict, runner) -> object:
     """Build a BaseTool instance whose execute() calls `runner(**kwargs)`.
     Only REQUIRED params go into the schema (FAS openai_schema marks every
     listed parameter as required); the LLM may pass exactly these.
@@ -94,8 +98,11 @@ def _version_stamp(manifest) -> int:
     """0 for drafts (bridge denies mutations), manifest version when
     published. manifest.version_int starts at 1 even for drafts, so the
     status field decides (plan §5.3)."""
-    return int(getattr(manifest, "version_int", 1) or 1) \
-        if getattr(manifest, "status", "draft") == "published" else 0
+    return (
+        int(getattr(manifest, "version_int", 1) or 1)
+        if getattr(manifest, "status", "draft") == "published"
+        else 0
+    )
 
 
 def sync_agent_tools(rt, agent_id: str, manifest) -> dict:
@@ -133,12 +140,13 @@ def sync_agent_tools(rt, agent_id: str, manifest) -> dict:
         # lookup is only the fallback for older manifests.
         cap = None
         if isinstance(config, dict) and config.get("cap_params") is not None:
-            cap = {"id": cap_id,
-                   "title": config.get("cap_title") or cap_id,
-                   "description": entry.get("description") or "",
-                   "mutation": bool(config.get("cap_mutation")),
-                   "params": {"type": "object",
-                              "properties": config.get("cap_params") or {}}}
+            cap = {
+                "id": cap_id,
+                "title": config.get("cap_title") or cap_id,
+                "description": entry.get("description") or "",
+                "mutation": bool(config.get("cap_mutation")),
+                "params": {"type": "object", "properties": config.get("cap_params") or {}},
+            }
         else:
             cap = _lookup_capability(cap_id)
         if cap is None:
@@ -151,8 +159,7 @@ def sync_agent_tools(rt, agent_id: str, manifest) -> dict:
         # openai schema had NO properties and the LLM could not call it.
         schema_required = (cap.get("params") or {}).get("required") or []
         required_params = {
-            k: {"type": str(v.get("type", "string")),
-                "description": str(v.get("description", k))}
+            k: {"type": str(v.get("type", "string")), "description": str(v.get("description", k))}
             for k, v in params_spec.items()
             if k in schema_required or v.get("required")
         }
@@ -160,33 +167,34 @@ def sync_agent_tools(rt, agent_id: str, manifest) -> dict:
         if cap.get("mutation"):
             desc += " (MUTATION — executed via human approval workflow)"
 
-        async def _runner(_cap_id=cap_id, _required=tuple(required_params),
-                          **kw):
+        async def _runner(_cap_id=cap_id, _required=tuple(required_params), **kw):
             # small-model resilience: a weak model may satisfy the required
             # param positionally — one stray argument maps onto the sole
             # required param instead of burning a 422 round-trip. Only when
             # exactly one arg is present and it is a non-empty string.
-            missing = [p for p in _required
-                       if p not in kw or kw[p] in (None, "")]
+            missing = [p for p in _required if p not in kw or kw[p] in (None, "")]
             if len(missing) == 1 and len(kw) == 1:
                 only = next(iter(kw))
                 if isinstance(kw[only], str) and kw[only].strip():
                     kw = {missing[0]: kw[only].strip()}
-            return await _bridge_call(_cap_id, kw, agent_id=agent_id,
-                                      version=version, publisher=publisher,
-                                      timeout=timeout)
+            return await _bridge_call(
+                _cap_id,
+                kw,
+                agent_id=agent_id,
+                version=version,
+                publisher=publisher,
+                timeout=timeout,
+            )
 
         try:
-            rt.tools.register(_make_bridge_tool(
-                name, desc, required_params, _runner))
+            rt.tools.register(_make_bridge_tool(name, desc, required_params, _runner))
             registered.append(name)
         except Exception as e:
             skipped.append(f"{cap_id} ({e})")
 
     # stale tools of THIS agent (e.g. capability removed from checklist)
     try:
-        existing = [t.get("name") for t in (rt.tools.list_tools() or [])
-                    if isinstance(t, dict)]
+        existing = [t.get("name") for t in (rt.tools.list_tools() or []) if isinstance(t, dict)]
     except Exception:
         existing = []
     prefix = f"bt_{re.sub(r'[^a-zA-Z0-9]', '', agent_id)[:8]}_"
@@ -198,9 +206,13 @@ def sync_agent_tools(rt, agent_id: str, manifest) -> dict:
             except Exception:
                 pass
 
-    return {"registered": registered, "removed": removed,
-            "skipped": skipped, "version_stamp": version,
-            "publisher": publisher}
+    return {
+        "registered": registered,
+        "removed": removed,
+        "skipped": skipped,
+        "version_stamp": version,
+        "publisher": publisher,
+    }
 
 
 def _lookup_capability(capability_id: str):
@@ -223,8 +235,7 @@ def ensure_daemon_tools(daemon, agent_id: str) -> dict:
 
         pkg = AgentPackage(daemon._agent_dir(agent_id))
         if not pkg.exists:
-            return {"registered": [], "removed": [], "skipped":
-                    ["agent not found"]}
+            return {"registered": [], "removed": [], "skipped": ["agent not found"]}
         manifest = pkg.load_manifest()
         rt = daemon._get_runtime()
         return sync_agent_tools(rt, agent_id, manifest)

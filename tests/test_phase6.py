@@ -37,9 +37,7 @@ class TestTokenBudget:
         assert not s["exceeded"]
 
     def test_to_dict_from_dict(self):
-        b = TokenBudget(
-            max_tokens=500, spent_tokens=100, prompt_tokens=60, completion_tokens=40
-        )
+        b = TokenBudget(max_tokens=500, spent_tokens=100, prompt_tokens=60, completion_tokens=40)
         d = b.to_dict()
         b2 = TokenBudget.from_dict(d)
         assert b2.max_tokens == 500
@@ -63,9 +61,7 @@ class TestTokenBudget:
 class TestChatBranchNavigation:
     def setup_method(self):
         self.engine = ChatEngine()
-        self.session = self.engine.create_session(
-            mode=ChatMode.SIMPLE.value, title="Test"
-        )
+        self.session = self.engine.create_session(mode=ChatMode.SIMPLE.value, title="Test")
 
     def test_switch_branch(self):
         msg1 = ChatMessage(role="user", content="hello")
@@ -162,9 +158,7 @@ class TestSafetyGatewayApproval:
             )
         )
         gw = SafetyGateway(level=SafetyLevel.L2, guard_client=client)
-        verdict = gw.evaluate_action(
-            category="file_write", content="write data", context="test"
-        )
+        verdict = gw.evaluate_action(category="file_write", content="write data", context="test")
         assert verdict.requires_approval is True
         assert verdict.action == SafetyAction.PREVIEW
 
@@ -178,17 +172,13 @@ class TestSafetyGatewayApproval:
             )
         )
         gw = SafetyGateway(level=SafetyLevel.L3, guard_client=client)
-        verdict = gw.evaluate_action(
-            category="shell_exec", content="ls", context="test"
-        )
+        verdict = gw.evaluate_action(category="shell_exec", content="ls", context="test")
         assert verdict.requires_approval is True
 
     def test_l1_auto_approve(self):
         client = MockGuardClient(verdict=MockVerdict(action="allow", risk_level="l1"))
         gw = SafetyGateway(level=SafetyLevel.L1, guard_client=client)
-        verdict = gw.evaluate_action(
-            category="file_read", content="read data", context="test"
-        )
+        verdict = gw.evaluate_action(category="file_read", content="read data", context="test")
         assert verdict.requires_approval is False
         assert verdict.action == SafetyAction.ALLOW
 
@@ -202,10 +192,12 @@ class TestSafetyGatewayApproval:
             )
         )
         gw = SafetyGateway(level=SafetyLevel.L2, guard_client=client)
-        verdict = gw.evaluate_action(
-            category="file_write", content="write data", context="test"
+        verdict = gw.evaluate_action(category="file_write", content="write data", context="test")
+        action_id = (
+            verdict.diff_preview.action_id
+            if verdict.diff_preview
+            else verdict.metadata.get("action_id", "")
         )
-        action_id = verdict.diff_preview.action_id if verdict.diff_preview else verdict.metadata.get("action_id", "")
         if action_id:
             ok = gw.approve_action(action_id)
             assert ok
@@ -220,10 +212,12 @@ class TestSafetyGatewayApproval:
             )
         )
         gw = SafetyGateway(level=SafetyLevel.L2, guard_client=client)
-        verdict = gw.evaluate_action(
-            category="file_write", content="write data", context="test"
+        verdict = gw.evaluate_action(category="file_write", content="write data", context="test")
+        action_id = (
+            verdict.diff_preview.action_id
+            if verdict.diff_preview
+            else verdict.metadata.get("action_id", "")
         )
-        action_id = verdict.diff_preview.action_id if verdict.diff_preview else verdict.metadata.get("action_id", "")
         if action_id:
             ok = gw.reject_action(action_id)
             assert ok

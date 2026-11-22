@@ -70,7 +70,9 @@ def register_marketplace(
             else:
                 logger.warning(
                     "marketplace: agent %s has unrecognizable tool entry %r — skipped",
-                    agent_id, entry)
+                    agent_id,
+                    entry,
+                )
                 continue
             if not tid:
                 continue
@@ -113,8 +115,7 @@ def register_marketplace(
             logger.warning("marketplace: usage aggregation unavailable: %s", e)
             return {}
 
-    @app.get("/v1/marketplace/agents",
-             dependencies=[Depends(require_auth)])
+    @app.get("/v1/marketplace/agents", dependencies=[Depends(require_auth)])
     async def marketplace_agents() -> Dict[str, Any]:
         body = await rpc("agent.list", {})
         agents = body.get("agents") or body.get("data") or []
@@ -126,29 +127,26 @@ def register_marketplace(
             logger.warning("marketplace: publish registry unavailable: %s", e)
             registry = None
         counts = await _run_counts()
-        entries = [
-            _entry_for(a, titles, registry, counts)
-            for a in published
-        ]
-        logger.info("marketplace.agents: %d published of %d total",
-                    len(entries), len(agents))
+        entries = [_entry_for(a, titles, registry, counts) for a in published]
+        logger.info("marketplace.agents: %d published of %d total", len(entries), len(agents))
         return {"agents": entries, "total": len(entries)}
 
-    @app.get("/v1/marketplace/agents/{agent_id}",
-             dependencies=[Depends(require_auth)])
+    @app.get("/v1/marketplace/agents/{agent_id}", dependencies=[Depends(require_auth)])
     async def marketplace_agent(agent_id: str) -> Dict[str, Any]:
         body = await rpc("agent.get", {"agent_id": agent_id})
         agent = body.get("agent")
         if agent is None:
-            raise_api_error(ErrorCode.AGENT_NOT_FOUND,
-                            param="agent_id",
-                            detail=f"agent not found: {agent_id}")
+            raise_api_error(
+                ErrorCode.AGENT_NOT_FOUND, param="agent_id", detail=f"agent not found: {agent_id}"
+            )
         if agent.get("status") != "published":
             # drafts/untested/disabled agents are never marketable; hide
             # their very existence behind the same 404 as a missing agent
-            raise_api_error(ErrorCode.AGENT_NOT_FOUND,
-                            param="agent_id",
-                            detail=f"agent not published: {agent_id}")
+            raise_api_error(
+                ErrorCode.AGENT_NOT_FOUND,
+                param="agent_id",
+                detail=f"agent not published: {agent_id}",
+            )
         titles = _catalog_titles()
         try:
             registry = _registry()
@@ -158,7 +156,7 @@ def register_marketplace(
         counts = await _run_counts()
         entry = _entry_for(agent, titles, registry, counts)
         entry["usage_example"] = (
-            f'curl -X POST <base>{entry["invoke"]["test"]} '
+            f"curl -X POST <base>{entry['invoke']['test']} "
             '-H "Authorization: Bearer <api key>" '
             '-H "content-type: application/json" '
             '-d \'{"message": "hello"}\''

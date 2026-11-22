@@ -375,9 +375,7 @@ class TestCronManagerRunLoop:
         mgr._handlers[job.id] = handler
         mgr._running = True
 
-        with patch(
-            "agent_runtime.triggers.asyncio.sleep", new_callable=AsyncMock
-        ) as mock_sleep:
+        with patch("agent_runtime.triggers.asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
 
             async def stop_after_first(*args, **kwargs):
                 mgr._running = False
@@ -405,9 +403,7 @@ class TestCronManagerRunLoop:
         mgr._handlers[job.id] = bad_handler
         mgr._running = True
 
-        with patch(
-            "agent_runtime.triggers.asyncio.sleep", new_callable=AsyncMock
-        ) as mock_sleep:
+        with patch("agent_runtime.triggers.asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
 
             async def stop_after_first(*args, **kwargs):
                 mgr._running = False
@@ -436,9 +432,7 @@ class TestCronManagerRunLoop:
         mgr._handlers[job.id] = handler
         mgr._running = True
 
-        with patch(
-            "agent_runtime.triggers.asyncio.sleep", new_callable=AsyncMock
-        ) as mock_sleep:
+        with patch("agent_runtime.triggers.asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
 
             async def stop_after_first(*args, **kwargs):
                 mgr._running = False
@@ -461,9 +455,7 @@ class TestCronManagerRunLoop:
         mgr._jobs[job.id] = job
         mgr._running = True
 
-        with patch(
-            "agent_runtime.triggers.asyncio.sleep", new_callable=AsyncMock
-        ) as mock_sleep:
+        with patch("agent_runtime.triggers.asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
 
             async def stop_after_first(*args, **kwargs):
                 mgr._running = False
@@ -492,9 +484,7 @@ class TestCronManagerRunLoop:
         mgr._handlers[job.id] = handler
         mgr._running = True
 
-        with patch(
-            "agent_runtime.triggers.asyncio.sleep", new_callable=AsyncMock
-        ) as mock_sleep:
+        with patch("agent_runtime.triggers.asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
 
             async def stop_after_first(*args, **kwargs):
                 mgr._running = False

@@ -120,9 +120,7 @@ class AgentStatusTracker:
         import json
 
         with open(self._status_path(), "w") as f:
-            json.dump(
-                {aid: s.to_dict() for aid, s in self._status.items()}, f, indent=2
-            )
+            json.dump({aid: s.to_dict() for aid, s in self._status.items()}, f, indent=2)
 
     def _save_history(self, agent_id: str):
         import json
@@ -170,9 +168,7 @@ class AgentStatusTracker:
         self._save_history(aid)
         logger.debug("Recorded run %s for agent %s", entry.run_id, aid)
 
-    def get_history(
-        self, agent_id: str, limit: int = 50, offset: int = 0
-    ) -> list[RunHistoryEntry]:
+    def get_history(self, agent_id: str, limit: int = 50, offset: int = 0) -> list[RunHistoryEntry]:
         if agent_id not in self._history:
             hp = self._history_path(agent_id)
             if hp.exists():
@@ -204,9 +200,7 @@ class AgentStatusTracker:
         logger.info("Listed %d published agents", len(results))
         return results
 
-    def get_definition(
-        self, agent_id: str, agents_index: dict[str, dict]
-    ) -> dict[str, Any] | None:
+    def get_definition(self, agent_id: str, agents_index: dict[str, dict]) -> dict[str, Any] | None:
         from .agent_definition import AgentDefinition
 
         meta = agents_index.get(agent_id)

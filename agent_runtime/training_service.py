@@ -58,8 +58,7 @@ def _export_sft_dataset(trace_ids: list[str] | None = None) -> tuple[str, int]:
         norm = [
             {"role": m.get("role", ""), "content": m.get("content", "")}
             for m in messages
-            if m.get("role") in ("system", "user", "assistant")
-            and m.get("content")
+            if m.get("role") in ("system", "user", "assistant") and m.get("content")
         ]
         if len(norm) < 2:
             continue
@@ -93,9 +92,7 @@ async def _run_sft(dataset: str, model: str, preset: str | None) -> dict[str, An
     return {"method": "sft", "output_dir": str(cfg.sft.output_dir), **res}
 
 
-async def _run_rlsl(
-    dataset: str, model: str, method: str, preset: str | None
-) -> dict[str, Any]:
+async def _run_rlsl(dataset: str, model: str, method: str, preset: str | None) -> dict[str, Any]:
     from fusion_trainer import TrainerConfig
     from fusion_trainer.rlsl import RLSL_PRESETS, RLSLEngine
 
@@ -119,9 +116,7 @@ class TrainingService:
     def list_trajectories(self, limit: int = 50) -> list[dict[str, Any]]:
         return get_trajectory_writer().list_trajectories(limit=limit)
 
-    def export_sft_dataset(
-        self, trace_ids: list[str] | None = None
-    ) -> dict[str, Any]:
+    def export_sft_dataset(self, trace_ids: list[str] | None = None) -> dict[str, Any]:
         path, count = _export_sft_dataset(trace_ids)
         return {"dataset": path, "count": count}
 

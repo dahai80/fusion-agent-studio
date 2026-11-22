@@ -120,6 +120,7 @@ class GuardSafetyBackend:
             return
         try:
             from fusion_guard import NativeGuardClient
+
             self._client = NativeGuardClient(sock_path=self._sock_path)
             self._client.ping()
             self._available = True
@@ -317,7 +318,12 @@ class GuardSafetyBackend:
             return None
         best: SafetyVerdict | None = None
         best_ord = -1
-        order = {SafetyAction.ALLOW: 0, SafetyAction.REDACT: 1, SafetyAction.PREVIEW: 2, SafetyAction.BLOCK: 3}
+        order = {
+            SafetyAction.ALLOW: 0,
+            SafetyAction.REDACT: 1,
+            SafetyAction.PREVIEW: 2,
+            SafetyAction.BLOCK: 3,
+        }
         for rule in self._rules_cache or []:
             pattern = rule.get("pattern", "")
             if not pattern:
@@ -335,7 +341,9 @@ class GuardSafetyBackend:
                 "block": SafetyAction.BLOCK,
                 "redact": SafetyAction.REDACT,
             }.get(r_action, SafetyAction.ALLOW)
-            requires_approval = action in (SafetyAction.PREVIEW, SafetyAction.BLOCK) and r_risk != "l4"
+            requires_approval = (
+                action in (SafetyAction.PREVIEW, SafetyAction.BLOCK) and r_risk != "l4"
+            )
             v = SafetyVerdict(
                 action=action,
                 reason=rule.get("reason", "guard-down cached rule match"),
@@ -359,7 +367,9 @@ class GuardSafetyBackend:
             for rule in _FAIL_CLOSED_FLOOR:
                 if re.search(rule["pattern"], content, re.IGNORECASE):
                     logger.warning(
-                        "GuardSafetyBackend floor match: %s -> %s", rule["name"], rule["action"].value
+                        "GuardSafetyBackend floor match: %s -> %s",
+                        rule["name"],
+                        rule["action"].value,
                     )
                     v = SafetyVerdict(
                         action=rule["action"],

@@ -60,9 +60,7 @@ class DeployDispatcher(SubDispatcher):
                 )
             else:
                 return {"status": "error", "message": f"Unknown format: {fmt}"}
-            logger.info(
-                "deploy.export: graph=%s format=%s path=%s", graph_id, fmt, path
-            )
+            logger.info("deploy.export: graph=%s format=%s path=%s", graph_id, fmt, path)
             return {"status": "ok", "path": str(path), "format": fmt}
         except Exception as e:
             logger.exception("deploy.export failed")
@@ -120,9 +118,7 @@ class DeployDispatcher(SubDispatcher):
             from ..agent_marketplace import AgentMarketplace
 
             self._daemon._marketplace = AgentMarketplace()
-            logger.info(
-                "AgentMarketplace created at %s", self._daemon._marketplace.store_dir
-            )
+            logger.info("AgentMarketplace created at %s", self._daemon._marketplace.store_dir)
         return self._daemon._marketplace
 
     def _agent_dir(self, agent_id: str) -> Path:
@@ -166,9 +162,7 @@ class DeployDispatcher(SubDispatcher):
         template_id = params.get("template_id", "")
         if not template_id:
             return {"status": "error", "message": "template_id parameter required"}
-        graph_data = instantiate_template(
-            template_id, variables=params.get("variables")
-        )
+        graph_data = instantiate_template(template_id, variables=params.get("variables"))
         if not graph_data:
             return {"status": "error", "message": f"Template not found: {template_id}"}
         return {"graph_data": graph_data}

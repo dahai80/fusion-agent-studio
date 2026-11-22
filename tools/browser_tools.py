@@ -48,8 +48,15 @@ _WIRE_ACTION = {
 _IDEMPOTENT = {"navigate", "scroll", "screenshot"}
 
 _VALID_ACTIONS = [
-    "create_session", "navigate", "extract", "click", "type_text",
-    "scroll", "screenshot", "evaluate", "close_session",
+    "create_session",
+    "navigate",
+    "extract",
+    "click",
+    "type_text",
+    "scroll",
+    "screenshot",
+    "evaluate",
+    "close_session",
 ]
 
 
@@ -277,7 +284,8 @@ class BrowserTool(BaseTool):
             "target_node_id": kwargs.get("target_node_id", "") or None,
             "payload_text": self._payload_text(agent_action, kwargs),
             "scroll_delta_y": float(kwargs.get("scroll_delta_y", 300))
-            if agent_action == "scroll" else None,
+            if agent_action == "scroll"
+            else None,
             "trace_id": trace_id,
         }
         loop = asyncio.get_event_loop()
@@ -320,7 +328,8 @@ class BrowserTool(BaseTool):
             ):
                 logger.info(
                     "browser %s session_recovered, resending idempotent action sid=%s",
-                    agent_action, sid,
+                    agent_action,
+                    sid,
                 )
                 resp2 = await loop.run_in_executor(
                     None, conn.request, {"type": "execute", "payload": payload}

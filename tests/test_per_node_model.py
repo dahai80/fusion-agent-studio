@@ -14,9 +14,7 @@ class ModelRecordingClient:
     def add_response(self, content: str):
         self.responses.append(content)
 
-    async def chat(
-        self, model, messages, tools=None, temperature=0.7, max_tokens=4096, **kwargs
-    ):
+    async def chat(self, model, messages, tools=None, temperature=0.7, max_tokens=4096, **kwargs):
         self.models_used.append(model)
         from server.fusion_mlx_client import LLMResponse
 

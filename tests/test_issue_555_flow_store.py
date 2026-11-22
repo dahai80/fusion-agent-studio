@@ -149,7 +149,9 @@ def test_dispatcher_wired_into_daemon(tmp_path):
             d._flow_store = FlowStore(db_path=tmp_path / "flows.db")
 
             async def rpc(method, params):
-                resp = await d._dispatch({"jsonrpc": "2.0", "id": 1, "method": method, "params": params})
+                resp = await d._dispatch(
+                    {"jsonrpc": "2.0", "id": 1, "method": method, "params": params}
+                )
                 if "error" in resp:
                     return {"error": resp["error"]}
                 return resp.get("result", {})

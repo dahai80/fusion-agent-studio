@@ -41,9 +41,7 @@ class ConnectorConfig:
             "name": self.name,
             "type": self.type,
             "auth_config": {
-                k: "***"
-                if k in ("api_key", "secret", "client_secret", "password", "token")
-                else v
+                k: "***" if k in ("api_key", "secret", "client_secret", "password", "token") else v
                 for k, v in self.auth_config.items()
             },
             "status": self.status,
@@ -192,9 +190,7 @@ class ConnectorManager:
             cfg.sensitive_scopes = list(updates["sensitive_scopes"] or [])
         cfg.updated_at = time.time()
         self._persist_index()
-        logger.info(
-            "connector.update: id=%s keys=%s", connector_id, list(updates.keys())
-        )
+        logger.info("connector.update: id=%s keys=%s", connector_id, list(updates.keys()))
         return {"updated": True, "connector": cfg.to_dict()}
 
     def delete(self, connector_id: str) -> dict[str, Any]:
@@ -243,7 +239,9 @@ class ConnectorManager:
         self._persist_index()
         logger.info(
             "connector.connect: id=%s status=%s approval_ref=%s",
-            connector_id, cfg.status, approval_ref or "-",
+            connector_id,
+            cfg.status,
+            approval_ref or "-",
         )
         result: dict[str, Any] = {
             "connector_id": connector_id,

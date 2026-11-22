@@ -1,4 +1,5 @@
 """Data format tools — JSON, CSV, YAML, Base64 parsing and conversion."""
+
 from __future__ import annotations
 
 import base64
@@ -16,10 +17,15 @@ class JsonParseTool(BaseTool):
     parameters = {
         "input": {"type": "string", "description": "JSON string to process"},
         "operation": {
-            "type": "string", "enum": ["parse", "validate", "pretty_print", "extract_keys", "count"],
+            "type": "string",
+            "enum": ["parse", "validate", "pretty_print", "extract_keys", "count"],
             "description": "Operation to perform",
         },
-        "query": {"type": "string", "description": "Key path to extract (dot-separated, e.g. 'data.items')", "default": ""},
+        "query": {
+            "type": "string",
+            "description": "Key path to extract (dot-separated, e.g. 'data.items')",
+            "default": "",
+        },
     }
 
     async def execute(self, **kwargs) -> str:
@@ -56,7 +62,8 @@ class CsvParseTool(BaseTool):
     parameters = {
         "input": {"type": "string", "description": "CSV string to process"},
         "operation": {
-            "type": "string", "enum": ["parse", "count_rows", "get_headers", "to_json"],
+            "type": "string",
+            "enum": ["parse", "count_rows", "get_headers", "to_json"],
             "description": "Operation to perform",
         },
         "delimiter": {"type": "string", "description": "CSV delimiter", "default": ","},
@@ -86,7 +93,7 @@ class CsvParseTool(BaseTool):
             return json.dumps(rows[:max_rows], indent=2, ensure_ascii=False)
         result = [f"Headers: {', '.join(headers)}", f"Rows: {len(rows)}"]
         for i, row in enumerate(rows[:max_rows]):
-            result.append(f"Row {i+1}: {dict(row)}")
+            result.append(f"Row {i + 1}: {dict(row)}")
         if len(rows) > max_rows:
             result.append(f"... ({len(rows) - max_rows} more rows)")
         return "\n".join(result)
@@ -98,7 +105,11 @@ class Base64Tool(BaseTool):
     description = "Encode or decode Base64 data"
     parameters = {
         "input": {"type": "string", "description": "Text to encode or decode"},
-        "operation": {"type": "string", "enum": ["encode", "decode"], "description": "Encode or decode"},
+        "operation": {
+            "type": "string",
+            "enum": ["encode", "decode"],
+            "description": "Encode or decode",
+        },
     }
 
     async def execute(self, **kwargs) -> str:

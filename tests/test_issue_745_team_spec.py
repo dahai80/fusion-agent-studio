@@ -170,8 +170,6 @@ async def test_spec_block_truncates(tmp_path):
 async def test_task_ledger_prompt_has_spec_slot():
     from agent_runtime.team_lead import TASK_LEDGER_PROMPT
 
-    out = TASK_LEDGER_PROMPT.format(
-        goal="g", spec="THE-SPEC-BLOCK", board="b", previous=""
-    )
+    out = TASK_LEDGER_PROMPT.format(goal="g", spec="THE-SPEC-BLOCK", board="b", previous="")
     assert "THE-SPEC-BLOCK" in out
     assert "consult it before dividing new tasks" in out

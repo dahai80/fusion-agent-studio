@@ -82,7 +82,8 @@ HOST_MODULE = "fusion-agent-studio"
 # here per agent. Extended at runtime via the add_* helpers below.
 CAPABILITIES: List[Dict[str, Any]] = [
     _cap(
-        "agent.list", "List agents",
+        "agent.list",
+        "List agents",
         "List the agents registered on this studio (name/status/model).",
         source="rest",
         params={"type": "object", "properties": {}},
@@ -90,16 +91,18 @@ CAPABILITIES: List[Dict[str, Any]] = [
         route=_rest(HOST_MODULE, "GET", "/v1/agents-platform/agents"),
     ),
     _cap(
-        "graph.create", "Create workflow graph (approval-gated)",
+        "graph.create",
+        "Create workflow graph (approval-gated)",
         "Create a workflow graph on this studio. Runs through the L3 "
         "approval workbench — the agent drafts the request, a human decides.",
-        source="rest", mutation=True, write_class="workflow_write",
+        source="rest",
+        mutation=True,
+        write_class="workflow_write",
         params={
             "type": "object",
             "properties": {
                 "name": _str_param("workflow name"),
-                "description": _str_param("one line what it does",
-                                          required=False),
+                "description": _str_param("one line what it does", required=False),
             },
         },
         returns="graph_id, status",
@@ -129,27 +132,42 @@ def set_status(capability_id: str, status: str) -> bool:
     return False
 
 
-def add_rest_capability(capability_id: str, title: str, description: str,
-                        module: str, method: str, path: str, *,
-                        mutation: bool = False, write_class: Optional[str] = None,
-                        params: Optional[Dict[str, Any]] = None,
-                        returns: str = "",
-                        added_by: str = "") -> Dict[str, Any]:
+def add_rest_capability(
+    capability_id: str,
+    title: str,
+    description: str,
+    module: str,
+    method: str,
+    path: str,
+    *,
+    mutation: bool = False,
+    write_class: Optional[str] = None,
+    params: Optional[Dict[str, Any]] = None,
+    returns: str = "",
+    added_by: str = "",
+) -> Dict[str, Any]:
     """Spine auto-listing (§5.5.2, generalized): a module×route becomes a
     capability. `rest` dispatches module+method+path through the gateway
     /shell/<module>/ proxy (module key injection server-side)."""
     cap = _cap(
-        capability_id, title, description,
-        source="rest", mutation=mutation, write_class=write_class,
-        params=params, returns=returns, route=_rest(module, method, path),
+        capability_id,
+        title,
+        description,
+        source="rest",
+        mutation=mutation,
+        write_class=write_class,
+        params=params,
+        returns=returns,
+        route=_rest(module, method, path),
     )
     cap["provenance"] = {"module": module, "added_by": added_by}
     CAPABILITIES.append(cap)
     return cap
 
 
-def add_connector_capabilities(connector_id: str, channels: List[Dict[str, Any]],
-                               installed_by: str) -> List[Dict[str, Any]]:
+def add_connector_capabilities(
+    connector_id: str, channels: List[Dict[str, Any]], installed_by: str
+) -> List[Dict[str, Any]]:
     """Spine auto-listing (§5.5.2): connector enablement registers its read
     channels as capabilities with provenance. Writes go through the
     reviewed-list process instead."""
@@ -162,14 +180,11 @@ def add_connector_capabilities(connector_id: str, channels: List[Dict[str, Any]]
             source="connector",
             mutation=bool(ch.get("mutation")),
             write_class=ch.get("write_class"),
-            params=ch.get("params") or {"type": "object",
-                                        "properties": {}},
+            params=ch.get("params") or {"type": "object", "properties": {}},
             returns=ch.get("returns", ""),
-            route={"kind": "connector", "connector": connector_id,
-                   "channel": ch["id"]},
+            route={"kind": "connector", "connector": connector_id, "channel": ch["id"]},
         )
-        cap["provenance"] = {"connector": connector_id,
-                             "installed_by": installed_by}
+        cap["provenance"] = {"connector": connector_id, "installed_by": installed_by}
         # #539 R2: channels may declare scopes whose grant needs an
         # approval reference — the builder surfaces the field for these.
         if ch.get("sensitive_scopes"):
@@ -179,8 +194,7 @@ def add_connector_capabilities(connector_id: str, channels: List[Dict[str, Any]]
     return added
 
 
-def add_skill_capability(name: str, doc: Dict[str, Any],
-                         installed_by: str) -> Dict[str, Any]:
+def add_skill_capability(name: str, doc: Dict[str, Any], installed_by: str) -> Dict[str, Any]:
     """Spine auto-listing (§5.5.2): an installed skill pack becomes a
     capability (route kind=skill). Params are free-form (the pack's
     handler contract is the author's) -> `open` schema, validated as
@@ -194,14 +208,18 @@ def add_skill_capability(name: str, doc: Dict[str, Any],
         returns="pack handler result envelope",
         route={"kind": "skill", "skill": name},
     )
-    cap["provenance"] = {"skill": name, "type": doc.get("type", "node"),
-                         "installed_by": installed_by}
+    cap["provenance"] = {
+        "skill": name,
+        "type": doc.get("type", "node"),
+        "installed_by": installed_by,
+    }
     CAPABILITIES.append(cap)
     return cap
 
 
-def add_node_capability(plugin_name: str, node_name: str,
-                        ticked_by: str) -> Optional[Dict[str, Any]]:
+def add_node_capability(
+    plugin_name: str, node_name: str, ticked_by: str
+) -> Optional[Dict[str, Any]]:
     """Spine candidate review (§5.5.2/§8): an admin ticks a plugin node ->
     it becomes a `node.<plugin>.<node>` capability (source: node). The
     route dispatches via the local ToolRegistry."""
@@ -219,8 +237,7 @@ def add_node_capability(plugin_name: str, node_name: str,
     return cap
 
 
-def add_mcp_capability(server_id: str, tool: Dict[str, Any],
-                       added_by: str) -> Dict[str, Any]:
+def add_mcp_capability(server_id: str, tool: Dict[str, Any], added_by: str) -> Dict[str, Any]:
     """Spine auto-listing for a remote MCP server's tool (§8): dispatched
     as MCP tools/call to the registered server URL. Params: the MCP
     inputSchema's required properties when parseable, else open."""
@@ -237,16 +254,14 @@ def add_mcp_capability(server_id: str, tool: Dict[str, Any],
         source="mcp",
         params=params,
         returns="MCP tool result",
-        route={"kind": "mcp", "server": server_id,
-               "tool": tool.get("name", "tool")},
+        route={"kind": "mcp", "server": server_id, "tool": tool.get("name", "tool")},
     )
     cap["provenance"] = {"mcp_server": server_id, "added_by": added_by}
     CAPABILITIES.append(cap)
     return cap
 
 
-def add_rag_capabilities(kb_id: str, title: str, description: str,
-                         wired_by: str) -> Dict[str, Any]:
+def add_rag_capabilities(kb_id: str, title: str, description: str, wired_by: str) -> Dict[str, Any]:
     """Spine auto-listing for a fusion-rag knowledge base: one KB = one
     capability. Params are STRICT (query required, top_k bounded) — the kb
     id lives in the route and is resolved server-side, never
@@ -256,10 +271,14 @@ def add_rag_capabilities(kb_id: str, title: str, description: str,
         f"Search {title}",
         description or f"Hybrid retrieval over the '{kb_id}' knowledge base",
         source="rag",
-        params={"type": "object", "properties": {
-            "query": {"type": "string"},
-            "top_k": {"type": "integer"},
-        }, "required": ["query"]},
+        params={
+            "type": "object",
+            "properties": {
+                "query": {"type": "string"},
+                "top_k": {"type": "integer"},
+            },
+            "required": ["query"],
+        },
         returns="list of chunks: {text, doc_path, score}",
         route={"kind": "rag", "kb": kb_id},
     )
@@ -285,27 +304,22 @@ def disable_source(source_kind: str, artifact_id: str) -> List[str]:
     for c in CAPABILITIES:
         if c["source"] != source_kind:
             continue
-        if source_kind == "connector" and \
-                c.get("route", {}).get("connector") == artifact_id:
+        if source_kind == "connector" and c.get("route", {}).get("connector") == artifact_id:
             c["status"] = "disabled"
             affected.append(c["id"])
-        elif source_kind == "skill" and \
-                c.get("route", {}).get("skill") == artifact_id:
+        elif source_kind == "skill" and c.get("route", {}).get("skill") == artifact_id:
             c["status"] = "disabled"
             affected.append(c["id"])
-        elif source_kind == "node" and \
-                c.get("provenance", {}).get("plugin") == artifact_id:
+        elif source_kind == "node" and c.get("provenance", {}).get("plugin") == artifact_id:
             c["status"] = "disabled"
             affected.append(c["id"])
-        elif source_kind == "rag" and \
-                c.get("route", {}).get("kb") == artifact_id:
+        elif source_kind == "rag" and c.get("route", {}).get("kb") == artifact_id:
             c["status"] = "disabled"
             affected.append(c["id"])
     return affected
 
 
-def validate_params(cap: Dict[str, Any],
-                    params: Dict[str, Any]) -> List[str]:
+def validate_params(cap: Dict[str, Any], params: Dict[str, Any]) -> List[str]:
     """Door-side schema re-validation (§5.2 defense in depth). Minimal,
     honest checks: required presence + basic type. Extra keys rejected to
     keep agent args from smuggling intent — except `open` schemas
@@ -323,8 +337,7 @@ def validate_params(cap: Dict[str, Any],
         if name in schema_required or spec.get("required"):
             if name not in params or params[name] in (None, ""):
                 errors.append(f"missing required param '{name}'")
-    type_map = {"string": str, "integer": int, "number": (int, float),
-                "boolean": bool}
+    type_map = {"string": str, "integer": int, "number": (int, float), "boolean": bool}
     for name, value in params.items():
         if name not in props:
             errors.append(f"unknown param '{name}'")
@@ -335,6 +348,5 @@ def validate_params(cap: Dict[str, Any],
                 if not isinstance(value, bool):
                     errors.append(f"param '{name}' must be boolean")
             elif not isinstance(value, want):
-                errors.append(
-                    f"param '{name}' must be {props[name].get('type')}")
+                errors.append(f"param '{name}' must be {props[name].get('type')}")
     return errors

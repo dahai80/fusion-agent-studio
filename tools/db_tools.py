@@ -1,4 +1,5 @@
 """Database tools — SQLite and PostgreSQL query execution."""
+
 from __future__ import annotations
 
 import logging
@@ -16,18 +17,44 @@ logger = logging.getLogger(__name__)
 # PRAGMA 绕过写门. 用 _WRITE_PRAGMAS 显式列破坏性 PRAGMA, 走写门校验.
 _READ_ONLY_PREFIXES = ("SELECT", "PRAGMA", "EXPLAIN", "WITH")
 _WRITE_PREFIXES = (
-    "INSERT", "UPDATE", "DELETE", "DROP", "ALTER", "CREATE",
-    "ATTACH", "DETACH", "REPLACE", "TRUNCATE", "REINDEX", "VACUUM",
+    "INSERT",
+    "UPDATE",
+    "DELETE",
+    "DROP",
+    "ALTER",
+    "CREATE",
+    "ATTACH",
+    "DETACH",
+    "REPLACE",
+    "TRUNCATE",
+    "REINDEX",
+    "VACUUM",
 )
 # 破坏性 PRAGMA: 改持久状态 (journal/sync/schema/foreign_keys/wal), 崩溃致腐或
 # 开 schema 表重写攻击路径. 形如 `PRAGMA journal_mode=OFF` / `PRAGMA writable_schema=1`.
 _WRITE_PRAGMAS = (
-    "JOURNAL_MODE", "SYNCHRONOUS", "WAL_AUTOCHECKPOINT", "WAL_CHECKPOINT",
-    "WRITABLE_SCHEMA", "FOREIGN_KEYS", "IGNORE_CHECK_CONSTRAINTS",
-    "AUTO_VACUUM", "SECURE_DELETE", "INTEGRITY_CHECK", "QUICK_CHECK",
-    "OPTIMIZE", "SHRINK_MEMORY", "TEMP_STORE", "DEFAULT_CACHE_SIZE",
-    "CACHE_SIZE", "PAGE_SIZE", "ENCODING", "USER_VERSION",
-    "APPLICATION_ID", "CELL_SIZE_CHECK", "CHECKPOINT_FULLFSYNC",
+    "JOURNAL_MODE",
+    "SYNCHRONOUS",
+    "WAL_AUTOCHECKPOINT",
+    "WAL_CHECKPOINT",
+    "WRITABLE_SCHEMA",
+    "FOREIGN_KEYS",
+    "IGNORE_CHECK_CONSTRAINTS",
+    "AUTO_VACUUM",
+    "SECURE_DELETE",
+    "INTEGRITY_CHECK",
+    "QUICK_CHECK",
+    "OPTIMIZE",
+    "SHRINK_MEMORY",
+    "TEMP_STORE",
+    "DEFAULT_CACHE_SIZE",
+    "CACHE_SIZE",
+    "PAGE_SIZE",
+    "ENCODING",
+    "USER_VERSION",
+    "APPLICATION_ID",
+    "CELL_SIZE_CHECK",
+    "CHECKPOINT_FULLFSYNC",
 )
 
 
@@ -42,6 +69,7 @@ class SqliteQueryTool(BaseTool):
 
     async def execute(self, **kwargs) -> str:
         import sqlite3
+
         db_path = kwargs.get("database", "")
         query = kwargs.get("query", "")
         max_rows = int(kwargs.get("max_rows", 50))
@@ -58,13 +86,21 @@ class SqliteQueryTool(BaseTool):
         # 名在 _WRITE_PRAGMAS (改持久状态) 也是写, 即使无 `=` (如 PRAGMA WAL_CHECKPOINT).
         is_pragma_write = False
         if query_upper.startswith("PRAGMA"):
-            pragma_body = query_upper[len("PRAGMA"):].strip()
-            pragma_name = pragma_body.split("(", 1)[0].split("=", 1)[0].strip().split()[0] if pragma_body else ""
+            pragma_body = query_upper[len("PRAGMA") :].strip()
+            pragma_name = (
+                pragma_body.split("(", 1)[0].split("=", 1)[0].strip().split()[0]
+                if pragma_body
+                else ""
+            )
             if "=" in pragma_body or pragma_name in _WRITE_PRAGMAS:
                 is_pragma_write = True
         is_write = query_upper.startswith(_WRITE_PREFIXES) or is_pragma_write
         if is_write:
-            allow_write = os.environ.get("FUSION_DB_ALLOW_WRITE", "").strip().lower() in ("1", "true", "yes")
+            allow_write = os.environ.get("FUSION_DB_ALLOW_WRITE", "").strip().lower() in (
+                "1",
+                "true",
+                "yes",
+            )
             if not allow_write:
                 logger.warning(
                     "sqlite_query blocked write (secure-by-default) db=%s prefix=%s",
@@ -78,21 +114,29 @@ class SqliteQueryTool(BaseTool):
             logger.info("sqlite_query write allowed (FUSION_DB_ALLOW_WRITE=1) db=%s", db_path)
         else:
             if not query_upper.startswith(_READ_ONLY_PREFIXES):
-                logger.warning("sqlite_query blocked unknown statement db=%s prefix=%s", db_path, query_upper[:20])
+                logger.warning(
+                    "sqlite_query blocked unknown statement db=%s prefix=%s",
+                    db_path,
+                    query_upper[:20],
+                )
                 return "Error: only read queries allowed by default (SELECT/PRAGMA/EXPLAIN/WITH)"
         try:
             conn = sqlite3.connect(db_path)
             conn.row_factory = sqlite3.Row
             cur = conn.cursor()
             cur.execute(query)
-            if not is_write and (query_upper.startswith("SELECT") or query_upper.startswith("PRAGMA") or query_upper.startswith("WITH")):
+            if not is_write and (
+                query_upper.startswith("SELECT")
+                or query_upper.startswith("PRAGMA")
+                or query_upper.startswith("WITH")
+            ):
                 rows = cur.fetchmany(max_rows)
                 if not rows:
                     return "Query returned no rows"
                 columns = [d[0] for d in cur.description]
                 result = [f"Columns: {', '.join(columns)}", f"Rows: {len(rows)}"]
                 for i, row in enumerate(rows):
-                    result.append(f"Row {i+1}: {dict(row)}")
+                    result.append(f"Row {i + 1}: {dict(row)}")
                 if len(cur.fetchmany(1)) > 0:
                     result.append(f"... (more rows available, showing first {max_rows})")
                 return "\n".join(result)
@@ -113,7 +157,12 @@ class AnnotationNode(BaseTool):
     description = "Add a text annotation or documentation note to the agent graph"
     parameters = {
         "text": {"type": "string", "description": "Annotation text content"},
-        "style": {"type": "string", "enum": ["info", "warning", "note", "todo"], "description": "Annotation style", "default": "info"},
+        "style": {
+            "type": "string",
+            "enum": ["info", "warning", "note", "todo"],
+            "description": "Annotation style",
+            "default": "info",
+        },
     }
 
     async def execute(self, **kwargs) -> str:
@@ -133,12 +182,14 @@ class PerformanceMonitor:
 
     def __init__(self, mlx_client=None):
         from server.fusion_mlx_client import FusionMLXClient
+
         self.mlx = mlx_client or FusionMLXClient()
         self._metrics: list[dict] = []
 
     async def collect(self, agent_name: str = "") -> dict:
         """Collect current performance metrics."""
         import time
+
         stats = await self.mlx.get_server_stats()
         metric = {
             "timestamp": time.time(),
@@ -177,8 +228,8 @@ class PerformanceMonitor:
             return "<div class='perf-error'>No metrics available</div>"
         return f"""
         <div class="perf-dashboard">
-            <div class="perf-card"><span class="perf-label">Models</span><span class="perf-value">{s['models_loaded']}</span></div>
-            <div class="perf-card"><span class="perf-label">Requests</span><span class="perf-value">{s['total_requests']}</span></div>
-            <div class="perf-card"><span class="perf-label">Tokens</span><span class="perf-value">{s['total_tokens']:,}</span></div>
-            <div class="perf-card"><span class="perf-label">Memory</span><span class="perf-value">{s['memory']}</span></div>
+            <div class="perf-card"><span class="perf-label">Models</span><span class="perf-value">{s["models_loaded"]}</span></div>
+            <div class="perf-card"><span class="perf-label">Requests</span><span class="perf-value">{s["total_requests"]}</span></div>
+            <div class="perf-card"><span class="perf-label">Tokens</span><span class="perf-value">{s["total_tokens"]:,}</span></div>
+            <div class="perf-card"><span class="perf-label">Memory</span><span class="perf-value">{s["memory"]}</span></div>
         </div>"""

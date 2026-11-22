@@ -116,9 +116,7 @@ class KnowledgeDispatcher(SubDispatcher):
             model=params.get("model", ""),
             system_prompt=params.get("system_prompt", ""),
         )
-        logger.info(
-            "rag.query: query=%r sources=%d", query[:50], len(result.get("sources", []))
-        )
+        logger.info("rag.query: query=%r sources=%d", query[:50], len(result.get("sources", [])))
         return result
 
     async def _handle_rag_retrieve(self, params: dict) -> dict:
@@ -189,7 +187,6 @@ class KnowledgeDispatcher(SubDispatcher):
         from ..triggers import CronManager
 
         if not hasattr(self, "_cron_manager") or self._cron_manager is None:
-
             db_path = str(studio_home() / "cron.db")
             self._cron_manager = CronManager(db_path=db_path)
         return self._cron_manager
@@ -270,9 +267,7 @@ class KnowledgeDispatcher(SubDispatcher):
             result = await mgr.search(kb_id=kb_id, query=query, **search_kwargs)
         else:
             all_kbs = mgr.list_kbs()
-            kbs_list = (
-                all_kbs.get("data", all_kbs) if isinstance(all_kbs, dict) else all_kbs
-            )
+            kbs_list = all_kbs.get("data", all_kbs) if isinstance(all_kbs, dict) else all_kbs
             merged = []
             for kb in kbs_list:
                 kid = kb.kb_id if hasattr(kb, "kb_id") else kb.get("kb_id", "")

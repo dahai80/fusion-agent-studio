@@ -190,7 +190,13 @@ class TeamLead:
             self.budget_remaining -= tokens
             if self.budget_remaining < 0:
                 self.budget_remaining = 0
-        logger.info("lead call team=%s kind=%s round=%d tokens=%s", self.team_rt.definition.name, kind, round_, tokens)
+        logger.info(
+            "lead call team=%s kind=%s round=%d tokens=%s",
+            self.team_rt.definition.name,
+            kind,
+            round_,
+            tokens,
+        )
         return content
 
     @staticmethod
@@ -218,11 +224,16 @@ class TeamLead:
     async def task_ledger_call(self, goal: str, previous: dict | None = None) -> dict:
         prev = ""
         if previous is not None:
-            prev = "Previous ledger (re-plan — keep what still holds, fix what does not):\n" + json.dumps(
-                previous, ensure_ascii=False
-            ) + "\n\n"
+            prev = (
+                "Previous ledger (re-plan — keep what still holds, fix what does not):\n"
+                + json.dumps(previous, ensure_ascii=False)
+                + "\n\n"
+            )
         prompt = TASK_LEDGER_PROMPT.format(
-            goal=goal, spec=_spec_block(self.team_rt), board=_board_snapshot(self.team_rt), previous=prev
+            goal=goal,
+            spec=_spec_block(self.team_rt),
+            board=_board_snapshot(self.team_rt),
+            previous=prev,
         )
         last_err = None
         for _ in range(_MAX_JSON_RETRIES):
@@ -242,7 +253,10 @@ class TeamLead:
         if not isinstance(ledger.get("goal"), str) or not ledger["goal"]:
             raise ValueError("ledger.goal required")
         facts = ledger.get("facts")
-        if not isinstance(facts, dict) or any(not isinstance(facts.get(k), list) for k in ("given", "to_look_up", "to_derive", "guesses")):
+        if not isinstance(facts, dict) or any(
+            not isinstance(facts.get(k), list)
+            for k in ("given", "to_look_up", "to_derive", "guesses")
+        ):
             raise ValueError("ledger.facts must hold the four lists")
         plan = ledger.get("plan")
         if not isinstance(plan, list) or not plan:
@@ -269,7 +283,14 @@ class TeamLead:
             try:
                 verdict = self._extract_json(content)
                 missing = [
-                    f for f in ("is_request_satisfied", "is_in_loop", "is_progress_being_made", "next_speaker", "instruction_or_question")
+                    f
+                    for f in (
+                        "is_request_satisfied",
+                        "is_in_loop",
+                        "is_progress_being_made",
+                        "next_speaker",
+                        "instruction_or_question",
+                    )
                     if f not in verdict
                 ]
                 if missing:
@@ -281,7 +302,9 @@ class TeamLead:
             except (ValueError, json.JSONDecodeError, TypeError) as e:
                 last_err = e
                 logger.warning("progress verdict parse retry: %s", e)
-        raise LeadLedgerError(f"progress verdict invalid after {_MAX_JSON_RETRIES} attempts: {last_err}")
+        raise LeadLedgerError(
+            f"progress verdict invalid after {_MAX_JSON_RETRIES} attempts: {last_err}"
+        )
 
     # ---------- board ops ----------
 
@@ -300,7 +323,11 @@ class TeamLead:
             )
             ids.append(self.team_rt.add_task(task))
         for i, step in enumerate(ledger.get("plan", [])):
-            deps = [ids[d] for d in step.get("depends_on", []) if isinstance(d, int) and 0 <= d < len(ids) and d != i]
+            deps = [
+                ids[d]
+                for d in step.get("depends_on", [])
+                if isinstance(d, int) and 0 <= d < len(ids) and d != i
+            ]
             if deps:
                 self.team_rt._tasks[ids[i]].blocked_by = deps
         return ids
@@ -374,7 +401,9 @@ class TeamLead:
 
     # ---------- main loop ----------
 
-    async def run(self, goal: str, max_rounds: int = 30, max_stalls: int = 3, team_budget: int | None = None) -> dict:
+    async def run(
+        self, goal: str, max_rounds: int = 30, max_stalls: int = 3, team_budget: int | None = None
+    ) -> dict:
         self.team_rt._require_active()
         self.running = True
         self.budget_remaining = team_budget if (team_budget and team_budget > 0) else None
@@ -386,14 +415,22 @@ class TeamLead:
             while self.round < max_rounds:
                 if self.stop_requested:
                     raise LeadStoppedError(f"lead stopped at round {self.round}")
-                active = [t for t in self.team_rt._tasks.values() if t.status in ("todo", "in_progress", "blocked")]
+                active = [
+                    t
+                    for t in self.team_rt._tasks.values()
+                    if t.status in ("todo", "in_progress", "blocked")
+                ]
                 if not active:
                     return await self._complete(goal, "board drained", ledger)
                 verdict = await self.progress_verdict_call(ledger, last_result)
                 self.last_verdict = verdict
                 self.vlog.append("verdict", self.round, verdict)
                 if verdict["is_request_satisfied"]:
-                    return await self._complete(goal, str(verdict.get("reasons", {}).get("is_request_satisfied", "satisfied")), ledger)
+                    return await self._complete(
+                        goal,
+                        str(verdict.get("reasons", {}).get("is_request_satisfied", "satisfied")),
+                        ledger,
+                    )
                 if (not verdict["is_progress_being_made"]) or verdict["is_in_loop"]:
                     self.n_stalls += 1
                 else:
@@ -411,7 +448,11 @@ class TeamLead:
                 task = self._pick_task(member.name)
                 if task is None:
                     self.n_stalls += 1
-                    self.vlog.append("stall", self.round, {"n_stalls": self.n_stalls, "reason": "no dispatchable task"})
+                    self.vlog.append(
+                        "stall",
+                        self.round,
+                        {"n_stalls": self.n_stalls, "reason": "no dispatchable task"},
+                    )
                     self.round += 1
                     continue
                 from fusion_harness.spawn_protocol import SpawnBrief
@@ -419,7 +460,9 @@ class TeamLead:
                 brief = SpawnBrief(
                     objective=str(verdict["instruction_or_question"]),
                     output_format="report",
-                    tool_guidance="allowlisted tools: " + ", ".join(member.tool_allowlist) if member.tool_allowlist else "no tools",
+                    tool_guidance="allowlisted tools: " + ", ".join(member.tool_allowlist)
+                    if member.tool_allowlist
+                    else "no tools",
                     boundaries="stay within the task and allowlisted tools",
                     token_budget=member.budget_tokens,
                     concurrency=1,
@@ -461,10 +504,18 @@ class TeamLead:
         summary = (await self._call(prompt, "synthesis", self.round)).strip() or reason
         task_ids = sorted(self.team_rt._tasks)
         self._maybe_playbook(task_ids, summary)
-        payload = {"summary": summary, "reason": reason, "replan_count": self.replan_count, "rounds": self.round}
+        payload = {
+            "summary": summary,
+            "reason": reason,
+            "replan_count": self.replan_count,
+            "rounds": self.round,
+        }
         self.vlog.append("completion", self.round, payload)
         self.running = False
-        self._emit_bus("team.lead.finished", {"team": self.team_rt.definition.name, "lead_id": self.lead_id, **payload})
+        self._emit_bus(
+            "team.lead.finished",
+            {"team": self.team_rt.definition.name, "lead_id": self.lead_id, **payload},
+        )
         logger.info(
             "lead finished team=%s lead=%s rounds=%d replans=%d",
             self.team_rt.definition.name,

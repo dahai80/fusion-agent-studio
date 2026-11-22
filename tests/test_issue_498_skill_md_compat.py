@@ -58,8 +58,7 @@ def _store(tmp_path: Path) -> SkillsStore:
 class TestTriggerParsing:
     def test_dict_trigger_shape(self):
         meta, _ = parse_skill_md(
-            "---\nname: a\ntriggers:\n  keywords: [pdf, invoice]\n"
-            "  paths: ['*.pdf']\n---\nbody"
+            "---\nname: a\ntriggers:\n  keywords: [pdf, invoice]\n  paths: ['*.pdf']\n---\nbody"
         )
         assert meta.triggers == {"keywords": ["pdf", "invoice"], "paths": ["*.pdf"]}
 
@@ -68,7 +67,10 @@ class TestTriggerParsing:
         meta, _ = parse_skill_md(
             "---\nname: a\ntriggers:\n  - generate pull request\n  - pr description\n---\nbody"
         )
-        assert meta.triggers == {"keywords": ["generate pull request", "pr description"], "paths": []}
+        assert meta.triggers == {
+            "keywords": ["generate pull request", "pr description"],
+            "paths": [],
+        }
 
     def test_flat_keys_shape(self):
         meta, _ = parse_skill_md(
@@ -131,7 +133,9 @@ class TestPluginDirAcceptance:
         assert store.has_skill("gen-pr")
         assert store.has_skill("generate-pr-description")
         # and it triggers
-        assert [h["name"] for h in store.match_skills(text="pr description please")] == ["generate-pr-description"]
+        assert [h["name"] for h in store.match_skills(text="pr description please")] == [
+            "generate-pr-description"
+        ]
 
     def test_with_project_dirs_includes_plugin_dir(self, tmp_path, monkeypatch):
         monkeypatch.chdir(tmp_path)
@@ -173,14 +177,18 @@ class TestPermissionEnforcement:
         ctx = AgentContext(role=skill_role("gen-pr"))
         assert engine.evaluate("file_read", {}, ctx=ctx).decision == "allow"
         assert engine.evaluate("terminal", {"command": "ls"}, ctx=ctx).decision == "allow"
-        assert engine.evaluate("file_write", {"path": "/tmp/x", "content": "y"}, ctx=ctx).decision == "ask"
-        assert engine.evaluate("http_request", {"url": "https://example.com"}, ctx=ctx).decision == "ask"
+        assert (
+            engine.evaluate("file_write", {"path": "/tmp/x", "content": "y"}, ctx=ctx).decision
+            == "ask"
+        )
+        assert (
+            engine.evaluate("http_request", {"url": "https://example.com"}, ctx=ctx).decision
+            == "ask"
+        )
 
     def test_role_mismatch_rules_skipped(self):
         engine = PermissionEngine()
-        register_skill_permission_rules(
-            engine, {"name": "gen-pr", "allowed_tools": ["file_read"]}
-        )
+        register_skill_permission_rules(engine, {"name": "gen-pr", "allowed_tools": ["file_read"]})
         other = AgentContext(role="other-role")
         assert engine.evaluate("file_read", {}, ctx=other).decision == "ask"
 
@@ -286,7 +294,10 @@ class TestSkillsMatchRpc:
         # enforcement live on the runtime's engine
         ctx = AgentContext(role=skill_role("generate-pr-description"))
         assert rt.permission_engine.evaluate("file_read", {}, ctx=ctx).decision == "allow"
-        assert rt.permission_engine.evaluate("file_write", {"path": "/tmp/x"}, ctx=ctx).decision == "ask"
+        assert (
+            rt.permission_engine.evaluate("file_write", {"path": "/tmp/x"}, ctx=ctx).decision
+            == "ask"
+        )
 
     async def test_match_empty_text(self, tmp_path):
         from agent_runtime.dispatchers.skills import SkillsDispatcher

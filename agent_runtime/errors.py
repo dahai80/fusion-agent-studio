@@ -250,9 +250,7 @@ class ErrorResponse:
         return d
 
     @classmethod
-    def from_error_code(
-        cls, code: ErrorCode, param: str | None = None
-    ) -> ErrorResponse:
+    def from_error_code(cls, code: ErrorCode, param: str | None = None) -> ErrorResponse:
         entry = _ERROR_REGISTRY.get(code.value, {})
         return cls(
             code=code.value,
@@ -263,9 +261,7 @@ class ErrorResponse:
         )
 
 
-def raise_api_error(
-    code: ErrorCode, param: str | None = None, detail: str | None = None
-):
+def raise_api_error(code: ErrorCode, param: str | None = None, detail: str | None = None):
     from fastapi import HTTPException
 
     err = ErrorResponse.from_error_code(code, param=param)

@@ -21,9 +21,7 @@ class TemplateManager:
     @classmethod
     def get(cls, name: str) -> AgentGraph:
         if name not in cls._templates:
-            raise KeyError(
-                f"Template '{name}' not found. Available: {list(cls._templates.keys())}"
-            )
+            raise KeyError(f"Template '{name}' not found. Available: {list(cls._templates.keys())}")
         return cls._templates[name]
 
     @classmethod
@@ -413,9 +411,7 @@ def register_default_templates() -> None:
                 ),
                 (
                     "tool_status",
-                    NodeConfig(
-                        type="tool", label="Check Status", tool_name="git", x=250, y=200
-                    ),
+                    NodeConfig(type="tool", label="Check Status", tool_name="git", x=250, y=200),
                 ),
                 (
                     "llm_decide",
@@ -430,9 +426,7 @@ def register_default_templates() -> None:
                 ),
                 (
                     "tool_commit",
-                    NodeConfig(
-                        type="tool", label="Commit", tool_name="git", x=450, y=400
-                    ),
+                    NodeConfig(type="tool", label="Commit", tool_name="git", x=450, y=400),
                 ),
                 ("end", NodeConfig(type="end", label="Done", x=650, y=300)),
             ],

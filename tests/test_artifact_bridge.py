@@ -42,17 +42,13 @@ class TestArtifactBridgeLocalFallback:
             name="doc2", artifact_type="document", content="original", agent_id="a1"
         )
         aid = create_result["artifact_id"]
-        result = await self.bridge.patch(
-            artifact_id=aid, operation="append", content=" appended"
-        )
+        result = await self.bridge.patch(artifact_id=aid, operation="append", content=" appended")
         assert result["status"] == "ok"
         assert result["source"] == "local"
 
     @pytest.mark.asyncio
     async def test_list_all_local_fallback(self):
-        self.mgr.create_artifact(
-            name="d1", artifact_type="document", content="c", agent_id="a1"
-        )
+        self.mgr.create_artifact(name="d1", artifact_type="document", content="c", agent_id="a1")
         result = await self.bridge.list_all(agent_id="a1")
         assert result["status"] == "ok"
         assert result["source"] == "local"
@@ -189,9 +185,9 @@ class TestArtifactDispatcher:
     @pytest.mark.asyncio
     async def test_handle_create(self):
         self.bridge._remote_available = False
-        result = await self.dispatcher._handle_create({
-            "name": "test", "type": "document", "content": "hello"
-        })
+        result = await self.dispatcher._handle_create(
+            {"name": "test", "type": "document", "content": "hello"}
+        )
         assert result["status"] == "ok"
 
     @pytest.mark.asyncio
@@ -199,9 +195,9 @@ class TestArtifactDispatcher:
         create_result = self.bridge.local.create_artifact(
             name="d", artifact_type="document", content="text", agent_id="a"
         )
-        result = await self.dispatcher._handle_load({
-            "artifact_id": create_result["artifact_id"], "preview_only": True
-        })
+        result = await self.dispatcher._handle_load(
+            {"artifact_id": create_result["artifact_id"], "preview_only": True}
+        )
         assert result["status"] == "ok"
 
     @pytest.mark.asyncio
@@ -209,11 +205,13 @@ class TestArtifactDispatcher:
         create_result = self.bridge.local.create_artifact(
             name="d", artifact_type="document", content="orig", agent_id="a"
         )
-        result = await self.dispatcher._handle_patch({
-            "artifact_id": create_result["artifact_id"],
-            "operation": "append",
-            "content": " more",
-        })
+        result = await self.dispatcher._handle_patch(
+            {
+                "artifact_id": create_result["artifact_id"],
+                "operation": "append",
+                "content": " more",
+            }
+        )
         assert result["status"] == "ok"
 
     @pytest.mark.asyncio
@@ -241,6 +239,7 @@ class TestAS8ArtifactSystemPrompt:
             PromptTemplateManager,
             register_default_prompt_templates,
         )
+
         mgr = PromptTemplateManager()
         register_default_prompt_templates(mgr)
         rendered = mgr.render(

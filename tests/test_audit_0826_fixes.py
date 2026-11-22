@@ -12,6 +12,7 @@ Plus P1 regressions for the highest-risk Batch B fixes:
   P1-13/14 telemetry bounded (no unbounded growth)
   P1-19 ToolResult adoption (str-prefix replaced)
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -32,6 +33,7 @@ from tools.registry import ToolRegistry
 
 # ---- helpers ---------------------------------------------------------------
 
+
 class _StubClient:
     def __init__(self):
         self.responses: list[LLMResponse] = []
@@ -49,7 +51,9 @@ class _StubClient:
     async def chat(self, model, messages, tools=None, **kwargs):
         if self.responses:
             return self.responses.pop(0)
-        return LLMResponse(content="ok", tool_calls=[], usage={"prompt_tokens": 5, "completion_tokens": 5})
+        return LLMResponse(
+            content="ok", tool_calls=[], usage={"prompt_tokens": 5, "completion_tokens": 5}
+        )
 
     async def chat_stream(self, messages, model="", **kwargs):
         from server.fusion_mlx_client import StreamChunk
@@ -84,6 +88,7 @@ def _two_node_graph(name="audit_graph"):
 
 # ---- P0-1: concurrent variable isolation -----------------------------------
 
+
 class TestP0_1_ConcurrentVariableIsolation:
     @pytest.mark.asyncio
     async def test_concurrent_execs_do_not_leak_variables(self):
@@ -117,6 +122,7 @@ class TestP0_1_ConcurrentVariableIsolation:
 
 
 # ---- P0-2: WS + SSE auth rejection -----------------------------------------
+
 
 @pytest.fixture
 def auth_api(tmp_path, monkeypatch):
@@ -195,6 +201,7 @@ class TestP0_2_WsSseAuthRejection:
 
 # ---- P0-3: token_budget exhaustion circuit-break ---------------------------
 
+
 class TestP0_3_TokenBudgetCircuitBreak:
     @pytest.mark.asyncio
     async def test_budget_exhaustion_stops_execution(self):
@@ -228,6 +235,7 @@ class TestP0_3_TokenBudgetCircuitBreak:
 
 # ---- P0-4: no plaintext api_key in logs ------------------------------------
 
+
 class TestP0_4_MaskedApiKeyInLogs:
     def test_full_key_not_logged(self, caplog):
         from agent_runtime.rate_limiter import _mask_key
@@ -248,6 +256,7 @@ class TestP0_4_MaskedApiKeyInLogs:
 
 # ---- P1-5: terminal non-zero exit -> tool error ---------------------------
 
+
 class TestP1_5_TerminalNonZeroIsToolError:
     @pytest.mark.asyncio
     async def test_nonzero_exit_treated_as_error(self):
@@ -264,6 +273,7 @@ class TestP1_5_TerminalNonZeroIsToolError:
 
 # ---- P1-10: inner agent-loop iteration cap ---------------------------------
 
+
 class TestP1_10_InnerLoopIterationCap:
     @pytest.mark.asyncio
     async def test_inner_agent_loop_respects_iteration_cap(self):
@@ -274,11 +284,13 @@ class TestP1_10_InnerLoopIterationCap:
         for _ in range(20):
             client.add(
                 content="",
-                tool_calls=[{
-                    "id": "c1",
-                    "type": "function",
-                    "function": {"name": "echo", "arguments": "{}"},
-                }],
+                tool_calls=[
+                    {
+                        "id": "c1",
+                        "type": "function",
+                        "function": {"name": "echo", "arguments": "{}"},
+                    }
+                ],
             )
         client.add(content="done")
 
@@ -295,7 +307,9 @@ class TestP1_10_InnerLoopIterationCap:
         g.add_node("start", NodeConfig(type="start", label="Start"))
         g.add_node(
             "llm",
-            NodeConfig(type="llm", label="LLM", model="m", loop_mode="agent", max_loop_iterations=3),
+            NodeConfig(
+                type="llm", label="LLM", model="m", loop_mode="agent", max_loop_iterations=3
+            ),
         )
         g.add_node("end", NodeConfig(type="end", label="End"))
         g.add_edge("start", "llm")
@@ -315,6 +329,7 @@ class TestP1_10_InnerLoopIterationCap:
 
 
 # ---- P1-13/14: telemetry bounded ------------------------------------------
+
 
 class TestP1_14_TelemetryBounded:
     def test_telemetry_spans_do_not_grow_unbounded(self):
@@ -341,6 +356,7 @@ class TestP1_14_TelemetryBounded:
 
 
 # ---- P1-19: ToolResult adoption -------------------------------------------
+
 
 class TestP1_19_ToolResultAdoption:
     def test_tool_result_class_exists_and_used(self):

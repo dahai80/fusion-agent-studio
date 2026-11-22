@@ -1,12 +1,13 @@
 """Issue #546 — 11-03 acceptance run residuals (round 2):
-  1. POST /v1/knowledge-bases/{kb_id}/ask reported 404 — route exists since
-     v0.6.x; pin the OpenAPI contract so a route drift or proxy shadow fails
-     here instead of surfacing only in acceptance runs.
-  2. POST /v1/graphs 500 — AgentGraph.from_dict raised on malformed payloads
-     outside any try; now 422 PARAM_FORMAT_ERROR.
-  3. POST /v1/graphs/{id}/execute runtime error on start node — pre-exec
-     structural validation now rejects with 422 before the runtime walks it.
+1. POST /v1/knowledge-bases/{kb_id}/ask reported 404 — route exists since
+   v0.6.x; pin the OpenAPI contract so a route drift or proxy shadow fails
+   here instead of surfacing only in acceptance runs.
+2. POST /v1/graphs 500 — AgentGraph.from_dict raised on malformed payloads
+   outside any try; now 422 PARAM_FORMAT_ERROR.
+3. POST /v1/graphs/{id}/execute runtime error on start node — pre-exec
+   structural validation now rejects with 422 before the runtime walks it.
 """
+
 from __future__ import annotations
 
 import pytest
@@ -76,9 +77,7 @@ def test_openapi_kb_and_graph_routes_present(client):
 
 
 def test_kb_ask_unknown_kb_degraded_not_404(client):
-    resp = client.post(
-        "/v1/knowledge-bases/no-such-kb/ask", json={"question": "what?"}
-    )
+    resp = client.post("/v1/knowledge-bases/no-such-kb/ask", json={"question": "what?"})
     assert resp.status_code == 200
     body = resp.json()
     assert body["rag_available"] is False
@@ -112,9 +111,7 @@ def test_execute_422_no_start_node(client, tmp_path):
     import agent_runtime.api_server as api_server
     from agent_runtime.graph import AgentGraph
 
-    graph = AgentGraph.from_dict(
-        {"nodes": [{"id": "llm1", "type": "llm"}], "edges": []}
-    )
+    graph = AgentGraph.from_dict({"nodes": [{"id": "llm1", "type": "llm"}], "edges": []})
     api_server._get_store().save_graph(graph)
 
     resp = client.post(

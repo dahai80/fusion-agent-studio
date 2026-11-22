@@ -61,9 +61,11 @@ export FUSION_MEMORY_API_KEY="your-fm-server-key"
 from rpc import rpc
 import asyncio
 
+
 async def main():
     r = await rpc("memory.backend")
     print(r["result"])
+
 
 asyncio.run(main())
 ```

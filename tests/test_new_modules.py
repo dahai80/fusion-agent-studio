@@ -272,7 +272,11 @@ class TestAPIServer:
                 json={
                     "name": "test-graph",
                     "description": "A test",
-                    "graph_data": {"start_node_id": "s", "nodes": [{"id": "s", "type": "start"}], "edges": []},
+                    "graph_data": {
+                        "start_node_id": "s",
+                        "nodes": [{"id": "s", "type": "start"}],
+                        "edges": [],
+                    },
                 },
             )
             assert resp.status_code == 200
@@ -288,7 +292,11 @@ class TestAPIServer:
                 json={
                     "name": "g1",
                     "description": "",
-                    "graph_data": {"start_node_id": "s", "nodes": [{"id": "s", "type": "start"}], "edges": []},
+                    "graph_data": {
+                        "start_node_id": "s",
+                        "nodes": [{"id": "s", "type": "start"}],
+                        "edges": [],
+                    },
                 },
             )
             resp = await c.get("/graphs")
@@ -309,7 +317,11 @@ class TestAPIServer:
                 json={
                     "name": "to-delete",
                     "description": "",
-                    "graph_data": {"start_node_id": "s", "nodes": [{"id": "s", "type": "start"}], "edges": []},
+                    "graph_data": {
+                        "start_node_id": "s",
+                        "nodes": [{"id": "s", "type": "start"}],
+                        "edges": [],
+                    },
                 },
             )
             gid = create_resp.json()["graph_id"]
@@ -332,7 +344,11 @@ class TestAPIServer:
                 json={
                     "name": "fetch-me",
                     "description": "test desc",
-                    "graph_data": {"start_node_id": "s", "nodes": [{"id": "s", "type": "start"}], "edges": []},
+                    "graph_data": {
+                        "start_node_id": "s",
+                        "nodes": [{"id": "s", "type": "start"}],
+                        "edges": [],
+                    },
                 },
             )
             gid = create_resp.json()["graph_id"]

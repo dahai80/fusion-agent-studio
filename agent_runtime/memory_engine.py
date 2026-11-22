@@ -44,7 +44,10 @@ VALID_MEMORY_TYPES = {"user", "feedback", "project", "reference"}
 # 避免裸 "prefer" 抢先命中 feedback. reference (URL/票据) 与前两者正交故置末.
 _TYPE_KEYWORDS = (
     ("user", ("i am", "i'm", "my role", "i use", "i work", "i prefer", "expertise")),
-    ("feedback", ("prefer", "don't", "always use", "never use", "should", "rule:", "why:", "how to apply")),
+    (
+        "feedback",
+        ("prefer", "don't", "always use", "never use", "should", "rule:", "why:", "how to apply"),
+    ),
     ("reference", ("http://", "https://", "url:", "dashboard", "ticket", "doc at", "see ")),
 )
 
@@ -280,9 +283,7 @@ class MemoryEngine:
             c.execute("SELECT tier FROM memories LIMIT 1")
         except sqlite3.OperationalError:
             logger.info("Migrating memories table: adding tier column")
-            c.execute(
-                "ALTER TABLE memories ADD COLUMN tier TEXT NOT NULL DEFAULT 'short_term'"
-            )
+            c.execute("ALTER TABLE memories ADD COLUMN tier TEXT NOT NULL DEFAULT 'short_term'")
             c.execute("""
                 UPDATE memories SET tier = 'long_term'
                 WHERE is_summary = 1 OR importance < 7
@@ -294,9 +295,7 @@ class MemoryEngine:
             c.execute("SELECT memory_type FROM memories LIMIT 1")
         except sqlite3.OperationalError:
             logger.info("Migrating memories table: adding memory_type column")
-            c.execute(
-                "ALTER TABLE memories ADD COLUMN memory_type TEXT NOT NULL DEFAULT 'project'"
-            )
+            c.execute("ALTER TABLE memories ADD COLUMN memory_type TEXT NOT NULL DEFAULT 'project'")
 
     def _migrate_add_tenant_team_columns(self, c: sqlite3.Cursor) -> None:
         # N15 #390: tenant/team isolation. Old rows belong to the default
@@ -305,12 +304,8 @@ class MemoryEngine:
             c.execute("SELECT tenant_id FROM memories LIMIT 1")
         except sqlite3.OperationalError:
             logger.info("Migrating memories table: adding tenant_id/team_id columns")
-            c.execute(
-                "ALTER TABLE memories ADD COLUMN tenant_id TEXT NOT NULL DEFAULT ''"
-            )
-            c.execute(
-                "ALTER TABLE memories ADD COLUMN team_id TEXT NOT NULL DEFAULT ''"
-            )
+            c.execute("ALTER TABLE memories ADD COLUMN tenant_id TEXT NOT NULL DEFAULT ''")
+            c.execute("ALTER TABLE memories ADD COLUMN team_id TEXT NOT NULL DEFAULT ''")
             c.execute(
                 "CREATE INDEX IF NOT EXISTS idx_memories_tenant_team "
                 "ON memories(tenant_id, team_id)"
@@ -395,9 +390,7 @@ class MemoryEngine:
         # ("smoke: reply" -> "no such column: smoke"). Quote every whitespace
         # token as a literal phrase (inner quotes doubled) so any input is a
         # valid all-terms-AND query.
-        return " ".join(
-            '"%s"' % t.replace('"', '""') for t in query.split() if t.strip()
-        )
+        return " ".join('"%s"' % t.replace('"', '""') for t in query.split() if t.strip())
 
     def recall(
         self,
@@ -411,9 +404,7 @@ class MemoryEngine:
         team_id: str = "",
     ) -> list[MemoryEntry]:
         if not query.strip():
-            return self.list_recent(
-                scope=scope, limit=limit, tier=tier, memory_type=memory_type
-            )
+            return self.list_recent(scope=scope, limit=limit, tier=tier, memory_type=memory_type)
 
         c = self.conn.cursor()
 
@@ -577,9 +568,7 @@ class MemoryEngine:
             logger.warning("Unknown tier '%s', skipping compress_scope", tier)
             return 0
 
-        max_age_seconds = (
-            tier_config.max_age_hours * 3600 if tier_config.max_age_hours > 0 else 0
-        )
+        max_age_seconds = tier_config.max_age_hours * 3600 if tier_config.max_age_hours > 0 else 0
         if max_age_seconds <= 0:
             logger.debug("Tier '%s' has no age limit, nothing to compress", tier)
             return 0
@@ -997,7 +986,9 @@ class MemoryEngine:
 
     @staticmethod
     def decay_score(
-        importance: float, created_at: float, now: float | None = None,
+        importance: float,
+        created_at: float,
+        now: float | None = None,
         half_life_days: float = 14.0,
     ) -> float:
         # N15 #390: exponential forgetting curve. importance is the initial
@@ -1061,7 +1052,10 @@ class MemoryEngine:
         # the default so callers must opt in before deleting anything.
         now = time.time() if now is None else now
         rows = self._sweep_rows(
-            scope=scope, tenant_id=tenant_id, team_id=team_id, tier=tier,
+            scope=scope,
+            tenant_id=tenant_id,
+            team_id=team_id,
+            tier=tier,
             memory_type=memory_type,
         )
         candidates: list[dict] = []
@@ -1069,22 +1063,26 @@ class MemoryEngine:
             if entry.tags == "auto-summary" and not include_summaries:
                 continue
             score = self.decay_score(
-                entry.importance, entry.created_at, now=now,
+                entry.importance,
+                entry.created_at,
+                now=now,
                 half_life_days=half_life_days,
             )
             age_days = max(0.0, (now - float(entry.created_at or 0)) / 86400.0)
             expired = max_age_days > 0 and age_days >= max_age_days
             if score < threshold or expired:
-                candidates.append({
-                    "id": entry.id,
-                    "content": entry.content[:200],
-                    "scope": entry.scope,
-                    "tier": entry.tier,
-                    "importance": entry.importance,
-                    "age_days": round(age_days, 2),
-                    "decay_score": round(score, 4),
-                    "reason": "max_age" if expired else "decay",
-                })
+                candidates.append(
+                    {
+                        "id": entry.id,
+                        "content": entry.content[:200],
+                        "scope": entry.scope,
+                        "tier": entry.tier,
+                        "importance": entry.importance,
+                        "age_days": round(age_days, 2),
+                        "decay_score": round(score, 4),
+                        "reason": "max_age" if expired else "decay",
+                    }
+                )
         deleted = 0
         if candidates and not dry_run:
             ids = [item["id"] for item in candidates]
@@ -1096,12 +1094,17 @@ class MemoryEngine:
                 deleted = c.rowcount
             logger.info(
                 "memory sweep deleted=%d candidates=%d threshold=%.2f half_life=%.1f",
-                deleted, len(candidates), threshold, half_life_days,
+                deleted,
+                len(candidates),
+                threshold,
+                half_life_days,
             )
         else:
             logger.info(
                 "memory sweep dry_run=%s evaluated=%d candidates=%d",
-                dry_run, len(rows), len(candidates),
+                dry_run,
+                len(rows),
+                len(candidates),
             )
         return {
             "dry_run": dry_run,
@@ -1135,7 +1138,10 @@ class MemoryEngine:
         # whose token sets overlap above threshold are surfaced as pairs;
         # the higher-importance/newer entry is marked as the winner.
         rows = self._sweep_rows(
-            scope=scope, tenant_id=tenant_id, team_id=team_id, limit=limit,
+            scope=scope,
+            tenant_id=tenant_id,
+            team_id=team_id,
+            limit=limit,
         )
         token_sets = [(entry, self._tokens(entry.content)) for entry in rows]
         conflicts: list[dict] = []
@@ -1151,18 +1157,22 @@ class MemoryEngine:
                 similarity = len(left_tokens & right_tokens) / len(union)
                 if similarity < threshold:
                     continue
-                winner = left if (
-                    (left.importance, left.created_at) >= (right.importance, right.created_at)
-                ) else right
+                winner = (
+                    left
+                    if ((left.importance, left.created_at) >= (right.importance, right.created_at))
+                    else right
+                )
                 loser = right if winner is left else left
-                conflicts.append({
-                    "winner_id": winner.id,
-                    "loser_id": loser.id,
-                    "similarity": round(similarity, 3),
-                    "scope": winner.scope,
-                    "winner_preview": winner.content[:160],
-                    "loser_preview": loser.content[:160],
-                })
+                conflicts.append(
+                    {
+                        "winner_id": winner.id,
+                        "loser_id": loser.id,
+                        "similarity": round(similarity, 3),
+                        "scope": winner.scope,
+                        "winner_preview": winner.content[:160],
+                        "loser_preview": loser.content[:160],
+                    }
+                )
                 if len(conflicts) >= max_pairs:
                     return conflicts
         logger.info("memory conflict scan rows=%d conflicts=%d", len(rows), len(conflicts))

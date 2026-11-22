@@ -1,7 +1,5 @@
 """N6 ToolSearch lazy schema loading + MCP output cap (issue #343)."""
 
-
-
 from tools.base import BaseTool
 from tools.registry import ToolRegistry
 

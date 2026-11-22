@@ -136,7 +136,8 @@ class TestRegisterAndBoard:
         daemon._get_runtime = lambda: rt
         await _run(daemon, "teams.register", {"definition": _definition()})
         added = await _run(
-            daemon, "teams.add_task",
+            daemon,
+            "teams.add_task",
             {"team": "pair", "title": "collect sources", "episodes": ["trace-1"]},
         )
         assert added["status"] == "ok"
@@ -145,11 +146,17 @@ class TestRegisterAndBoard:
         assert st["lifecycle"] == "ACTIVE"
         assert st["tasks"][tid]["status"] == "todo"
         assert st["tasks"][tid]["episodes"] == ["trace-1"]
-        tr = await _run(daemon, "teams.transition", {"team": "pair", "task_id": tid, "to": "in_progress"})
+        tr = await _run(
+            daemon, "teams.transition", {"team": "pair", "task_id": tid, "to": "in_progress"}
+        )
         assert tr["status"] == "ok"
-        claim = await _run(daemon, "teams.claim_task", {"team": "pair", "task_id": tid, "member": "worker-a"})
+        claim = await _run(
+            daemon, "teams.claim_task", {"team": "pair", "task_id": tid, "member": "worker-a"}
+        )
         assert claim["won"] is True
-        lost = await _run(daemon, "teams.claim_task", {"team": "pair", "task_id": tid, "member": "worker-b"})
+        lost = await _run(
+            daemon, "teams.claim_task", {"team": "pair", "task_id": tid, "member": "worker-b"}
+        )
         assert lost["won"] is False
 
     async def test_illegal_transition_rejected(self, daemon):
@@ -157,7 +164,9 @@ class TestRegisterAndBoard:
         daemon._get_runtime = lambda: rt
         await _run(daemon, "teams.register", {"definition": _definition()})
         added = await _run(daemon, "teams.add_task", {"team": "pair", "title": "t"})
-        res = await _run(daemon, "teams.transition", {"team": "pair", "task_id": added["task_id"], "to": "done"})
+        res = await _run(
+            daemon, "teams.transition", {"team": "pair", "task_id": added["task_id"], "to": "done"}
+        )
         assert res["status"] == "error"
         assert "illegal task transition" in res["message"]
 
@@ -166,11 +175,21 @@ class TestRegisterAndBoard:
         daemon._get_runtime = lambda: rt
         await _run(daemon, "teams.register", {"definition": _definition()})
         added = await _run(daemon, "teams.add_task", {"team": "pair", "title": "t"})
-        res = await _run(daemon, "teams.transition", {"team": "pair", "task_id": added["task_id"], "to": "blocked"})
+        res = await _run(
+            daemon,
+            "teams.transition",
+            {"team": "pair", "task_id": added["task_id"], "to": "blocked"},
+        )
         assert res["status"] == "error"
         ok = await _run(
-            daemon, "teams.transition",
-            {"team": "pair", "task_id": added["task_id"], "to": "blocked", "blocked_by": ["pair-t1"]},
+            daemon,
+            "teams.transition",
+            {
+                "team": "pair",
+                "task_id": added["task_id"],
+                "to": "blocked",
+                "blocked_by": ["pair-t1"],
+            },
         )
         assert ok["status"] == "ok"
 
@@ -187,7 +206,8 @@ class TestRunMember:
         rt, tid = await self._setup(daemon)
         kernel_runner = rt.kernel["orchestrator"]["runner"]
         res = await _run(
-            daemon, "teams.run_member",
+            daemon,
+            "teams.run_member",
             {"team": "pair", "member": "worker-a", "task_id": tid, "brief": _brief()},
         )
         assert res["status"] == "ok"
@@ -205,7 +225,8 @@ class TestRunMember:
         rt, tid = await self._setup(daemon)
         before = rt.kernel["orchestrator"]["runner"]._counter
         res = await _run(
-            daemon, "teams.run_member",
+            daemon,
+            "teams.run_member",
             {"team": "pair", "member": "worker-a", "task_id": tid, "brief": {"objective": "half"}},
         )
         assert res["status"] == "error"
@@ -216,9 +237,15 @@ class TestRunMember:
         rt, tid = await self._setup(daemon)
         before = rt.kernel["orchestrator"]["runner"]._counter
         res = await _run(
-            daemon, "teams.run_member",
-            {"team": "pair", "member": "worker-b", "task_id": tid, "brief": _brief(),
-             "tools": ["file_read", "terminal_exec"]},
+            daemon,
+            "teams.run_member",
+            {
+                "team": "pair",
+                "member": "worker-b",
+                "task_id": tid,
+                "brief": _brief(),
+                "tools": ["file_read", "terminal_exec"],
+            },
         )
         assert res["status"] == "error"
         assert "outside member allowlist" in res["message"]
@@ -228,9 +255,14 @@ class TestRunMember:
         rt, tid = await self._setup(daemon)
         before = rt.kernel["orchestrator"]["runner"]._counter
         res = await _run(
-            daemon, "teams.run_member",
-            {"team": "pair", "member": "worker-b", "task_id": tid,
-             "brief": _brief(token_budget=35000)},
+            daemon,
+            "teams.run_member",
+            {
+                "team": "pair",
+                "member": "worker-b",
+                "task_id": tid,
+                "brief": _brief(token_budget=35000),
+            },
         )
         assert res["status"] == "error"
         assert "exceeds member cap" in res["message"]
@@ -239,7 +271,8 @@ class TestRunMember:
     async def test_unknown_member_rejected(self, daemon):
         rt, tid = await self._setup(daemon)
         res = await _run(
-            daemon, "teams.run_member",
+            daemon,
+            "teams.run_member",
             {"team": "pair", "member": "ghost", "task_id": tid, "brief": _brief()},
         )
         assert res["status"] == "error"
@@ -268,7 +301,11 @@ class TestLifecycle:
     async def test_disband_cleans_inboxes_and_registry(self, daemon, _home):
         await self._active(daemon)
         inbox_file = _home / "teams" / "pair" / "inboxes" / "worker-b.json"
-        await _run(daemon, "teams.send", {"team": "pair", "from": "worker-a", "to": "worker-b", "body": "hi"})
+        await _run(
+            daemon,
+            "teams.send",
+            {"team": "pair", "from": "worker-a", "to": "worker-b", "body": "hi"},
+        )
         assert inbox_file.is_file()
         done = await _run(daemon, "teams.disband", {"team": "pair"})
         assert done["lifecycle"] == "DISBANDED"
@@ -287,7 +324,8 @@ class TestMailbox:
     async def test_send_writes_disk_and_inbox(self, daemon, _home):
         await self._active(daemon)
         res = await _run(
-            daemon, "teams.send",
+            daemon,
+            "teams.send",
             {"team": "pair", "from": "worker-a", "to": "worker-b", "body": "handoff notes"},
         )
         assert res["status"] == "ok"
@@ -302,12 +340,16 @@ class TestMailbox:
 
     async def test_send_unknown_member_rejected(self, daemon):
         await self._active(daemon)
-        res = await _run(daemon, "teams.send", {"team": "pair", "from": "worker-a", "to": "ghost", "body": "x"})
+        res = await _run(
+            daemon, "teams.send", {"team": "pair", "from": "worker-a", "to": "ghost", "body": "x"}
+        )
         assert res["status"] == "error"
 
     async def test_broadcast_reaches_all_but_sender(self, daemon):
         await self._active(daemon)
-        res = await _run(daemon, "teams.broadcast", {"team": "pair", "from": "worker-a", "body": "all hands"})
+        res = await _run(
+            daemon, "teams.broadcast", {"team": "pair", "from": "worker-a", "body": "all hands"}
+        )
         assert res["delivered"] == 1
         a = await _run(daemon, "teams.inbox", {"team": "pair", "member": "worker-a"})
         b = await _run(daemon, "teams.inbox", {"team": "pair", "member": "worker-b"})
@@ -316,8 +358,11 @@ class TestMailbox:
 
     async def test_message_type_validated(self, daemon):
         await self._active(daemon)
-        res = await _run(daemon, "teams.send", {"team": "pair", "from": "worker-a", "to": "worker-b",
-                                                "type": "gossip", "body": "x"})
+        res = await _run(
+            daemon,
+            "teams.send",
+            {"team": "pair", "from": "worker-a", "to": "worker-b", "type": "gossip", "body": "x"},
+        )
         assert res["status"] == "error"
         assert "unknown message type" in res["message"]
 
@@ -332,17 +377,20 @@ class TestTeamMemory:
         other["namespace_key"] = "team:pair2"
         await _run(daemon, "teams.register", {"definition": other})
         w = await _run(
-            daemon, "teams.memory_write",
+            daemon,
+            "teams.memory_write",
             {"team": "pair", "content": "the quarterly numbers live in notes/q4.md"},
         )
         assert w["status"] == "ok"
         mine = await _run(
-            daemon, "teams.memory_read",
+            daemon,
+            "teams.memory_read",
             {"team": "pair", "query": "quarterly numbers"},
         )
         assert any("q4.md" in e["content"] for e in mine["entries"])
         theirs = await _run(
-            daemon, "teams.memory_read",
+            daemon,
+            "teams.memory_read",
             {"team": "pair2", "query": "quarterly numbers"},
         )
         assert theirs["entries"] == [], "cross-team memory must be invisible"
@@ -358,10 +406,21 @@ class TestAuthLevel:
         for sd in daemon._sub_dispatchers:
             methods.update(sd.get_handlers())
         expected = {
-            "teams.register", "teams.add_task", "teams.transition", "teams.claim_task",
-            "teams.run_member", "teams.send", "teams.broadcast", "teams.inbox",
-            "teams.status", "teams.pause", "teams.resume", "teams.disband",
-            "teams.memory_write", "teams.memory_read", "teams.list",
+            "teams.register",
+            "teams.add_task",
+            "teams.transition",
+            "teams.claim_task",
+            "teams.run_member",
+            "teams.send",
+            "teams.broadcast",
+            "teams.inbox",
+            "teams.status",
+            "teams.pause",
+            "teams.resume",
+            "teams.disband",
+            "teams.memory_write",
+            "teams.memory_read",
+            "teams.list",
         }
         assert expected <= methods
 
@@ -404,11 +463,15 @@ class TestLeadTools:
         assert illegal.startswith("Error:")
 
     async def test_dispatch_runs_member_and_rejects_bad_brief(self, daemon):
-        rt, tid = await self._setup(daemon, responses=[_llm_response(content="member final report")])
+        rt, tid = await self._setup(
+            daemon, responses=[_llm_response(content="member final report")]
+        )
         from tools.team_lead_tools import TeamDispatchTool
 
         tool = TeamDispatchTool(lambda: rt.teams_registry, rt._team_agent_fn)
-        ok = json.loads(await tool.execute(team="pair", member="worker-a", task_id=tid, brief=_brief()))
+        ok = json.loads(
+            await tool.execute(team="pair", member="worker-a", task_id=tid, brief=_brief())
+        )
         assert ok["status"] == "ok" and ok["summary"] == "member final report"
         bad = await tool.execute(
             team="pair", member="worker-a", task_id=tid, brief={"objective": "half"}
@@ -424,7 +487,9 @@ class TestLeadTools:
         from tools.team_lead_tools import TeamMessageTool
 
         tool = self._tool(rt, TeamMessageTool)
-        ok = json.loads(await tool.execute(team="pair", **{"from": "worker-a"}, to="worker-b", body="n1"))
+        ok = json.loads(
+            await tool.execute(team="pair", **{"from": "worker-a"}, to="worker-b", body="n1")
+        )
         assert ok["delivered"] == 1
         assert (_home / "teams" / "pair" / "inboxes" / "worker-b.json").is_file()
         bc = json.loads(await tool.execute(team="pair", **{"from": "worker-a"}, body="all"))
@@ -472,7 +537,12 @@ class TestLiveDispatchPath:
         monkeypatch.setenv("FUSION_AUTH_ENFORCE", "0")
         rt, _client = _runtime()
         daemon._get_runtime = lambda: rt
-        msg = {"jsonrpc": "2.0", "id": 7, "method": "teams.register", "params": {"definition": _definition()}}
+        msg = {
+            "jsonrpc": "2.0",
+            "id": 7,
+            "method": "teams.register",
+            "params": {"definition": _definition()},
+        }
         resp = await daemon._dispatch(msg)
         assert resp["id"] == 7
         assert resp["result"]["status"] == "ok"

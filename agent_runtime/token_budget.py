@@ -24,9 +24,7 @@ class TokenBudget:
     # §9.6 residual). Total caps stay on prompt+completion — servers embed
     # reasoning inside completion_tokens, so adding it again would double-count.
     reasoning_tokens: int = 0
-    pricing: dict[str, dict[str, float]] = field(
-        default_factory=lambda: dict(_DEFAULT_PRICING)
-    )
+    pricing: dict[str, dict[str, float]] = field(default_factory=lambda: dict(_DEFAULT_PRICING))
     # N8: day-level and graph-level caps are independent of the run cap.
     day_max_tokens: int = 0
     day_spent_tokens: int = 0
@@ -104,9 +102,7 @@ class TokenBudget:
         self._roll_day()
         self.day_spent_tokens += total
         if graph_id:
-            self.graph_spent_tokens[graph_id] = (
-                self.graph_spent_tokens.get(graph_id, 0) + total
-            )
+            self.graph_spent_tokens[graph_id] = self.graph_spent_tokens.get(graph_id, 0) + total
         logger.debug(
             "Token usage recorded: prompt=%d completion=%d reasoning=%d total=%d day=%d graph=%s",
             prompt_tokens,
@@ -139,21 +135,15 @@ class TokenBudget:
             self._roll_day()
             caps.append(self.day_max_tokens - self.day_spent_tokens)
         if graph_id and self.graph_max_tokens > 0:
-            caps.append(
-                self.graph_max_tokens - self.graph_spent_tokens.get(graph_id, 0)
-            )
+            caps.append(self.graph_max_tokens - self.graph_spent_tokens.get(graph_id, 0))
         if not caps:
             return -1
         return max(0, min(caps))
 
     def estimate_cost(self, model: str = "default") -> float:
-        rates = self.pricing.get(
-            model, self.pricing.get("default", _DEFAULT_PRICING["default"])
-        )
+        rates = self.pricing.get(model, self.pricing.get("default", _DEFAULT_PRICING["default"]))
         prompt_cost = (self.prompt_tokens / 1000.0) * rates.get("prompt_per_1k", 0.0)
-        completion_cost = (self.completion_tokens / 1000.0) * rates.get(
-            "completion_per_1k", 0.0
-        )
+        completion_cost = (self.completion_tokens / 1000.0) * rates.get("completion_per_1k", 0.0)
         return prompt_cost + completion_cost
 
     def status(self, model: str = "default", graph_id: str = "") -> dict[str, Any]:

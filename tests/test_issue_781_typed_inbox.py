@@ -79,7 +79,12 @@ class TestInboxRespond:
         out = await _run(
             daemon,
             "teams.inbox_respond",
-            {"team": "pair", "member": "worker-b", "message_id": sent["msg_id"], "decision": "approve"},
+            {
+                "team": "pair",
+                "member": "worker-b",
+                "message_id": sent["msg_id"],
+                "decision": "approve",
+            },
         )
         assert out["status"] == "ok"
         assert out["decision"] == "approved"
@@ -93,11 +98,18 @@ class TestInboxRespond:
 
     async def test_shutdown_request_maps_to_shutdown_response(self, daemon, _home):
         await _setup(daemon)
-        sent = await _send(daemon, type="shutdown_request", **{"from": "worker-b", "to": "worker-a"})
+        sent = await _send(
+            daemon, type="shutdown_request", **{"from": "worker-b", "to": "worker-a"}
+        )
         out = await _run(
             daemon,
             "teams.inbox_respond",
-            {"team": "pair", "member": "worker-a", "message_id": sent["msg_id"], "decision": "reject"},
+            {
+                "team": "pair",
+                "member": "worker-a",
+                "message_id": sent["msg_id"],
+                "decision": "reject",
+            },
         )
         assert out["status"] == "ok"
         assert out["reply_type"] == "shutdown_response"
@@ -109,7 +121,12 @@ class TestInboxRespond:
         out = await _run(
             daemon,
             "teams.inbox_respond",
-            {"team": "pair", "member": "worker-b", "message_id": sent["msg_id"], "decision": "decline"},
+            {
+                "team": "pair",
+                "member": "worker-b",
+                "message_id": sent["msg_id"],
+                "decision": "decline",
+            },
         )
         assert out["status"] == "ok"
         assert out["decision"] == "rejected"
@@ -120,13 +137,23 @@ class TestInboxRespond:
         first = await _run(
             daemon,
             "teams.inbox_respond",
-            {"team": "pair", "member": "worker-b", "message_id": sent["msg_id"], "decision": "approve"},
+            {
+                "team": "pair",
+                "member": "worker-b",
+                "message_id": sent["msg_id"],
+                "decision": "approve",
+            },
         )
         assert first["status"] == "ok"
         again = await _run(
             daemon,
             "teams.inbox_respond",
-            {"team": "pair", "member": "worker-b", "message_id": sent["msg_id"], "decision": "approve"},
+            {
+                "team": "pair",
+                "member": "worker-b",
+                "message_id": sent["msg_id"],
+                "decision": "approve",
+            },
         )
         assert again["status"] == "error"
         assert "already answered" in again["message"]
@@ -137,7 +164,12 @@ class TestInboxRespond:
         await _run(
             daemon,
             "teams.inbox_respond",
-            {"team": "pair", "member": "worker-b", "message_id": sent["msg_id"], "decision": "approve"},
+            {
+                "team": "pair",
+                "member": "worker-b",
+                "message_id": sent["msg_id"],
+                "decision": "approve",
+            },
         )
         pending = await _run(daemon, "teams.inbox_typed", {"team": "pair", "member": "worker-b"})
         assert pending["messages"] == []
@@ -153,7 +185,12 @@ class TestInboxRespond:
         out = await _run(
             daemon,
             "teams.inbox_respond",
-            {"team": "pair", "member": "worker-b", "message_id": sent["msg_id"], "decision": "maybe"},
+            {
+                "team": "pair",
+                "member": "worker-b",
+                "message_id": sent["msg_id"],
+                "decision": "maybe",
+            },
         )
         assert out["status"] == "error"
         assert "valid: approve/reject" in out["message"]
@@ -174,7 +211,12 @@ class TestInboxRespond:
         out = await _run(
             daemon,
             "teams.inbox_respond",
-            {"team": "pair", "member": "worker-b", "message_id": sent["msg_id"], "decision": "approve"},
+            {
+                "team": "pair",
+                "member": "worker-b",
+                "message_id": sent["msg_id"],
+                "decision": "approve",
+            },
         )
         assert out["status"] == "error"
         assert "not an actionable typed message" in out["message"]

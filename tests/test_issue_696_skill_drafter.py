@@ -22,7 +22,13 @@ async def _run(daemon, method, params=None):
     return await handler(params or {})
 
 
-def _write_trace(writer: TrajectoryWriter, session: str, status: str, error: str = "", tools: list[str] | None = None) -> str:
+def _write_trace(
+    writer: TrajectoryWriter,
+    session: str,
+    status: str,
+    error: str = "",
+    tools: list[str] | None = None,
+) -> str:
     trace_id = writer.start(session, graph_name="g")
     writer.record_event(session, {"type": "tool_call", "name": (tools or ["t0"])[0]})
     if error:

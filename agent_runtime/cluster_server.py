@@ -86,9 +86,7 @@ class ClusterState:
         try:
             import os as _os
 
-            return (
-                _os.sysconf("SC_PAGE_SIZE") * _os.sysconf("SC_PHYS_PAGES") / (1024**3)
-            )
+            return _os.sysconf("SC_PAGE_SIZE") * _os.sysconf("SC_PHYS_PAGES") / (1024**3)
         except Exception:
             return 16.0
 
@@ -152,9 +150,7 @@ async def health():
 
 @app.get("/api/v1/cluster/stats")
 async def cluster_stats():
-    nodes_online = sum(
-        1 for n in state.nodes.values() if n["status"] in ("online", "busy")
-    )
+    nodes_online = sum(1 for n in state.nodes.values() if n["status"] in ("online", "busy"))
     total_mem = sum(n["total_memory_gb"] for n in state.nodes.values())
     avail_mem = sum(n["available_memory_gb"] for n in state.nodes.values())
     active_tasks = sum(1 for t in state.tasks.values() if t["status"] == "running")
@@ -302,9 +298,7 @@ async def submit_task(req: TaskSubmitRequest):
         "priority": req.priority,
     }
     state.tasks[task_id] = task
-    logger.info(
-        "Task submitted: %s (%s) -> %s", task_id, req.name, assigned or "pending"
-    )
+    logger.info("Task submitted: %s (%s) -> %s", task_id, req.name, assigned or "pending")
     return task
 
 
@@ -403,9 +397,7 @@ async def task_timeline(task_id: str):
             }
         )
     if task["status"] in ("completed", "failed", "cancelled"):
-        ts = (
-            task.get("completed_at") or task.get("started_at") or task.get("created_at")
-        )
+        ts = task.get("completed_at") or task.get("started_at") or task.get("created_at")
         events.append(
             {
                 "timestamp": str(ts or ""),
@@ -561,11 +553,13 @@ _V1_ALIASES = {
 for _old, _new in _V1_ALIASES.items():
     for _route in app.routes:
         if hasattr(_route, "path") and _route.path == _old:
-            app.routes.append(type(_route)(
-                path=_new,
-                endpoint=_route.endpoint,
-                methods=_route.methods,
-            ))
+            app.routes.append(
+                type(_route)(
+                    path=_new,
+                    endpoint=_route.endpoint,
+                    methods=_route.methods,
+                )
+            )
             break
 
 

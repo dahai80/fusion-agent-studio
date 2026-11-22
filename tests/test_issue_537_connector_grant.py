@@ -32,12 +32,14 @@ def _handlers(dispatcher):
 async def test_connector_create_forwards_catalog_connector_id(infra):
     dispatcher, mgr = infra
     handler = _handlers(dispatcher)["connector.create"]
-    result = await handler({
-        "connector_id": "connector.inventory-prod",
-        "name": "Inventory",
-        "type": "api_key",
-        "auth_config": {"api_key": "k-1"},
-    })
+    result = await handler(
+        {
+            "connector_id": "connector.inventory-prod",
+            "name": "Inventory",
+            "type": "api_key",
+            "auth_config": {"api_key": "k-1"},
+        }
+    )
     assert result["connector_id"] == "connector.inventory-prod"
     assert mgr.get("connector.inventory-prod") is not None
 
@@ -53,12 +55,14 @@ async def test_connector_create_without_id_still_generates(infra):
 async def test_connect_failure_carries_message(infra):
     dispatcher, mgr = infra
     handlers = _handlers(dispatcher)
-    await handlers["connector.create"]({
-        "connector_id": "connector.no-key",
-        "name": "Missing key",
-        "type": "api_key",
-        "auth_config": {},
-    })
+    await handlers["connector.create"](
+        {
+            "connector_id": "connector.no-key",
+            "name": "Missing key",
+            "type": "api_key",
+            "auth_config": {},
+        }
+    )
     result = await handlers["connector.connect"]({"connector_id": "connector.no-key"})
     assert result["status"] == "error"
     assert result["message"]
@@ -68,12 +72,14 @@ async def test_connect_failure_carries_message(infra):
 async def test_connect_success_has_no_error_message(infra):
     dispatcher, mgr = infra
     handlers = _handlers(dispatcher)
-    await handlers["connector.create"]({
-        "connector_id": "connector.ok",
-        "name": "Good one",
-        "type": "api_key",
-        "auth_config": {"api_key": "secret"},
-    })
+    await handlers["connector.create"](
+        {
+            "connector_id": "connector.ok",
+            "name": "Good one",
+            "type": "api_key",
+            "auth_config": {"api_key": "secret"},
+        }
+    )
     result = await handlers["connector.connect"]({"connector_id": "connector.ok"})
     assert result["status"] == "connected"
     assert mgr.get("connector.ok")["status"] == "connected"

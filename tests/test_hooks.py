@@ -32,9 +32,7 @@ class MockMLXClient:
     def add_response(self, content, tool_calls=None):
         self.responses.append({"content": content, "tool_calls": tool_calls or []})
 
-    async def chat(
-        self, model, messages, tools=None, temperature=0.7, max_tokens=4096, **kwargs
-    ):
+    async def chat(self, model, messages, tools=None, temperature=0.7, max_tokens=4096, **kwargs):
         self.call_count += 1
         from server.fusion_mlx_client import LLMResponse
 
@@ -46,9 +44,7 @@ class MockMLXClient:
 
 async def test_callback_approve_default():
     eng = HookEngine()
-    eng.register(
-        HookConfig(event="PRE_TOOL_USE", callback=lambda p: {"decision": "approve"})
-    )
+    eng.register(HookConfig(event="PRE_TOOL_USE", callback=lambda p: {"decision": "approve"}))
     res = await eng.fire("PRE_TOOL_USE", {"tool_name": "x"}, tool_name="x")
     assert res.decision == "approve"
 
@@ -75,12 +71,8 @@ async def test_matcher_filters():
             callback=lambda p: {"decision": "block"},
         )
     )
-    assert (
-        await eng.fire("PRE_TOOL_USE", {}, tool_name="good_tool")
-    ).decision == "approve"
-    assert (
-        await eng.fire("PRE_TOOL_USE", {}, tool_name="bad_tool")
-    ).decision == "block"
+    assert (await eng.fire("PRE_TOOL_USE", {}, tool_name="good_tool")).decision == "approve"
+    assert (await eng.fire("PRE_TOOL_USE", {}, tool_name="bad_tool")).decision == "block"
 
 
 async def test_command_hook_approves(monkeypatch):
@@ -89,10 +81,8 @@ async def test_command_hook_approves(monkeypatch):
     eng = HookEngine()
     # 审计 D-7: POST_TOOL_USE 现 fail-closed, hook 输出必须是合法 JSON.
     # 单引号包双引号 JSON, shlex.split 保留内层引号 -> echo 输出合法 JSON.
-    cmd = "echo '{\"decision\":\"approve\"}'"
-    eng.register(
-        HookConfig(event="POST_TOOL_USE", type="command", command=cmd, timeout=5.0)
-    )
+    cmd = 'echo \'{"decision":"approve"}\''
+    eng.register(HookConfig(event="POST_TOOL_USE", type="command", command=cmd, timeout=5.0))
     res = await eng.fire("POST_TOOL_USE", {"tool_name": "x"}, tool_name="x")
     assert res.decision == "approve"
 
@@ -103,9 +93,7 @@ async def test_command_hook_fail_closed_on_non_json(monkeypatch):
     # 审计 D-7: 安全门 hook 输出畸形应 fail-closed (block), 非静默放行.
     eng = HookEngine()
     cmd = "echo not-json"
-    eng.register(
-        HookConfig(event="PRE_TOOL_USE", type="command", command=cmd, timeout=5.0)
-    )
+    eng.register(HookConfig(event="PRE_TOOL_USE", type="command", command=cmd, timeout=5.0))
     res = await eng.fire("PRE_TOOL_USE", {"tool_name": "x"}, tool_name="x")
     assert res.decision == "block"
     assert "non-JSON" in res.reason
@@ -115,9 +103,7 @@ async def test_command_hook_fail_open_non_safety_event():
     # 审计 D-7: 非安全门事件 (SESSION_*) 维持 fail-open approve.
     eng = HookEngine()
     cmd = "echo not-json"
-    eng.register(
-        HookConfig(event="SESSION_START", type="command", command=cmd, timeout=5.0)
-    )
+    eng.register(HookConfig(event="SESSION_START", type="command", command=cmd, timeout=5.0))
     res = await eng.fire("SESSION_START", {})
     assert res.decision == "approve"
 
@@ -287,4 +273,3 @@ async def test_stop_hook_fires_on_max_iterations():
         pass
 
     assert "STOP" in fired, f"expected STOP hook to fire, got {fired}"
-

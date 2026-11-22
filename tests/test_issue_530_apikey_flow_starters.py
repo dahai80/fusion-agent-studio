@@ -24,17 +24,32 @@ class _StubDaemon:
 
 async def _rpc_stub(method, params):
     if method == "agent.list":
-        return {"agents": [
-            {"id": "dep1", "name": "Reconciler", "status": "published",
-             "tools": ["agent.list"], "description": "d"}]}
+        return {
+            "agents": [
+                {
+                    "id": "dep1",
+                    "name": "Reconciler",
+                    "status": "published",
+                    "tools": ["agent.list"],
+                    "description": "d",
+                }
+            ]
+        }
     if method == "agent.get":
-        return {"agent": {"id": params["agent_id"], "name": "Reconciler",
-                          "status": "published", "tools": ["agent.list"],
-                          "description": "d", "model": "base",
-                          "system_prompt": "s", "metadata": {}}}
+        return {
+            "agent": {
+                "id": params["agent_id"],
+                "name": "Reconciler",
+                "status": "published",
+                "tools": ["agent.list"],
+                "description": "d",
+                "model": "base",
+                "system_prompt": "s",
+                "metadata": {},
+            }
+        }
     if method == "agent.test":
-        return {"status": "completed",
-                "events": [{"type": "message", "content": "ok"}]}
+        return {"status": "completed", "events": [{"type": "message", "content": "ok"}]}
     raise AssertionError(f"unexpected rpc {method}")
 
 
@@ -45,8 +60,8 @@ def client(monkeypatch, tmp_path):
 
     real_pr = pr_mod.PublishRegistry
     monkeypatch.setattr(
-        pr_mod, "PublishRegistry",
-        lambda path="": real_pr(str(tmp_path / "publish.json")))
+        pr_mod, "PublishRegistry", lambda path="": real_pr(str(tmp_path / "publish.json"))
+    )
 
     stub = _StubDaemon(tmp_path)
     monkeypatch.setattr(api_server, "_daemon", stub, raising=False)
@@ -84,33 +99,36 @@ def test_external_bearer_key_calls_deployed_agent_and_rotate_invalidates(client)
     saved = os.environ.pop("FUSION_AGENT_STUDIO_API_KEY", None)
     try:
         # no key configured -> the manager key alone flips _auth_configured
-        hdr = {"Authorization": f"Bearer {secret}",
-               "content-type": "application/json"}
-        r = client.post("/v1/agents-platform/agents/dep1/test", headers=hdr,
-                        json={"message": "hello"})
+        hdr = {"Authorization": f"Bearer {secret}", "content-type": "application/json"}
+        r = client.post(
+            "/v1/agents-platform/agents/dep1/test", headers=hdr, json={"message": "hello"}
+        )
         assert r.status_code == 200, r.text
         assert r.json()["events"][0]["content"] == "ok"
 
         # missing/invalid key must be rejected now that keys exist
-        r2 = client.post("/v1/agents-platform/agents/dep1/test",
-                         headers={"Authorization": "Bearer fk-wrong",
-                                  "content-type": "application/json"},
-                         json={"message": "hello"})
+        r2 = client.post(
+            "/v1/agents-platform/agents/dep1/test",
+            headers={"Authorization": "Bearer fk-wrong", "content-type": "application/json"},
+            json={"message": "hello"},
+        )
         assert r2.status_code in (401, 403), r2.text
 
         # rotate -> old secret stops working, new one works
         rotated = mgr.rotate(key_id)
         new_secret = rotated["key_secret"]
         assert new_secret != secret
-        r3 = client.post("/v1/agents-platform/agents/dep1/test",
-                         headers={"Authorization": f"Bearer {secret}",
-                                  "content-type": "application/json"},
-                         json={"message": "hello"})
+        r3 = client.post(
+            "/v1/agents-platform/agents/dep1/test",
+            headers={"Authorization": f"Bearer {secret}", "content-type": "application/json"},
+            json={"message": "hello"},
+        )
         assert r3.status_code in (401, 403), "old key must be invalid after rotate"
-        r4 = client.post("/v1/agents-platform/agents/dep1/test",
-                         headers={"Authorization": f"Bearer {new_secret}",
-                                  "content-type": "application/json"},
-                         json={"message": "hello"})
+        r4 = client.post(
+            "/v1/agents-platform/agents/dep1/test",
+            headers={"Authorization": f"Bearer {new_secret}", "content-type": "application/json"},
+            json={"message": "hello"},
+        )
         assert r4.status_code == 200, r4.text
     finally:
         if saved is not None:

@@ -329,7 +329,9 @@ async def test_plugin_install_package_uninstall(tmp_path, monkeypatch):
     invoked = await handlers["plugin.invoke"]({"tool_name": "my_plugin", "arguments": {}})
     assert invoked.get("error") is None
 
-    packaged = await handlers["plugin.package"]({"name": "my_plugin", "dest_dir": str(tmp_path / "dist")})
+    packaged = await handlers["plugin.package"](
+        {"name": "my_plugin", "dest_dir": str(tmp_path / "dist")}
+    )
     assert packaged["status"] == "ok"
     assert os.path.isfile(packaged["path"])
 

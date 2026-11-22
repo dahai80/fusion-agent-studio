@@ -33,14 +33,11 @@ class PublishRegistry:
 
     def _save(self, data: Dict[str, Any]) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.path.write_text(
-            json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+        self.path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
 
     def set(self, agent_id: str, publisher: str, version: Any = None) -> dict:
         data = self._load()
-        rec = {"publisher": str(publisher or ""),
-               "version": version,
-               "published_at": time.time()}
+        rec = {"publisher": str(publisher or ""), "version": version, "published_at": time.time()}
         data[agent_id] = rec
         self._save(data)
         return rec

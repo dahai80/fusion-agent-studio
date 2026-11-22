@@ -1,4 +1,4 @@
-#596: approver identity is a selection, not free text — the approvers
+# 596: approver identity is a selection, not free text — the approvers
 # endpoint backs the GUI select; default ["owner"], FUSION_APPROVERS
 # (comma-separated) overrides verbatim.
 

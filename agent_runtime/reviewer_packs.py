@@ -89,9 +89,7 @@ def validate_finding(data: dict) -> ReviewFinding:
             f"finding severity must be one of {SEVERITIES}, got: {data.get('severity')!r}"
         )
     missing = [
-        k
-        for k in ("location", "rationale", "recommendation")
-        if not str(data.get(k, "")).strip()
+        k for k in ("location", "rationale", "recommendation") if not str(data.get(k, "")).strip()
     ]
     if missing:
         raise FindingValidationError(
@@ -333,7 +331,13 @@ def merge_results(results: list[dict]) -> dict:
             entry["error"] = r.get("error", "")
         per_pack[pack] = entry
     order = {s: i for i, s in enumerate(SEVERITIES)}
-    findings.sort(key=lambda f: (order.get(f.get("severity", ""), 99), f.get("pack", ""), f.get("location", "")))
+    findings.sort(
+        key=lambda f: (
+            order.get(f.get("severity", ""), 99),
+            f.get("pack", ""),
+            f.get("location", ""),
+        )
+    )
     return {
         "status": "ok",
         "findings": findings,
@@ -409,7 +413,12 @@ class ReviewerPackRunner:
         results = await asyncio.gather(
             *[
                 self._run_one(
-                    p, artifact, original_request, author_notes, blind, params_by_pack.get(p.key, {})
+                    p,
+                    artifact,
+                    original_request,
+                    author_notes,
+                    blind,
+                    params_by_pack.get(p.key, {}),
                 )
                 for p in packs
             ]
@@ -424,6 +433,7 @@ class ReviewerPackRunner:
 
 
 # ── first-party bundle seeding (installable via bundle.install) ──
+
 
 def write_bundle_dirs(base_dir: Path | str) -> list[Path]:
     """Materialize the 4 first-party packs as standard bundles

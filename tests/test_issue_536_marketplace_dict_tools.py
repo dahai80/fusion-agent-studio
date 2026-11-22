@@ -43,8 +43,8 @@ def client(monkeypatch, tmp_path):
 
     real_pr = pr_mod.PublishRegistry
     monkeypatch.setattr(
-        pr_mod, "PublishRegistry",
-        lambda path="": real_pr(str(tmp_path / "publish.json")))
+        pr_mod, "PublishRegistry", lambda path="": real_pr(str(tmp_path / "publish.json"))
+    )
     monkeypatch.setattr(api_server, "_rpc", _rpc_stub)
     monkeypatch.setattr(api_server, "_auth_configured", lambda: False)
     with TestClient(api_server.app) as c:

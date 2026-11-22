@@ -119,8 +119,13 @@ class AgentMarketplace:
         try:
             with open(self._audit_path(), "a", encoding="utf-8") as f:
                 f.write(json.dumps(record, ensure_ascii=False) + "\n")
-            logger.info("marketplace audit: %s entry=%s tenant=%s%s",
-                        event, entry_id, tenant, f" ({detail})" if detail else "")
+            logger.info(
+                "marketplace audit: %s entry=%s tenant=%s%s",
+                event,
+                entry_id,
+                tenant,
+                f" ({detail})" if detail else "",
+            )
         except OSError as exc:
             logger.error("marketplace audit write failed: %s", exc)
 
@@ -224,9 +229,7 @@ class AgentMarketplace:
 
         if query:
             q = query.lower()
-            results = [
-                e for e in results if q in e.name.lower() or q in e.description.lower()
-            ]
+            results = [e for e in results if q in e.name.lower() or q in e.description.lower()]
 
         if category:
             results = [e for e in results if e.category == category]
@@ -321,7 +324,9 @@ class AgentMarketplace:
         if entry.sha256 and entry.sha256 != expected:
             logger.error(
                 "install refused: signature mismatch entry=%s expected=%s got=%s",
-                entry_id, expected, entry.sha256,
+                entry_id,
+                expected,
+                entry.sha256,
             )
             self._audit("install_refused", entry_id, tenant, "signature mismatch")
             return None

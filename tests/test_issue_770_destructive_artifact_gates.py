@@ -152,9 +152,7 @@ class TestDestructiveFunnelWiring:
     @pytest.mark.asyncio
     async def test_gate_lazy_no_dir_without_destructive_call(self, tmp_path):
         rt = _runtime()
-        await rt.tool_funnel.admit(
-            ctx=AgentContext(), tool_name="file_read", args={"path": "x"}
-        )
+        await rt.tool_funnel.admit(ctx=AgentContext(), tool_name="file_read", args={"path": "x"})
         home = tmp_path / "home"
         assert not (home / "human_gate").exists() or rt._approval_gate is None
 
@@ -219,9 +217,7 @@ class TestArtifactLoadScan:
     @pytest.mark.asyncio
     async def test_clean_content_passes_unstamped(self):
         bridge, mgr = self._bridge()
-        created = mgr.create_artifact(
-            agent_id="a1", name="clean", content="plain report text"
-        )
+        created = mgr.create_artifact(agent_id="a1", name="clean", content="plain report text")
         result = await bridge.load(artifact_id=created["artifact_id"])
         assert result["artifact_scan"] == {"clean": True, "rules": []}
         assert result["content"] == "plain report text"

@@ -113,9 +113,7 @@ class TestFusionMLXProcessManager:
         assert mgr.restart(wait_timeout=0.5) is False
 
     def test_context_manager(self, monkeypatch):
-        monkeypatch.setattr(
-            FusionMLXProcessManager, "start", lambda self, wait_timeout=30.0: False
-        )
+        monkeypatch.setattr(FusionMLXProcessManager, "start", lambda self, wait_timeout=30.0: False)
         with FusionMLXProcessManager(port=40493) as mgr:
             assert mgr is not None
         # Should have stopped after exit without raising

@@ -102,9 +102,7 @@ class TestArtifactUpdateTool:
     async def test_update_content(self, tools, manager):
         result = manager.create_artifact("agent_1", "doc1", "document", "original")
         aid = result["artifact_id"]
-        out = await tools["update"].execute(
-            artifact_id=aid, agent_id="agent_1", content="updated"
-        )
+        out = await tools["update"].execute(artifact_id=aid, agent_id="agent_1", content="updated")
         data = json.loads(out)
         assert data["status"] == "ok"
         assert data["record"]["content"] == "updated"
@@ -122,9 +120,7 @@ class TestArtifactUpdateTool:
 
 class TestArtifactCreateSnapshotTool:
     async def test_snapshot_existing(self, tools, manager):
-        result = manager.create_artifact(
-            "agent_1", "snap_doc", "document", "snap content"
-        )
+        result = manager.create_artifact("agent_1", "snap_doc", "document", "snap content")
         aid = result["artifact_id"]
         out = await tools["snapshot"].execute(artifact_id=aid)
         data = json.loads(out)
@@ -254,9 +250,7 @@ class TestArtifactPatchTool:
         assert data["status"] == "error"
 
     async def test_patch_missing_artifact(self, tools):
-        out = await tools["patch"].execute(
-            artifact_id="nope", operation="replace", content="x"
-        )
+        out = await tools["patch"].execute(artifact_id="nope", operation="replace", content="x")
         data = json.loads(out)
         assert data["status"] == "error"
 
@@ -276,9 +270,7 @@ class TestArtifactPatchTool:
 
 class TestArtifactLoadTool:
     async def test_load_full(self, tools, manager):
-        result = manager.create_artifact(
-            "agent_1", "doc1", "document", "full content here"
-        )
+        result = manager.create_artifact("agent_1", "doc1", "document", "full content here")
         aid = result["artifact_id"]
         out = await tools["load"].execute(artifact_id=aid)
         data = json.loads(out)
@@ -295,9 +287,7 @@ class TestArtifactLoadTool:
         assert len(data["content"]) == 500
 
     async def test_load_section(self, tools, manager):
-        content = (
-            "header\n<!-- section:body -->\nsection content\n<!-- end:body -->\nfooter"
-        )
+        content = "header\n<!-- section:body -->\nsection content\n<!-- end:body -->\nfooter"
         result = manager.create_artifact("agent_1", "doc3", "document", content)
         aid = result["artifact_id"]
         out = await tools["load"].execute(artifact_id=aid, section="body")
@@ -673,10 +663,7 @@ class TestAS6BudgetAwareContext:
             context_window=100,
         )
         if result["mode"] in ("preview", "blocked"):
-            assert (
-                "sections" in result["context_text"]
-                or "BLOCKED" in result["context_text"]
-            )
+            assert "sections" in result["context_text"] or "BLOCKED" in result["context_text"]
 
 
 class TestAS6ArtifactGetSourceToolParams:
@@ -752,9 +739,7 @@ class TestArtifactRecordSections:
         assert "body" in rec.sections()
 
     def test_auto_summary(self, manager):
-        result = manager.create_artifact(
-            "agent_1", "sum", "document", "My Document Title\ncontent"
-        )
+        result = manager.create_artifact("agent_1", "sum", "document", "My Document Title\ncontent")
         aid = result["artifact_id"]
         rec = manager._artifacts[aid]
         assert "My Document Title" in rec.auto_summary()

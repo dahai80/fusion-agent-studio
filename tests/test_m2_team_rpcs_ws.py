@@ -56,7 +56,9 @@ async def _run(daemon, method, params=None):
     return await handler(params or {})
 
 
-def _make_task(title="t", team="default", status=TASK_STATUS_PENDING, evidence_ref="", review_state="none"):
+def _make_task(
+    title="t", team="default", status=TASK_STATUS_PENDING, evidence_ref="", review_state="none"
+):
     t = Task(title=title, graph_id="g1", team=team, status=status, evidence_ref=evidence_ref)
     t.review_state = review_state
     return t
@@ -136,8 +138,12 @@ class TestIssue316EvidenceRpcs:
     async def test_evidence_list_returns_only_tasks_with_evidence(self, daemon):
         store = daemon._task_store
         store.submit(_make_task(title="no-ev", team="ops"))
-        store.submit(_make_task(title="ev1", team="ops", evidence_ref="/out/ops/evidence/exec-1.jsonl"))
-        store.submit(_make_task(title="ev2", team="ops", evidence_ref="/out/ops/evidence/exec-2.jsonl"))
+        store.submit(
+            _make_task(title="ev1", team="ops", evidence_ref="/out/ops/evidence/exec-1.jsonl")
+        )
+        store.submit(
+            _make_task(title="ev2", team="ops", evidence_ref="/out/ops/evidence/exec-2.jsonl")
+        )
         r = await _run(daemon, "evidence.list", {"team": "ops"})
         refs = {e["evidence_ref"] for e in r["evidence"]}
         assert "/out/ops/evidence/exec-1.jsonl" in refs
@@ -155,9 +161,21 @@ class TestIssue316EvidenceRpcs:
     @pytest.mark.asyncio
     async def test_evidence_failure_filters_terminal(self, daemon):
         store = daemon._task_store
-        t_ok = store.submit(_make_task(title="ok", team="ops", status=TASK_STATUS_COMPLETED, evidence_ref="/ok.jsonl"))
-        t_fail = store.submit(_make_task(title="fail", team="ops", status=TASK_STATUS_FAILED, evidence_ref="/fail.jsonl"))
-        t_canc = store.submit(_make_task(title="canc", team="ops", status=TASK_STATUS_CANCELED, evidence_ref="/canc.jsonl"))
+        t_ok = store.submit(
+            _make_task(
+                title="ok", team="ops", status=TASK_STATUS_COMPLETED, evidence_ref="/ok.jsonl"
+            )
+        )
+        t_fail = store.submit(
+            _make_task(
+                title="fail", team="ops", status=TASK_STATUS_FAILED, evidence_ref="/fail.jsonl"
+            )
+        )
+        t_canc = store.submit(
+            _make_task(
+                title="canc", team="ops", status=TASK_STATUS_CANCELED, evidence_ref="/canc.jsonl"
+            )
+        )
         for t in (t_ok, t_fail, t_canc):
             store.update_status(t.task_id, t.status)
         r = await _run(daemon, "evidence.failure", {"team": "ops"})
@@ -181,7 +199,9 @@ class TestIssue317TaskSetReviewState:
     async def test_set_review_state_approved(self, daemon):
         store = daemon._task_store
         t = store.submit(_make_task(title="r", team="ops"))
-        r = await _run(daemon, "task.set_review_state", {"task_id": t.task_id, "review_state": "approved"})
+        r = await _run(
+            daemon, "task.set_review_state", {"task_id": t.task_id, "review_state": "approved"}
+        )
         assert r["review_state"] == "approved"
         assert daemon._task_store.get(t.task_id).review_state == "approved"
 
@@ -189,12 +209,16 @@ class TestIssue317TaskSetReviewState:
     async def test_set_review_state_invalid_rejected(self, daemon):
         store = daemon._task_store
         t = store.submit(_make_task(title="r", team="ops"))
-        r = await _run(daemon, "task.set_review_state", {"task_id": t.task_id, "review_state": "bogus"})
+        r = await _run(
+            daemon, "task.set_review_state", {"task_id": t.task_id, "review_state": "bogus"}
+        )
         assert r["status"] == "error"
 
     @pytest.mark.asyncio
     async def test_set_review_state_missing_task(self, daemon):
-        r = await _run(daemon, "task.set_review_state", {"task_id": "nope", "review_state": "approved"})
+        r = await _run(
+            daemon, "task.set_review_state", {"task_id": "nope", "review_state": "approved"}
+        )
         assert r["status"] == "error"
 
     @pytest.mark.asyncio
@@ -206,7 +230,9 @@ class TestIssue317TaskSetReviewState:
     async def test_set_review_to_review_broadcasts(self, daemon):
         store = daemon._task_store
         t = store.submit(_make_task(title="r", team="ops"))
-        await _run(daemon, "task.set_review_state", {"task_id": t.task_id, "review_state": "review"})
+        await _run(
+            daemon, "task.set_review_state", {"task_id": t.task_id, "review_state": "review"}
+        )
         events = [e for e in daemon._event_log if e["type"] == "review.requested"]
         assert len(events) == 1
         assert events[0]["task_id"] == t.task_id
@@ -216,7 +242,9 @@ class TestIssue317TaskSetReviewState:
     async def test_set_review_approved_no_broadcast(self, daemon):
         store = daemon._task_store
         t = store.submit(_make_task(title="r", team="ops"))
-        await _run(daemon, "task.set_review_state", {"task_id": t.task_id, "review_state": "approved"})
+        await _run(
+            daemon, "task.set_review_state", {"task_id": t.task_id, "review_state": "approved"}
+        )
         events = [e for e in daemon._event_log if e["type"] == "review.requested"]
         assert len(events) == 0
 
@@ -357,7 +385,9 @@ class TestIssue319WsBroadcasts:
     async def test_review_requested_envelope(self, daemon):
         store = daemon._task_store
         t = store.submit(_make_task(title="r", team="ops"))
-        await _run(daemon, "task.set_review_state", {"task_id": t.task_id, "review_state": "review"})
+        await _run(
+            daemon, "task.set_review_state", {"task_id": t.task_id, "review_state": "review"}
+        )
         events = [e for e in daemon._event_log if e["type"] == "review.requested"]
         assert len(events) == 1
         ev = events[0]

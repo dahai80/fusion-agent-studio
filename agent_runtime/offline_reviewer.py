@@ -94,14 +94,21 @@ class OfflineReviewer:
         if not pending:
             return []
         rules_text = json.dumps(
-            [{"id": r.get("id"), "tool": r.get("tool"), "pattern": r.get("pattern")} for r in self.rules],
+            [
+                {"id": r.get("id"), "tool": r.get("tool"), "pattern": r.get("pattern")}
+                for r in self.rules
+            ],
             ensure_ascii=False,
         )
         findings = []
         for ev in pending:
             prompt = (
                 "You are a permission auditor. Rules:\n" + rules_text + "\n"
-                "Tool call:\n" + json.dumps({"tool": ev.get("name", ""), "args": ev.get("args") or {}}, ensure_ascii=False) + "\n"
+                "Tool call:\n"
+                + json.dumps(
+                    {"tool": ev.get("name", ""), "args": ev.get("args") or {}}, ensure_ascii=False
+                )
+                + "\n"
                 'Reply with JSON only: {"verdict": "ok"|"overreach", "reason": "..."}'
             )
             try:
@@ -129,7 +136,9 @@ class OfflineReviewer:
                             "verdict": "overreach",
                             "layer": "llm",
                             "reason": str(parsed.get("reason", ""))[:300],
-                            "args_preview": json.dumps(ev.get("args") or {}, ensure_ascii=False)[:200],
+                            "args_preview": json.dumps(ev.get("args") or {}, ensure_ascii=False)[
+                                :200
+                            ],
                         }
                     )
             except Exception as e:

@@ -56,7 +56,9 @@ async def main() -> int:
 
         hits = report_bad["flagged"]
         fps = report_ok["flagged"]
-        print(f"overreach_injected=3 flagged={hits} findings={json.dumps([f['rule_id'] for f in report_bad['findings']])}")
+        print(
+            f"overreach_injected=3 flagged={hits} findings={json.dumps([f['rule_id'] for f in report_bad['findings']])}"
+        )
         print(f"benign_injected={len(BENIGN)} false_positives={fps}")
         print(f"unreviewed_bad={report_bad['unreviewed']} unreviewed_ok={report_ok['unreviewed']}")
 

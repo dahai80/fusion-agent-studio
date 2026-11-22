@@ -29,9 +29,7 @@ class MockMLXClient:
         self.call_count = 0
         self.responses = responses or []
 
-    async def chat(
-        self, model, messages, tools=None, temperature=0.7, max_tokens=4096, **kwargs
-    ):
+    async def chat(self, model, messages, tools=None, temperature=0.7, max_tokens=4096, **kwargs):
         self.call_count += 1
         from server.fusion_mlx_client import LLMResponse
 
@@ -200,9 +198,7 @@ class TestHandoffPattern:
             AgentConfig(name="never_runs", graph=make_agent_graph("Never")),
         ]
 
-        with patch.object(
-            AgentRuntime, "execute_graph", side_effect=RuntimeError("boom")
-        ):
+        with patch.object(AgentRuntime, "execute_graph", side_effect=RuntimeError("boom")):
             mlx = MockMLXClient()
             orch = MultiAgentOrchestrator(mlx, reg)
             result = await orch.handoff(agents, "Task")
@@ -475,9 +471,7 @@ class TestCompositionWireIn:
         reg.register(MockTool())
         swarm = SwarmRouter(max_hops=1)
         orch = MultiAgentOrchestrator(mlx, reg, swarm_router=swarm)
-        agents = [
-            AgentConfig(name=f"a{i}", graph=make_agent_graph(f"A{i}")) for i in range(4)
-        ]
+        agents = [AgentConfig(name=f"a{i}", graph=make_agent_graph(f"A{i}")) for i in range(4)]
         result = await orch.handoff(agents, "Task")
         assert any(r.get("swarm_blocked") for r in result.results)
         assert len(result.results) < 4

@@ -15,7 +15,9 @@ class ToolRegistry:
 
     def __init__(self):
         self._tools: dict[str, BaseTool] = {}
-        self.failed_plugins: dict[str, str] = {}  # plugin_name -> error, 显式化加载失败 (issue #164)
+        self.failed_plugins: dict[
+            str, str
+        ] = {}  # plugin_name -> error, 显式化加载失败 (issue #164)
         # N17 #390: tool names sourced from user plugins, so the protocol
         # plane can enforce governance for the plugin layer only.
         self.plugin_tools: set[str] = set()
@@ -67,11 +69,13 @@ class ToolRegistry:
             if role != "all" and "all" not in t.roles and role not in t.roles:
                 continue
             if not q or q in t.name.lower() or q in (t.description or "").lower():
-                out.append({
-                    "name": t.name,
-                    "description": t.description,
-                    "parameters": t.parameters,
-                })
+                out.append(
+                    {
+                        "name": t.name,
+                        "description": t.description,
+                        "parameters": t.parameters,
+                    }
+                )
                 if len(out) >= max(1, limit):
                     break
         return out

@@ -43,9 +43,11 @@ def _big_messages():
 def test_estimate_tokens_counts_tool_calls():
     c = Compactor()
     msgs = [
-        {"role": "assistant", "content": "", "tool_calls": [
-            {"function": {"name": "my_tool", "arguments": '{"a": "b"}'}}
-        ]},
+        {
+            "role": "assistant",
+            "content": "",
+            "tool_calls": [{"function": {"name": "my_tool", "arguments": '{"a": "b"}'}}],
+        },
     ]
     est = c.estimate_tokens(msgs)
     assert est == max(1, (len("my_tool") + len('{"a": "b"}')) // 4)
@@ -72,7 +74,10 @@ def test_should_compact_level_matrix():
 
 def test_retention_list_extracts_sections():
     msgs = [
-        {"role": "user", "content": "TODO: fix the bug\nconstraint: keep it fast\npending task in_progress"},
+        {
+            "role": "user",
+            "content": "TODO: fix the bug\nconstraint: keep it fast\npending task in_progress",
+        },
         {"role": "user", "content": "def helper():\nclass Foo:"},
     ]
     rl = RetentionList.from_messages(msgs)
@@ -102,7 +107,11 @@ def test_compact_idempotent_no_duplicate_retention_header():
     msgs = _big_messages()
     once = c.compact(msgs, level="error")
     twice = c.compact(once, level="error")
-    headers = [m for m in twice if m.get("role") == "system" and str(m.get("content", "")).startswith("[Retention List]")]
+    headers = [
+        m
+        for m in twice
+        if m.get("role") == "system" and str(m.get("content", "")).startswith("[Retention List]")
+    ]
     assert len(headers) <= 1
 
 
@@ -113,7 +122,11 @@ async def test_llm_funnel_compaction_changes_messages_and_emits():
     proceed, reason, out = await funnel.pre_llm(_Ctx(session_id="cs1"), messages=msgs)
     assert proceed is True
     assert out is not msgs
-    assert any("[Compacted prior context]" in m.get("content", "") for m in out if m.get("role") == "system")
+    assert any(
+        "[Compacted prior context]" in m.get("content", "")
+        for m in out
+        if m.get("role") == "system"
+    )
     assert out[-1]["content"] == "final"
     events = [e.event for e in bus.replay(session_id="cs1", domain="agent")]
     assert "compact_before" in events and "compact_after" in events
@@ -187,4 +200,3 @@ def test_microcompact_truncates_tool_role():
     out = c._microcompact([{"role": "tool", "content": "T" * 300}])
     assert "truncated" in out[0]["content"]
     assert len(out[0]["content"]) < 300
-

@@ -11,6 +11,7 @@ Pins:
      SESSION_TYPE_MISMATCH (expected=chat_session, actual=run); unknown id
      returns SESSION_NOT_FOUND — not the misleading AGENT_NOT_FOUND.
 """
+
 from __future__ import annotations
 
 import httpx
@@ -38,9 +39,7 @@ def _rag_with_capture():
         return httpx.Response(404, json={})
 
     c = FusionRAGClient(base_url="http://test")
-    c._client = httpx.AsyncClient(
-        base_url="http://test", transport=httpx.MockTransport(handler)
-    )
+    c._client = httpx.AsyncClient(base_url="http://test", transport=httpx.MockTransport(handler))
     return c, seen
 
 
@@ -95,7 +94,13 @@ def client(monkeypatch, tmp_path):
             if params.get("task_id") == "run_123":
                 return {"task": {"task_id": "run_123", "status": "running"}}
             return {"status": "error", "message": f"Task not found: {params.get('task_id')}"}
-        if method in ("sessions.get", "sessions.messages", "sessions.resume", "sessions.fork", "sessions.rename"):
+        if method in (
+            "sessions.get",
+            "sessions.messages",
+            "sessions.resume",
+            "sessions.fork",
+            "sessions.rename",
+        ):
             return {"status": "error", "message": f"session not found: {params.get('session_id')}"}
         raise AssertionError(f"unexpected rpc {method}")
 
@@ -111,7 +116,9 @@ def client(monkeypatch, tmp_path):
 
 
 def test_graph_create_422_missing_start(client):
-    resp = client.post("/v1/graphs", json={"graph_data": {"nodes": [{"id": "llm1", "type": "llm"}]}})
+    resp = client.post(
+        "/v1/graphs", json={"graph_data": {"nodes": [{"id": "llm1", "type": "llm"}]}}
+    )
     assert resp.status_code == 422
     err = resp.json()["detail"]["error"]
     assert err["code"] == "PARAM_FORMAT_ERROR"

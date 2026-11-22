@@ -46,7 +46,7 @@ HINTS = {
     "spec_unavailable": "seed the team SPEC.md via teams.register or teams.spec_write",
     "supplement_cap_reached": "steering is capped at 3 per run; wait for the run to finish or send an inbox message",
     "wakeup_timeout": "the task was cancelled because its wakeup expired with on_timeout=end",
-    "model_tier_unknown": "member model_tier must be \"\", \"cheap\", or \"strong\" (kernel VALID_MODEL_TIERS)",
+    "model_tier_unknown": 'member model_tier must be "", "cheap", or "strong" (kernel VALID_MODEL_TIERS)',
     "fanout_over_limit": "split the team: the kernel hard-caps fan-out at 20 members per registration",
     "handoff_verification_failed": "the spawn brief's handoff claims do not match its permission ledger; send a brief whose claims are backed by ALLOW ledger entries (FUSION_HANDOFF_VERIFY)",
 }

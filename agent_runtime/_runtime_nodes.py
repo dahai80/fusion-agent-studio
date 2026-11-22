@@ -325,9 +325,7 @@ class _NodeExecutorsMixin:
             # logged as advisory instead of forcing a safety approval that
             # headless runs cannot answer.
             last_msg = messages[-1] if messages else {}
-            is_tool_result = (
-                isinstance(last_msg, dict) and last_msg.get("role") == "tool"
-            )
+            is_tool_result = isinstance(last_msg, dict) and last_msg.get("role") == "tool"
             safety_result = self.safety_gateway.evaluate_action(
                 category="llm_call",
                 content=str(messages[-1]) if messages else "",
@@ -359,9 +357,7 @@ class _NodeExecutorsMixin:
         # (FUSION_GUARDRAILS_ENABLED), fail-open on transport errors. Blocks
         # only on an explicit action=block verdict from the service.
         if guardrails_enabled():
-            last_user = next(
-                (m for m in reversed(messages) if m.get("role") == "user"), {}
-            )
+            last_user = next((m for m in reversed(messages) if m.get("role") == "user"), {})
             gi = await check_llm_input(str(last_user.get("content", "") or ""))
             if gi.get("action") == "block":
                 ctx.error = (
@@ -549,33 +545,23 @@ class _NodeExecutorsMixin:
             try:
                 if isinstance(usage, dict):
                     llm_span.attributes["prompt_tokens"] = usage.get("prompt_tokens", 0)
-                    llm_span.attributes["completion_tokens"] = usage.get(
-                        "completion_tokens", 0
-                    )
+                    llm_span.attributes["completion_tokens"] = usage.get("completion_tokens", 0)
                     # #483: reasoning split rides the span attributes so the
                     # telemetry counter picks it up in end_span.
                     _details = usage.get("completion_tokens_details")
-                    llm_span.attributes["reasoning_tokens"] = usage.get(
-                        "reasoning_tokens", 0
-                    ) or (
-                        _details.get("reasoning_tokens", 0)
-                        if isinstance(_details, dict)
-                        else 0
+                    llm_span.attributes["reasoning_tokens"] = usage.get("reasoning_tokens", 0) or (
+                        _details.get("reasoning_tokens", 0) if isinstance(_details, dict) else 0
                     )
                     # #541: prefix-cache hit rides the span attributes when
                     # the serving engine reports prompt_tokens_details.
                     _ptd = usage.get("prompt_tokens_details")
-                    _cached = (
-                        _ptd.get("cached_tokens", 0) or 0
-                        if isinstance(_ptd, dict)
-                        else 0
-                    )
+                    _cached = _ptd.get("cached_tokens", 0) or 0 if isinstance(_ptd, dict) else 0
                     _prompt = usage.get("prompt_tokens", 0) or 0
                     if _cached:
                         llm_span.attributes["prefix_cache_hit_tokens"] = _cached
-                        llm_span.attributes["prefix_cache_hit_rate"] = round(
-                            _cached / _prompt, 4
-                        ) if _prompt else 0.0
+                        llm_span.attributes["prefix_cache_hit_rate"] = (
+                            round(_cached / _prompt, 4) if _prompt else 0.0
+                        )
                 self.telemetry_engine.end_span(llm_span.span_id, status=llm_status)
             except Exception as e:
                 logger.warning("telemetry end_span llm.call failed: %s", e)
@@ -585,9 +571,7 @@ class _NodeExecutorsMixin:
         # warning so the operator can check the prompt-ordering contract.
         if isinstance(usage, dict):
             _ptd = usage.get("prompt_tokens_details")
-            _cached = (
-                _ptd.get("cached_tokens", 0) or 0 if isinstance(_ptd, dict) else 0
-            )
+            _cached = _ptd.get("cached_tokens", 0) or 0 if isinstance(_ptd, dict) else 0
             _prompt = usage.get("prompt_tokens", 0) or 0
             if _prompt >= 4096 and len(messages) > 3 and _cached / _prompt < 0.5:
                 logger.warning(
@@ -2028,13 +2012,14 @@ class _NodeExecutorsMixin:
             # #556: cap breach fails visibly — no silent truncation, no hang
             logger.warning(
                 "iteration cap breach node=%s items=%d max_items=%d",
-                node.label, len(items), max_items,
+                node.label,
+                len(items),
+                max_items,
             )
             yield AgentEvent(
                 type=AgentEventType.ERROR,
                 content=(
-                    f"iteration: {len(items)} items exceeds cap {max_items} "
-                    f"(node '{node.label}')"
+                    f"iteration: {len(items)} items exceeds cap {max_items} (node '{node.label}')"
                 ),
                 node_id=node.label,
                 metadata={"items": len(items), "max_items": max_items, "cap_breach": True},
@@ -2072,12 +2057,16 @@ class _NodeExecutorsMixin:
                 ctx.variables.set(output_var, results)
                 logger.info(
                     "iteration aborted at item %d node=%s (%d completed)",
-                    idx, node.label, len(results),
+                    idx,
+                    node.label,
+                    len(results),
                 )
                 return
             results.append(final)
             ctx.variables.set(output_var, results)
-        logger.info("iteration done node=%s items=%d output=%s", node.label, len(results), output_var)
+        logger.info(
+            "iteration done node=%s items=%d output=%s", node.label, len(results), output_var
+        )
         yield AgentEvent(
             type=AgentEventType.RESULT,
             content=json.dumps(results, ensure_ascii=False),
@@ -2126,9 +2115,7 @@ class _NodeExecutorsMixin:
             },
         )
 
-    def _flow_state_snapshot(
-        self, ctx: AgentContext, graph: AgentGraph
-    ) -> dict:
+    def _flow_state_snapshot(self, ctx: AgentContext, graph: AgentGraph) -> dict:
         """#556: FlowState = keys declared at the start node
         (tool_params.flow_state), snapshotted from ctx.variables."""
         start = graph.get_node(graph.start_node_id) if graph.start_node_id else None
@@ -2216,9 +2203,7 @@ class _NodeExecutorsMixin:
             decision = await asyncio.wait_for(gate.wait(input_id), timeout=timeout)
         except asyncio.TimeoutError:
             # pause-and-persist: the stream ends here; resume via checkpoint
-            logger.info(
-                "human_input timeout — paused node=%s input_id=%s", node.label, input_id
-            )
+            logger.info("human_input timeout — paused node=%s input_id=%s", node.label, input_id)
             yield AgentEvent(
                 type=AgentEventType.CHECKPOINT,
                 content=f"Paused awaiting human input at '{node.label}': {prompt}",
@@ -2283,8 +2268,9 @@ class _NodeExecutorsMixin:
                 result.get("reason"),
             )
             return False
-        logger.info("human_input resolved input_id=%s approved=%s",
-                    input_id, decision.get("approved"))
+        logger.info(
+            "human_input resolved input_id=%s approved=%s", input_id, decision.get("approved")
+        )
         return True
 
     def pending_human_inputs(self) -> list[dict]:

@@ -6,6 +6,7 @@ A-1: AgentRuntime 进程级单例; 执行态写实例属性, 并发图互踩.
   Tier3: variables per-exec -> ctx (A-2: sub-runtime 不共享父变量).
 A-2: 子 runtime 写 input_mapping 污染父 singleton -> 改写 ctx.variables + copy.
 """
+
 from __future__ import annotations
 
 import asyncio

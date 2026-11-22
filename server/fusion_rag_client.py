@@ -149,9 +149,7 @@ class FusionRAGClient:
             data = {}
             if metadata:
                 data["metadata"] = str(metadata)
-            resp = await self.client.post(
-                f"/kb/bases/{kb_id}/documents", files=files, data=data
-            )
+            resp = await self.client.post(f"/kb/bases/{kb_id}/documents", files=files, data=data)
         resp.raise_for_status()
         return resp.json()
 
@@ -194,9 +192,7 @@ class FusionRAGClient:
             payload["source"] = source
         if metadata:
             payload["metadata"] = metadata
-        resp = await self.client.post(
-            f"/kb/bases/{kb_id}/documents/ingest", json=payload
-        )
+        resp = await self.client.post(f"/kb/bases/{kb_id}/documents/ingest", json=payload)
         resp.raise_for_status()
         return resp.json()
 
@@ -205,17 +201,13 @@ class FusionRAGClient:
         resp.raise_for_status()
         return resp.json()
 
-    async def replace_document(
-        self, kb_id: str, doc_id: str, file_path: str
-    ) -> dict[str, Any]:
+    async def replace_document(self, kb_id: str, doc_id: str, file_path: str) -> dict[str, Any]:
         import pathlib
 
         path = pathlib.Path(file_path)
         with open(path, "rb") as f:
             files = {"file": (path.name, f)}
-            resp = await self.client.put(
-                f"/kb/bases/{kb_id}/documents/{doc_id}", files=files
-            )
+            resp = await self.client.put(f"/kb/bases/{kb_id}/documents/{doc_id}", files=files)
         resp.raise_for_status()
         return resp.json()
 
@@ -285,13 +277,15 @@ class FusionRAGClient:
         results = []
         raw = data if isinstance(data, list) else data.get("results", [])
         for item in raw:
-            results.append(SearchResult(
-                content=item.get("content", ""),
-                score=item.get("score", 0.0),
-                source=item.get("source", ""),
-                metadata=item.get("metadata", {}),
-                chunk_id=item.get("chunk_id", ""),
-            ))
+            results.append(
+                SearchResult(
+                    content=item.get("content", ""),
+                    score=item.get("score", 0.0),
+                    source=item.get("source", ""),
+                    metadata=item.get("metadata", {}),
+                    chunk_id=item.get("chunk_id", ""),
+                )
+            )
         return results
 
     async def ask(
@@ -347,13 +341,9 @@ class FusionRAGClient:
         resp.raise_for_status()
         return resp.json()
 
-    async def map_project(
-        self, project_id: str, kb_id: str
-    ) -> dict[str, Any]:
+    async def map_project(self, project_id: str, kb_id: str) -> dict[str, Any]:
         payload = {"kb_id": kb_id}
-        resp = await self.client.post(
-            f"/kb/projects/{project_id}/kb", json=payload
-        )
+        resp = await self.client.post(f"/kb/projects/{project_id}/kb", json=payload)
         resp.raise_for_status()
         return resp.json()
 

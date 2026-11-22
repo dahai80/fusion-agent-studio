@@ -130,15 +130,11 @@ def validate_graph(graph: AgentGraph) -> ValidationResult:
         outgoing = [e for e in graph.edges if e.source_id == cn_id]
         if len(outgoing) < 2:
             issues.append(
-                ValidationIssue(
-                    "warning", cn_id, "Condition node has fewer than 2 outgoing edges"
-                )
+                ValidationIssue("warning", cn_id, "Condition node has fewer than 2 outgoing edges")
             )
 
     valid = not any(i.severity == "error" for i in issues)
-    logger.info(
-        "Graph validation: %s (%d issues)", "PASS" if valid else "FAIL", len(issues)
-    )
+    logger.info("Graph validation: %s (%d issues)", "PASS" if valid else "FAIL", len(issues))
     return ValidationResult(valid=valid, issues=issues)
 
 

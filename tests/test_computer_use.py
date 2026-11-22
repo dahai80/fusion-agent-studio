@@ -131,6 +131,7 @@ class TestRegistryIntegration:
         # 故只需 patch tools.browser_tools; 同步 patch tools 包级 re-export.
         import tools as _tools_pkg
         import tools.browser_tools as _bt
+
         fake_cfg = fake_home / ".fusion-browser" / "config.json"
         monkeypatch.setattr(_bt, "BROWSER_CONFIG_PATH", fake_cfg)
         monkeypatch.setattr(_tools_pkg, "BROWSER_CONFIG_PATH", fake_cfg)

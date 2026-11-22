@@ -41,7 +41,11 @@ class ExactScorer(Scorer):
 
     def score(self, output, expected, tool_calls):
         ok = output.strip() == expected.strip()
-        return {"passed": ok, "score": 1.0 if ok else 0.0, "reason": "" if ok else "output != expected"}
+        return {
+            "passed": ok,
+            "score": 1.0 if ok else 0.0,
+            "reason": "" if ok else "output != expected",
+        }
 
 
 class ContainsScorer(Scorer):
@@ -49,7 +53,11 @@ class ContainsScorer(Scorer):
 
     def score(self, output, expected, tool_calls):
         ok = expected.strip() in output
-        return {"passed": ok, "score": 1.0 if ok else 0.0, "reason": "" if ok else f"expected substring missing: {expected[:80]}"}
+        return {
+            "passed": ok,
+            "score": 1.0 if ok else 0.0,
+            "reason": "" if ok else f"expected substring missing: {expected[:80]}",
+        }
 
 
 class ToolSequenceScorer(Scorer):
@@ -84,7 +92,9 @@ class LLMJudgeScorer(Scorer):
         )
 
         async def _judge():
-            resp = await self.mlx_client.chat(model="", messages=[{"role": "user", "content": prompt}])
+            resp = await self.mlx_client.chat(
+                model="", messages=[{"role": "user", "content": prompt}]
+            )
             return resp.content
 
         import asyncio
@@ -143,7 +153,9 @@ class RubricScorer(Scorer):
         )
 
         async def _judge():
-            resp = await self.judge_client.chat(model="", messages=[{"role": "user", "content": prompt}])
+            resp = await self.judge_client.chat(
+                model="", messages=[{"role": "user", "content": prompt}]
+            )
             return resp.content
 
         import asyncio
@@ -162,7 +174,12 @@ class RubricScorer(Scorer):
             else:
                 verdict = asyncio.run(_judge())
         except Exception as e:
-            return {"passed": False, "score": 0.0, "reason": f"judge call failed: {e}", "rubric": {}}
+            return {
+                "passed": False,
+                "score": 0.0,
+                "reason": f"judge call failed: {e}",
+                "rubric": {},
+            }
         score, breakdown = self._parse(verdict)
         if score is None:
             return {
@@ -211,7 +228,9 @@ class FailureTagger:
     @classmethod
     def tag(cls, entry: dict, expected: str = "", tool_calls: list[str] | None = None) -> str:
         tool_calls = tool_calls or []
-        if entry.get("reason", "").startswith("execution error") or "graph not found" in entry.get("reason", ""):
+        if entry.get("reason", "").startswith("execution error") or "graph not found" in entry.get(
+            "reason", ""
+        ):
             return cls.FC1
         reason = str(entry.get("reason", ""))
         if "tool calls" in reason and "!= expected" in reason:
@@ -272,7 +291,11 @@ class EvalDataset:
     source: str = ""
 
     def to_dict(self) -> dict:
-        return {"name": self.name, "source": self.source, "cases": [c.to_dict() for c in self.cases]}
+        return {
+            "name": self.name,
+            "source": self.source,
+            "cases": [c.to_dict() for c in self.cases],
+        }
 
     @classmethod
     def from_dict(cls, data: dict, source: str = "") -> "EvalDataset":
@@ -369,9 +392,7 @@ class EvalRunner:
         # are derivable from tool calls; live graph runs may inject the rest
         # via provenance_fn at construction.
         provenance = dict(case.meta.get("hit_provenance", {}) or {})
-        skill_hits = [
-            t for t in tool_calls if t.startswith("skill") or t in ("memory_search",)
-        ]
+        skill_hits = [t for t in tool_calls if t.startswith("skill") or t in ("memory_search",)]
         if skill_hits:
             provenance.setdefault("skill_hits", []).extend(skill_hits)
         return provenance
@@ -402,7 +423,13 @@ class EvalRunner:
             gid = case.graph_id or graph_id
             entry = {"case_id": case.id, "scorer": case.scorer}
             if self.runtime is None or self.graph_loader is None:
-                entry.update({"passed": False, "score": 0.0, "reason": "runner not wired (no runtime/graph_loader)"})
+                entry.update(
+                    {
+                        "passed": False,
+                        "score": 0.0,
+                        "reason": "runner not wired (no runtime/graph_loader)",
+                    }
+                )
                 report.results.append(entry)
                 continue
             graph = self.graph_loader(gid)
@@ -432,7 +459,11 @@ class EvalRunner:
         report.duration_s = time.time() - started
         logger.info(
             "eval run dataset=%s cases=%d passed=%d rate=%.2f dur=%.1fs",
-            dataset.name, len(report.results), passed, report.pass_rate, report.duration_s,
+            dataset.name,
+            len(report.results),
+            passed,
+            report.pass_rate,
+            report.duration_s,
         )
         return report
 
@@ -459,11 +490,19 @@ class EvalRunner:
                 return None
             messages = data.get("messages") or []
             inp = next(
-                (str(m.get("content", "")) for m in messages if m.get("role") == "user" and m.get("content")),
+                (
+                    str(m.get("content", ""))
+                    for m in messages
+                    if m.get("role") == "user" and m.get("content")
+                ),
                 "",
             )
             out = next(
-                (str(m.get("content", "")) for m in reversed(messages) if m.get("role") == "assistant" and m.get("content")),
+                (
+                    str(m.get("content", ""))
+                    for m in reversed(messages)
+                    if m.get("role") == "assistant" and m.get("content")
+                ),
                 "",
             )
             if not inp:

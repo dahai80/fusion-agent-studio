@@ -69,14 +69,17 @@ def test_store_load_missing(tmp_path):
 
 def test_anthropic_style_comma_allowed_tools(tmp_path):
     store = SkillsStore(str(tmp_path / "skills"))
-    store.install_skill("comma", """---
+    store.install_skill(
+        "comma",
+        """---
 name: comma
 description: d
 allowed-tools: file_read, file_write
 ---
 
 body
-""")
+""",
+    )
     listed = store.list_skills()
     assert listed[0]["allowed_tools"] == ["file_read", "file_write"]
 

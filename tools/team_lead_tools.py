@@ -94,11 +94,19 @@ class TeamAssignTool(BaseTool):
             return f"Error: team not registered: {team}"
         try:
             if kwargs.get("task_id") and kwargs.get("to"):
-
                 blocked_by = kwargs.get("blocked_by") or None
-                team_rt.transition_task(str(kwargs["task_id"]), str(kwargs["to"]), blocked_by=blocked_by)
-                logger.info("team_assign transition team=%s task=%s to=%s", team, kwargs["task_id"], kwargs["to"])
-                return json.dumps({"status": "ok", "task_id": str(kwargs["task_id"]), "to": str(kwargs["to"])})
+                team_rt.transition_task(
+                    str(kwargs["task_id"]), str(kwargs["to"]), blocked_by=blocked_by
+                )
+                logger.info(
+                    "team_assign transition team=%s task=%s to=%s",
+                    team,
+                    kwargs["task_id"],
+                    kwargs["to"],
+                )
+                return json.dumps(
+                    {"status": "ok", "task_id": str(kwargs["task_id"]), "to": str(kwargs["to"])}
+                )
             from fusion_harness.team_runtime import TeamTask
 
             task = TeamTask(
@@ -109,7 +117,9 @@ class TeamAssignTool(BaseTool):
                 episodes=[str(t) for t in (kwargs.get("episodes") or [])],
             )
             task_id = team_rt.add_task(task)
-            logger.info("team_assign added team=%s task=%s assignee=%s", team, task_id, task.assignee)
+            logger.info(
+                "team_assign added team=%s task=%s assignee=%s", team, task_id, task.assignee
+            )
             return json.dumps({"status": "ok", "task_id": task_id, "assignee": task.assignee})
         except Exception as e:
             logger.warning("team_assign rejected team=%s: %s", team, e)
@@ -158,7 +168,9 @@ class TeamDispatchTool(BaseTool):
             return f"Error: team not registered: {team}"
         try:
             brief, member = validate_member_constraints(
-                team_rt.definition, str(kwargs.get("member", "") or ""), dict(kwargs.get("brief") or {})
+                team_rt.definition,
+                str(kwargs.get("member", "") or ""),
+                dict(kwargs.get("brief") or {}),
             )
             reject_tools_outside_allowlist(member, [str(t) for t in (kwargs.get("tools") or [])])
             errors = validate_brief(brief)

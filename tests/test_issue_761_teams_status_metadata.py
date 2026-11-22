@@ -68,7 +68,13 @@ async def test_status_lists_armed_wakeups(daemon, tmp_path):
     res = await _run(
         daemon,
         "teams.wakeup_create",
-        {"team": "meta-team", "task_id": task_id, "kind": "at", "at": 1763462400, "on_timeout": "wake"},
+        {
+            "team": "meta-team",
+            "task_id": task_id,
+            "kind": "at",
+            "at": 1763462400,
+            "on_timeout": "wake",
+        },
     )
     assert res["status"] == "ok", res
     task = await _status_task(daemon, task_id)
@@ -99,7 +105,9 @@ async def test_status_wakeup_fields_omitted_when_absent(daemon, tmp_path):
         {"team": "meta-team", "task_id": task_id, "kind": "every", "every": 300},
     )
     task = await _status_task(daemon, task_id)
-    assert task["wakeups"] == [{"wake_id": "wk_1", "kind": "every", "every": 300.0, "on_timeout": "wake"}]
+    assert task["wakeups"] == [
+        {"wake_id": "wk_1", "kind": "every", "every": 300.0, "on_timeout": "wake"}
+    ]
 
 
 async def test_status_zero_wakeups_and_steers_by_default(daemon, tmp_path):
@@ -133,7 +141,13 @@ async def test_status_steer_counter_scoped_to_current_attempt(daemon, tmp_path):
     team_rt = daemon._get_runtime().teams_registry["meta-team"]
     task = team_rt.task(task_id)
     task.metadata.setdefault("supplements", []).append(
-        {"supplement_id": "sp_1", "origin": "operator", "content": "old", "status": "delivered", "attempt": 1}
+        {
+            "supplement_id": "sp_1",
+            "origin": "operator",
+            "content": "old",
+            "status": "delivered",
+            "attempt": 1,
+        }
     )
     import os
 

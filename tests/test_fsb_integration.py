@@ -153,9 +153,7 @@ class TestFSBClientHttp:
 class TestChatFSBRpc:
     @pytest.fixture(autouse=True)
     def _fresh_binder(self, monkeypatch):
-        monkeypatch.setattr(
-            "agent_runtime.workspace_binder._singleton", None
-        )
+        monkeypatch.setattr("agent_runtime.workspace_binder._singleton", None)
         yield
 
     def _make_dispatcher(self):
@@ -209,9 +207,7 @@ class TestChatFSBRpc:
     async def test_fsb_unbind_disabled(self, monkeypatch):
         monkeypatch.delenv("FUSION_FSB_ENABLED", raising=False)
         d, _ = self._make_dispatcher()
-        await d._handle_fsb_bind(
-            {"workspace_id": "ws1", "agent_id": "a1", "session_id": "s1"}
-        )
+        await d._handle_fsb_bind({"workspace_id": "ws1", "agent_id": "a1", "session_id": "s1"})
         res = await d._handle_fsb_unbind({"workspace_id": "ws1"})
         assert res["status"] == "disabled"
         assert res["bound"] is False
@@ -234,12 +230,8 @@ class TestChatFSBRpc:
         d, _ = self._make_dispatcher()
         client = MagicMock()
         client.chat_run.return_value = None
-        with patch(
-            "agent_runtime.fsb_client.get_fsb_client", return_value=client
-        ):
-            res = await d._handle_fsb_run(
-                {"workspace_id": "ws1", "query": "send invoice"}
-            )
+        with patch("agent_runtime.fsb_client.get_fsb_client", return_value=client):
+            res = await d._handle_fsb_run({"workspace_id": "ws1", "query": "send invoice"})
         assert res["status"] == "error"
         assert res["matched"] is False
         assert "unreachable" in res["message"]
@@ -249,12 +241,8 @@ class TestChatFSBRpc:
         d, _ = self._make_dispatcher()
         client = MagicMock()
         client.chat_run.return_value = {"matched": True, "run": {"id": "r1"}}
-        with patch(
-            "agent_runtime.fsb_client.get_fsb_client", return_value=client
-        ):
-            res = await d._handle_fsb_run(
-                {"workspace_id": "ws1", "query": "send invoice"}
-            )
+        with patch("agent_runtime.fsb_client.get_fsb_client", return_value=client):
+            res = await d._handle_fsb_run({"workspace_id": "ws1", "query": "send invoice"})
         assert res["status"] == "ok"
         assert res["matched"] is True
 
@@ -265,9 +253,7 @@ class TestChatFSBRpc:
 class TestFSBHttpEndpoints:
     @pytest.fixture(autouse=True)
     def _setup(self, monkeypatch, tmp_path):
-        monkeypatch.setattr(
-            "agent_runtime.workspace_binder._singleton", None
-        )
+        monkeypatch.setattr("agent_runtime.workspace_binder._singleton", None)
         monkeypatch.setattr(api_server, "_daemon", None)
         monkeypatch.setattr(api_server, "_auth_configured", lambda: False)
         monkeypatch.delenv("FUSION_FSB_ENABLED", raising=False)
@@ -343,9 +329,7 @@ class TestFSBNotifyDelivery:
     def test_notify_appends_assistant_message(self, monkeypatch, tmp_path):
         from fastapi.testclient import TestClient
 
-        monkeypatch.setattr(
-            "agent_runtime.workspace_binder._singleton", None
-        )
+        monkeypatch.setattr("agent_runtime.workspace_binder._singleton", None)
         monkeypatch.delenv("FUSION_FSB_ENABLED", raising=False)
 
         from agent_runtime.chat_engine import ChatEngine
@@ -353,9 +337,7 @@ class TestFSBNotifyDelivery:
 
         store = AgentStore(db_path=str(tmp_path / "s.db"))
         engine = ChatEngine(runtime=None, store=store)
-        session = engine.create_session(
-            mode="simple", title="t", graph_id="", metadata={}
-        )
+        session = engine.create_session(mode="simple", title="t", graph_id="", metadata={})
 
         daemon = MagicMock()
         daemon._get_chat_engine.return_value = engine
@@ -388,6 +370,5 @@ class TestFSBNotifyDelivery:
         got = engine.get_session(session.id)
         assert got is not None
         assert any(
-            "InvoiceFlow" in str(m.content) and "r99" in str(m.content)
-            for m in got.messages
+            "InvoiceFlow" in str(m.content) and "r99" in str(m.content) for m in got.messages
         )

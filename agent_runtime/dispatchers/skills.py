@@ -73,7 +73,11 @@ class SkillsDispatcher(SubDispatcher):
         if out.get("status") == "published":
             self._plane().ensure("skill", name, origin="skill-drafter")
         if out.get("status") in ("not_found", "error"):
-            return {"status": "error", "message": out.get("message", out.get("status")), "name": name}
+            return {
+                "status": "error",
+                "message": out.get("message", out.get("status")),
+                "name": name,
+            }
         logger.info("skills.review_draft name=%s action=%s out=%s", name, action, out.get("status"))
         return {"status": "ok", **out}
 

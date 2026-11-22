@@ -120,7 +120,9 @@ class _OtelSdkBridge:
 
             provider = trace.get_tracer_provider()
             if not isinstance(provider, trace.TracerProvider):
-                provider = TracerProvider(resource=Resource.create({"service.name": "fusion-agent-studio"}))
+                provider = TracerProvider(
+                    resource=Resource.create({"service.name": "fusion-agent-studio"})
+                )
                 trace.set_tracer_provider(provider)
             self._tracer = provider.get_tracer("fusion-agent-studio")
             self._trace_mod = trace
@@ -175,9 +177,7 @@ class Span:
             "attributes": self.attributes,
             "start_time": self.start_time,
             "end_time": self.end_time,
-            "duration_ms": (self.end_time - self.start_time) * 1000
-            if self.end_time
-            else 0,
+            "duration_ms": (self.end_time - self.start_time) * 1000 if self.end_time else 0,
             "status": self.status,
         }
 
@@ -269,8 +269,7 @@ class TelemetryEngine:
         if cap <= 0 or len(self._spans) <= cap:
             return
         candidates = [
-            (sid, s.start_time) for sid, s in self._spans.items()
-            if sid not in self._active_spans
+            (sid, s.start_time) for sid, s in self._spans.items() if sid not in self._active_spans
         ]
         candidates.sort(key=lambda kv: kv[1])
         overflow = len(self._spans) - cap
@@ -361,12 +360,8 @@ class TelemetryEngine:
             self._counters["llm_calls"] += 1
             self._latencies["llm_calls"].append(span.end_time - span.start_time)
             self._counters["tokens_prompt"] += span.attributes.get("prompt_tokens", 0)
-            self._counters["tokens_completion"] += span.attributes.get(
-                "completion_tokens", 0
-            )
-            self._counters["tokens_reasoning"] += span.attributes.get(
-                "reasoning_tokens", 0
-            )
+            self._counters["tokens_completion"] += span.attributes.get("completion_tokens", 0)
+            self._counters["tokens_reasoning"] += span.attributes.get("reasoning_tokens", 0)
             self._prune_latencies("llm_calls")
         elif span.name == "tool.call":
             self._counters["tool_calls"] += 1
@@ -411,9 +406,7 @@ class TelemetryEngine:
         attrs = dict(attributes or {})
         attrs["w3c.traceparent"] = traceparent.strip()
         attrs["otel.trace_id"] = ext_trace
-        return self.start_span(
-            name, trace_id=ext_trace[:16], parent_id=ext_span, attributes=attrs
-        )
+        return self.start_span(name, trace_id=ext_trace[:16], parent_id=ext_span, attributes=attrs)
 
     def get_trace(self, trace_id: str) -> dict | None:
         span_ids = self._traces.get(trace_id)
@@ -425,9 +418,7 @@ class TelemetryEngine:
     def list_spans(self, trace_id: str | None = None, limit: int = 100) -> list[dict]:
         if trace_id:
             span_ids = self._traces.get(trace_id, [])
-            spans = [
-                self._spans[sid].to_dict() for sid in span_ids if sid in self._spans
-            ]
+            spans = [self._spans[sid].to_dict() for sid in span_ids if sid in self._spans]
         else:
             spans = [s.to_dict() for s in self._spans.values()]
         spans.sort(key=lambda s: s.get("start_time", 0), reverse=True)
@@ -454,15 +445,11 @@ class TelemetryEngine:
                         scope_spans.append(semconv_span(span.to_dict()))
                 resource_spans.append(
                     {
-                        "resource": {
-                            "attributes": {"service.name": "fusion-agent-studio"}
-                        },
+                        "resource": {"attributes": {"service.name": "fusion-agent-studio"}},
                         "scopeSpans": [{"spans": scope_spans}],
                     }
                 )
-            payload = json.dumps(
-                {"resourceSpans": resource_spans}, indent=2, ensure_ascii=False
-            )
+            payload = json.dumps({"resourceSpans": resource_spans}, indent=2, ensure_ascii=False)
             # C13: endpoint 非空时 HTTP POST resourceSpans 到 OTLP HTTP JSON
             # receiver (标准 /v1/traces OTLP/HTTP). 无 opentelemetry-sdk 依赖,
             # 兼容 Jaeger/Tempo/OTel-collector HTTP JSON 入口.
@@ -557,7 +544,10 @@ class TelemetryEngine:
         self._gauges["permission_decisions"] = float(total)
         logger.debug(
             "permission noise gauge: asks=%d auto=%d denies=%d rate=%.1f",
-            asks, auto, denies, rate,
+            asks,
+            auto,
+            denies,
+            rate,
         )
         return rate
 
@@ -588,9 +578,7 @@ class TelemetryEngine:
 
         target = path or os.environ.get(
             "FUSION_SLO_BASELINE_PATH",
-            os.path.join(
-                str(studio_home()), "slo_baselines.jsonl"
-            ),
+            os.path.join(str(studio_home()), "slo_baselines.jsonl"),
         )
         record = {"schema": 1, "ts": time.time(), **self.slo_summary()}
         try:
@@ -610,9 +598,7 @@ class TelemetryEngine:
         for key, vals in self._latencies.items():
             if vals:
                 avg_latencies[f"avg_{key}_ms"] = sum(vals) / len(vals) * 1000
-                avg_latencies[f"p99_{key}_ms"] = (
-                    sorted(vals)[int(len(vals) * 0.99)] * 1000
-                )
+                avg_latencies[f"p99_{key}_ms"] = sorted(vals)[int(len(vals) * 0.99)] * 1000
             else:
                 avg_latencies[f"avg_{key}_ms"] = 0
                 avg_latencies[f"p99_{key}_ms"] = 0

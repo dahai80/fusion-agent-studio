@@ -174,9 +174,7 @@ class TestIssue214ConcurrencyThrottle:
     async def test_semaphore_limits_concurrency(self):
         from agent_runtime.daemon_server import DaemonServer
 
-        d = DaemonServer(
-            ws_port=0, cluster_port=0, http_port=0, store_path=":memory:"
-        )
+        d = DaemonServer(ws_port=0, cluster_port=0, http_port=0, store_path=":memory:")
         d._graph_concurrency_limit = 1
         d._graph_semaphore = asyncio.Semaphore(1)
         in_flight = 0
@@ -197,9 +195,7 @@ class TestIssue214ConcurrencyThrottle:
     async def test_no_semaphore_when_limit_zero(self):
         from agent_runtime.daemon_server import DaemonServer
 
-        d = DaemonServer(
-            ws_port=0, cluster_port=0, http_port=0, store_path=":memory:"
-        )
+        d = DaemonServer(ws_port=0, cluster_port=0, http_port=0, store_path=":memory:")
         d._graph_concurrency_limit = 0
         d._graph_semaphore = None
         assert d._graph_semaphore is None

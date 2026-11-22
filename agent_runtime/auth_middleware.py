@@ -19,9 +19,7 @@ _default_manager = ApiKeyManager(studio_home())
 class ApiKeyAuth:
     def __init__(self, manager: Optional[ApiKeyManager] = None):
         self.manager = manager or _default_manager
-        logger.info(
-            "ApiKeyAuth initialized with manager base_path=%s", self.manager.base_path
-        )
+        logger.info("ApiKeyAuth initialized with manager base_path=%s", self.manager.base_path)
 
     async def __call__(
         self,
@@ -102,18 +100,10 @@ class ApiKeyAuth:
         if "ip" in reason_lower or "forbidden" in reason_lower and "ip" in reason_lower:
             raise_api_error(ErrorCode.API_KEY_IP_FORBIDDEN)
 
-        if (
-            "agent" in reason_lower
-            or "restricted" in reason_lower
-            and "agent" in reason_lower
-        ):
+        if "agent" in reason_lower or "restricted" in reason_lower and "agent" in reason_lower:
             raise_api_error(ErrorCode.API_KEY_AGENT_RESTRICTED)
 
-        if (
-            "invalid" in reason_lower
-            or "not found" in reason_lower
-            or "expired" in reason_lower
-        ):
+        if "invalid" in reason_lower or "not found" in reason_lower or "expired" in reason_lower:
             raise_api_error(ErrorCode.API_KEY_INVALID)
 
         raise_api_error(ErrorCode.API_KEY_INVALID)

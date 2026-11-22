@@ -1,4 +1,4 @@
-#604 acceptance: task.submit is the only entry, TaskExecutor is the only
+# 604 acceptance: task.submit is the only entry, TaskExecutor is the only
 # exit. Plain agent_id submissions must execute without external polling;
 # graph_id submissions execute and write results back; max_retries requeues;
 # depends_on gates pickup; orphan running tasks recover on daemon restart.
@@ -38,12 +38,8 @@ class FakeRunner:
     async def run(self, spec):
         self.calls.append(spec)
         if len(self.calls) <= self.fail_first:
-            return SubAgentReport(
-                name=spec.name, ok=False, report="", error=self.error
-            )
-        return SubAgentReport(
-            name=spec.name, ok=True, report="done", turns=1, agent_id="sess-1"
-        )
+            return SubAgentReport(name=spec.name, ok=False, report="", error=self.error)
+        return SubAgentReport(name=spec.name, ok=True, report="done", turns=1, agent_id="sess-1")
 
 
 @pytest.fixture
@@ -78,10 +74,7 @@ def _history(store, task_id):
         "WHERE task_id = ? ORDER BY ts",
         (task_id,),
     ).fetchall()
-    return [
-        dict(zip(("from_status", "to_status", "actor", "reason"), r))
-        for r in rows
-    ]
+    return [dict(zip(("from_status", "to_status", "actor", "reason"), r)) for r in rows]
 
 
 def _submit(store, **kw):
@@ -169,14 +162,13 @@ class TestRetries:
         store = daemon._get_task_store()
         runner = FakeRunner(fail_first=2, error="transient-604")
         _fake_runner(daemon, runner)
-        task = _submit(
-            store, agent_id="governance-steward", max_retries=2
-        )
+        task = _submit(store, agent_id="governance-steward", max_retries=2)
         final = await _wait_status(store, task.task_id, {"completed"}, timeout=25)
         assert final is not None and final.status == "completed"
         assert len(runner.calls) == 3
         requeues = [
-            h for h in _history(store, task.task_id)
+            h
+            for h in _history(store, task.task_id)
             if h["to_status"] == "pending" and "retry" in h["reason"]
         ]
         assert len(requeues) == 2
@@ -192,11 +184,7 @@ class TestRetries:
         final = store.get(task.task_id)
         while asyncio.get_event_loop().time() < deadline:
             final = store.get(task.task_id)
-            if (
-                final is not None
-                and final.status == "failed"
-                and final.retry_count >= 1
-            ):
+            if final is not None and final.status == "failed" and final.retry_count >= 1:
                 break
             await asyncio.sleep(0.1)
         assert final is not None and final.status == "failed"
@@ -247,9 +235,7 @@ class TestOrphanRecovery:
         d2_store = daemon._get_task_store()
         recovered = await _wait_status(d2_store, orphan.task_id, {"completed"}, timeout=20)
         assert recovered is not None and recovered.status == "completed"
-        assert any(
-            "orphan reset" in h["reason"] for h in _history(d2_store, orphan.task_id)
-        )
+        assert any("orphan reset" in h["reason"] for h in _history(d2_store, orphan.task_id))
 
 
 class TestDisabledMode:

@@ -40,9 +40,7 @@ class MockMLXClient:
     def add_response(self, content: str, tool_calls: list | None = None):
         self.responses.append({"content": content, "tool_calls": tool_calls or []})
 
-    async def chat(
-        self, model, messages, tools=None, temperature=0.7, max_tokens=4096, **kwargs
-    ):
+    async def chat(self, model, messages, tools=None, temperature=0.7, max_tokens=4096, **kwargs):
         self.call_count += 1
         self.last_tools = tools
         if not self.responses:
@@ -94,9 +92,7 @@ class TestAgentRuntime:
         # LLM should have been called
         assert mlx_client.call_count == 1
 
-    async def test_execute_with_tool_call(
-        self, mlx_client, tool_registry, simple_graph
-    ):
+    async def test_execute_with_tool_call(self, mlx_client, tool_registry, simple_graph):
         # First response has a tool call, second is final
         mlx_client.add_response(
             "Let me check",
@@ -203,9 +199,7 @@ class TestAgentRuntime:
         assert mlx_client.call_count == 3
         assert any(e.type == AgentEventType.END for e in events)
 
-    async def test_execute_with_invalid_tool_json(
-        self, mlx_client, tool_registry, simple_graph
-    ):
+    async def test_execute_with_invalid_tool_json(self, mlx_client, tool_registry, simple_graph):
         mlx_client.add_response(
             "Let me check",
             tool_calls=[
@@ -226,9 +220,7 @@ class TestAgentRuntime:
         errors = [e for e in events if e.type == AgentEventType.ERROR]
         assert len(errors) >= 1
 
-    async def test_execute_with_nonexistent_tool(
-        self, mlx_client, tool_registry, simple_graph
-    ):
+    async def test_execute_with_nonexistent_tool(self, mlx_client, tool_registry, simple_graph):
         mlx_client.add_response(
             "Let me check",
             tool_calls=[
@@ -251,9 +243,7 @@ class TestAgentRuntime:
         assert len(tool_results) >= 1
         assert "not found" in tool_results[0].content
 
-    async def test_execute_with_failing_tool(
-        self, mlx_client, tool_registry, simple_graph
-    ):
+    async def test_execute_with_failing_tool(self, mlx_client, tool_registry, simple_graph):
         mlx_client.add_response(
             "Let me check",
             tool_calls=[
@@ -301,9 +291,7 @@ class TestAgentRuntime:
         end_events = [e for e in events if e.type == AgentEventType.END]
         assert len(end_events) >= 1
 
-    async def test_execute_with_existing_context(
-        self, mlx_client, tool_registry, simple_graph
-    ):
+    async def test_execute_with_existing_context(self, mlx_client, tool_registry, simple_graph):
         mlx_client.add_response("Continuing...")
         ctx = AgentContext(session_id="existing-session")
         ctx.add_message("user", "Previous message")
@@ -475,9 +463,7 @@ class TestAgentRuntime:
         runtime = AgentRuntime(mlx_client, tool_registry)
         ctx = AgentContext()
         vm = runtime.variables
-        assert (
-            runtime.condition_engine.evaluate("unknown_expression", ctx, vm) == "false"
-        )
+        assert runtime.condition_engine.evaluate("unknown_expression", ctx, vm) == "false"
 
 
 class TestValidateToolArgs:
@@ -540,9 +526,7 @@ class TestValidateToolArgs:
 
 
 class TestErrorHandlerToolCallId:
-    async def test_error_handler_with_call_xxx_tool_call_id(
-        self, mlx_client, tool_registry
-    ):
+    async def test_error_handler_with_call_xxx_tool_call_id(self, mlx_client, tool_registry):
         graph = AgentGraph()
         start = NodeConfig(label="start", type="start")
         tool1 = NodeConfig(
@@ -551,9 +535,7 @@ class TestErrorHandlerToolCallId:
             tool_name="mock_tool",
             tool_params={"input": "test"},
         )
-        err = NodeConfig(
-            label="err_handler", type="error_handler", max_retries=1, retry_delay=0
-        )
+        err = NodeConfig(label="err_handler", type="error_handler", max_retries=1, retry_delay=0)
         end = NodeConfig(label="end", type="end")
         graph.add_node("start", start)
         graph.add_node("tool1", tool1)
@@ -575,9 +557,7 @@ class TestErrorHandlerToolCallId:
 
         assert ctx.error == ""
 
-    async def test_error_handler_with_tool_prefix_tool_call_id(
-        self, mlx_client, tool_registry
-    ):
+    async def test_error_handler_with_tool_prefix_tool_call_id(self, mlx_client, tool_registry):
         graph = AgentGraph()
         start = NodeConfig(label="start", type="start")
         tool1 = NodeConfig(
@@ -586,9 +566,7 @@ class TestErrorHandlerToolCallId:
             tool_name="mock_tool",
             tool_params={"input": "test"},
         )
-        err = NodeConfig(
-            label="err_handler", type="error_handler", max_retries=1, retry_delay=0
-        )
+        err = NodeConfig(label="err_handler", type="error_handler", max_retries=1, retry_delay=0)
         end = NodeConfig(label="end", type="end")
         graph.add_node("start", start)
         graph.add_node("tool1", tool1)
@@ -707,9 +685,7 @@ class TestToolOutputMapping:
         registry.register(PlainTool())
         graph = AgentGraph(name="NoMapping")
         graph.add_node("start", NodeConfig(type="start", label="Start"))
-        graph.add_node(
-            "t", NodeConfig(type="tool", label="Plain", tool_name="plain_tool")
-        )
+        graph.add_node("t", NodeConfig(type="tool", label="Plain", tool_name="plain_tool"))
         graph.add_node("end", NodeConfig(type="end", label="End"))
         graph.add_edge("start", "t")
         graph.add_edge("t", "end")

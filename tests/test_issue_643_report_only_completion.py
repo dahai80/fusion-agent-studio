@@ -99,7 +99,9 @@ async def test_trivial_report_on_exhaustion_still_fails():
 
 
 def test_report_warning_roundtrip():
-    r = SubAgentReport(name="x", ok=True, report="r", warning="max turns reached, report-only completion")
+    r = SubAgentReport(
+        name="x", ok=True, report="r", warning="max turns reached, report-only completion"
+    )
     d = r.to_dict()
     assert d["warning"] == "max turns reached, report-only completion"
     r2 = SubAgentReport.from_dict(d)

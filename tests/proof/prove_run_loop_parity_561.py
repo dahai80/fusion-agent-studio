@@ -77,7 +77,7 @@ async def run(model: str, base_url: str) -> dict:
     t0 = time.time()
     async for ev in rt.execute_graph(
         graph,
-        f'Parse this JSON with the json_parse tool and tell me the total: {GRAPH_JSON}',
+        f"Parse this JSON with the json_parse tool and tell me the total: {GRAPH_JSON}",
     ):
         events.append(
             {
@@ -105,7 +105,9 @@ async def run(model: str, base_url: str) -> dict:
         "auto_continued": len(thinks) >= 2,
         "hop_stop_reasons_present": all(stop_reasons),
         "ends_end_turn": bool(end) and end[0]["metadata"].get("stop_reason") == "end_turn",
-        "total_parsed": any("4250.5" in e["content"] for e in events if e["type"] in ("think", "result")),
+        "total_parsed": any(
+            "4250.5" in e["content"] for e in events if e["type"] in ("think", "result")
+        ),
     }
     evidence = {
         "issue": "561",
@@ -136,7 +138,9 @@ async def run(model: str, base_url: str) -> dict:
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--model", default="mlx-community--Qwen3.5-4B-MLX-4bit")
-    parser.add_argument("--base-url", default=os.environ.get("FUSION_MLX_BASE_URL", "http://127.0.0.1:11432"))
+    parser.add_argument(
+        "--base-url", default=os.environ.get("FUSION_MLX_BASE_URL", "http://127.0.0.1:11432")
+    )
     parser.add_argument("--attempts", type=int, default=5)
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")

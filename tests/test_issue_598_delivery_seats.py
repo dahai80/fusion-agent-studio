@@ -19,9 +19,7 @@ DELIVERY_SEAT_IDS = seat_ids()
 def daemon(tmp_path, monkeypatch):
     fake_home = tmp_path / "home"
     fake_home.mkdir()
-    monkeypatch.setenv(
-        "FUSION_AGENT_STUDIO_HOME", str(fake_home / ".fusion-agent-studio")
-    )
+    monkeypatch.setenv("FUSION_AGENT_STUDIO_HOME", str(fake_home / ".fusion-agent-studio"))
     d = DaemonServer(socket_path=str(tmp_path / "test.sock"))
     d._load_agents_index()
     yield d
@@ -91,7 +89,14 @@ def test_reviewer_checklists(daemon):
 
 def test_doc_seat_contracts(daemon):
     ba = _pkg_prompt(daemon, "delivery-ba")
-    for kw in ("background", "goals", "user stories", "feature list", "acceptance criteria", "artifact_create"):
+    for kw in (
+        "background",
+        "goals",
+        "user stories",
+        "feature list",
+        "acceptance criteria",
+        "artifact_create",
+    ):
         assert kw in ba, f"BA contract term {kw} missing"
     arch = _pkg_prompt(daemon, "delivery-architect")
     for kw in ("architecture", "plan", "task breakdown", "artifact_create"):
@@ -104,9 +109,7 @@ def test_doc_seat_contracts(daemon):
 def test_rest_index_loader_seeds_seats(monkeypatch, tmp_path):
     fake_home = tmp_path / "home"
     (fake_home / ".fusion-agent-studio").mkdir(parents=True)
-    monkeypatch.setenv(
-        "FUSION_AGENT_STUDIO_HOME", str(fake_home / ".fusion-agent-studio")
-    )
+    monkeypatch.setenv("FUSION_AGENT_STUDIO_HOME", str(fake_home / ".fusion-agent-studio"))
     from agent_runtime import api_server
 
     index = api_server._load_agents_index()

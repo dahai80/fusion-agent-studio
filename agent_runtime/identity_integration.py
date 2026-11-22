@@ -17,9 +17,7 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-_IDENTITY_URL = os.environ.get(
-    "FUSION_IDENTITY_URL", "http://127.0.0.1:11470"
-).rstrip("/")
+_IDENTITY_URL = os.environ.get("FUSION_IDENTITY_URL", "http://127.0.0.1:11470").rstrip("/")
 _SERVICE_TOKEN_ENV = "FUSION_IDENTITY_SERVICE_TOKEN"
 _VERIFY_TIMEOUT = float(os.environ.get("FUSION_IDENTITY_VERIFY_TIMEOUT", "3"))
 
@@ -116,6 +114,7 @@ def consume_rpc_auth(params: dict[str, Any]) -> Any:
     claims = verify_identity_jwt(jwt)
     # from_mapping wants tid/tenant; verify_identity_jwt already enforced tid.
     from fusion_core.tenant.context import from_mapping, set_context
+
     ctx = from_mapping(claims)
     token = set_context(ctx)
     logger.info("rpc auth bound tid=%s", ctx.tenant_id)
@@ -128,6 +127,7 @@ def reset_rpc_auth(token: Any) -> None:
         return
     try:
         from fusion_core.tenant.context import reset as _reset
+
         _reset(token)
     except Exception as e:
         logger.debug("rpc auth reset failed: %s", e)

@@ -76,9 +76,7 @@ def _estimate_tokens(text: str) -> int:
     return max(1, len(text) // 4)
 
 
-def _assemble_context(
-    documents: list[KnowledgeEntry], max_tokens: int
-) -> tuple[str, list[float]]:
+def _assemble_context(documents: list[KnowledgeEntry], max_tokens: int) -> tuple[str, list[float]]:
     parts: list[str] = []
     token_counts: list[int] = []
     total_tokens = 0
@@ -143,9 +141,7 @@ class VectorRetrievalStrategy:
             self._available = False
         return self._available
 
-    async def search(
-        self, query: str, top_k: int = 5, scope: str = ""
-    ) -> list[KnowledgeEntry]:
+    async def search(self, query: str, top_k: int = 5, scope: str = "") -> list[KnowledgeEntry]:
         try:
             import aiohttp
 
@@ -280,9 +276,7 @@ class RAGPipeline:
         available = await self.vector_strategy.is_available()
         if not available:
             return None
-        documents = await self.vector_strategy.search(
-            query, top_k=cfg.top_k, scope=cfg.scope
-        )
+        documents = await self.vector_strategy.search(query, top_k=cfg.top_k, scope=cfg.scope)
         if not documents:
             logger.info("Vector search returned 0 results, falling back")
             self.vector_strategy.reset_availability()
@@ -373,18 +367,12 @@ class RAGPipeline:
     def _sanitize_fts_query(query: str) -> str:
         cleaned = re.sub(r"[^\w\s]", " ", query)
         terms = cleaned.split()
-        terms = [
-            t
-            for t in terms
-            if t.lower() not in RAGPipeline._FTS_STOP_WORDS and len(t) > 1
-        ]
+        terms = [t for t in terms if t.lower() not in RAGPipeline._FTS_STOP_WORDS and len(t) > 1]
         if not terms:
             terms = [w for w in query.split() if len(w) > 1][:3]
         return " OR ".join(terms) if terms else query
 
-    def _rerank(
-        self, documents: list[KnowledgeEntry], query: str
-    ) -> list[KnowledgeEntry]:
+    def _rerank(self, documents: list[KnowledgeEntry], query: str) -> list[KnowledgeEntry]:
         query_lower = query.lower()
         query_terms = set(query_lower.split())
 
@@ -423,9 +411,7 @@ class RAGPipeline:
         )
         if context_text:
             rag_system += (
-                "\n\n--- Retrieved Context ---\n"
-                + context_text
-                + "\n--- End of Context ---"
+                "\n\n--- Retrieved Context ---\n" + context_text + "\n--- End of Context ---"
             )
 
         messages = [
@@ -466,9 +452,7 @@ class RAGPipeline:
         )
         if context_text:
             rag_system += (
-                "\n\n--- Retrieved Context ---\n"
-                + context_text
-                + "\n--- End of Context ---"
+                "\n\n--- Retrieved Context ---\n" + context_text + "\n--- End of Context ---"
             )
 
         messages = [
@@ -559,12 +543,8 @@ class RAGNodeMixin:
     def build_rag_context(self, query: str, config_dict: dict[str, Any]) -> RAGResult:
         cfg = RAGConfig.from_dict(config_dict)
         if not hasattr(self, "_rag_pipeline") or self._rag_pipeline is None:
-            logger.error(
-                "RAG pipeline not initialized on runtime, cannot build context"
-            )
-            return RAGResult(
-                query=query, metadata={"error": "RAG pipeline not initialized"}
-            )
+            logger.error("RAG pipeline not initialized on runtime, cannot build context")
+            return RAGResult(query=query, metadata={"error": "RAG pipeline not initialized"})
 
         logger.info("RAGNodeMixin build_rag_context: query=%r mode=%s", query, cfg.mode)
         return self._rag_pipeline.retrieve(query, cfg)

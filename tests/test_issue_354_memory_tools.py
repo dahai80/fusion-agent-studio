@@ -26,7 +26,9 @@ def _run(tool, args):
 
 
 def test_memory_write_and_read(tools):
-    out = json.loads(_run(tools["memory_write"], {"content": "user prefers dark mode", "memory_type": "user"}))
+    out = json.loads(
+        _run(tools["memory_write"], {"content": "user prefers dark mode", "memory_type": "user"})
+    )
     assert out["status"] == "stored"
     assert out["id"]
     got = json.loads(_run(tools["memory_read"], {"entry_id": out["id"]}))
@@ -121,7 +123,9 @@ def test_pack_rpc(engine, tmp_path):
         _get_memory = staticmethod(lambda: engine)
 
     md = MemoryDispatcher(_Stub())
-    out = asyncio.run(md._handle_memory_pack_export({"out_dir": str(tmp_path / "p2"), "scope": "s9"}))
+    out = asyncio.run(
+        md._handle_memory_pack_export({"out_dir": str(tmp_path / "p2"), "scope": "s9"})
+    )
     assert out["count"] == 1
     back = asyncio.run(md._handle_memory_pack_import({"in_dir": str(tmp_path / "p2")}))
     assert back["count"] == 1

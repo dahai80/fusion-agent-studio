@@ -104,7 +104,9 @@ def prove_budget_enforcement() -> int:
     if abs(rounds - expected) > 1:
         logger.error(
             "truncation off by >1 round: rounds=%d expected~%d cap=%d",
-            rounds, expected, cap,
+            rounds,
+            expected,
+            cap,
         )
         return 1
     print(

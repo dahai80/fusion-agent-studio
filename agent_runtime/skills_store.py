@@ -95,7 +95,7 @@ def parse_skill_md(content: str, fallback_name: str = "") -> tuple[SkillMeta, st
     body = content
     m = _FRONTMATTER_RE.match(content)
     if m:
-        body = content[m.end():]
+        body = content[m.end() :]
         try:
             data = yaml.safe_load(m.group(1)) or {}
         except yaml.YAMLError as e:
@@ -393,7 +393,8 @@ class SkillsStore:
         if meta.name and meta.name != name:
             logger.info(
                 "install_skill frontmatter name %r ignored, dir name %r wins",
-                meta.name, name,
+                meta.name,
+                name,
             )
             meta.name = name
         p.parent.mkdir(parents=True, exist_ok=True)

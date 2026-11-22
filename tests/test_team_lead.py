@@ -39,7 +39,9 @@ def _ledger_json(replan_count=0, steps=None):
     )
 
 
-def _verdict_json(speaker="worker-a", satisfied=False, in_loop=False, progress=True, instruction="do the step"):
+def _verdict_json(
+    speaker="worker-a", satisfied=False, in_loop=False, progress=True, instruction="do the step"
+):
     return json.dumps(
         {
             "is_request_satisfied": satisfied,
@@ -47,7 +49,13 @@ def _verdict_json(speaker="worker-a", satisfied=False, in_loop=False, progress=T
             "is_progress_being_made": progress,
             "next_speaker": speaker,
             "instruction_or_question": instruction,
-            "reasons": {"is_request_satisfied": "line", "is_in_loop": "line", "is_progress_being_made": "line", "next_speaker": "line", "instruction_or_question": "line"},
+            "reasons": {
+                "is_request_satisfied": "line",
+                "is_in_loop": "line",
+                "is_progress_being_made": "line",
+                "next_speaker": "line",
+                "instruction_or_question": "line",
+            },
         }
     )
 
@@ -115,14 +123,24 @@ class TestMatrix:
 
     async def test_2_progress_verdict_dispatches_next_speaker(self, daemon):
         # Unassigned step 0: verdict's next_speaker alone decides who runs it.
-        single = _ledger_json(steps=[{"step": "collect sources", "assignee_hint": "", "depends_on": []}])
-        replies = [FakeResp(single), FakeResp(_verdict_json(speaker="worker-b")), FakeResp(_verdict_json(satisfied=True))]
+        single = _ledger_json(
+            steps=[{"step": "collect sources", "assignee_hint": "", "depends_on": []}]
+        )
+        replies = [
+            FakeResp(single),
+            FakeResp(_verdict_json(speaker="worker-b")),
+            FakeResp(_verdict_json(satisfied=True)),
+        ]
         rt, team_rt, lead, ran, briefs = await _lead(daemon, replies=replies)
         out = await lead.run("produce the pair report", max_rounds=5)
         assert ran == ["worker-b"], "verdict must dispatch the named member"
         assert out["summary"]
-        assert briefs and "do the step" in briefs[0], "verdict instruction becomes the brief objective"
-        assert all(t.status == "done" for t in team_rt._tasks.values()), "completed run_member closes its task"
+        assert briefs and "do the step" in briefs[0], (
+            "verdict instruction becomes the brief objective"
+        )
+        assert all(t.status == "done" for t in team_rt._tasks.values()), (
+            "completed run_member closes its task"
+        )
 
     async def test_3_stall_counter_arithmetic(self, daemon):
         no = FakeResp(_verdict_json(progress=False))
@@ -130,7 +148,11 @@ class TestMatrix:
         # rounds: -1(no), +1(yes) -> floor 0 checked; then 3x no -> exactly one replan
         replies = [
             FakeResp(_ledger_json()),
-            no, yes, no, no, no,  # stalls: 1,0,1,2,3 -> replan after third
+            no,
+            yes,
+            no,
+            no,
+            no,  # stalls: 1,0,1,2,3 -> replan after third
             FakeResp(_ledger_json()),
             FakeResp(_verdict_json(satisfied=True)),
         ]
@@ -151,7 +173,9 @@ class TestMatrix:
             FakeResp(_verdict_json(progress=False)),
             FakeResp(_verdict_json(progress=False)),
             FakeResp(_verdict_json(progress=False)),
-            FakeResp(_ledger_json(steps=[{"step": "new plan", "assignee_hint": "", "depends_on": []}])),
+            FakeResp(
+                _ledger_json(steps=[{"step": "new plan", "assignee_hint": "", "depends_on": []}])
+            ),
             FakeResp(_verdict_json(satisfied=True)),
         ]
         rt, team_rt, lead, _ran, _briefs = await _lead(daemon, replies=replies)
@@ -161,11 +185,14 @@ class TestMatrix:
         assert "new plan" in titles
 
     async def test_5_completion_drains_board_and_appends_playbook(self, daemon, _home):
-        rt, team_rt, lead, _ran, _briefs = await _lead(daemon, replies=[
-            FakeResp(_ledger_json()),
-            FakeResp(_verdict_json(speaker="worker-a")),
-            FakeResp(_verdict_json(satisfied=True)),
-        ])
+        rt, team_rt, lead, _ran, _briefs = await _lead(
+            daemon,
+            replies=[
+                FakeResp(_ledger_json()),
+                FakeResp(_verdict_json(speaker="worker-a")),
+                FakeResp(_verdict_json(satisfied=True)),
+            ],
+        )
         pb = PlaybookStore(root=_home / "playbook")
         lead.playbook_store = pb
         out = await lead.run("produce the pair report", max_rounds=10)
@@ -181,12 +208,17 @@ class TestMatrix:
             await lead.run("produce the pair report", max_rounds=5, team_budget=10)
         assert ran == [], "no member dispatched after budget stop"
         assert all(t.status == "blocked" for t in team_rt._tasks.values())
-        assert all((t.metadata or {}).get("lead_block_reason") == "lead budget exhausted" for t in team_rt._tasks.values())
+        assert all(
+            (t.metadata or {}).get("lead_block_reason") == "lead budget exhausted"
+            for t in team_rt._tasks.values()
+        )
         kinds = [row["kind"] for row in lead.vlog.tail(50)]
         assert "budget_stop" in kinds
 
     async def test_7_max_rounds_fails_visible(self, daemon):
-        replies = [FakeResp(_ledger_json())] + [FakeResp(_verdict_json(progress=True, instruction=f"round {i}")) for i in range(10)]
+        replies = [FakeResp(_ledger_json())] + [
+            FakeResp(_verdict_json(progress=True, instruction=f"round {i}")) for i in range(10)
+        ]
         rt, team_rt, lead, _ran, _briefs = await _lead(daemon, replies=replies)
         with pytest.raises(LeadMaxRoundsError):
             await lead.run("produce the pair report", max_rounds=3)
@@ -207,20 +239,30 @@ class TestMatrix:
     async def test_9_one_lead_per_team(self, daemon):
         rt, _client = _runtime()
         daemon._get_runtime = lambda: rt
-        daemon.mlx_client = FakeClient([FakeResp(_ledger_json()), FakeResp(_verdict_json(satisfied=True))])
+        daemon.mlx_client = FakeClient(
+            [FakeResp(_ledger_json()), FakeResp(_verdict_json(satisfied=True))]
+        )
         await _run_rpc(daemon, "teams.register", {"definition": _definition()})
-        first = await _run_rpc(daemon, "teams.lead_start", {"team": "pair", "goal": "g", "max_rounds": 50})
+        first = await _run_rpc(
+            daemon, "teams.lead_start", {"team": "pair", "goal": "g", "max_rounds": 50}
+        )
         assert first["status"] == "ok"
-        second = await _run_rpc(daemon, "teams.lead_start", {"team": "pair", "goal": "g", "max_rounds": 50})
+        second = await _run_rpc(
+            daemon, "teams.lead_start", {"team": "pair", "goal": "g", "max_rounds": 50}
+        )
         assert second["status"] == "error"
         assert "already running" in second["message"]
 
     async def test_10_cooperative_stop(self, daemon):
         rt, _client = _runtime()
         daemon._get_runtime = lambda: rt
-        daemon.mlx_client = FakeClient([FakeResp(_ledger_json()), FakeResp(_verdict_json(progress=True))] * 40)
+        daemon.mlx_client = FakeClient(
+            [FakeResp(_ledger_json()), FakeResp(_verdict_json(progress=True))] * 40
+        )
         await _run_rpc(daemon, "teams.register", {"definition": _definition()})
-        started = await _run_rpc(daemon, "teams.lead_start", {"team": "pair", "goal": "g", "max_rounds": 100})
+        started = await _run_rpc(
+            daemon, "teams.lead_start", {"team": "pair", "goal": "g", "max_rounds": 100}
+        )
         assert started["status"] == "ok"
         entry = rt.teams_registry[("lead", "pair")]
         entry["lead"].stop_requested = True

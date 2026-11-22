@@ -120,9 +120,7 @@ class TestRpcBridge:
         assert resp.status_code == 400
 
     def test_missing_method_400(self, static_key_env, stub_daemon):
-        resp = _client().post(
-            "/v1/rpc", json={"params": {}}, headers={"x-api-key": STATIC_KEY}
-        )
+        resp = _client().post("/v1/rpc", json={"params": {}}, headers={"x-api-key": STATIC_KEY})
         assert resp.status_code == 400
 
     def test_bearer_auth_accepted(self, static_key_env, stub_daemon):
@@ -365,4 +363,6 @@ class TestGuiFeatureAllowlist:
         )
         # The stub daemon has no reviewer handler, so the call cannot fully
         # dispatch — but it must pass the allowlist gate (no "not allowed").
-        assert "not allowed" not in json.dumps(resp.json()), "reviewer.packs must pass the allowlist gate"
+        assert "not allowed" not in json.dumps(resp.json()), (
+            "reviewer.packs must pass the allowlist gate"
+        )

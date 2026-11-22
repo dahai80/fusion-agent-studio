@@ -37,8 +37,12 @@ class MockThinkingClient:
 
     async def chat_stream(self, messages, model="", **kwargs):
         for chunk in [
-            StreamChunk(delta_content="", delta_tool_calls=[], finish_reason=None, delta_reasoning="why "),
-            StreamChunk(delta_content="", delta_tool_calls=[], finish_reason=None, delta_reasoning="this"),
+            StreamChunk(
+                delta_content="", delta_tool_calls=[], finish_reason=None, delta_reasoning="why "
+            ),
+            StreamChunk(
+                delta_content="", delta_tool_calls=[], finish_reason=None, delta_reasoning="this"
+            ),
             StreamChunk(delta_content="Hi", delta_tool_calls=[], finish_reason=None),
             StreamChunk(delta_content="", delta_tool_calls=[], finish_reason="stop"),
         ]:
@@ -70,7 +74,9 @@ def _make_graph(thinking: bool = True):
     g.add_node("start", NodeConfig(type="start", label="start"))
     g.add_node(
         "llm1",
-        NodeConfig(type="llm", label="llm1", model="test-model", tool_params={"thinking": thinking}),
+        NodeConfig(
+            type="llm", label="llm1", model="test-model", tool_params={"thinking": thinking}
+        ),
     )
     g.add_node("end", NodeConfig(type="end", label="end"))
     g.add_edge("start", "llm1")
@@ -163,7 +169,9 @@ class TestReasoningDelta:
     async def test_gateway_forwards_delta_reasoning(self):
         gateway = LLMGateway()
         gateway.set_default_client(MockThinkingClient())
-        gateway.register_model(ModelConfig(name="test-model", provider="local", context_length=4096))
+        gateway.register_model(
+            ModelConfig(name="test-model", provider="local", context_length=4096)
+        )
         chunks = [
             c
             async for c in gateway.chat_stream(
@@ -292,9 +300,7 @@ class TestRunArtifactRpc:
 
         art_store, _ = store
         art_store.create(_make_graph(), run_id="run-2")
-        result = await InfraDispatcher(None)._handle_run_artifact_versions(
-            {"name": "n9_thinking"}
-        )
+        result = await InfraDispatcher(None)._handle_run_artifact_versions({"name": "n9_thinking"})
         assert result["total"] == 2
         assert [v["version"] for v in result["versions"]] == [1, 2]
 

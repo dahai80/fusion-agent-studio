@@ -1,4 +1,5 @@
 """#490: long-running processes must show the product name, not bare Python."""
+
 import subprocess
 import sys
 
@@ -76,9 +77,7 @@ def test_daemon_process_title_visible_in_ps(tmp_path):
         "print('ready', flush=True)\n"
         "time.sleep(60)\n"
     )
-    proc = subprocess.Popen(
-        [sys.executable, str(script)], stdout=subprocess.PIPE, text=True
-    )
+    proc = subprocess.Popen([sys.executable, str(script)], stdout=subprocess.PIPE, text=True)
     try:
         assert proc.stdout.readline().strip() == "ready"
         out = subprocess.run(

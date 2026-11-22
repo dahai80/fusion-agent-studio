@@ -48,7 +48,7 @@ class InfraDispatcher(SubDispatcher):
             "cron.unregister": self._handle_cron_unregister,
             "cron.list": self._handle_cron_list,
             "cron.list_executions": self._handle_cron_list_executions,
-        "cron.trigger": self._handle_cron_trigger,
+            "cron.trigger": self._handle_cron_trigger,
             "task.submit": self._handle_task_submit,
             "task.list": self._handle_task_list,
             "task.get": self._handle_task_get,
@@ -144,7 +144,9 @@ class InfraDispatcher(SubDispatcher):
         if not name:
             return {"status": "error", "message": "name parameter required"}
         return mgr.create(
-            name, params.get("type", "api_key"), params.get("auth_config", {}),
+            name,
+            params.get("type", "api_key"),
+            params.get("auth_config", {}),
             connector_id=params.get("connector_id", ""),
             sensitive_scopes=params.get("sensitive_scopes") or [],
         )
@@ -406,7 +408,9 @@ class InfraDispatcher(SubDispatcher):
                 task.cron_job_id = job.id
                 task.updated_at = time.time()
                 store.submit(task)
-                logger.info("task %s linked one-shot job %s run_at=%.0f", task.task_id, job.id, task.run_at)
+                logger.info(
+                    "task %s linked one-shot job %s run_at=%.0f", task.task_id, job.id, task.run_at
+                )
             except Exception as exc:
                 logger.warning("task %s run_at register failed: %s", task.task_id, exc)
         # #238: deduped 标志透传到 task dict, 区分新建 vs 幂等命中.
@@ -464,11 +468,22 @@ class InfraDispatcher(SubDispatcher):
                 "status": "ok",
                 "task_id": task_id,
                 "execution_id": "",
-                "spans": {"nodes": [], "run_status": str(task.status), "stop_reason": "", "run_start": 0, "run_end": 0},
+                "spans": {
+                    "nodes": [],
+                    "run_status": str(task.status),
+                    "stop_reason": "",
+                    "run_start": 0,
+                    "run_end": 0,
+                },
             }
         spans = self._daemon._aggregate_run_spans(self._daemon._read_run_spans(execution_id, team))
         spans["execution_id"] = execution_id
-        logger.info("task.events task=%s execution=%s nodes=%d", task_id, execution_id, len(spans.get("nodes", [])))
+        logger.info(
+            "task.events task=%s execution=%s nodes=%d",
+            task_id,
+            execution_id,
+            len(spans.get("nodes", [])),
+        )
         return {"status": "ok", "task_id": task_id, **spans}
 
     async def _handle_task_status(self, params: dict) -> dict:
@@ -482,7 +497,10 @@ class InfraDispatcher(SubDispatcher):
             last_error=params.get("last_error", ""),
         )
         if not ok:
-            return {"status": "error", "message": f"Task not found or invalid status: {task_id}/{status}"}
+            return {
+                "status": "error",
+                "message": f"Task not found or invalid status: {task_id}/{status}",
+            }
         task = store.get(task_id)
         return {"status": "ok", "task": task.to_dict() if task else None}
 
@@ -502,7 +520,10 @@ class InfraDispatcher(SubDispatcher):
         max_concurrency = _task_max_concurrency()
         logger.info(
             "task.health: pending=%d running=%d total=%d max_concurrency=%d",
-            pending, running, total, max_concurrency,
+            pending,
+            running,
+            total,
+            max_concurrency,
         )
         return {
             "ok": True,
@@ -556,9 +577,7 @@ class InfraDispatcher(SubDispatcher):
         if not isinstance(steps, list) or not steps:
             logger.warning("task.run_chain: empty/invalid steps, skip")
             return {"chain_id": "", "status": "rejected", "reason": "empty steps"}
-        bg_task = asyncio.create_task(
-            self._daemon._run_chain_async(chain_id, steps, team, params)
-        )
+        bg_task = asyncio.create_task(self._daemon._run_chain_async(chain_id, steps, team, params))
         self._daemon._active_chains[chain_id] = bg_task
         logger.info("task.run_chain %s started: %d steps team=%s", chain_id, len(steps), team)
         return {"chain_id": chain_id, "steps": len(steps), "status": "started", "team": team}
@@ -660,7 +679,12 @@ class InfraDispatcher(SubDispatcher):
         if not ok:
             return {"status": "error", "message": f"Task not found: {task_id}"}
         task = store.get(task_id)
-        logger.info("task %s add_artifacts %d -> %s", task_id, len(artifact_ids), task.artifact_ids if task else [])
+        logger.info(
+            "task %s add_artifacts %d -> %s",
+            task_id,
+            len(artifact_ids),
+            task.artifact_ids if task else [],
+        )
         return {"status": "ok", "added": True, "artifact_ids": task.artifact_ids if task else []}
 
     # ── Project handlers (#141 priority 2: 多 Task 聚合容器/看板) ──
@@ -707,9 +731,7 @@ class InfraDispatcher(SubDispatcher):
         engine = self._daemon._get_hooks()
         event = params.get("event", "")
         payload = params.get("payload", {})
-        result = await engine.fire(
-            event, payload, tool_name=params.get("tool_name", "")
-        )
+        result = await engine.fire(event, payload, tool_name=params.get("tool_name", ""))
         return {"result": self._daemon._serialize(result)}
 
     async def _handle_sdk_list_types(self, params: dict) -> dict:
@@ -789,7 +811,9 @@ class InfraDispatcher(SubDispatcher):
         # 审计 P2/dim1: 真正持久化确认状态 (原 no-op), alert.list 据此标 acknowledged.
         if alert_id:
             self._acknowledged_alerts.add(alert_id)
-        logger.info("alert.acknowledge: id=%s total_ack=%d", alert_id, len(self._acknowledged_alerts))
+        logger.info(
+            "alert.acknowledge: id=%s total_ack=%d", alert_id, len(self._acknowledged_alerts)
+        )
         return {"acknowledged": True, "alert_id": alert_id}
 
     # ── Marketplace handlers ──
@@ -804,16 +828,16 @@ class InfraDispatcher(SubDispatcher):
         for aid, meta in self._daemon._agents.items():
             name = str(meta.get("name", ""))
             current = best.get(name)
-            if current is None or AgentDispatcher._agent_recency(meta) > AgentDispatcher._agent_recency(current):
+            if current is None or AgentDispatcher._agent_recency(
+                meta
+            ) > AgentDispatcher._agent_recency(current):
                 meta = dict(meta)
                 meta["id"] = aid
                 best[name] = meta
         agents_view = list(best.values())
         total_agents = len(agents_view)
         published_agents = sum(1 for m in agents_view if m.get("status") == "published")
-        active_agents = sum(
-            1 for m in agents_view if m.get("status") in ("draft", "published")
-        )
+        active_agents = sum(1 for m in agents_view if m.get("status") in ("draft", "published"))
 
         today_requests = 0
         total_tokens = 0
@@ -915,9 +939,7 @@ class InfraDispatcher(SubDispatcher):
         agent_id = params.get("agent_id")
         time_range = params.get("time_range", "day")
         now = time.time()
-        range_seconds = {"day": 86400, "week": 604800, "month": 2592000}.get(
-            time_range, 86400
-        )
+        range_seconds = {"day": 86400, "week": 604800, "month": 2592000}.get(time_range, 86400)
         cutoff = now - range_seconds
 
         buckets: dict[str, dict] = {}
@@ -982,18 +1004,13 @@ class InfraDispatcher(SubDispatcher):
             bucket["agent_name"] = meta.get("name", "")
         agents_usage = sorted(buckets.values(), key=lambda b: -b["runs"])
 
-        logger.info(
-            "analytics.agent_usage: range=%s agents=%d", time_range, len(agents_usage)
-        )
+        logger.info("analytics.agent_usage: range=%s agents=%d", time_range, len(agents_usage))
         return {"agents": agents_usage, "time_range": time_range}
 
     # ── Style handlers ──
 
     async def _handle_model_status(self, params: dict) -> dict:
-        running = (
-            self._daemon._mlx_process is not None
-            and self._daemon._mlx_process.poll() is None
-        )
+        running = self._daemon._mlx_process is not None and self._daemon._mlx_process.poll() is None
         connected = False
         models = []
         loaded = []

@@ -21,9 +21,16 @@ class TextProcessTool(BaseTool):
             "type": "string",
             "description": "Operation to perform",
             "enum": [
-                "uppercase", "lowercase", "trim", "split_lines",
-                "count_words", "count_lines", "count_chars",
-                "reverse", "sort_lines", "unique_lines",
+                "uppercase",
+                "lowercase",
+                "trim",
+                "split_lines",
+                "count_words",
+                "count_lines",
+                "count_chars",
+                "reverse",
+                "sort_lines",
+                "unique_lines",
             ],
         },
     }
@@ -122,9 +129,7 @@ class TextSearchTool(BaseTool):
                     start = max(0, m.start() - 20)
                     end = min(len(text), m.end() + 20)
                     context = text[start:end].replace("\n", " ")
-                    result_lines.append(
-                        f"Match {count + 1} at pos {m.start()}: ...{context}..."
-                    )
+                    result_lines.append(f"Match {count + 1} at pos {m.start()}: ...{context}...")
                     count += 1
                 if not result_lines:
                     return f"No matches found for pattern: {pattern}"

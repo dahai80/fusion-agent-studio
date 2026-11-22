@@ -23,7 +23,9 @@ source_of_truth:
 `memory.store` / `memory.recall` / `memory.list_recent` / `memory.count` 新增 `tenant_id`、`team_id` 过滤。空字符串表示不隔离（兼容旧行为）。
 
 ```python
-await rpc("memory.store", {"content": "deploy uses blue-green", "tenant_id": "t1", "team_id": "ops"})
+await rpc(
+    "memory.store", {"content": "deploy uses blue-green", "tenant_id": "t1", "team_id": "ops"}
+)
 await rpc("memory.recall", {"query": "deploy", "tenant_id": "t1", "team_id": "ops"})
 ```
 
@@ -87,7 +89,9 @@ await rpc("team.roster_register", {"agent_id": "a1", "name": "Alpha", "team": "o
 await rpc("team.roster_list", {"team": "ops"})
 await rpc("team.roster_status", {"agent_id": "a1", "status": "busy"})
 
-msg = await rpc("team.mailbox_send", {"sender": "a1", "recipient": "a2", "body": "ping", "team": "ops"})
+msg = await rpc(
+    "team.mailbox_send", {"sender": "a1", "recipient": "a2", "body": "ping", "team": "ops"}
+)
 await rpc("team.mailbox_inbox", {"recipient": "a2"})
 await rpc("team.mailbox_ack", {"recipient": "a2", "message_id": msg["message"]["message_id"]})
 await rpc("team.mailbox_broadcast", {"sender": "a1", "team": "ops", "body": "standup"})

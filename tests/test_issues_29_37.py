@@ -67,9 +67,7 @@ class TestAgentDefinition:
         assert d2.tools[0].name == "search"
 
     def test_sub_configs_roundtrip(self):
-        model = AgentModelConfig(
-            model_name="test-model", temperature=0.7, max_tokens=2048
-        )
+        model = AgentModelConfig(model_name="test-model", temperature=0.7, max_tokens=2048)
         m2 = AgentModelConfig.from_dict(model.to_dict())
         assert m2.model_name == "test-model"
         assert m2.temperature == 0.7
@@ -78,9 +76,7 @@ class TestAgentDefinition:
         t2 = AgentToolConfig.from_dict(tool.to_dict())
         assert t2.name == "calculator"
 
-        knowledge = AgentKnowledgeConfig(
-            enable_rag=True, kb_id="kb-1", top_k=5, strategy="vector"
-        )
+        knowledge = AgentKnowledgeConfig(enable_rag=True, kb_id="kb-1", top_k=5, strategy="vector")
         k2 = AgentKnowledgeConfig.from_dict(knowledge.to_dict())
         assert k2.enable_rag is True
         assert k2.kb_id == "kb-1"
@@ -209,9 +205,7 @@ class TestArtifactManager:
         self.mgr = ArtifactManager(artifacts_dir=self.tmpdir)
 
     def test_create_artifact(self):
-        result = self.mgr.create_artifact(
-            "agent-1", "test-doc", "document", "hello world"
-        )
+        result = self.mgr.create_artifact("agent-1", "test-doc", "document", "hello world")
         assert result["status"] == "ok"
         assert result["record"]["name"] == "test-doc"
         assert result["record"]["owner_agent_id"] == "agent-1"

@@ -38,7 +38,7 @@ class _FakeDaemon:
     async def _task_submit(self, params: dict) -> dict:
         self._seq += 1
         task = Task(
-            task_id=params.get("task_id", "") or f"run-{int(time.time()*1000)}-{self._seq}",
+            task_id=params.get("task_id", "") or f"run-{int(time.time() * 1000)}-{self._seq}",
             title=params.get("title", ""),
             description=params.get("description", ""),
             agent_id=params.get("agent_id", ""),
@@ -78,8 +78,19 @@ class _FakeDaemon:
         tid = params.get("task_id", "")
         if tid:
             self._store.add_artifacts(tid, ["a1"])
-            self._store.update_status(tid, "completed", last_result={"session_id": "s1", "events": 3, "artifact_ids": ["a1"]})
-        return {"session_id": "s1", "events": [], "status": "completed", "task_id": tid, "artifact_ids": ["a1"], "tool_errors": []}
+            self._store.update_status(
+                tid,
+                "completed",
+                last_result={"session_id": "s1", "events": 3, "artifact_ids": ["a1"]},
+            )
+        return {
+            "session_id": "s1",
+            "events": [],
+            "status": "completed",
+            "task_id": tid,
+            "artifact_ids": ["a1"],
+            "tool_errors": [],
+        }
 
 
 @pytest.fixture

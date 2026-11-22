@@ -3,6 +3,7 @@
 Holds checkpoint save + resume methods. Method bodies are verbatim moves;
 AgentRuntime inherits this mixin.
 """
+
 from __future__ import annotations
 
 import json
@@ -109,7 +110,9 @@ class _CheckpointMixin:
                     )
             logger.debug(
                 "Checkpoint saved: graph=%s node=%s pending_tools=%d",
-                graph.name, ctx.current_node_id, len(pending),
+                graph.name,
+                ctx.current_node_id,
+                len(pending),
             )
             ctx.checkpoint_fail_count = 0
             # N8 #391: checkpoint hook trigger (auto-save path).
@@ -135,7 +138,8 @@ class _CheckpointMixin:
             if ctx.checkpoint_fail_count >= 3:
                 logger.error(
                     "Checkpoint save failed %d consecutive times (resume will not work): %s",
-                    ctx.checkpoint_fail_count, e,
+                    ctx.checkpoint_fail_count,
+                    e,
                 )
             else:
                 logger.warning("Checkpoint save failed (%d): %s", ctx.checkpoint_fail_count, e)

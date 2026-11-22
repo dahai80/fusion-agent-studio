@@ -146,10 +146,9 @@ def create_default_registry() -> ToolRegistry:
         registry.failed_plugins["browser"] = (
             f"fusion-browser config not found: {BROWSER_CONFIG_PATH} (issue #234)"
         )
-        logger.warning(
-            "create_default_registry skipped BrowserTool: config not found (issue #234)"
-        )
+        logger.warning("create_default_registry skipped BrowserTool: config not found (issue #234)")
     from .plugin_manager import PluginManager
+
     _pm = PluginManager(registry)
     _pm.load_all()
     if _pm.loaded_count:

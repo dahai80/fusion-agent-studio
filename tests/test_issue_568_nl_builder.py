@@ -127,9 +127,7 @@ def test_prompt_and_catalog_reach_llm_messages():
 
 
 def test_unknown_node_type_rejected_with_catalog_list():
-    reply = json_reply(
-        {"reply": "", "ops": [{"op": "add_node", "id": "x", "type": "super_agent"}]}
-    )
+    reply = json_reply({"reply": "", "ops": [{"op": "add_node", "id": "x", "type": "super_agent"}]})
     out = _plan(reply)
     assert out["error"] == "invalid plan ops"
     assert any("super_agent" in d and "allowed" in d for d in out["details"])
@@ -167,9 +165,7 @@ def test_remove_unknown_id_rejected():
 
 
 def test_unknown_template_rejected():
-    reply = json_reply(
-        {"reply": "", "ops": [{"op": "instantiate_template", "name": "no-such"}]}
-    )
+    reply = json_reply({"reply": "", "ops": [{"op": "instantiate_template", "name": "no-such"}]})
     out = _plan(reply)
     assert "invalid plan ops" in out["error"]
     assert any("rag-qa" in d for d in out["details"])
@@ -228,9 +224,7 @@ def test_connect_before_add_accepted_forward_reference():
 
 
 def test_catalog_fallback_to_server_types():
-    reply = json_reply(
-        {"reply": "", "ops": [{"op": "add_node", "id": "v", "type": "verify"}]}
-    )
+    reply = json_reply({"reply": "", "ops": [{"op": "add_node", "id": "v", "type": "verify"}]})
     out = _plan(reply, catalog=[])
     assert "error" not in out
 
@@ -242,9 +236,7 @@ def test_non_json_reply_rejected_with_raw():
 
 
 def test_empty_prompt_rejected():
-    out = asyncio.run(
-        _dispatcher("{}")._handle_graph_nl_plan({"prompt": "   "})
-    )
+    out = asyncio.run(_dispatcher("{}")._handle_graph_nl_plan({"prompt": "   "}))
     assert out["error"] == "prompt required"
 
 

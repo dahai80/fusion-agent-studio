@@ -68,14 +68,26 @@ class AssetRegistry:
             ).fetchone()
             if same:
                 logger.info("asset put idempotent %s/%s -> v%s", kind, name, same[0])
-                return {"kind": kind, "name": name, "version": same[0], "content_hash": chash, "unchanged": True}
+                return {
+                    "kind": kind,
+                    "name": name,
+                    "version": same[0],
+                    "content_hash": chash,
+                    "unchanged": True,
+                }
             conn.execute(
                 "INSERT INTO asset_versions (kind, name, version, content_hash, content, created_by, created_at) VALUES (?,?,?,?,?,?,?)",
                 (kind, name, version, chash, content, created_by, time.time()),
             )
             conn.commit()
             logger.info("asset put %s/%s v%d by=%s", kind, name, version, created_by or "?")
-            return {"kind": kind, "name": name, "version": version, "content_hash": chash, "unchanged": False}
+            return {
+                "kind": kind,
+                "name": name,
+                "version": version,
+                "content_hash": chash,
+                "unchanged": False,
+            }
         finally:
             conn.close()
 

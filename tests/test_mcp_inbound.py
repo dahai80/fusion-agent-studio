@@ -4,6 +4,7 @@ Spins up ephemeral in-process MCP servers (aiohttp.web for http/sse, a python
 subprocess for stdio) to exercise real JSON-RPC flows. Process data cleaned up
 after tests — only final outputs kept.
 """
+
 from __future__ import annotations
 
 import sys
@@ -63,29 +64,47 @@ async def _mcp_handler(request: web.Request):
         args = params.get("arguments", {})
         if name == "echo":
             text = args.get("text", "")
-            return web.json_response({
-                "jsonrpc": "2.0",
-                "id": req_id,
-                "result": {"content": [{"type": "text", "text": f"echo:{text}"}]},
-            })
+            return web.json_response(
+                {
+                    "jsonrpc": "2.0",
+                    "id": req_id,
+                    "result": {"content": [{"type": "text", "text": f"echo:{text}"}]},
+                }
+            )
         if name == "add":
-            return web.json_response({
+            return web.json_response(
+                {
+                    "jsonrpc": "2.0",
+                    "id": req_id,
+                    "result": {
+                        "content": [
+                            {"type": "text", "text": str(args.get("a", 0) + args.get("b", 0))}
+                        ]
+                    },
+                }
+            )
+        return web.json_response(
+            {"jsonrpc": "2.0", "id": req_id, "error": {"message": f"unknown tool {name}"}}
+        )
+    if method == "resources/list":
+        return web.json_response(
+            {"jsonrpc": "2.0", "id": req_id, "result": {"resources": MCP_RESOURCES}}
+        )
+    if method == "prompts/list":
+        return web.json_response(
+            {"jsonrpc": "2.0", "id": req_id, "result": {"prompts": MCP_PROMPTS}}
+        )
+    if method == "initialize":
+        return web.json_response(
+            {
                 "jsonrpc": "2.0",
                 "id": req_id,
-                "result": {"content": [{"type": "text", "text": str(args.get("a", 0) + args.get("b", 0))}]},
-            })
-        return web.json_response({"jsonrpc": "2.0", "id": req_id, "error": {"message": f"unknown tool {name}"}})
-    if method == "resources/list":
-        return web.json_response({"jsonrpc": "2.0", "id": req_id, "result": {"resources": MCP_RESOURCES}})
-    if method == "prompts/list":
-        return web.json_response({"jsonrpc": "2.0", "id": req_id, "result": {"prompts": MCP_PROMPTS}})
-    if method == "initialize":
-        return web.json_response({
-            "jsonrpc": "2.0",
-            "id": req_id,
-            "result": {"protocolVersion": "2024-11-05", "capabilities": {}},
-        })
-    return web.json_response({"jsonrpc": "2.0", "id": req_id, "error": {"message": f"unknown method {method}"}})
+                "result": {"protocolVersion": "2024-11-05", "capabilities": {}},
+            }
+        )
+    return web.json_response(
+        {"jsonrpc": "2.0", "id": req_id, "error": {"message": f"unknown method {method}"}}
+    )
 
 
 @pytest.fixture
@@ -106,8 +125,8 @@ async def mcp_http_server():
 # HTTP transport
 # ---------------------------------------------------------------------------
 
-class TestHTTPMCPTransport:
 
+class TestHTTPMCPTransport:
     @pytest.mark.asyncio
     async def test_list_tools(self, mcp_http_server):
         transport = HTTPMCPTransport(mcp_http_server)
@@ -139,8 +158,8 @@ class TestHTTPMCPTransport:
 # MCPTool
 # ---------------------------------------------------------------------------
 
-class TestMCPTool:
 
+class TestMCPTool:
     @pytest.mark.asyncio
     async def test_execute_via_transport(self, mcp_http_server):
         transport = HTTPMCPTransport(mcp_http_server)
@@ -189,8 +208,8 @@ class TestMCPTool:
 # MCPRegistry
 # ---------------------------------------------------------------------------
 
-class TestMCPRegistry:
 
+class TestMCPRegistry:
     @pytest.mark.asyncio
     async def test_register_server_http(self, mcp_http_server):
         registry = ToolRegistry()
@@ -249,7 +268,7 @@ class TestMCPRegistry:
 # Stdio transport — python subprocess acting as an MCP server
 # ---------------------------------------------------------------------------
 
-STDIO_SERVER_SCRIPT = r'''
+STDIO_SERVER_SCRIPT = r"""
 import json, sys
 
 def respond(req_id, result):
@@ -280,11 +299,10 @@ for line in sys.stdin:
         respond(rid, {"prompts": [{"name": "stdio_prompt"}]})
     else:
         respond(rid, {})
-'''
+"""
 
 
 class TestStdioMCPTransport:
-
     @pytest.mark.asyncio
     async def test_stdio_list_tools_and_call(self, tmp_path):
         script = tmp_path / "stdio_mcp_server.py"
@@ -320,8 +338,8 @@ class TestStdioMCPTransport:
 # SSE transport — reuses the same http server (POST endpoint works for both)
 # ---------------------------------------------------------------------------
 
-class TestSSEMCPTransport:
 
+class TestSSEMCPTransport:
     @pytest.mark.asyncio
     async def test_sse_list_and_call(self, mcp_http_server):
         # SSE transport uses post_url for JSON-RPC; same /rpc endpoint works
@@ -347,6 +365,7 @@ class TestSSEMCPTransport:
 # McpDispatcher RPC integration
 # ---------------------------------------------------------------------------
 
+
 class _FakeRuntime:
     def __init__(self):
         self.tool_registry = ToolRegistry()
@@ -362,7 +381,6 @@ class _FakeDaemon:
 
 
 class TestMcpDispatcher:
-
     @pytest.mark.asyncio
     async def test_register_then_list_servers(self, mcp_http_server):
         from agent_runtime.dispatchers.mcp import McpDispatcher

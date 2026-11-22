@@ -42,7 +42,7 @@ def read_extensions(fields) -> dict:
     for key, value in items:
         lowered = str(key).lower()
         if lowered.startswith(X_FUSION_PREFIX):
-            out[lowered[len(X_FUSION_PREFIX):]] = value
+            out[lowered[len(X_FUSION_PREFIX) :]] = value
     return out
 
 
@@ -94,10 +94,19 @@ class ProtocolPlane:
     def __init__(self):
         self._artifacts: dict[tuple[str, str], ProtocolArtifact] = {}
 
-    def register(self, kind: str, name: str, origin: str = "", readonly: bool = False,
-                 extensions: dict | None = None) -> ProtocolArtifact:
+    def register(
+        self,
+        kind: str,
+        name: str,
+        origin: str = "",
+        readonly: bool = False,
+        extensions: dict | None = None,
+    ) -> ProtocolArtifact:
         art = ProtocolArtifact(
-            kind=kind, name=name, origin=origin, readonly=readonly,
+            kind=kind,
+            name=name,
+            origin=origin,
+            readonly=readonly,
             extensions=extensions or {},
         )
         self._artifacts[(kind, name)] = art
@@ -116,15 +125,24 @@ class ProtocolPlane:
             rows = [r for r in rows if r["kind"] == kind]
         return sorted(rows, key=lambda r: (r["kind"], r["name"]))
 
-    def ensure(self, kind: str, name: str, origin: str = "",
-               readonly: bool = False, extensions: dict | None = None) -> ProtocolArtifact:
+    def ensure(
+        self,
+        kind: str,
+        name: str,
+        origin: str = "",
+        readonly: bool = False,
+        extensions: dict | None = None,
+    ) -> ProtocolArtifact:
         # N17 #390: execution entry points call ensure() so every runnable
         # artifact is registered on the governance plane before it executes.
         art = self.get(kind, name)
         if art is None:
             return self.register(
-                kind=kind, name=name, origin=origin,
-                readonly=readonly, extensions=extensions or {},
+                kind=kind,
+                name=name,
+                origin=origin,
+                readonly=readonly,
+                extensions=extensions or {},
             )
         if extensions:
             art.extensions.update(extensions)
@@ -138,7 +156,10 @@ class ProtocolPlane:
         import os
 
         strict = os.environ.get("FUSION_PROTOCOL_STRICT", "").strip().lower() in (
-            "1", "true", "yes", "on",
+            "1",
+            "true",
+            "yes",
+            "on",
         )
         art = self.get(kind, name)
         if art is None and strict:

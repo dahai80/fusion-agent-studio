@@ -65,8 +65,7 @@ class TestGitToolExtendedActions:
         await _run(["git", "init", "--bare", remote_dir], os.path.dirname(repo))
         await _run(["git", "remote", "add", "origin", remote_dir], repo)
         tool = GitTool()
-        result = await tool.execute(action="push", repo_path=repo,
-                                     remote="origin", branch="main")
+        result = await tool.execute(action="push", repo_path=repo, remote="origin", branch="main")
         # either success or "main -> main" in stderr output
         assert "Error: git not found" not in result
         assert "main" in result or "Everything up-to-date" in result
@@ -79,16 +78,16 @@ class TestGitToolExtendedActions:
         await _run(["git", "remote", "add", "origin", remote_dir], repo)
         await _run(["git", "push", "-u", "origin", "main"], repo)
         tool = GitTool()
-        result = await tool.execute(action="fetch", repo_path=repo,
-                                     remote="origin")
+        result = await tool.execute(action="fetch", repo_path=repo, remote="origin")
         assert "Error: git not found" not in result
 
     async def test_checkout_create_and_switch(self, git_env):
         repo, init, env = git_env
         await init()
         tool = GitTool()
-        r1 = await tool.execute(action="checkout", repo_path=repo,
-                                branch="feature", create_new=True)
+        r1 = await tool.execute(
+            action="checkout", repo_path=repo, branch="feature", create_new=True
+        )
         assert "feature" in r1
         # back to main/master
         r2 = await tool.execute(action="checkout", repo_path=repo, branch="main")
@@ -105,8 +104,7 @@ class TestGitToolExtendedActions:
         repo, init, env = git_env
         await init()
         tool = GitTool()
-        await tool.execute(action="checkout", repo_path=repo,
-                           branch="feat", create_new=True)
+        await tool.execute(action="checkout", repo_path=repo, branch="feat", create_new=True)
         with open(os.path.join(repo, "b.txt"), "w") as f:
             f.write("b\n")
         await _run(["git", "add", "-A"], repo)
@@ -126,8 +124,7 @@ class TestGitToolExtendedActions:
         repo, init, env = git_env
         await init()
         tool = GitTool()
-        await tool.execute(action="checkout", repo_path=repo,
-                           branch="side", create_new=True)
+        await tool.execute(action="checkout", repo_path=repo, branch="side", create_new=True)
         with open(os.path.join(repo, "c.txt"), "w") as f:
             f.write("c\n")
         await _run(["git", "add", "-A"], repo)
@@ -150,8 +147,7 @@ class TestGitToolExtendedActions:
         await _run(["git", "add", "-A"], repo)
         await _run(["git", "commit", "-m", "second"], repo)
         tool = GitTool()
-        result = await tool.execute(action="reset", repo_path=repo,
-                                    mode="soft", target="HEAD~1")
+        result = await tool.execute(action="reset", repo_path=repo, mode="soft", target="HEAD~1")
         assert "Error: git not found" not in result
         # soft reset keeps changes staged
         status = await tool.execute(action="status", repo_path=repo)
@@ -189,18 +185,17 @@ class TestGitToolExtendedActions:
         repo, init, env = git_env
         await init()
         tool = GitTool()
-        result = await tool.execute(action="show", repo_path=repo,
-                                    target="deadbeef")
+        result = await tool.execute(action="show", repo_path=repo, target="deadbeef")
         # git prints error to stderr, tool merges it; must not crash
         assert isinstance(result, str)
 
     async def test_extended_enum_registered(self):
         from tools import create_default_registry
+
         reg = create_default_registry()
         tool = reg.get("git")
         actions = tool.parameters["action"]["enum"]
-        for a in ["push", "fetch", "checkout", "merge", "rebase", "reset",
-                  "stash", "show"]:
+        for a in ["push", "fetch", "checkout", "merge", "rebase", "reset", "stash", "show"]:
             assert a in actions, f"missing action {a}"
 
     async def test_existing_actions_still_work(self, git_env):

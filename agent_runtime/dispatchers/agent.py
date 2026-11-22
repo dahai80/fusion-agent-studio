@@ -35,7 +35,7 @@ def _manifest_tool_names(manifest) -> list:
     NodeConfig(label=...) crashes downstream (ResidentReviewer collects
     labels into a set → unhashable dict)."""
     names = []
-    for t in (getattr(manifest, "tools", None) or []):
+    for t in getattr(manifest, "tools", None) or []:
         if isinstance(t, dict):
             n = str(t.get("name") or "").strip()
         else:
@@ -90,9 +90,11 @@ async def build_agent_adhoc_graph(daemon, agent_id: str, input_text: str):
         label="Agent LLM",
         model=model_id,
         system_prompt=effective_prompt,
-        tool_params={"tools_allowlist": [
-            bridge_tool_name(agent_id, t)
-            for t in _manifest_tool_names(manifest)]},
+        tool_params={
+            "tools_allowlist": [
+                bridge_tool_name(agent_id, t) for t in _manifest_tool_names(manifest)
+            ]
+        },
         # Native agent loop: after tool results the runtime feeds them back
         # to the LLM (runtime.py loop_mode=="agent") — without this the
         # graph ended at TOOL_RESULT and the user never got the answer.
@@ -132,14 +134,14 @@ class AgentDispatcher(SubDispatcher):
             "skill.execute": self._handle_skill_execute,
             "research.adaptive": self._handle_research_adaptive,
             "agent.get_soul": self._handle_agent_get_soul,
-        "agent.resolve_persona": self._handle_agent_resolve_persona,
-        "agent.get_persona_layer": self._handle_agent_get_persona_layer,
-        "agent.set_persona_layer": self._handle_agent_set_persona_layer,
-        "agent.list_persona_files": self._handle_agent_list_persona_files,
-        "agent.get_persona_file": self._handle_agent_get_persona_file,
-        "agent.set_persona_file": self._handle_agent_set_persona_file,
-        "agent.import_agents_md": self._handle_agent_import_agents_md,
-        "agent.export_agents_md": self._handle_agent_export_agents_md,
+            "agent.resolve_persona": self._handle_agent_resolve_persona,
+            "agent.get_persona_layer": self._handle_agent_get_persona_layer,
+            "agent.set_persona_layer": self._handle_agent_set_persona_layer,
+            "agent.list_persona_files": self._handle_agent_list_persona_files,
+            "agent.get_persona_file": self._handle_agent_get_persona_file,
+            "agent.set_persona_file": self._handle_agent_set_persona_file,
+            "agent.import_agents_md": self._handle_agent_import_agents_md,
+            "agent.export_agents_md": self._handle_agent_export_agents_md,
             "agent.update_soul": self._handle_agent_update_soul,
             "agent.submit_code_task": self._handle_agent_submit_code_task,
             "agent.task_status": self._handle_agent_task_status,
@@ -531,9 +533,11 @@ class AgentDispatcher(SubDispatcher):
             label="Agent LLM",
             model=_manifest_model_id(manifest),
             system_prompt=effective_prompt,
-            tool_params={"tools_allowlist": [
-                bridge_tool_name(agent_id, t)
-                for t in _manifest_tool_names(manifest)]},
+            tool_params={
+                "tools_allowlist": [
+                    bridge_tool_name(agent_id, t) for t in _manifest_tool_names(manifest)
+                ]
+            },
             # Native agent loop (see module-level builder note).
             loop_mode="agent",
             max_loop_iterations=8,
@@ -557,8 +561,10 @@ class AgentDispatcher(SubDispatcher):
             if sync_result.get("registered") or sync_result.get("skipped"):
                 logger.info(
                     "capability tools synced agent=%s registered=%s skipped=%s",
-                    agent_id, sync_result.get("registered"),
-                    sync_result.get("skipped"))
+                    agent_id,
+                    sync_result.get("registered"),
+                    sync_result.get("skipped"),
+                )
         except Exception:
             logger.exception("capability tool sync failed agent=%s", agent_id)
 
@@ -585,6 +591,7 @@ class AgentDispatcher(SubDispatcher):
 
         events = []
         try:
+
             async def _agent_run():
                 async for event in rt.execute_graph(
                     graph,
@@ -615,7 +622,13 @@ class AgentDispatcher(SubDispatcher):
             if _unreg is not None:
                 _unreg()
 
-        logger.info("agent.execute: id=%s graph=%s events=%d session=%s", agent_id, graph.id, len(events), session_id)
+        logger.info(
+            "agent.execute: id=%s graph=%s events=%d session=%s",
+            agent_id,
+            graph.id,
+            len(events),
+            session_id,
+        )
         return {
             "agent_id": agent_id,
             "graph_id": graph.id,
@@ -1033,7 +1046,9 @@ class AgentDispatcher(SubDispatcher):
         )
         logger.info(
             "agent.resolve_persona agent=%s layers=%s conflicts=%d",
-            params.get("agent_id", ""), result["layers_applied"], len(result["conflicts"]),
+            params.get("agent_id", ""),
+            result["layers_applied"],
+            len(result["conflicts"]),
         )
         return result
 
@@ -1072,9 +1087,7 @@ class AgentDispatcher(SubDispatcher):
         layer = str(params.get("layer", "") or "")
         path = str(params.get("path", "") or "")
         try:
-            content = read_layer_file(
-                layer, str(params.get("name", "") or ""), path
-            )
+            content = read_layer_file(layer, str(params.get("name", "") or ""), path)
         except ValueError as e:
             return {"status": "error", "message": str(e)}
         return {"layer": layer, "path": path, "content": content}
@@ -1086,9 +1099,7 @@ class AgentDispatcher(SubDispatcher):
         path = str(params.get("path", "") or "")
         content = str(params.get("content", "") or "")
         try:
-            written = write_layer_file(
-                layer, str(params.get("name", "") or ""), path, content
-            )
+            written = write_layer_file(layer, str(params.get("name", "") or ""), path, content)
         except ValueError as e:
             return {"status": "error", "message": str(e)}
         logger.info("agent.set_persona_file layer=%s path=%s", layer, written)
@@ -1103,7 +1114,9 @@ class AgentDispatcher(SubDispatcher):
         result = import_agents_md(src_dir)
         logger.info(
             "agent.import_agents_md src=%s imported=%d errors=%d",
-            src_dir, len(result["imported"]), len(result["errors"]),
+            src_dir,
+            len(result["imported"]),
+            len(result["errors"]),
         )
         return result
 
@@ -1398,9 +1411,7 @@ class AgentDispatcher(SubDispatcher):
         from ..code_sandbox import is_language_available, supported_languages
 
         available = [
-            lang
-            for lang in supported_languages()
-            if is_language_available(lang["language"])
+            lang for lang in supported_languages() if is_language_available(lang["language"])
         ]
         logger.info("agent.code_languages: available=%s", available)
         return {"languages": available}
@@ -1492,6 +1503,7 @@ class AgentDispatcher(SubDispatcher):
         total_input_tokens = 0
         total_output_tokens = 0
         try:
+
             async def _agent_stream_run():
                 nonlocal total_input_tokens, total_output_tokens
                 async for event in rt.execute_graph_stream(
@@ -1653,7 +1665,6 @@ class AgentDispatcher(SubDispatcher):
             "executeCode": "code_execution" in manifest.tools,
             "accessNetwork": manifest.web_search_enabled,
         }
-
 
     async def _handle_agent_published_list(self, params: dict) -> dict:
         tracker = self._daemon._get_status_tracker()
@@ -1956,9 +1967,7 @@ class AgentDispatcher(SubDispatcher):
             self._daemon._agents[agent_id].update(manifest.to_dict())
             self._daemon._persist_agents_index()
 
-        logger.info(
-            "agent.restore_version: agent=%s version=%s", agent_id, version_id
-        )
+        logger.info("agent.restore_version: agent=%s version=%s", agent_id, version_id)
         result = manifest.to_dict()
         result["id"] = agent_id
         result["skills"] = pkg.list_skills()
@@ -1995,9 +2004,7 @@ class AgentDispatcher(SubDispatcher):
             kwargs["until"] = self._parse_date_bound(end_date, time.time())
         result = audit.query_logs(**kwargs)
         entries = result.get("data", []) if isinstance(result, dict) else []
-        logger.info(
-            "audit.trail: agent=%s entries=%d", agent_id, len(entries)
-        )
+        logger.info("audit.trail: agent=%s entries=%d", agent_id, len(entries))
         return {"entries": entries, "total": len(entries)}
 
     async def _handle_session_logs(self, params: dict) -> dict:
@@ -2016,7 +2023,5 @@ class AgentDispatcher(SubDispatcher):
             if started and (started < since or started > until):
                 continue
             entries.append(hd)
-        logger.info(
-            "session.logs: agent=%s entries=%d", agent_id, len(entries)
-        )
+        logger.info("session.logs: agent=%s entries=%d", agent_id, len(entries))
         return {"sessions": entries, "total": len(entries)}

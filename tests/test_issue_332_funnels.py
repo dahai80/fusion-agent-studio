@@ -62,7 +62,9 @@ class _Audit:
 
 def _block_hook(reason="no"):
     eng = HookEngine(auto_register_decorators=False)
-    eng.register(HookConfig(event="PRE_TOOL_USE", callback=lambda p: {"decision": "block", "reason": reason}))
+    eng.register(
+        HookConfig(event="PRE_TOOL_USE", callback=lambda p: {"decision": "block", "reason": reason})
+    )
     return eng
 
 
@@ -146,7 +148,9 @@ def test_lifecycle_subscriber_error_fail_open():
 
 
 def test_lifecycle_event_to_dict():
-    ev = LifecycleEvent(seq=7, ts=123.0, domain=EventDomain.AGENT, event="x", payload={"p": 1}, session_id="s")
+    ev = LifecycleEvent(
+        seq=7, ts=123.0, domain=EventDomain.AGENT, event="x", payload={"p": 1}, session_id="s"
+    )
     d = ev.to_dict()
     assert d["domain"] == "agent"
     assert d["seq"] == 7 and d["event"] == "x" and d["payload"] == {"p": 1}
@@ -176,7 +180,9 @@ def test_funnel_outcome_to_dict():
 
 async def test_funnel_lifecycle_tool_before_and_deny_events():
     bus = LifecycleBus()
-    funnel = ToolFunnel(hooks=_block_hook("denied"), permissions=PermissionEngine(), lifecycle_bus=bus)
+    funnel = ToolFunnel(
+        hooks=_block_hook("denied"), permissions=PermissionEngine(), lifecycle_bus=bus
+    )
     out = await funnel.admit(ctx=_Ctx(), tool_name="any_tool", args={"a": 1})
     assert out.allowed is False
     assert out.blocked_by == "hook"
@@ -217,13 +223,17 @@ async def test_funnel_hook_rewrite_updated_input():
 async def test_funnel_safety_block_and_approval_passthrough():
     from agent_runtime.safety import SafetyAction
 
-    blocking = _SafetyStub(_Verdict(SafetyAction.BLOCK, requires_approval=False, reason="bad content"))
+    blocking = _SafetyStub(
+        _Verdict(SafetyAction.BLOCK, requires_approval=False, reason="bad content")
+    )
     funnel = ToolFunnel(permissions=PermissionEngine(), safety_gateway=blocking)
     out = await funnel.admit(ctx=_Ctx(), tool_name="t1", args={})
     assert out.allowed is False and out.blocked_by == "safety"
     assert blocking.calls == 1
 
-    approving = _SafetyStub(_Verdict(SafetyAction.BLOCK, requires_approval=True, reason="need human"))
+    approving = _SafetyStub(
+        _Verdict(SafetyAction.BLOCK, requires_approval=True, reason="need human")
+    )
     funnel2 = ToolFunnel(permissions=PermissionEngine(), safety_gateway=approving)
     out2 = await funnel2.admit(ctx=_Ctx(), tool_name="t1", args={})
     assert out2.allowed is False
@@ -235,7 +245,9 @@ async def test_funnel_permission_deny_first_before_safety():
     from agent_runtime.safety import SafetyAction
 
     engine = PermissionEngine(
-        rules=[PermissionRule(action="deny", tool="dangerous_tool", layer="global", description="no")]
+        rules=[
+            PermissionRule(action="deny", tool="dangerous_tool", layer="global", description="no")
+        ]
     )
     safety = _SafetyStub(_Verdict(SafetyAction.BLOCK))
     bus = LifecycleBus()
@@ -295,7 +307,9 @@ async def test_funnel_run_tool_allowed_and_error_paths():
 
 
 async def test_funnel_run_tool_needs_approval_no_handler():
-    engine = PermissionEngine(rules=[PermissionRule(action="ask", tool="guarded_tool", layer="global")])
+    engine = PermissionEngine(
+        rules=[PermissionRule(action="ask", tool="guarded_tool", layer="global")]
+    )
     funnel = ToolFunnel(permissions=engine)
     executed = []
 
@@ -349,7 +363,9 @@ def test_permission_engine_unique_names_unarmed_passthrough(monkeypatch):
 
 async def test_llm_funnel_hook_block():
     eng = HookEngine(auto_register_decorators=False)
-    eng.register(HookConfig(event="LLM_BEFORE", callback=lambda p: {"decision": "block", "reason": "no-llm"}))
+    eng.register(
+        HookConfig(event="LLM_BEFORE", callback=lambda p: {"decision": "block", "reason": "no-llm"})
+    )
     funnel = LLMFunnel(hooks=eng)
     msgs = [{"role": "user", "content": "hi"}]
     proceed, reason, out_msgs = await funnel.pre_llm(_Ctx(), messages=msgs)
@@ -390,7 +406,8 @@ async def test_llm_funnel_compaction_trigger_and_events():
     assert proceed is True and reason == ""
     assert out is not msgs
     assert any(
-        m.get("role") == "system" and "[Compacted prior context]" in m.get("content", "") for m in out
+        m.get("role") == "system" and "[Compacted prior context]" in m.get("content", "")
+        for m in out
     )
     assert out[-1]["content"] == "final"
     agent_events = [e.event for e in bus.replay(session_id="s1", domain="agent")]

@@ -125,7 +125,11 @@ def prove_llm_funnel_compaction_events():
     proceed, reason, out = holder["result"]
     assert proceed is True and reason == ""
     assert out is not msgs
-    assert any("[Compacted prior context]" in m.get("content", "") for m in out if m.get("role") == "system")
+    assert any(
+        "[Compacted prior context]" in m.get("content", "")
+        for m in out
+        if m.get("role") == "system"
+    )
     events = [e.event for e in bus.replay(session_id="lc-proof", domain="agent")]
     for expected in ("llm_before", "compact_before", "compact_after"):
         assert expected in events, expected

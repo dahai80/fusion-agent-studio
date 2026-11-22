@@ -291,14 +291,10 @@ class TestGraphExecution:
             if event.metadata.get("action") == "pending_approval":
                 assert rt.approve_action(event.metadata["action_id"]) is True
         actions = [
-            e.metadata.get("action")
-            for e in events
-            if e.type == AgentEventType.SAFETY_APPROVAL
+            e.metadata.get("action") for e in events if e.type == AgentEventType.SAFETY_APPROVAL
         ]
         assert "pending_approval" in actions
-        pending = next(
-            e for e in events if e.metadata.get("action") == "pending_approval"
-        )
+        pending = next(e for e in events if e.metadata.get("action") == "pending_approval")
         assert pending.metadata["confirmation_policy"]["tier"] == "risk"
         results = [e for e in events if e.type == AgentEventType.TOOL_RESULT]
         assert results and results[0].name == "file_write"
@@ -309,9 +305,7 @@ class TestGraphExecution:
         events = []
         async for event in rt.execute_graph(graph, "go"):
             events.append(event)
-        assert not [
-            e for e in events if e.metadata.get("action") == "pending_approval"
-        ]
+        assert not [e for e in events if e.metadata.get("action") == "pending_approval"]
         results = [e for e in events if e.type == AgentEventType.TOOL_RESULT]
         assert results and results[0].name == "list_dir"
 
@@ -321,11 +315,8 @@ class TestGraphExecution:
         events = []
         async for event in rt.execute_graph(graph, "go"):
             events.append(event)
-        assert not [
-            e for e in events if e.metadata.get("action") == "pending_approval"
-        ]
+        assert not [e for e in events if e.metadata.get("action") == "pending_approval"]
         assert [e for e in events if e.type == AgentEventType.TOOL_RESULT]
-
 
 
 class TestMutationHardening:
@@ -403,9 +394,7 @@ class TestMutationHardening:
         )
 
     def test_decide_default_tool_name_uses_graph_tier(self):
-        policy = ConfirmationPolicy(
-            tier="never", tool_overrides={"file_write": "always"}
-        )
+        policy = ConfirmationPolicy(tier="never", tool_overrides={"file_write": "always"})
         assert policy.decide(requires_approval=True) == ("auto", "never", 0.0)
         assert policy.decide(requires_approval=True, tool_name="file_write") == (
             "confirm",
@@ -441,8 +430,7 @@ class TestMutationHardening:
         assert ConfirmationPolicy.from_dict({"tier": "sometimes"}) is None
         messages = [r.getMessage() for r in caplog.records]
         assert any(
-            m.startswith("confirmation policy parse failed") and "sometimes" in m
-            for m in messages
+            m.startswith("confirmation policy parse failed") and "sometimes" in m for m in messages
         ), messages
 
     def test_to_dict_exact_shape(self):

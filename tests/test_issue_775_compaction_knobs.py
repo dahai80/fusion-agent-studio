@@ -145,9 +145,7 @@ class TestTriggerRatioChokePoint:
         seen = []
         bus.subscribe(lambda e: seen.append(e))
         funnel = LLMFunnel(compactor=c, lifecycle_bus=bus)
-        proceed, _, out = asyncio.run(
-            funnel.pre_llm(None, "n", "m", msgs_trigger_window())
-        )
+        proceed, _, out = asyncio.run(funnel.pre_llm(None, "n", "m", msgs_trigger_window()))
         assert proceed
         events = [getattr(e, "event", "") for e in seen]
         assert "compact_before" in events
@@ -201,7 +199,9 @@ class TestCompactionValidator:
         import asyncio
 
         c = Compactor(
-            config=CompactionConfig(validator=lambda m, t: (_ for _ in ()).throw(RuntimeError("boom")))
+            config=CompactionConfig(
+                validator=lambda m, t: (_ for _ in ()).throw(RuntimeError("boom"))
+            )
         )
         msgs = [{"role": "system", "content": "sys"}, {"role": "user", "content": "Task: x"}]
         out = asyncio.run(c.compact_async(msgs, "warning"))

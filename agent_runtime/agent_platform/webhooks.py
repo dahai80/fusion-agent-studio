@@ -42,8 +42,7 @@ def _sign(secret: str, body: bytes) -> str:
     # #580: ecosystem wire convention (fusion-gateway managed-settings signs
     # `ed25519:<b64>`, cowork consumer expects `sha256=<hexdigest>`) — the
     # algorithm rides on the wire, not just in the docs.
-    return "sha256=" + hmac.new(secret.encode("utf-8"), body,
-                                hashlib.sha256).hexdigest()
+    return "sha256=" + hmac.new(secret.encode("utf-8"), body, hashlib.sha256).hexdigest()
 
 
 class WebhookRegistry:
@@ -58,26 +57,23 @@ class WebhookRegistry:
         try:
             data = json.loads(self.path.read_text(encoding="utf-8"))
             if isinstance(data, dict):
-                self._records = {
-                    k: v for k, v in data.items() if isinstance(v, dict)}
+                self._records = {k: v for k, v in data.items() if isinstance(v, dict)}
         except FileNotFoundError:
             self._records = {}
         except Exception as e:
-            logger.warning("webhook registry unreadable (%s): %s",
-                           self.path, e)
+            logger.warning("webhook registry unreadable (%s): %s", self.path, e)
             self._records = {}
 
     def _save(self) -> None:
         try:
             self.path.parent.mkdir(parents=True, exist_ok=True)
             self.path.write_text(
-                json.dumps(self._records, ensure_ascii=False, indent=2),
-                encoding="utf-8")
+                json.dumps(self._records, ensure_ascii=False, indent=2), encoding="utf-8"
+            )
         except Exception as e:
             logger.warning("webhook registry write failed: %s", e)
 
-    def register(self, url: str, secret: str,
-                 events: Optional[List[str]] = None) -> dict:
+    def register(self, url: str, secret: str, events: Optional[List[str]] = None) -> dict:
         url = (url or "").strip()
         if not _validate_url(url):
             raise ValueError(f"invalid webhook url: {url[:120]}")
@@ -114,15 +110,17 @@ class WebhookRegistry:
     def list(self) -> List[dict]:
         out = []
         for key, rec in self._records.items():
-            out.append({
-                "id": key,
-                "url": rec.get("url", ""),
-                "events": rec.get("events", []),
-                "created_at": rec.get("created_at"),
-                "last_status": rec.get("last_status"),
-                "last_attempt_at": rec.get("last_attempt_at"),
-                "delivery_count": rec.get("delivery_count", 0),
-            })
+            out.append(
+                {
+                    "id": key,
+                    "url": rec.get("url", ""),
+                    "events": rec.get("events", []),
+                    "created_at": rec.get("created_at"),
+                    "last_status": rec.get("last_status"),
+                    "last_attempt_at": rec.get("last_attempt_at"),
+                    "delivery_count": rec.get("delivery_count", 0),
+                }
+            )
         return out
 
     async def fire(self, event: str, payload: Dict[str, Any]) -> None:
@@ -150,27 +148,34 @@ class WebhookRegistry:
             status = 0
             for attempt in range(3):
                 try:
-                    async with httpx.AsyncClient(
-                            timeout=10, trust_env=False) as client:
+                    async with httpx.AsyncClient(timeout=10, trust_env=False) as client:
                         resp = await client.post(
-                            rec["url"], content=body,
-                            headers={"Content-Type": "application/json",
-                                     _SIGNATURE_HEADER: signature})
+                            rec["url"],
+                            content=body,
+                            headers={
+                                "Content-Type": "application/json",
+                                _SIGNATURE_HEADER: signature,
+                            },
+                        )
                     status = resp.status_code
                     if 200 <= status < 300:
                         break
                 except Exception as e:
                     logger.warning(
-                        "webhook delivery failed (id=%s attempt=%d): %s",
-                        key, attempt + 1, e)
+                        "webhook delivery failed (id=%s attempt=%d): %s", key, attempt + 1, e
+                    )
                 await _backoff(attempt)
             rec["last_status"] = status
             rec["last_attempt_at"] = time.time()
             rec["delivery_count"] = int(rec.get("delivery_count", 0)) + 1
             self._save()
             if not 200 <= status < 300:
-                logger.warning("webhook delivery gave up: id=%s url=%s "
-                               "status=%s", key, rec.get("url", ""), status)
+                logger.warning(
+                    "webhook delivery gave up: id=%s url=%s status=%s",
+                    key,
+                    rec.get("url", ""),
+                    status,
+                )
             else:
                 logger.info("webhook delivered: id=%s status=%d", key, status)
 
@@ -196,5 +201,5 @@ def verify_signature(secret: str, body: bytes, signature: str) -> bool:
     # (pre-#580 senders / lenient test harnesses).
     sig = (signature or "").strip()
     if sig.lower().startswith("sha256="):
-        sig = sig[len("sha256="):]
-    return hmac.compare_digest(_sign(secret, body)[len("sha256="):], sig)
+        sig = sig[len("sha256=") :]
+    return hmac.compare_digest(_sign(secret, body)[len("sha256=") :], sig)

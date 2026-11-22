@@ -49,13 +49,18 @@ source_of_truth:
 from rpc import rpc
 import asyncio
 
+
 async def main():
-    r = await rpc("mcp.register_server", {
-        "server_url": "http://localhost:8765",
-        "headers": {"Authorization": "Bearer my-token"},   # 可选
-        "tool_filter": ["read_file", "list_files"],         # 可选，只接部分工具
-    })
+    r = await rpc(
+        "mcp.register_server",
+        {
+            "server_url": "http://localhost:8765",
+            "headers": {"Authorization": "Bearer my-token"},  # 可选
+            "tool_filter": ["read_file", "list_files"],  # 可选，只接部分工具
+        },
+    )
     print(r)
+
 
 asyncio.run(main())
 ```
@@ -71,10 +76,13 @@ asyncio.run(main())
 server 是个可执行程序 / 脚本，daemon 拉起子进程通过 stdin/stdout 通信。给 `stdio_cmd`（命令数组）：
 
 ```python
-await rpc("mcp.register_server", {
-    "stdio_cmd": ["python", "-m", "my_mcp_server"],
-    "env": {"MY_CONFIG": "/etc/my.conf"},   # 可选，子进程环境变量
-})
+await rpc(
+    "mcp.register_server",
+    {
+        "stdio_cmd": ["python", "-m", "my_mcp_server"],
+        "env": {"MY_CONFIG": "/etc/my.conf"},  # 可选，子进程环境变量
+    },
+)
 ```
 
 > 安全：`stdio_cmd[0]`（可执行名）会拦截 shell / 网络解释器（`sh`、`bash`、`python -c` 这类）——避免把 MCP 退化成无约束命令执行入口。用真正的 server 程序，别拿 stdio 当 shell 通道。
@@ -84,10 +92,13 @@ await rpc("mcp.register_server", {
 给 `sse_url`（事件流端点）+ `post_url`（请求投递端点）：
 
 ```python
-await rpc("mcp.register_server", {
-    "sse_url": "http://localhost:8766/sse",
-    "post_url": "http://localhost:8766/messages",
-})
+await rpc(
+    "mcp.register_server",
+    {
+        "sse_url": "http://localhost:8766/sse",
+        "post_url": "http://localhost:8766/messages",
+    },
+)
 ```
 
 ## 发现 server 的能力
@@ -115,19 +126,24 @@ await rpc("mcp.list_prompts", {"server_url": "http://localhost:8765"})
 from rpc import rpc
 import asyncio
 
+
 async def main():
     # 假设注册回了工具名 "read_file"
-    agent = await rpc("agent.create", {
-        "name": "fs-agent",
-        "model": "qwen2.5-7b-instruct",
-        "tools": ["read_file", "list_files"],
-        "system_prompt": "你能通过 MCP 读写文件，用户给路径你就读。",
-    })
+    agent = await rpc(
+        "agent.create",
+        {
+            "name": "fs-agent",
+            "model": "qwen2.5-7b-instruct",
+            "tools": ["read_file", "list_files"],
+            "system_prompt": "你能通过 MCP 读写文件，用户给路径你就读。",
+        },
+    )
     aid = agent["agent_id"]
 
     r = await rpc("agent.execute", {"agent_id": aid, "input": "读 /tmp/notes.txt 的内容"})
     for ev in r["events"]:
-        print(f"  [{ev['type']}] {str(ev.get('content',''))[:80]}")
+        print(f"  [{ev['type']}] {str(ev.get('content', ''))[:80]}")
+
 
 asyncio.run(main())
 ```
@@ -163,31 +179,42 @@ await rpc("mcp.list_servers", {})
 from rpc import rpc
 import asyncio
 
+
 async def main():
     # 1. 注册（只接读工具，写工具过滤掉更安全）
-    reg = await rpc("mcp.register_server", {
-        "server_url": "http://localhost:8765",
-        "tool_filter": ["read_file", "list_files"],
-    })
+    reg = await rpc(
+        "mcp.register_server",
+        {
+            "server_url": "http://localhost:8765",
+            "tool_filter": ["read_file", "list_files"],
+        },
+    )
     print("registered tools:", reg["registered"])
 
     # 2. 建智能体并装上这些工具
-    a = await rpc("agent.create", {
-        "name": "fs-reader",
-        "model": "qwen2.5-7b-instruct",
-        "tools": reg["registered"],
-        "system_prompt": "你通过 MCP 读文件。用户给路径就 list+read，然后总结。",
-        "safety_level": "L1",
-    })
+    a = await rpc(
+        "agent.create",
+        {
+            "name": "fs-reader",
+            "model": "qwen2.5-7b-instruct",
+            "tools": reg["registered"],
+            "system_prompt": "你通过 MCP 读文件。用户给路径就 list+read，然后总结。",
+            "safety_level": "L1",
+        },
+    )
 
     # 3. 跑
-    r = await rpc("agent.execute", {
-        "agent_id": a["agent_id"],
-        "input": "列出 /tmp 下有哪些文件，并读最大的那个的前 200 字",
-    })
+    r = await rpc(
+        "agent.execute",
+        {
+            "agent_id": a["agent_id"],
+            "input": "列出 /tmp 下有哪些文件，并读最大的那个的前 200 字",
+        },
+    )
     for ev in r["events"]:
         if ev["type"] in ("TOOL_CALL", "TOOL_RESULT", "THINK"):
-            print(f"  [{ev['type']}] {str(ev.get('content',''))[:100]}")
+            print(f"  [{ev['type']}] {str(ev.get('content', ''))[:100]}")
+
 
 asyncio.run(main())
 ```

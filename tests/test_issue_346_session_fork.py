@@ -1,7 +1,5 @@
 """N12 session fork deep-copy + summary-resume (issue #346)."""
 
-
-
 from agent_runtime.persistence import AgentStore, ChatSession
 from agent_runtime.session_manager import SessionManager, SessionStatus
 
@@ -11,12 +9,14 @@ def _store(tmp_path):
 
 
 def _chat(store, session_id, msgs):
-    s = ChatSession.from_dict({
-        "id": session_id,
-        "title": "parent",
-        "mode": "chat",
-        "messages": msgs,
-    })
+    s = ChatSession.from_dict(
+        {
+            "id": session_id,
+            "title": "parent",
+            "mode": "chat",
+            "messages": msgs,
+        }
+    )
     store.save_chat_session(s)
     return s
 
@@ -37,10 +37,14 @@ class _StubRuntime:
 
 async def test_fork_deep_copy_seeds_parent_history(tmp_path):
     store = _store(tmp_path)
-    _chat(store, "s1", [
-        {"role": "user", "content": "hello from parent"},
-        {"role": "assistant", "content": "parent replied"},
-    ])
+    _chat(
+        store,
+        "s1",
+        [
+            {"role": "user", "content": "hello from parent"},
+            {"role": "assistant", "content": "parent replied"},
+        ],
+    )
     rt = _StubRuntime()
     mgr = SessionManager(runtime=rt, store=store)
     bg = await mgr.fork("s1", "new question")
@@ -54,10 +58,14 @@ async def test_fork_deep_copy_seeds_parent_history(tmp_path):
 
 async def test_fork_summary_mode_seeds_single_summary(tmp_path):
     store = _store(tmp_path)
-    _chat(store, "s2", [
-        {"role": "user", "content": "question A"},
-        {"role": "assistant", "content": "answer A"},
-    ])
+    _chat(
+        store,
+        "s2",
+        [
+            {"role": "user", "content": "question A"},
+            {"role": "assistant", "content": "answer A"},
+        ],
+    )
     rt = _StubRuntime()
     mgr = SessionManager(runtime=rt, store=store)
     bg = await mgr.fork("s2", "follow-up", summarize=True)
@@ -133,9 +141,13 @@ async def test_session_fork_rpc_passes_summarize(tmp_path):
     from agent_runtime.daemon_server import DaemonServer
 
     store = _store(tmp_path)
-    _chat(store, "s9", [
-        {"role": "user", "content": "parent context"},
-    ])
+    _chat(
+        store,
+        "s9",
+        [
+            {"role": "user", "content": "parent context"},
+        ],
+    )
     rt = _StubRuntime()
 
     class _Daemon:

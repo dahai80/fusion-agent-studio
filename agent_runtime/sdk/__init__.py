@@ -44,9 +44,7 @@ def verify_agent(agent_def: dict) -> dict:
     return {"valid": len(errors) == 0, "errors": errors}
 
 
-def scaffold_agent(
-    name: str = "my_agent", template: str = "basic", output_dir: str = ""
-) -> dict:
+def scaffold_agent(name: str = "my_agent", template: str = "basic", output_dir: str = "") -> dict:
     import json
 
     templates = {

@@ -48,9 +48,7 @@ class StubMLXState:
     def __init__(self):
         self.lock = threading.Lock()
         # Queue of canned chat payloads; exhausted -> repeat the last one.
-        self.chat_responses: list[dict] = [
-            {"content": "stub reply", "finish_reason": "stop"}
-        ]
+        self.chat_responses: list[dict] = [{"content": "stub reply", "finish_reason": "stop"}]
         self.requests: list[dict] = []
 
     def push_chat(self, content: str, tool_calls: list | None = None) -> None:
@@ -295,9 +293,7 @@ def page(browser, daemon_base):
     # on every request the way the gateway /shell proxy would (Bearer header)
     context.route(
         "**/*",
-        lambda route: route.continue_(
-            headers={**route.request.headers, "x-api-key": E2E_API_KEY}
-        ),
+        lambda route: route.continue_(headers={**route.request.headers, "x-api-key": E2E_API_KEY}),
     )
     pg = context.new_page()
     pg.set_default_timeout(15000)

@@ -145,8 +145,6 @@ class RunBudgetTracker:
         self.last_status: RunBudgetStatus | None = None
 
     def check(self, usage: dict, model: str = "") -> RunBudgetStatus:
-        status = check_run_budget(
-            self.budget, usage, time.time() - self.started_at, model=model
-        )
+        status = check_run_budget(self.budget, usage, time.time() - self.started_at, model=model)
         self.last_status = status
         return status

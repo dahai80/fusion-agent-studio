@@ -49,7 +49,7 @@ __all__ = [
     "EvalDispatcher",
     "PlaygroundDispatcher",
     "FlowDispatcher",
-"HistoryDispatcher",
+    "HistoryDispatcher",
     "ReviewerDispatcher",
     "CommodityDispatcher",
     "SubAgentDispatcher",

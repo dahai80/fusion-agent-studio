@@ -1,5 +1,6 @@
 """Issue #549 — reviewer packs: structured findings contract, blind review,
 parallel fan-out with per-pack attribution, first-party bundle seeding."""
+
 from __future__ import annotations
 
 import json
@@ -30,13 +31,16 @@ def test_validate_finding_accepts_structured():
     assert f.pack == ""
 
 
-@pytest.mark.parametrize("payload", [
-    {"severity": "critical", "location": "x", "rationale": "r", "recommendation": "rec"},
-    {"severity": "P4", "location": "x", "rationale": "r", "recommendation": "rec"},
-    {"severity": "P0", "rationale": "r", "recommendation": "rec"},
-    {"severity": "P0", "location": "x", "recommendation": "rec", "rationale": ""},
-    {"severity": "P0", "location": "x", "rationale": "r"},
-])
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"severity": "critical", "location": "x", "rationale": "r", "recommendation": "rec"},
+        {"severity": "P4", "location": "x", "rationale": "r", "recommendation": "rec"},
+        {"severity": "P0", "rationale": "r", "recommendation": "rec"},
+        {"severity": "P0", "location": "x", "recommendation": "rec", "rationale": ""},
+        {"severity": "P0", "location": "x", "rationale": "r"},
+    ],
+)
 def test_validate_finding_rejects_free_text_and_missing_fields(payload):
     with pytest.raises(FindingValidationError):
         validate_finding(payload)

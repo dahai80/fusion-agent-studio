@@ -73,11 +73,7 @@ class TestWFTruncationDetection:
         assert result == []
 
     def test_detect_multiple_unclosed(self):
-        content = (
-            '<artifact id="a1">text1</artifact>'
-            '<artifact id="a2">text2'
-            '<artifact id="a3">text3'
-        )
+        content = '<artifact id="a1">text1</artifact><artifact id="a2">text2<artifact id="a3">text3'
         result = AgentRuntime._detect_unclosed_artifacts(content)
         assert len(result) == 2
         assert "a2" in result
@@ -142,9 +138,15 @@ class TestWFProgressiveGeneration:
 
     def test_patch_advances_to_filling(self):
         mgr = ArtifactManager()
-        result = mgr.create_artifact("agent1", "doc1", content="## Outline\n<!-- section:intro -->\nIntro\n<!-- end:intro -->")
+        result = mgr.create_artifact(
+            "agent1",
+            "doc1",
+            content="## Outline\n<!-- section:intro -->\nIntro\n<!-- end:intro -->",
+        )
         aid = result["artifact_id"]
-        patch_result = mgr.patch_artifact(aid, "section_replace", content="Full intro", section="intro", agent_id="agent1")
+        patch_result = mgr.patch_artifact(
+            aid, "section_replace", content="Full intro", section="intro", agent_id="agent1"
+        )
         assert patch_result["status"] == "ok"
         assert patch_result["record"]["generation_phase"] == "filling"
 
@@ -152,7 +154,9 @@ class TestWFProgressiveGeneration:
         mgr = ArtifactManager()
         result = mgr.create_artifact("agent1", "doc1", content="outline")
         aid = result["artifact_id"]
-        patch_result = mgr.patch_artifact(aid, "append", content="\nmore content", agent_id="agent1")
+        patch_result = mgr.patch_artifact(
+            aid, "append", content="\nmore content", agent_id="agent1"
+        )
         assert patch_result["status"] == "ok"
         assert patch_result["record"]["generation_phase"] == "filling"
 
@@ -212,9 +216,13 @@ class TestWFProgressiveGeneration:
     async def test_dispatcher_advance_phase(self):
         daemon_mock = MagicMock()
         bridge = MagicMock()
-        bridge.advance_generation_phase.return_value = {"status": "ok", "generation_phase": "filling"}
+        bridge.advance_generation_phase.return_value = {
+            "status": "ok",
+            "generation_phase": "filling",
+        }
         daemon_mock._get_artifact_manager.return_value = bridge
         from agent_runtime.dispatchers.artifact import ArtifactDispatcher
+
         disp = ArtifactDispatcher(daemon_mock)
         result = await disp._handle_advance_phase({"artifact_id": "a1", "target_phase": "filling"})
         assert result["status"] == "ok"

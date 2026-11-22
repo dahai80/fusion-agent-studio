@@ -77,6 +77,7 @@ import os
 
 SOCKET = os.environ.get("FUSION_STUDIO_SOCKET", "/tmp/fusion-studio.sock")
 
+
 async def rpc(method, params=None, msg_id=1):
     reader, writer = await asyncio.open_unix_connection(SOCKET)
     req = {"jsonrpc": "2.0", "id": msg_id, "method": method}
@@ -89,9 +90,11 @@ async def rpc(method, params=None, msg_id=1):
     await writer.wait_closed()
     return json.loads(line)
 
+
 # 用法
 async def main():
     print(await rpc("agent.list"))
+
 
 asyncio.run(main())
 ```

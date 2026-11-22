@@ -66,7 +66,9 @@ async def test_delegate_run_posts_cluster_task(monkeypatch):
     from agent_runtime import sandbox_router
 
     monkeypatch.setenv("FUSION_CLUSTER_URL", "http://cluster.local:11457")
-    fake = FakeAsyncClient(FakeResponse(200, {"task_id": "task-abc", "assigned_nodes": ["mini-01"]}))
+    fake = FakeAsyncClient(
+        FakeResponse(200, {"task_id": "task-abc", "assigned_nodes": ["mini-01"]})
+    )
     target = SandboxTarget(raw="multi-node:mini-01", mode="multi-node", node="mini-01")
     result = await sandbox_router.delegate_run(target, "run-1", "agent-1", "", "goal", client=fake)
     assert result == {
@@ -286,7 +288,9 @@ def test_cli_submit_prints_run_and_skips_stream(monkeypatch, capsys):
 
 def test_cli_submit_streams_events(monkeypatch, capsys):
     monkeypatch.setattr(
-        cli.AgentStudioClient, "request", lambda self, m, p, b=None: {"run_id": "r9", "status": "pending"}
+        cli.AgentStudioClient,
+        "request",
+        lambda self, m, p, b=None: {"run_id": "r9", "status": "pending"},
     )
     monkeypatch.setattr(
         cli.AgentStudioClient,
@@ -312,9 +316,11 @@ def test_cli_resume_and_list(monkeypatch, capsys):
     monkeypatch.setattr(
         cli.AgentStudioClient,
         "request",
-        lambda self, m, p, b=None: {"status": "ok", "sessions": [{"id": "s1", "title": "T", "mode": "chat"}]}
-        if p.startswith("/v1/sessions?")
-        else {"status": "ok", "background_session_id": "bg1"},
+        lambda self, m, p, b=None: (
+            {"status": "ok", "sessions": [{"id": "s1", "title": "T", "mode": "chat"}]}
+            if p.startswith("/v1/sessions?")
+            else {"status": "ok", "background_session_id": "bg1"}
+        ),
     )
     assert cli.main(["list", "sessions"]) == 0
     assert "s1" in capsys.readouterr().out

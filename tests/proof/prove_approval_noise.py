@@ -82,10 +82,14 @@ def prove_approval_noise() -> float:
 
     reduction = (b_rate - a_rate) / b_rate * 100.0 if b_rate else 0.0
     print(f"workload: {len(WORKLOAD)} calls (60 readonly / 20 loopback / 15 write / 5 destructive)")
-    print(f"baseline asks/100-calls: {b_rate:.1f} (asks={b_stats.get('asks')}, denies={b_stats.get('denies')})")
-    print(f"armed    asks/100-calls: {a_rate:.1f} (asks={a_stats.get('asks')}, "
-          f"auto_allow={a_stats.get('auto_allow_readonly') + a_stats.get('auto_allow_loopback')}, "
-          f"denies={a_stats.get('denies')})")
+    print(
+        f"baseline asks/100-calls: {b_rate:.1f} (asks={b_stats.get('asks')}, denies={b_stats.get('denies')})"
+    )
+    print(
+        f"armed    asks/100-calls: {a_rate:.1f} (asks={a_stats.get('asks')}, "
+        f"auto_allow={a_stats.get('auto_allow_readonly') + a_stats.get('auto_allow_loopback')}, "
+        f"denies={a_stats.get('denies')})"
+    )
     print(f"approval-noise reduction: {reduction:.1f}%")
 
     # #486 AC3: the metric is reproducible from telemetry.metrics() gauges.
@@ -93,7 +97,9 @@ def prove_approval_noise() -> float:
     engine.record_permission_noise(a_stats)
     gauges = engine.metrics()["gauges"]
     assert abs(gauges["approval_asks_per_100_calls"] - a_rate) < 0.01, gauges
-    print(f"telemetry gauge approval_asks_per_100_calls={gauges['approval_asks_per_100_calls']:.1f} reproducible")
+    print(
+        f"telemetry gauge approval_asks_per_100_calls={gauges['approval_asks_per_100_calls']:.1f} reproducible"
+    )
 
     assert reduction >= 70.0, f"noise reduction {reduction:.1f}% below -70% claim"
     return reduction

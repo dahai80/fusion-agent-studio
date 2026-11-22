@@ -5,6 +5,7 @@ fails the test instead of stalling CI. Restart E2E: runtime1 pauses at the
 human_input node, a NEW runtime with the SAME store resumes with the human
 decision injected and reaches end_turn.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -100,7 +101,9 @@ async def test_human_input_approve_resolves_and_continues():
                 ev.type == AgentEventType.SAFETY_APPROVAL
                 and (ev.metadata or {}).get("kind") == "human_input"
             ):
-                ok = rt.resolve_human_input(ev.metadata["input_id"], {"approved": True, "value": "go"})
+                ok = rt.resolve_human_input(
+                    ev.metadata["input_id"], {"approved": True, "value": "go"}
+                )
                 assert ok
 
     await asyncio.wait_for(run(), timeout=10)
@@ -182,7 +185,9 @@ async def test_human_input_restart_e2e_resume_from_checkpoint(tmp_path):
     # backend restart: NEW runtime, SAME store, decision injected
     rt2 = _runtime(store)
     events2 = []
-    async for ev in rt2.resume_from_checkpoint(graph, session_id, human_inputs={"decision": "ship it"}):
+    async for ev in rt2.resume_from_checkpoint(
+        graph, session_id, human_inputs={"decision": "ship it"}
+    ):
         events2.append(ev)
     results = [
         ev for ev in events2 if ev.type == AgentEventType.RESULT and "decision" in ev.content
@@ -260,9 +265,7 @@ async def test_sub_flow_unknown_flow_errors(tmp_path):
     rt = _runtime(store)
     g = AgentGraph(name="p3", start_node_id="start")
     g.add_node("start", NodeConfig(type="start", label="start"))
-    g.add_node(
-        "call", NodeConfig(type="sub_flow", label="call", tool_params={"flow_id": "nope"})
-    )
+    g.add_node("call", NodeConfig(type="sub_flow", label="call", tool_params={"flow_id": "nope"}))
     g.add_edge("start", "call")
     events = await asyncio.wait_for(_collect(rt, g, "s-unknown"), timeout=10)
     errs = [ev for ev in events if ev.type == AgentEventType.ERROR]

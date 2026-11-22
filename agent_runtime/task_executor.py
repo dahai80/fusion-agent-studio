@@ -1,4 +1,4 @@
-#604: daemon-resident task executor — the single execution exit for the
+# 604: daemon-resident task executor — the single execution exit for the
 # task board. task.submit is the only entry; submitted = must be executed.
 #
 # Worker loop (same pattern as inbox_consumer.start()): dequeues pending
@@ -74,15 +74,11 @@ class TaskExecutor:
         try:
             reset = self._daemon._get_task_store().reset_orphans(_OWNER)
             if reset:
-                logger.info(
-                    "TaskExecutor recovered %d orphan task(s) at startup", reset
-                )
+                logger.info("TaskExecutor recovered %d orphan task(s) at startup", reset)
         except Exception as e:
             logger.warning("TaskExecutor orphan recovery failed: %s", e)
         self._task = asyncio.ensure_future(self._loop())
-        logger.info(
-            "TaskExecutor started (concurrency=%d)", executor_concurrency()
-        )
+        logger.info("TaskExecutor started (concurrency=%d)", executor_concurrency())
 
     async def stop(self) -> None:
         self._stopping = True
@@ -149,22 +145,14 @@ class TaskExecutor:
                 except Exception as e:
                     # dispatch failure is a task failure, not a worker crash
                     # (e.g. graph/agent gone since submission)
-                    logger.warning(
-                        "TaskExecutor dispatch %s failed: %s", task_id, e
-                    )
-                    store.update_status(
-                        task_id, "failed", last_error=f"dispatch failed: {e}"
-                    )
+                    logger.warning("TaskExecutor dispatch %s failed: %s", task_id, e)
+                    store.update_status(task_id, "failed", last_error=f"dispatch failed: {e}")
             elif task.graph_id:
                 try:
                     await self._execute_graph(task)
                 except Exception as e:
-                    logger.warning(
-                        "TaskExecutor dispatch %s failed: %s", task_id, e
-                    )
-                    store.update_status(
-                        task_id, "failed", last_error=f"dispatch failed: {e}"
-                    )
+                    logger.warning("TaskExecutor dispatch %s failed: %s", task_id, e)
+                    store.update_status(task_id, "failed", last_error=f"dispatch failed: {e}")
             else:
                 store.update_status(
                     task_id,
@@ -285,9 +273,9 @@ class TaskExecutor:
             return
         status = task.status
         await self._broadcast(
-            "task.completed" if status == "completed" else (
-                "task.failed" if status == "failed" else "task.canceled"
-            ),
+            "task.completed"
+            if status == "completed"
+            else ("task.failed" if status == "failed" else "task.canceled"),
             {
                 "task_id": task_id,
                 "status": status,

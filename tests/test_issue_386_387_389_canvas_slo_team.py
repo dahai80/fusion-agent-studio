@@ -68,8 +68,8 @@ def test_canvas_page_has_debug_toolkit():
 
 def test_sse_route_accepts_downstream_params():
     source = (ROOT / "agent_runtime" / "api_server.py").read_text()
-    assert "from_node: str = \"\"" in source
-    assert "stop_after: str = \"\"" in source
+    assert 'from_node: str = ""' in source
+    assert 'stop_after: str = ""' in source
     assert "downstream_subgraph(from_node)" in source
 
 
@@ -186,9 +186,7 @@ class _TeamDaemon:
 async def test_team_dispatcher_roster_mailbox(team_db):
     dispatcher = TeamDispatcher(_TeamDaemon())
     handlers = dispatcher.get_handlers()
-    reg = await handlers["team.roster_register"](
-        {"agent_id": "a1", "name": "Alpha", "team": "ops"}
-    )
+    reg = await handlers["team.roster_register"]({"agent_id": "a1", "name": "Alpha", "team": "ops"})
     assert reg["agent_id"] == "a1"
     await handlers["team.roster_register"]({"agent_id": "a2", "team": "ops"})
     listed = await handlers["team.roster_list"]({"team": "ops"})

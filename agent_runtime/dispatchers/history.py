@@ -67,7 +67,9 @@ class HistoryDispatcher(SubDispatcher):
         reviewer = OfflineReviewer(
             rules=rules,
             mlx_client=getattr(self._daemon, "mlx_client", None),
-            audit_logger=self._daemon._get_audit_logger() if hasattr(self._daemon, "_get_audit_logger") else None,
+            audit_logger=self._daemon._get_audit_logger()
+            if hasattr(self._daemon, "_get_audit_logger")
+            else None,
         )
         report = await reviewer.review_run(run_id, events)
         return {"report": report}

@@ -1,4 +1,5 @@
 """#485: LifecycleBus production consumer — feed, replay, JSONL round-trip."""
+
 from __future__ import annotations
 
 import pytest
@@ -115,7 +116,9 @@ async def test_rpc_reconstructs_after_restart(tmp_path, monkeypatch):
     assert result["status"] == "ok"
     assert result["restored_from_jsonl"] == 3
     assert [e["event"] for e in result["events"]] == [
-        "tool_before", "tool_before", "subagent_start",
+        "tool_before",
+        "tool_before",
+        "subagent_start",
     ]
     assert result["summary"]["total_events"] == 3
 

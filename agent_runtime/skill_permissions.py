@@ -55,11 +55,7 @@ def register_skill_permission_rules(engine, skill: dict) -> int:
     if layers is None:
         logger.warning("register_skill_permission_rules: engine has no _rules_by_layer")
         return 0
-    existing = {
-        (r.tool, tuple(r.roles))
-        for rules in layers.values()
-        for r in rules
-    }
+    existing = {(r.tool, tuple(r.roles)) for rules in layers.values() for r in rules}
     added = 0
     for rule in permission_rules_for_skill(skill) + _surface_rules():
         key = (rule.tool, tuple(rule.roles))

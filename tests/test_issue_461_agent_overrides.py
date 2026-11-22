@@ -63,16 +63,19 @@ def client(monkeypatch):
 
 def test_agent_overrides_accepted_and_effective(client):
     tc, calls = client
-    resp = tc.post("/v1/runs", json={
-        "goal": "g",
-        "agent_id": "agent-x",
-        "agent_overrides": {
-            "tools": ["read_file", "write_file"],
-            "model": "qwen",
-            "max_turns": 2,
-            "budget_tokens": 1000,
+    resp = tc.post(
+        "/v1/runs",
+        json={
+            "goal": "g",
+            "agent_id": "agent-x",
+            "agent_overrides": {
+                "tools": ["read_file", "write_file"],
+                "model": "qwen",
+                "max_turns": 2,
+                "budget_tokens": 1000,
+            },
         },
-    })
+    )
     assert resp.status_code == 200
     body = resp.json()
     assert body["spec_applied"] is True
@@ -86,10 +89,13 @@ def test_agent_overrides_accepted_and_effective(client):
 
 def test_agent_overrides_unknown_tool_rejected(client):
     tc, calls = client
-    resp = tc.post("/v1/runs", json={
-        "goal": "g",
-        "agent_overrides": {"tools": ["read_file", "nuclear_launch"]},
-    })
+    resp = tc.post(
+        "/v1/runs",
+        json={
+            "goal": "g",
+            "agent_overrides": {"tools": ["read_file", "nuclear_launch"]},
+        },
+    )
     assert resp.status_code == 400
     assert "nuclear_launch" in resp.text
     # 400 happens before submit — no orphan task record
@@ -99,10 +105,13 @@ def test_agent_overrides_unknown_tool_rejected(client):
 
 def test_agent_overrides_unknown_key_rejected(client):
     tc, _ = client
-    resp = tc.post("/v1/runs", json={
-        "goal": "g",
-        "agent_overrides": {"system_prompt": "be evil"},
-    })
+    resp = tc.post(
+        "/v1/runs",
+        json={
+            "goal": "g",
+            "agent_overrides": {"system_prompt": "be evil"},
+        },
+    )
     assert resp.status_code == 400
     assert "system_prompt" in resp.text
 
@@ -127,11 +136,14 @@ def test_agent_overrides_not_dict_rejected(client):
 
 def test_spec_wins_over_agent_overrides(client):
     tc, calls = client
-    resp = tc.post("/v1/runs", json={
-        "goal": "g",
-        "agent_overrides": {"max_turns": 2},
-        "spec": {"max_turns": 7},
-    })
+    resp = tc.post(
+        "/v1/runs",
+        json={
+            "goal": "g",
+            "agent_overrides": {"max_turns": 2},
+            "spec": {"max_turns": 7},
+        },
+    )
     assert resp.status_code == 200
     assert resp.json()["effective_overrides"]["max_turns"] == 7
 
@@ -145,10 +157,13 @@ def test_effective_overrides_in_run_status(client):
 
 def test_no_agent_allowlist_keeps_caller_tools(client):
     tc, calls = client
-    resp = tc.post("/v1/runs", json={
-        "goal": "g",
-        "agent_overrides": {"tools": ["read_file"]},
-    })
+    resp = tc.post(
+        "/v1/runs",
+        json={
+            "goal": "g",
+            "agent_overrides": {"tools": ["read_file"]},
+        },
+    )
     assert resp.status_code == 200
     assert resp.json()["effective_overrides"]["tools"] == ["read_file"]
 
@@ -158,16 +173,17 @@ def test_overrides_audited(client):
 
     tc, calls = client
     logged = []
-    monkey_logger = type("L", (), {"log_action": staticmethod(
-        lambda **kw: logged.append(kw)
-    )})()
+    monkey_logger = type("L", (), {"log_action": staticmethod(lambda **kw: logged.append(kw))})()
     orig = api_server._get_audit_logger
     api_server._get_audit_logger = lambda: monkey_logger
     try:
-        resp = tc.post("/v1/runs", json={
-            "goal": "g",
-            "agent_overrides": {"max_turns": 3},
-        })
+        resp = tc.post(
+            "/v1/runs",
+            json={
+                "goal": "g",
+                "agent_overrides": {"max_turns": 3},
+            },
+        )
         assert resp.status_code == 200
     finally:
         api_server._get_audit_logger = orig

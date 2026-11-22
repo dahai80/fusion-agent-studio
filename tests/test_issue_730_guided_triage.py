@@ -98,7 +98,12 @@ async def test_unknown_ids_dropped_missing_go_to_other():
     partial = json.dumps(
         {
             "chapters": [
-                {"title": "Only plan", "overview": "", "item_ids": ["plan-1", "nope"], "rationale": ""}
+                {
+                    "title": "Only plan",
+                    "overview": "",
+                    "item_ids": ["plan-1", "nope"],
+                    "rationale": "",
+                }
             ]
         }
     )

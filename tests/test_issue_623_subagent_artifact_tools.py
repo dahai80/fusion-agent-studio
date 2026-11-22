@@ -25,9 +25,7 @@ async def test_artifact_create_works_after_wiring(tmp_path, monkeypatch):
     daemon = DaemonServer(socket_path=str(tmp_path / "d.sock"))
     runtime = daemon._get_runtime()
     tool = runtime.tools.get("artifact_create")
-    out = await tool.execute(
-        name="t", artifact_type="document", content="# hello", agent_id="a1"
-    )
+    out = await tool.execute(name="t", artifact_type="document", content="# hello", agent_id="a1")
     assert "Error" not in out
 
 

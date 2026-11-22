@@ -49,9 +49,7 @@ def _parse_meta_block(block: str) -> dict:
             current_list = key
             meta[key] = []
         elif value.startswith("[") and value.endswith("]"):
-            meta[key] = [
-                v.strip().strip("'\"") for v in value[1:-1].split(",") if v.strip()
-            ]
+            meta[key] = [v.strip().strip("'\"") for v in value[1:-1].split(",") if v.strip()]
         else:
             meta[key] = value.strip("'\"")
     return meta
@@ -63,12 +61,10 @@ def parse_frontmatter(md: str) -> tuple[dict, str]:
     m = _FRONTMATTER_RE.match(md)
     if not m:
         return {}, md
-    return _parse_meta_block(m.group(1)), md[m.end():]
+    return _parse_meta_block(m.group(1)), md[m.end() :]
 
 
-_ALL_FRONTMATTER_RE = re.compile(
-    r"^---\s*\n(.*?)\n---\s*(?:\n|$)", re.DOTALL | re.MULTILINE
-)
+_ALL_FRONTMATTER_RE = re.compile(r"^---\s*\n(.*?)\n---\s*(?:\n|$)", re.DOTALL | re.MULTILINE)
 
 
 def _strip_frontmatter_blocks(md: str) -> str:
@@ -159,9 +155,7 @@ def load_layer(layer: str, name: str = "") -> str:
                 except OSError as e:
                     logger.warning("persona rule file read failed path=%s: %s", p, e)
                     continue
-                first = next(
-                    (ln.strip() for ln in body.splitlines() if ln.strip()), ""
-                )
+                first = next((ln.strip() for ln in body.splitlines() if ln.strip()), "")
                 if first:
                     parts.append(f"---\nrules:\n  - {first}\n---")
     except OSError as e:
@@ -273,13 +267,19 @@ def merge_persona_layers(layers: list[tuple[str, str]]) -> dict:
         for header, body in sections.items():
             if header in merged and merged[header].strip() != body.strip():
                 conflicts.append(
-                    {"section": header or "(preamble)", "winner": layer_name,
-                     "loser": "lower layer"}
+                    {
+                        "section": header or "(preamble)",
+                        "winner": layer_name,
+                        "loser": "lower layer",
+                    }
                 )
             elif header in merged:
                 conflicts.append(
-                    {"section": header or "(preamble)", "winner": layer_name,
-                     "loser": "lower layer (identical)"}
+                    {
+                        "section": header or "(preamble)",
+                        "winner": layer_name,
+                        "loser": "lower layer (identical)",
+                    }
                 )
             if header not in order:
                 order.append(header)
@@ -330,8 +330,7 @@ def resolve_persona(
 class PersonaWatcher:
     # N16 #390: mtime-polling hot reload. No third-party dependency; a single
     # daemon thread re-reads the persona tree and reports changed paths.
-    def __init__(self, root: Path | None = None, interval: float = 2.0,
-                 on_change=None):
+    def __init__(self, root: Path | None = None, interval: float = 2.0, on_change=None):
         self.root = Path(root) if root is not None else PERSONA_ROOT
         self.interval = max(0.2, float(interval))
         self.on_change = on_change
@@ -357,22 +356,19 @@ class PersonaWatcher:
             return
         self._snapshot = self._scan()
         self._stop.clear()
-        self._thread = threading.Thread(
-            target=self._loop, name="persona-watcher", daemon=True
-        )
+        self._thread = threading.Thread(target=self._loop, name="persona-watcher", daemon=True)
         self._thread.start()
         logger.info(
             "persona watcher started root=%s interval=%.1fs files=%d",
-            self.root, self.interval, len(self._snapshot),
+            self.root,
+            self.interval,
+            len(self._snapshot),
         )
 
     def _loop(self) -> None:
         while not self._stop.wait(self.interval):
             current = self._scan()
-            changed = [
-                path for path, sig in current.items()
-                if self._snapshot.get(path) != sig
-            ]
+            changed = [path for path, sig in current.items() if self._snapshot.get(path) != sig]
             changed += [path for path in self._snapshot if path not in current]
             self._snapshot = current
             if not changed:
@@ -421,18 +417,19 @@ def import_agents_md(src_dir: str | Path, agents_root: Path | None = None) -> di
         pkg = AgentPackage(root / safe)
         pkg.init(manifest=manifest, soul=body.strip())
         declared = parse_declarations(text)
-        imported.append({
-            "agent_id": safe,
-            "name": name,
-            "path": str(pkg.base_path),
-            "declarations": declared,
-        })
+        imported.append(
+            {
+                "agent_id": safe,
+                "name": name,
+                "path": str(pkg.base_path),
+                "declarations": declared,
+            }
+        )
         logger.info("agents.md import name=%s -> agent_id=%s", name, safe)
     return {"imported": imported, "errors": errors}
 
 
-def export_agents_md(agent_id: str, dest_dir: str | Path,
-                     agents_root: Path | None = None) -> dict:
+def export_agents_md(agent_id: str, dest_dir: str | Path, agents_root: Path | None = None) -> dict:
     # N16 #390: .fusion-agent package -> Anthropic agents/*.md (round trip).
     from .agent_package import AGENTS_ROOT, AgentPackage
 

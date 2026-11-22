@@ -1,4 +1,5 @@
 """#483: reasoning tokens metered separately in budget accounting (N8 #345 residual)."""
+
 import pytest
 
 from agent_runtime.context import AgentContext
@@ -42,13 +43,24 @@ def test_budget_reasoning_default_zero():
 
 def test_context_token_usage_aggregates_flat_and_nested():
     ctx = AgentContext()
-    ctx.add_message("assistant", "a", usage={
-        "prompt_tokens": 10, "completion_tokens": 20, "reasoning_tokens": 7,
-    })
-    ctx.add_message("assistant", "b", usage={
-        "prompt_tokens": 5, "completion_tokens": 6,
-        "completion_tokens_details": {"reasoning_tokens": 3},
-    })
+    ctx.add_message(
+        "assistant",
+        "a",
+        usage={
+            "prompt_tokens": 10,
+            "completion_tokens": 20,
+            "reasoning_tokens": 7,
+        },
+    )
+    ctx.add_message(
+        "assistant",
+        "b",
+        usage={
+            "prompt_tokens": 5,
+            "completion_tokens": 6,
+            "completion_tokens_details": {"reasoning_tokens": 3},
+        },
+    )
     usage = ctx.token_usage()
     assert usage["prompt_tokens"] == 15
     assert usage["completion_tokens"] == 26
@@ -62,10 +74,12 @@ def test_normalize_usage_flat_key():
 
 
 def test_normalize_usage_nested_openai_details():
-    usage = _normalize_usage({
-        "prompt_tokens": 1,
-        "completion_tokens_details": {"reasoning_tokens": 42},
-    })
+    usage = _normalize_usage(
+        {
+            "prompt_tokens": 1,
+            "completion_tokens_details": {"reasoning_tokens": 42},
+        }
+    )
     assert usage["reasoning_tokens"] == 42
 
 
@@ -81,9 +95,14 @@ def test_normalize_usage_guards_non_dict():
 
 def test_telemetry_counters_reasoning():
     engine = TelemetryEngine()
-    span = engine.start_span("llm.call", attributes={
-        "prompt_tokens": 10, "completion_tokens": 20, "reasoning_tokens": 30,
-    })
+    span = engine.start_span(
+        "llm.call",
+        attributes={
+            "prompt_tokens": 10,
+            "completion_tokens": 20,
+            "reasoning_tokens": 30,
+        },
+    )
     engine.end_span(span.span_id)
     metrics = engine.metrics()
     assert metrics["counters"]["tokens_reasoning"] == 30
@@ -107,9 +126,15 @@ def test_runtime_record_usage_passes_reasoning(reasoning):
         spent_tokens = 0
 
     ctx = AgentContext()
-    ctx.add_message("assistant", "x", usage={
-        "prompt_tokens": 3, "completion_tokens": 4, "reasoning_tokens": reasoning,
-    })
+    ctx.add_message(
+        "assistant",
+        "x",
+        usage={
+            "prompt_tokens": 3,
+            "completion_tokens": 4,
+            "reasoning_tokens": reasoning,
+        },
+    )
     usage = ctx.token_usage()
     StubBudget().record_usage(
         usage.get("prompt_tokens", 0),

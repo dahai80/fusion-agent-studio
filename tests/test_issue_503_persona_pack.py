@@ -22,16 +22,15 @@ from agent_runtime.persona_pack import (
 )
 
 
-def _make_pack(base: Path, layer: str = "tenant", name: str = "acme",
-               rules: dict[str, str] | None = None) -> Path:
+def _make_pack(
+    base: Path, layer: str = "tenant", name: str = "acme", rules: dict[str, str] | None = None
+) -> Path:
     d = base / "pack"
     (d / "persona").mkdir(parents=True)
     (d / "agent.md").write_text("# Acme persona\n\nBe terse.\n", encoding="utf-8")
     (d / "persona" / "tone.md").write_text("## Tone\n\nDry humor.\n", encoding="utf-8")
     (d / "rules").mkdir()
-    for fname, rule in (
-        rules if rules is not None else {"deny-shell.md": "deny: bash.*"}
-    ).items():
+    for fname, rule in (rules if rules is not None else {"deny-shell.md": "deny: bash.*"}).items():
         (d / "rules" / fname).write_text(f"{rule}\n", encoding="utf-8")
     build_manifest(d, layer=layer, name=name)
     return d

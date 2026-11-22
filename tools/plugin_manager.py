@@ -1,4 +1,5 @@
 """Plugin system — dynamically load user-defined tools from external Python files."""
+
 from __future__ import annotations
 
 import importlib.util
@@ -43,11 +44,13 @@ class PluginManager:
             return plugins
         for f in sorted(self.plugin_dir.iterdir()):
             if f.suffix == ".py" and not f.name.startswith("_"):
-                plugins.append({
-                    "name": f.stem,
-                    "path": str(f),
-                    "loaded": f.stem in self._loaded,
-                })
+                plugins.append(
+                    {
+                        "name": f.stem,
+                        "path": str(f),
+                        "loaded": f.stem in self._loaded,
+                    }
+                )
         return plugins
 
     def load_plugin(self, name: str) -> BaseTool | None:
@@ -102,6 +105,7 @@ class PluginManager:
         # secure-by-default: daemon 启动时自动加载需显式 env FUSION_PLUGINS_ENABLE=1.
         # 单个 load_plugin(name) 仍可经 RPC 显式调用 (用户主动指定, 非自动执行).
         import os
+
         if os.environ.get("FUSION_PLUGINS_ENABLE", "").strip().lower() not in ("1", "true", "yes"):
             logger.info(
                 "plugin auto-load disabled (secure-by-default); "
@@ -206,7 +210,7 @@ class {name.capitalize()}Tool(BaseTool):
     """{description or f"A custom tool named {name}"}"""
 
     name = "{name}"
-    description = "{description or f'A custom tool named {name}'}"
+    description = "{description or f"A custom tool named {name}"}"
     parameters = {{
         "input": {{
             "type": "string",

@@ -76,12 +76,8 @@ class AuditLogger:
                     result TEXT
                 )
             """)
-            cursor.execute(
-                "CREATE INDEX IF NOT EXISTS idx_audit_actor_id ON audit_log (actor_id)"
-            )
-            cursor.execute(
-                "CREATE INDEX IF NOT EXISTS idx_audit_action ON audit_log (action)"
-            )
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_audit_actor_id ON audit_log (actor_id)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_audit_action ON audit_log (action)")
             cursor.execute(
                 "CREATE INDEX IF NOT EXISTS idx_audit_timestamp ON audit_log (timestamp)"
             )
@@ -285,9 +281,7 @@ class AuditLogger:
                 }
                 result.append(entry_dict)
 
-            logger.info(
-                "Exported %d audit log entries (format=%s)", len(result), format
-            )
+            logger.info("Exported %d audit log entries (format=%s)", len(result), format)
             return result
         except sqlite3.Error as e:
             logger.error("Failed to export audit logs: %s", e)

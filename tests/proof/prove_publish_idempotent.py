@@ -102,9 +102,7 @@ def prove_publish_idempotent():
     assert len(set(race_ids)) == 1, (
         f"concurrent submit diverged: {race_ids} (expected all = {seed_id})"
     )
-    assert race_ids[0] == seed_id, (
-        f"concurrent submit returned {race_ids[0]}, expected {seed_id}"
-    )
+    assert race_ids[0] == seed_id, f"concurrent submit returned {race_ids[0]}, expected {seed_id}"
 
     # Only 1 task row with that idempotency_key in DB.
     store = TaskStore(db_path=db_path)
@@ -122,6 +120,7 @@ def prove_publish_idempotent():
     assert task_rows == 1, f"expected 1 task row, got {task_rows}"
 
     import shutil
+
     shutil.rmtree(tmpdir, ignore_errors=True)
 
     print(

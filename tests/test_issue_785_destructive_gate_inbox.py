@@ -50,7 +50,13 @@ async def _send_card(daemon):
     return await _run(
         daemon,
         "teams.send",
-        {"team": "pair", "from": "worker-a", "to": "worker-b", "type": "destructive_gate", "body": GATE_BODY},
+        {
+            "team": "pair",
+            "from": "worker-a",
+            "to": "worker-b",
+            "type": "destructive_gate",
+            "body": GATE_BODY,
+        },
     )
 
 
@@ -105,7 +111,9 @@ class TestInboxRespondDestructiveGate:
         assert out["gate_question_id"].startswith("hq_")
         q = _pending_question(gate, "dg_abc123")
         assert q is None  # no longer pending
-        answered = [x for x in gate.list_questions(status="answered") if x.id == out["gate_question_id"]]
+        answered = [
+            x for x in gate.list_questions(status="answered") if x.id == out["gate_question_id"]
+        ]
         assert len(answered) == 1
         assert answered[0].reply.get("approved") is True
 
@@ -129,7 +137,9 @@ class TestInboxRespondDestructiveGate:
             {"team": "pair", "member": "worker-b", "message_id": message_id, "decision": "reject"},
         )
         assert out["status"] == "ok"
-        answered = [x for x in gate.list_questions(status="answered") if x.id == out["gate_question_id"]]
+        answered = [
+            x for x in gate.list_questions(status="answered") if x.id == out["gate_question_id"]
+        ]
         assert answered[0].reply.get("approved") is False
 
     async def test_reply_lands_in_sender_inbox(self, daemon, _home, human_gate):
@@ -162,7 +172,13 @@ class TestInboxRespondDestructiveGate:
         await _run(
             daemon,
             "teams.send",
-            {"team": "pair", "from": "worker-a", "to": "worker-b", "type": "destructive_gate", "body": "no call id here"},
+            {
+                "team": "pair",
+                "from": "worker-a",
+                "to": "worker-b",
+                "type": "destructive_gate",
+                "body": "no call id here",
+            },
         )
         sent = await _run(daemon, "teams.inbox_typed", {"team": "pair", "member": "worker-b"})
         message_id = sent["messages"][0]["msg_id"]

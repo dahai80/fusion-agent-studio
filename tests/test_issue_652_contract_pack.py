@@ -95,13 +95,21 @@ class TestRunsContract:
         tc = _fake_api(monkeypatch, _task_from_fixtures())
         resp = tc.get("/v1/runs/run-1").json()
         assert_keys_match(resp, _load("run_status_response.json"), "GET /v1/runs/{id}")
-        assert_keys_match(resp["progress"], _load("run_status_response.json")["progress"], "GET /v1/runs/{id} progress")
+        assert_keys_match(
+            resp["progress"],
+            _load("run_status_response.json")["progress"],
+            "GET /v1/runs/{id} progress",
+        )
 
     def test_run_result_response_matches_fixture(self, monkeypatch):
         tc = _fake_api(monkeypatch, _task_from_fixtures())
         resp = tc.get("/v1/runs/run-1/result").json()
         assert_keys_match(resp, _load("run_result_response.json"), "GET /v1/runs/{id}/result")
-        assert_keys_match(resp["last_result"], _load("run_result_response.json")["last_result"], "run result last_result")
+        assert_keys_match(
+            resp["last_result"],
+            _load("run_result_response.json")["last_result"],
+            "run result last_result",
+        )
 
     def test_graph_execute_request_fixture_graph_id_mandatory(self, monkeypatch):
         # cow#135 F-1: graph_id in the body is required — missing -> 422.
@@ -109,14 +117,18 @@ class TestRunsContract:
 
         with pytest.raises(Exception):
             GraphExecuteRequest(**{"input_text": "no graph id"})
-        body = {k: v for k, v in _load("graph_execute_request.json").items() if not k.startswith("_")}
+        body = {
+            k: v for k, v in _load("graph_execute_request.json").items() if not k.startswith("_")
+        }
         req = GraphExecuteRequest(**body)
         assert req.graph_id == "graph-1"
 
     def test_graph_execute_response_matches_fixture(self):
         from agent_runtime.api_server import ExecutionResponse
 
-        body = {k: v for k, v in _load("graph_execute_response.json").items() if not k.startswith("_")}
+        body = {
+            k: v for k, v in _load("graph_execute_response.json").items() if not k.startswith("_")
+        }
         model = ExecutionResponse(**body)
         assert model.status == "completed"
         assert list(body) == ["session_id", "status", "events"]
@@ -128,7 +140,9 @@ class TestStatusSemanticsContract:
 
         sem = _load("status_semantics.json")
         pinned = set(sem["terminal_statuses"]) | set(sem["non_terminal_statuses"])
-        assert pinned <= _VALID_STATUSES, f"fixture names unknown statuses: {pinned - _VALID_STATUSES}"
+        assert pinned <= _VALID_STATUSES, (
+            f"fixture names unknown statuses: {pinned - _VALID_STATUSES}"
+        )
 
     def test_report_only_completion_warning_pinned(self):
         # as#643: the warning string is a consumed field — renaming it
@@ -136,7 +150,9 @@ class TestStatusSemanticsContract:
         from agent_runtime.subagent import SubAgentReport
 
         sem = _load("status_semantics.json")
-        report = SubAgentReport(name="x", ok=True, report="r", warning="max turns reached, report-only completion")
+        report = SubAgentReport(
+            name="x", ok=True, report="r", warning="max turns reached, report-only completion"
+        )
         d = report.to_dict()
         assert d["warning"] == sem["status_details"]["completed_max_turns"]["last_result.warning"]
 

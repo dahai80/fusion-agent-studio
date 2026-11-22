@@ -58,8 +58,19 @@ class FakeCowork:
             self.generate_called += 1
             body = json.loads(request.content)
             if not body.get("prompt"):
-                return httpx.Response(400, json={"detail": {"code": "bad_request", "message": "prompt 必填"}})
-            return httpx.Response(200, json={"workflow": {"name": "gen wf", "nodes": [{"id": "n1", "name": "llm"}], "edges": []}})
+                return httpx.Response(
+                    400, json={"detail": {"code": "bad_request", "message": "prompt 必填"}}
+                )
+            return httpx.Response(
+                200,
+                json={
+                    "workflow": {
+                        "name": "gen wf",
+                        "nodes": [{"id": "n1", "name": "llm"}],
+                        "edges": [],
+                    }
+                },
+            )
         if path == "/api/runs" and request.method == "POST":
             self.run_bodies.append(json.loads(request.content))
             return httpx.Response(202, json={"run_id": "run_abc123", "status": "running"})
@@ -87,10 +98,27 @@ def test_tool_registered_and_schema_valid():
 @pytest.mark.asyncio
 async def test_run_by_workflow_id_wait_success(monkeypatch):
     steps = [
-        {"node_id": "n1", "node_name": "llm", "status": "success", "output_data": {"markdown": "hello"}},
+        {
+            "node_id": "n1",
+            "node_name": "llm",
+            "status": "success",
+            "output_data": {"markdown": "hello"},
+        },
         {"node_id": "n2", "node_name": "end", "status": "success", "output_data": {"text": "done"}},
     ]
-    record = _ok_run_record(status="success", steps=steps, artifacts=[{"node_id": "n1", "name": "a.md", "type": "markdown", "path": "/tmp/a.md", "truncated": False}])
+    record = _ok_run_record(
+        status="success",
+        steps=steps,
+        artifacts=[
+            {
+                "node_id": "n1",
+                "name": "a.md",
+                "type": "markdown",
+                "path": "/tmp/a.md",
+                "truncated": False,
+            }
+        ],
+    )
     record["result"] = {"summary": "ok"}
     fake = FakeCowork(run_records=[record])
     _mock_client(monkeypatch, fake.handler)
@@ -170,10 +198,17 @@ async def test_paused_returns_pending_not_block(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_approval_stall_returns_pending_approval(monkeypatch):
-    stalled = _ok_run_record(status="running", steps=[{"node_id": "n1", "status": "running", "output_data": {}}])
-    fake = FakeCowork(run_records=[stalled], approvals=[{"action_id": "perm_1", "tool_name": "terminal", "source": "guard"}])
+    stalled = _ok_run_record(
+        status="running", steps=[{"node_id": "n1", "status": "running", "output_data": {}}]
+    )
+    fake = FakeCowork(
+        run_records=[stalled],
+        approvals=[{"action_id": "perm_1", "tool_name": "terminal", "source": "guard"}],
+    )
     _mock_client(monkeypatch, fake.handler)
-    out = json.loads(await _tool().execute(workflow_id="wf_test", stall_seconds=3, timeout_seconds=20))
+    out = json.loads(
+        await _tool().execute(workflow_id="wf_test", stall_seconds=3, timeout_seconds=20)
+    )
     assert out["status"] == "pending_approval"
     assert out["pending"] is True
     assert out["approvals"][0]["action_id"] == "perm_1"
@@ -205,7 +240,9 @@ async def test_upstream_unreachable_visible_error(monkeypatch):
 async def test_upstream_http_error_surfaces_detail(monkeypatch):
     def handler(request):
         if request.url.path == "/api/runs":
-            return httpx.Response(404, json={"detail": {"code": "not_found", "message": "工作流不存在: wf_missing"}})
+            return httpx.Response(
+                404, json={"detail": {"code": "not_found", "message": "工作流不存在: wf_missing"}}
+            )
         return httpx.Response(200, json={})
 
     _mock_client(monkeypatch, handler)

@@ -74,9 +74,13 @@ running (PID 12345, socket=/tmp/fusion-studio.sock)
 ```python
 from rpc import rpc
 import asyncio
+
+
 async def main():
     r = await rpc("system.offline_status")
     print(r)
+
+
 asyncio.run(main())
 ```
 
