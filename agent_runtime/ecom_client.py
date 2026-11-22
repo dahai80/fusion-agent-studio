@@ -6,8 +6,10 @@ Env-gated via FUSION_ECOM_ENABLED=1. Talks to the e-commerce console:
 - GET  /api/ecommerce/agent-platform/capabilities   (agent tool manifest)
 - POST /api/ecommerce/agent-platform/call           (single audited door)
 
-Auth: bearer FUSION_AGENT_BRIDGE_KEY — the console holds the same value;
+Auth: bearer FUSION_ECOM_BRIDGE_KEY — the console holds the same value;
 it is a service-to-service secret, never exposed to agents or browsers.
+(#795) FUSION_AGENT_BRIDGE_KEY is honored as a deprecated alias until the
+fusion-ecommerce console side completes its rename.
 
 Unset (default) = integration off — every method returns None, Agent
 Studio behavior unchanged (CI/local-dev green). Fail-soft by design: the
@@ -24,9 +26,22 @@ logger = logging.getLogger(__name__)
 
 _ECOM_ENABLED_ENV = "FUSION_ECOM_ENABLED"
 _ECOM_URL_ENV = "FUSION_ECOM_URL"
-_ECOM_KEY_ENV = "FUSION_AGENT_BRIDGE_KEY"
+_ECOM_KEY_ENV = "FUSION_ECOM_BRIDGE_KEY"
+_ECOM_KEY_LEGACY_ENV = "FUSION_AGENT_BRIDGE_KEY"
 _DEFAULT_URL = "http://127.0.0.1:8787"
 _TIMEOUT = float(os.environ.get("FUSION_ECOM_TIMEOUT", "60"))
+_legacy_key_warned = False
+
+
+def _warn_legacy_key_once() -> None:
+    global _legacy_key_warned
+    if not _legacy_key_warned:
+        _legacy_key_warned = True
+        logger.warning(
+            "%s is deprecated, set %s instead (issue #795)",
+            _ECOM_KEY_LEGACY_ENV,
+            _ECOM_KEY_ENV,
+        )
 
 
 def is_ecom_enabled() -> bool:
@@ -38,7 +53,17 @@ def _ecom_url() -> str:
 
 
 def _bridge_key() -> str:
-    return os.environ.get(_ECOM_KEY_ENV, "").strip()
+    # #795: single-point env read via fusion_core.config get_env, alias chain
+    # FUSION_ECOM_BRIDGE_KEY -> FUSION_AGENT_BRIDGE_KEY (deprecated, warn once).
+    from fusion_core.config import get_env
+
+    key = str(get_env(_ECOM_KEY_ENV, "") or "").strip()
+    if key:
+        return key
+    legacy = str(get_env(_ECOM_KEY_LEGACY_ENV, "") or "").strip()
+    if legacy:
+        _warn_legacy_key_once()
+    return legacy
 
 
 class EcomClient:
