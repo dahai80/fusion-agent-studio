@@ -209,6 +209,16 @@ class PipelineScopedFunnel(PersonaScopedFunnel):
                         args=args or {},
                     )
                 logger.info("destructive gate granted tool=%s call=%s", tool_name, call_id)
+        # #799: telemetry-only usage ledger — record every allowed admission
+        # (session, tool). Never blocks or alters the outcome.
+        if out.allowed:
+            try:
+                ledger = getattr(self._runtime, "tool_usage_ledger", None)
+                sid = str(getattr(ctx, "session_id", "") or "")
+                if ledger is not None and sid:
+                    ledger.record(sid, tool_name)
+            except Exception as e:
+                logger.debug("tool usage record failed tool=%s err=%s", tool_name, e)
         return self._to_outcome(adapter, out, tool_name)
 
     def _to_outcome(

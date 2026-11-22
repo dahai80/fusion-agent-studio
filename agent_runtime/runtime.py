@@ -277,6 +277,17 @@ class AgentRuntime(_SafetyApprovalMixin, _CheckpointMixin, _DynamicToolsMixin, _
             compactor=self.compactor,
             telemetry_engine=self.telemetry_engine,
         )
+        # #799: tool-usage telemetry ledger (evidence layer for pruning
+        # proposals). Fails soft — a broken ledger never affects admission.
+        self.tool_usage_ledger = None
+        try:
+            from .paths import studio_home
+            from .tool_pruner import ToolUsageLedger
+
+            self.tool_usage_ledger = ToolUsageLedger(str(studio_home() / "tool_usage_ledger.json"))
+            logger.info("tool usage ledger wired: %s", self.tool_usage_ledger.path)
+        except Exception as e:
+            logger.warning("tool usage ledger unavailable: %s", e)
         # PRD N4: subagent protocol. #487: subagent_spawn is ON by default
         # (opt-out FUSION_SUBAGENT_TOOLS=0/false/no) — delegation must be
         # visible to the model without an undocumented env var. Registration

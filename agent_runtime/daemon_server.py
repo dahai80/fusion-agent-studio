@@ -1462,6 +1462,7 @@ class DaemonServer:
             "tool.get": self._handle_tool_get,
             "tool.get_schema": self._handle_tool_get_schema,
             "tool.list": self._handle_tool_list,
+            "tool.pruning_report": self._handle_tool_pruning_report,
             "tool.set_timeout": self._handle_tool_set_timeout,
             "resource.lease_apply": self._handle_resource_lease_apply,
             "resource.lease_release": self._handle_resource_lease_release,
@@ -3504,6 +3505,41 @@ class DaemonServer:
             )
         logger.info("Listed %d tools", len(tools))
         return {"tools": tools}
+
+    async def _handle_tool_pruning_report(self, params: dict) -> dict:
+        # Issue #799: evidence-based pruning telemetry. Deterministic report
+        # over the usage ledger + current registry schemas; proposes only.
+        ledger = None
+        try:
+            ledger = getattr(self._get_runtime(), "tool_usage_ledger", None)
+        except Exception:
+            ledger = None
+        if ledger is None:
+            return {"enabled": False, "report": None}
+        registry = self._get_tool_registry()
+        loaded = list(registry._tools.keys())
+        schema_tokens = {}
+        for name in loaded:
+            try:
+                fn = registry._tools[name].openai_schema().get("function", {})
+                schema_tokens[name] = len(json.dumps(fn.get("parameters", {}))) // 4
+            except Exception:
+                schema_tokens[name] = 0
+        try:
+            unused = int(params.get("unused_sessions", 5))
+        except (TypeError, ValueError):
+            unused = 5
+        report = ledger.report(
+            loaded_tools=loaded, schema_tokens=schema_tokens, unused_sessions=unused
+        )
+        logger.info(
+            "tool pruning report: sessions=%d loaded=%d candidates=%d est_saving=%d",
+            report["sessions_observed"],
+            report["loaded_tools"],
+            len(report["candidates"]),
+            report["est_tokens_saved_per_request"],
+        )
+        return {"enabled": True, "report": report}
 
     async def _handle_tool_get(self, params: dict) -> dict:
         tool_name = params.get("name", "")
