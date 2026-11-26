@@ -19,7 +19,6 @@ on:
 
 permissions:
   contents: read
-
 jobs:
   build:
     runs-on: macos-15
@@ -69,3 +68,63 @@ jobs:
       - name: Publish to PyPI
         if: steps.check.outputs.present != 'true'
         uses: pypa/gh-action-pypi-publish@release/v1
+
+  # Every published release carries per-platform bundles (Windows zip,
+  # Ubuntu tar.gz, macOS tar.gz) uploaded as release assets. Each bundle
+  # contains the universal wheel plus OS-specific install instructions
+  # and a sha256 checksum.
+  release-assets:
+    needs: build
+    if: github.event_name == 'release'
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            platform: windows
+          - os: ubuntu-latest
+            platform: ubuntu
+          - os: macos-15
+            platform: macos
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - name: Create bundle
+        shell: bash
+        run: |
+          VER=$(python -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
+          BUNDLE="fusion-agent-studio-${VER}-${{ matrix.platform }}"
+          mkdir -p "$BUNDLE"
+          cp dist/*.whl "$BUNDLE"/
+          cp dist/*.tar.gz "$BUNDLE"/ 2>/dev/null || true
+          if [ "${{ matrix.platform }}" = "windows" ]; then
+            sed "s/__VERSION__/${VER}/" packaging/bundle/INSTALL-windows.txt > "$BUNDLE/INSTALL.txt"
+          else
+            sed "s/__VERSION__/${VER}/; s/__PLATFORM__/${{ matrix.platform }}/" packaging/bundle/INSTALL-unix.txt > "$BUNDLE/INSTALL.txt"
+          fi
+          if [ "${{ matrix.platform }}" = "windows" ]; then
+            powershell -Command "Compress-Archive -Path '$BUNDLE' -DestinationPath '${BUNDLE}.zip'"
+            echo "ARCHIVE=${BUNDLE}.zip" >> "$GITHUB_ENV"
+          else
+            tar -czf "${BUNDLE}.tar.gz" "$BUNDLE"
+            echo "ARCHIVE=${BUNDLE}.tar.gz" >> "$GITHUB_ENV"
+          fi
+      - name: Checksum
+        shell: bash
+        run: |
+          if command -v sha256sum > /dev/null; then sha256sum "$ARCHIVE" > "$ARCHIVE.sha256"; else shasum -a 256 "$ARCHIVE" > "$ARCHIVE.sha256"; fi
+      - name: Upload to the release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload "${{ github.event.release.tag_name }}" "$ARCHIVE" "$ARCHIVE.sha256" --clobber --repo "$GITHUB_REPOSITORY"
