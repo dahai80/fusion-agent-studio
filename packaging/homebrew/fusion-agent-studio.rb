@@ -1,20 +1,20 @@
 # Fusion-MLX Agent Studio — local agent development platform for Apple Silicon.
-# Generated from PyPI 0.18.16 dependency resolution by gen_formula.py;
+# Generated from PyPI 0.18.17 dependency resolution by gen_formula.py;
 # regenerate on version bumps (see packaging/homebrew/README.md).
 class FusionAgentStudio < Formula
   include Language::Python::Virtualenv
 
   desc "Local-first AI agent orchestration platform (daemon RPC + REST + CLI)"
   homepage "https://github.com/dahai80/fusion-agent-studio"
-  url "https://files.pythonhosted.org/packages/62/c8/b2dad9ae6f76e3521ef8a60d6f8bb6fc06aa85236452e44cd7ee2304463d/fusion_agent_studio-0.18.16.tar.gz"
-  sha256 "1a5b34f241319ba4f866960b0861e9b935ca99bdf93d3455f10eef7b2f3ba611"
+  url "https://files.pythonhosted.org/packages/33/31/db86af75d9fb9d24c40082737fa068913f20de8e8fb327cf822cd7c0fa4a/fusion_agent_studio-0.18.17.tar.gz"
+  sha256 "a6460b41b16a44c0eeeb62cce484eebd60ef8f499c67d83416b5c7f7aa8da4d1"
   license "Apache-2.0"
 
   depends_on "python@3.12"
 
   resource "agent-client-protocol" do
-    url "https://files.pythonhosted.org/packages/30/a1/7e29d00f01fede44ffdc84099552720727f8bfda942fea79a4f7d5ef1294/agent_client_protocol-1.0.0-py3-none-any.whl"
-    sha256 "179c14266997841438ee15245a2668d31b2c695c13bff87d01c36e016185ddd0"
+    url "https://files.pythonhosted.org/packages/a9/d1/2566083a7bd351a19a68c767974167271c4cdb754443c3137fe14653deb2/agent_client_protocol-1.1.0-py3-none-any.whl"
+    sha256 "41c0860f28eee5dcc32c1e22d451008eb8280872dad5f938360a252021e52fd1"
   end
   resource "aiofiles" do
     url "https://files.pythonhosted.org/packages/bc/8a/340a1555ae33d7354dbca4faa54948d76d89a27ceef032c8c3bc661d003e/aiofiles-25.1.0-py3-none-any.whl"
@@ -69,8 +69,8 @@ class FusionAgentStudio < Formula
     sha256 "1bc481ee218b009aaacde8c7dda57a40e33050efc84acf6cf9df0ba07c9bb33f"
   end
   resource "fusion-harness" do
-    url "https://files.pythonhosted.org/packages/60/f1/ab66a9c0b7cf693f2bc63232ef8ac6ec270e5c94c1524bdf33fdfacba7d4/fusion_harness-0.30.0-py3-none-any.whl"
-    sha256 "e1792dbbb85321a9bf3a761acdfa666818e6d4657fd5aba081ed87aed751bc6d"
+    url "https://files.pythonhosted.org/packages/8c/fe/d387120c6f3c5a3d2530338b8512666cba00ed22f41be352ca5e50bf3e66/fusion_harness-0.31.0-py3-none-any.whl"
+    sha256 "51050666c2ef3f90248d1e121eb508ad3457e99d81583750b6967b98c2e56203"
   end
   resource "h11" do
     url "https://files.pythonhosted.org/packages/04/4b/29cac41a4d98d144bf5f6d33995617b185d14b22401f75ca86f384e87ff1/h11-0.16.0-py3-none-any.whl"

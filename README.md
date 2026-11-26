@@ -890,6 +890,8 @@ A `workflow_dispatch` dry-run (build only, no upload) is available for checking 
 
 The wheel ships the Python service (daemon RPC + REST API + CLI `fusion-agent` / `fusion-mcp`); the React web UI is served separately via fusion-web-shell (`web/dist` degrades gracefully when absent).
 
+Every published release also carries per-platform bundles in the release assets — `fusion-agent-studio-<ver>-windows.zip`, `-ubuntu.tar.gz`, `-macos.tar.gz` (universal wheel + OS-specific `INSTALL.txt` + sha256), built by the `release-assets` matrix job in `publish.yml` (windows-latest / ubuntu-latest / macos-15).
+
 ---
 
 ## License
