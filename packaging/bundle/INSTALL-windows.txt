@@ -1,0 +1,9 @@
+fusion-agent-studio __VERSION__ - Windows
+
+1. Install Python 3.11+ (3.12 recommended)
+2. In this directory run:
+   pip install fusion_agent_studio-*.whl
+3. Start the daemon with the installed console scripts
+   (fusion-agent / fusion-mcp)
+
+The wheel is pure Python - no compiler required.
