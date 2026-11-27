@@ -1,13 +1,13 @@
 # Fusion-MLX Agent Studio — local agent development platform for Apple Silicon.
-# Generated from PyPI 0.18.17 dependency resolution by gen_formula.py;
+# Generated from PyPI 0.19.0 dependency resolution by gen_formula.py;
 # regenerate on version bumps (see packaging/homebrew/README.md).
 class FusionAgentStudio < Formula
   include Language::Python::Virtualenv
 
   desc "Local-first AI agent orchestration platform (daemon RPC + REST + CLI)"
   homepage "https://github.com/dahai80/fusion-agent-studio"
-  url "https://files.pythonhosted.org/packages/33/31/db86af75d9fb9d24c40082737fa068913f20de8e8fb327cf822cd7c0fa4a/fusion_agent_studio-0.18.17.tar.gz"
-  sha256 "a6460b41b16a44c0eeeb62cce484eebd60ef8f499c67d83416b5c7f7aa8da4d1"
+  url "https://files.pythonhosted.org/packages/3d/fd/e30365c0f69fcf8188523875c4d0a0f8232d1daae9d2aad78edd96e57510/fusion_agent_studio-0.19.0.tar.gz"
+  sha256 "06d1ca42d1b3edbbf490ae5c2d625eea8963549b71573261ff7a68874bdd3d74"
   license "Apache-2.0"
 
   depends_on "python@3.12"
@@ -69,8 +69,8 @@ class FusionAgentStudio < Formula
     sha256 "1bc481ee218b009aaacde8c7dda57a40e33050efc84acf6cf9df0ba07c9bb33f"
   end
   resource "fusion-harness" do
-    url "https://files.pythonhosted.org/packages/8c/fe/d387120c6f3c5a3d2530338b8512666cba00ed22f41be352ca5e50bf3e66/fusion_harness-0.31.0-py3-none-any.whl"
-    sha256 "51050666c2ef3f90248d1e121eb508ad3457e99d81583750b6967b98c2e56203"
+    url "https://files.pythonhosted.org/packages/a9/54/7ff17b49e28d8445e663ab17c4ac482aa6dbc707f0423150d80a0485ad02/fusion_harness-0.31.1-py3-none-any.whl"
+    sha256 "bcd2c34dcfd6069ca4d0abf3d4da1260ed1f3b18b7ec9d38302666588b7ff664"
   end
   resource "h11" do
     url "https://files.pythonhosted.org/packages/04/4b/29cac41a4d98d144bf5f6d33995617b185d14b22401f75ca86f384e87ff1/h11-0.16.0-py3-none-any.whl"
@@ -81,8 +81,8 @@ class FusionAgentStudio < Formula
     sha256 "2d400746a40668fc9dec9810239072b40b4484b640a8c38fd654a024c7a1bf55"
   end
   resource "httpx" do
-    url "https://files.pythonhosted.org/packages/2a/39/e50c7c3a983047577ee07d2a9e53faf5a69493943ec3f6a384bdc792deb2/httpx-0.28.1-py3-none-any.whl"
-    sha256 "d909fcccc110f8c7faf814ca82a9a4d816bc5a6dbfea25d6591d6985b8ba59ad"
+    url "https://files.pythonhosted.org/packages/82/c6/dddba524648da23345e446e6413530474e19e44122dba752d34ae7c4ae57/httpx-0.29.0-py3-none-any.whl"
+    sha256 "6734dcf742ced6e8018e45d3f9f7728975b6b3e1085a24f3e2c056069d858bd1"
   end
   resource "idna" do
     url "https://files.pythonhosted.org/packages/58/a2/bb081bab032533a855d44de1d56f8e8426114ff1ba5d1f07a438a0a654f8/idna-3.20-py3-none-any.whl"
