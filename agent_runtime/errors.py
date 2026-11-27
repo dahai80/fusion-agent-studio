@@ -47,6 +47,7 @@ class ErrorCode(str, Enum):
     SESSION_NOT_FOUND = "SESSION_NOT_FOUND"
     SESSION_TYPE_MISMATCH = "SESSION_TYPE_MISMATCH"
     KNOWLEDGE_BASE_NOT_FOUND = "KNOWLEDGE_BASE_NOT_FOUND"
+    ARTIFACT_NOT_FOUND = "ARTIFACT_NOT_FOUND"
     RESOURCE_PRIVATE = "RESOURCE_PRIVATE"
     AGENT_NOT_PUBLISHED = "AGENT_NOT_PUBLISHED"
     OPERATION_FORBIDDEN = "OPERATION_FORBIDDEN"
@@ -134,6 +135,11 @@ _ERROR_REGISTRY: dict[str, dict[str, str]] = {
         "type": ErrorType.RESOURCE_NOT_FOUND,
         "message": "Connector does not exist",
         "user_message": "连接器配置已被移除",  # i18n: user-facing
+    },
+    ErrorCode.ARTIFACT_NOT_FOUND: {
+        "type": ErrorType.RESOURCE_NOT_FOUND,
+        "message": "Artifact does not exist",
+        "user_message": "产物不存在或已被删除",
     },
     ErrorCode.SESSION_NOT_FOUND: {
         "type": ErrorType.RESOURCE_NOT_FOUND,
