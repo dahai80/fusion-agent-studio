@@ -951,6 +951,27 @@ async def v1_list_agent_artifacts(agent_id: str):
     return {"artifacts": artifacts}
 
 
+@app.get(
+    "/v1/agents/{agent_id}/artifacts/{artifact_id}",
+    dependencies=[Depends(_require_auth_if_configured)],
+)
+async def v1_get_agent_artifact(agent_id: str, artifact_id: str, preview: bool = False):
+    # Artifact content over HTTP (chat clients / pipeline stages fetch stage
+    # documents without going through RPC). Owner-scoped: the artifact must
+    # belong to the agent in the path. preview=true trims content to 500
+    # chars (same budget as artifact_load preview).
+    mgr = _get_artifact_mgr()
+    result = mgr.get_artifact(artifact_id)
+    record = result.get("record") if isinstance(result, dict) else None
+    if not isinstance(record, dict) or record.get("owner_agent_id") != agent_id:
+        raise_api_error(ErrorCode.ARTIFACT_NOT_FOUND, param="artifact_id")
+    if preview:
+        record = dict(record)
+        record["content"] = record.get("content", "")[:500]
+    logger.info("GET artifact %s agent=%s preview=%s", artifact_id, agent_id, preview)
+    return {"artifact": record}
+
+
 @app.get("/v1/agents/{agent_id}/preview")
 async def v1_get_agent_preview(agent_id: str):
     agents_index = _load_agents_index()
