@@ -201,30 +201,66 @@ class TeamsDispatcher(SubDispatcher):
 
         raw = dict(params.get("definition") or params)
         try:
+            # #810 request #3: role templates — reusable {name, prompt_contract,
+            # output_artifact} rows referenced by members via role_template, so
+            # pipelines like req/prd/rnd/valid/launch register in one call.
+            templates: dict[str, dict[str, str]] = {}
+            for t in (raw.get("role_templates") or []):
+                if not isinstance(t, dict):
+                    raise ValueError("role_templates entries must be objects")
+                t_name = str(t.get("name", "") or "")
+                if not t_name:
+                    raise ValueError("role_templates entry missing name")
+                if t_name in templates:
+                    raise ValueError("duplicate role template: %s" % t_name)
+                templates[t_name] = {
+                    "prompt_contract": str(t.get("prompt_contract", "") or ""),
+                    "output_artifact": str(t.get("output_artifact", "") or ""),
+                }
+            def _member_context(m: dict) -> str:
+                # #810 request #3: role_template reference resolves against the
+                # team's role_templates; contract + artifact path ride the
+                # member context brief deterministically (no model involvement).
+                ctx = str(m.get("context", "") or "")
+                ref = str(m.get("role_template", "") or "")
+                if not ref:
+                    return ctx
+                tpl = templates.get(ref)
+                if tpl is None:
+                    raise ValueError(
+                        "member %s references unknown role_template %r" % (m.get("name"), ref)
+                    )
+                parts = [ctx] if ctx else []
+                if tpl["prompt_contract"]:
+                    parts.append("[role contract] " + tpl["prompt_contract"])
+                if tpl["output_artifact"]:
+                    parts.append("[output artifact] " + tpl["output_artifact"])
+                return "\n".join(parts)
+
             members = [
                 TeamMember(
-                    name=str(m.get("name", "") or ""),
-                    role=str(m.get("role", "") or ""),
-                    skills=[str(s) for s in (m.get("skills") or [])],
-                    tool_allowlist=[str(t) for t in (m.get("tool_allowlist") or [])],
-                    permission_mode=str(m.get("permission_mode", "") or "default"),
-                    budget_tokens=int(m.get("budget_tokens", 0) or 50000),
-                    max_concurrency=int(m.get("max_concurrency", 0) or 1),
+                    name=str(m_spec.get("name", "") or ""),
+                    role=str(m_spec.get("role", "") or ""),
+                    skills=[str(s) for s in (m_spec.get("skills") or [])],
+                    tool_allowlist=[str(t) for t in (m_spec.get("tool_allowlist") or [])],
+                    permission_mode=str(m_spec.get("permission_mode", "") or "default"),
+                    budget_tokens=int(m_spec.get("budget_tokens", 0) or 50000),
+                    max_concurrency=int(m_spec.get("max_concurrency", 0) or 1),
                     # #778: optional per-member tier hint, validated against
                     # the kernel vocabulary before any kernel call. Empty
                     # string = no hint; TeamRuntime falls back to the
                     # deterministic recommend_tier policy — AS never guesses.
-                    model_tier=str(m.get("model_tier", "") or ""),
+                    model_tier=str(m_spec.get("model_tier", "") or ""),
                     # per-worker privacy routing: carried verbatim into
                     # spec.metadata["privacy"] by TeamRuntime.run_member;
                     # enforcement happens fail-closed at kernel model resolve
                     # (subagent._enforce_privacy), never at the gateway
-                    privacy=str(m.get("privacy", "") or ""),
+                    privacy=str(m_spec.get("privacy", "") or ""),
                     # #760: resident per-member brief — pass through verbatim
                     # so TeamRuntime.run_member can inject [member context].
-                    context=str(m.get("context", "") or ""),
+                    context=_member_context(m_spec),
                 )
-                for m in (raw.get("members") or [])
+                for m_spec in (raw.get("members") or [])
             ]
             for m in members:
                 if m.model_tier not in VALID_MODEL_TIERS:
@@ -310,6 +346,7 @@ class TeamsDispatcher(SubDispatcher):
             "state_dir": team_rt.state_dir,
             "fanout_band": fanout_band,
             "warning": TOKEN_MULTIPLIER_WARNING if fanout_band == "hard" else "",
+            "role_templates": sorted(templates),
         }
 
     def _kernel_runner(self):
