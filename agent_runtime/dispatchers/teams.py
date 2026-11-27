@@ -191,7 +191,12 @@ class TeamsDispatcher(SubDispatcher):
             FANOUT_SIMPLE_MAX,
             TOKEN_MULTIPLIER_WARNING,
         )
-        from fusion_harness.team import VALID_MODEL_TIERS, TeamDefinition, TeamMember
+        from fusion_harness.team import (
+            VALID_MODEL_TIERS,
+            VALID_PRIVACY_MODES,
+            TeamDefinition,
+            TeamMember,
+        )
         from fusion_harness.team_runtime import TeamRuntime
 
         raw = dict(params.get("definition") or params)
@@ -210,6 +215,11 @@ class TeamsDispatcher(SubDispatcher):
                     # string = no hint; TeamRuntime falls back to the
                     # deterministic recommend_tier policy — AS never guesses.
                     model_tier=str(m.get("model_tier", "") or ""),
+                    # per-worker privacy routing: carried verbatim into
+                    # spec.metadata["privacy"] by TeamRuntime.run_member;
+                    # enforcement happens fail-closed at kernel model resolve
+                    # (subagent._enforce_privacy), never at the gateway
+                    privacy=str(m.get("privacy", "") or ""),
                     # #760: resident per-member brief — pass through verbatim
                     # so TeamRuntime.run_member can inject [member context].
                     context=str(m.get("context", "") or ""),
@@ -221,6 +231,11 @@ class TeamsDispatcher(SubDispatcher):
                     raise ValueError(
                         "unknown model tier %r for member %s (valid: cheap, strong, or empty)"
                         % (m.model_tier, m.name)
+                    )
+                if m.privacy not in VALID_PRIVACY_MODES:
+                    raise ValueError(
+                        "unknown privacy mode %r for member %s (valid: local-only, or empty)"
+                        % (m.privacy, m.name)
                     )
             # #778: fan-out ladder pre-validation (#124 constants). The
             # kernel hard-errors above the hard max inside TeamDefinition

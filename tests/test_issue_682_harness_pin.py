@@ -31,9 +31,11 @@ MSG_TYPES (harness #153) — the typed approval inbox extension (#785)
 surfaces those cards and resolves the host-side ApprovalGate question.
 0.31.0 ships the TURN_INTERRUPT / TURN_REBIND hook events (harness #156) —
 the HookEvent count-pin in test_issue_333_hooks pins 28 members against
-them. Versions 0.17.0-0.26.x predate the tier surface and are excluded;
-0.28.x-0.30.x predate the TURN_* hook events. Range after this bump:
->=0.31.0,<0.32.
+them. 0.32.0 ships TeamMember.privacy + VALID_PRIVACY_MODES (harness #173) —
+the per-worker privacy passthrough (#813 follow-up) validates against it in
+the teams dispatcher. Versions 0.17.0-0.26.x predate the tier surface and
+are excluded; 0.28.x-0.31.x predate the privacy surface. Range after this
+bump: >=0.32.0,<0.33.
 """
 
 from __future__ import annotations
@@ -55,7 +57,7 @@ def _harness_pin() -> str:
 
 def test_pin_admits_installed_kernel_surface():
     spec = SpecifierSet(_harness_pin())
-    assert Version("0.31.0") in spec
+    assert Version("0.32.0") in spec
 
 
 def test_pin_still_bounds_minor_and_major():
@@ -72,6 +74,7 @@ def test_pin_still_bounds_minor_and_major():
     assert Version("0.28.0") not in spec
     assert Version("0.29.0") not in spec
     assert Version("0.30.0") not in spec
+    assert Version("0.31.0") not in spec
     assert Version("1.0.0") not in spec
-    assert Version("0.32.0") not in spec
+    assert Version("0.33.0") not in spec
     assert Version("0.6.9") not in spec
