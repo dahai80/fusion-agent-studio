@@ -550,3 +550,63 @@ class TestLiveDispatchPath:
             {"jsonrpc": "2.0", "id": 8, "method": "teams.list", "params": {}}
         )
         assert [t["name"] for t in resp["result"]["teams"]] == ["pair"]
+
+
+class TestRoleTemplates:
+    # #810 request #3: role templates — {name, prompt_contract, output_artifact}
+    # rows referenced by members via role_template, injected into the member
+    # context brief deterministically.
+    async def test_register_with_role_templates(self, daemon, _home):
+        rt, _client = _runtime()
+        daemon._get_runtime = lambda: rt
+        d = _definition()
+        d["role_templates"] = [
+            {
+                "name": "reviewer",
+                "prompt_contract": "write docs/review-<stage>.md with verdict: pass|reject",
+                "output_artifact": "docs/review-<stage>.md",
+            },
+            {
+                "name": "builder",
+                "prompt_contract": "implement the stage contract end to end",
+                "output_artifact": "",
+            },
+        ]
+        d["members"][0]["role_template"] = "reviewer"
+        d["members"][1]["role_template"] = "builder"
+        res = await _run(daemon, "teams.register", {"definition": d})
+        assert res["status"] == "ok", res
+        assert res["role_templates"] == ["builder", "reviewer"]
+        reg = getattr(rt, "teams_registry")
+        members = {m.name: m for m in reg["pair"].definition.members}
+        assert "[role contract] write docs/review-<stage>.md with verdict: pass|reject" in members["worker-a"].context
+        assert "[output artifact] docs/review-<stage>.md" in members["worker-a"].context
+        assert members["worker-b"].context == "[role contract] implement the stage contract end to end"
+
+    async def test_register_without_templates(self, daemon):
+        rt, _client = _runtime()
+        daemon._get_runtime = lambda: rt
+        res = await _run(daemon, "teams.register", {"definition": _definition()})
+        assert res["status"] == "ok"
+        assert res["role_templates"] == []
+
+    async def test_unknown_role_template_typed_error(self, daemon):
+        rt, _client = _runtime()
+        daemon._get_runtime = lambda: rt
+        d = _definition()
+        d["members"][0]["role_template"] = "ghost"
+        res = await _run(daemon, "teams.register", {"definition": d})
+        assert res["status"] == "error"
+        assert "unknown role_template" in res["message"]
+
+    async def test_duplicate_template_name_typed_error(self, daemon):
+        rt, _client = _runtime()
+        daemon._get_runtime = lambda: rt
+        d = _definition()
+        d["role_templates"] = [
+            {"name": "dup", "prompt_contract": "a", "output_artifact": "x"},
+            {"name": "dup", "prompt_contract": "b", "output_artifact": "y"},
+        ]
+        res = await _run(daemon, "teams.register", {"definition": d})
+        assert res["status"] == "error"
+        assert "duplicate role template" in res["message"]
