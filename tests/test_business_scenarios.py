@@ -1,7 +1,7 @@
 # Callers: pytest test runner, CI pipeline.
 # Affected API: DaemonServer._get_handler() dispatch for agent.*, marketplace.*, memory.*, safety.*, planner.*, deploy.*, template.*, graph.*, rag.*, env.*, ping.
 # Data schemas: AgentManifest, AgentPackage, MarketEntry, MemoryEntry, SafetyVerdict, Plan, AgentGraph, NodeConfig, Edge.
-# User instruction: "继续，把所有的业务都接入完整，然后按照业务场景进行测试"
+# User instruction: "Continue, wire up all business domains, then test by business scenario"
 
 """Business scenario integration tests — end-to-end flows via DaemonServer.
 
@@ -370,8 +370,8 @@ class TestDeployScenario:
         formats = await _run(daemon, "deploy.list_formats", {})
         assert len(formats["formats"]) >= 1
 
-        # 审计 P2/dim3: deploy.import 限定 import 源在 ~/.fusion-agent-studio/exports/
-        # (防路径穿越). export/import 闭环须在该目录内.
+        # Audit P2/dim3: deploy.import restricts imports to ~/.fusion-agent-studio/exports/
+        # (path traversal guard). The export/import loop must stay inside that directory.
 
         exports_dir = studio_home() / "exports"
         exports_dir.mkdir(parents=True, exist_ok=True)

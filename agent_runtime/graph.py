@@ -60,11 +60,13 @@ class NodeConfig:
     disable_tools: bool = False
     # Effort level for reasoning models
     effort: str = ""
-    # C1: tool_choice — OpenAI值 "auto"|"none"|"required" 或 dict {"type":"function","function":{"name":...}}。空=不传。
+    # C1: tool_choice — OpenAI value "auto"|"none"|"required" or a dict
+    # {"type":"function","function":{"name":...}}. Empty = not sent.
     tool_choice: str = ""
-    # C1: parallel_tool_calls — True时多工具 asyncio.gather 并发 (控制流工具仍顺序)。
+    # C1: parallel_tool_calls — True runs multiple tools concurrently via
+    # asyncio.gather (control-flow tools still run sequentially).
     parallel_tool_calls: bool = False
-    # Agent loop: ""=off (graph-reentry), "agent"=内生多轮工具回灌
+    # Agent loop: ""=off (graph-reentry), "agent"=native multi-turn tool feedback
     loop_mode: str = ""
     max_loop_iterations: int = 0
     stop_sequences: list = field(default_factory=list)
@@ -287,9 +289,10 @@ class AgentGraph:
         return ""
 
     def stable_id(self) -> str:
-        # #213: 按 name + 内容 hash 生成稳定 graph_id.
-        # 下游 cron/缓存/GUI 绑定 graph_id 跨 sync/重启稳定, 无需每次回填.
-        # hash 输入 = name + 规范化节点/边 JSON (sort_keys 稳定序).
+        # #213: derive a stable graph_id from name + content hash.
+        # Downstream cron/cache/GUI bindings to graph_id stay stable across
+        # syncs/restarts with no backfill needed.
+        # Hash input = name + canonicalized node/edge JSON (sort_keys stable order).
         canonical = json.dumps(
             {
                 "name": self.name,
@@ -302,9 +305,10 @@ class AgentGraph:
         )
         return hashlib.md5(canonical.encode("utf-8")).hexdigest()[:16]
 
-    # 审计 L-1: runtime 支持的合法 node.type 集合 (与 runtime.py dispatch
-    # 的 elif 分支一一对应). validate() 据此拒绝未知类型, 避免未知类型节点
-    # 进入图后在 runtime 静默空转至 max_iterations.
+    # Audit L-1: the set of node.type values the runtime supports (one-to-one
+    # with the elif branches in runtime.py dispatch). validate() rejects
+    # unknown types so an unknown-type node never enters a graph and silently
+    # idles in the runtime until max_iterations.
     _VALID_NODE_TYPES = frozenset(
         {
             "start",
@@ -327,9 +331,11 @@ class AgentGraph:
     )
 
     def validate(self, tool_registry: Any = None) -> list[str]:
-        # #215: 校验结构 + (可选) 内容 schema. 传 tool_registry 则查 tool_name 注册,
-        # 预解析 condition_expr, 提示 output_mapping/tool_params 未知 key (warning).
-        # 不传 registry 则仅结构校验, 保持向后兼容. error=硬错, "warning:"=软提示.
+        # #215: validate structure + (optional) content schema. Passing
+        # tool_registry also checks tool_name registration, pre-parses
+        # condition_expr, and warns on unknown output_mapping/tool_params keys
+        # (warning). Without a registry only structure is validated, keeping
+        # backwards compatibility. error = hard error, "warning:" = soft notice.
         errors = []
         if not self.start_node_id:
             errors.append("Graph has no start node")
@@ -349,7 +355,8 @@ class AgentGraph:
             for nid in self.nodes:
                 if nid not in reachable and nid != self.start_node_id:
                     errors.append(f"Node '{nid}' is unreachable from start")
-        # #215: 内容 schema 校验 (需 tool_registry, 否则跳过 tool_name/tool_params).
+        # #215: content schema validation (requires tool_registry, otherwise
+        # tool_name/tool_params checks are skipped).
         import re as _re
 
         comp_pat = _re.compile(r"(\w+)\s*(>=|<=|!=|==|>|<)\s*(.+)")
@@ -359,19 +366,23 @@ class AgentGraph:
             for t in tool_registry.list_tools():
                 known_tool_names.add(t.get("name", ""))
         for nid, node in self.nodes.items():
-            # 审计 L-1: node.type 必须是 runtime 认识的合法类型, 否则
-            # runtime dispatch 无匹配分支静默空转. create 时即硬错.
+            # Audit L-1: node.type must be a legal type the runtime knows,
+            # otherwise runtime dispatch finds no matching branch and silently
+            # idles. Hard error at create time.
             if node.type not in self._VALID_NODE_TYPES:
                 errors.append(
                     f"Node '{nid}' has unknown type '{node.type}'; "
                     f"expected one of: {', '.join(sorted(self._VALID_NODE_TYPES))}"
                 )
-            # tool_name ∈ registry (拼写/注册错 create 时即报)
+            # tool_name must be in the registry (typo/registration errors
+            # reported at create time)
             if node.type == "tool" and node.tool_name:
                 if tool_registry is not None and node.tool_name not in known_tool_names:
                     errors.append(f"Node '{nid}' tool_name '{node.tool_name}' not in registry")
-            # condition_expr 预解析 (语法错 create 时报). 需 registry — 属内容 schema,
-            # 无 registry (runtime 执行前结构校验) 不查, 否则误杀合法条件节点的异常路径.
+            # condition_expr pre-parse (syntax errors reported at create time).
+            # Requires a registry — this is content schema; without one
+            # (pre-execution structure validation) skip the check, otherwise
+            # legitimate exception paths of valid condition nodes get killed.
             if node.type == "condition" and node.condition_expr and tool_registry is not None:
                 expr = node.condition_expr.strip()
                 low = expr.lower()
@@ -384,7 +395,8 @@ class AgentGraph:
                 is_and = bool(_re.search(r"\band\b", low))
                 if not (is_lit or is_ctx or is_comp or is_in or is_not or is_or or is_and):
                     errors.append(f"Node '{nid}' condition_expr unparseable: {expr[:60]!r}")
-            # tool_params 未知 key warning (output_mapping 是约定 key, 跳过)
+            # warning on unknown tool_params keys (output_mapping is a
+            # conventional key, skipped)
             if node.type == "tool" and node.tool_name and tool_registry is not None:
                 tool = (
                     tool_registry.get(node.tool_name)

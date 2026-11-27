@@ -23,9 +23,10 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 CONCLUSION_MARKERS = re.compile(
-    r"(因此|所以|综上|总之|结论|conclusion|in summary|to summarize|therefore)", re.IGNORECASE
+    r"(因此|所以|综上|总之|结论|conclusion|in summary|to summarize|therefore)",  # i18n: user-facing
+    re.IGNORECASE,
 )
-TOKEN_RE = re.compile(r"[A-Za-z0-9一-鿿]{4,}")
+TOKEN_RE = re.compile(r"[A-Za-z0-9一-鿿]{4,}")  # i18n: user-facing
 EVIDENCE_CAP = 5000
 DISTINCTIVE_LEN = 4
 RUNTIME_REVIEW_ENV = "FUSION_RUNTIME_REVIEW"

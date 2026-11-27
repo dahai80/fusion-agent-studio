@@ -71,7 +71,7 @@ def _dispatcher(reply: str, calls: list | None = None) -> FlowDispatcher:
 
 
 def _plan(reply: str, **params) -> dict:
-    params.setdefault("prompt", "搭一个流程")
+    params.setdefault("prompt", "搭一个流程")  # i18n: user-facing
     params.setdefault("catalog", CATALOG)
     params.setdefault("graph_json", GRAPH_STATE)
     params.setdefault("templates", TEMPLATES)
@@ -87,7 +87,7 @@ def test_handler_registered_async():
 def test_valid_plan_returns_ops_and_reply():
     reply = """Here you go:
 ```json
-{"reply": "已创建审批流程", "ops": [
+{"reply": "Approval workflow created", "ops": [
   {"op": "add_node", "id": "approve", "type": "human_input", "label": "Approval", "config": {}},
   {"op": "connect", "source": "llm_1", "target": "approve"},
   {"op": "connect", "source": "approve", "target": "end"}
@@ -96,7 +96,7 @@ def test_valid_plan_returns_ops_and_reply():
 """
     out = _plan(reply)
     assert "error" not in out
-    assert out["reply"] == "已创建审批流程"
+    assert out["reply"] == "Approval workflow created"
     assert [o["op"] for o in out["ops"]] == ["add_node", "connect", "connect"]
     # chained validation: connect to approve (added earlier in same list) is legal
     assert out["ops"][2]["target"] == "end"
@@ -173,7 +173,7 @@ def test_unknown_template_rejected():
 
 def test_known_template_accepted():
     reply = json_reply(
-        {"reply": "用模板", "ops": [{"op": "instantiate_template", "name": "rag-qa"}]}
+        {"reply": "Use the template", "ops": [{"op": "instantiate_template", "name": "rag-qa"}]}
     )
     out = _plan(reply)
     assert "error" not in out and out["ops"][0]["name"] == "rag-qa"

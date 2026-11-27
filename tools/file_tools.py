@@ -11,10 +11,13 @@ from .base import BaseTool
 
 logger = logging.getLogger(__name__)
 
-# 审计 A-3: 写 sink (file_write/edit/delete) 默认挡破坏性系统路径, 避免 LLM
-# 经 file 工具覆写/删除 ssh 密钥 / 系统配置 / 凭证目录. 读 sink 不挡 (terminal
-# 本就能读, 读非破坏). env FUSION_FILE_ALLOW_SYSTEM=1 显式放开 (受控场景).
-# 可选白名单根目录 env FUSION_FILE_ROOTS (冒号分隔), 设了则写仅限这些根内.
+# Audit A-3: write sinks (file_write/edit/delete) block destructive system
+# paths by default, preventing the LLM from overwriting/deleting ssh keys,
+# system configs, or credential dirs via file tools. Read sinks are not
+# blocked (terminal can already read; reading is non-destructive).
+# env FUSION_FILE_ALLOW_SYSTEM=1 explicitly opts out (controlled scenarios).
+# Optional allowlist roots via env FUSION_FILE_ROOTS (colon-separated); when
+# set, writes are limited to those roots.
 _SYSTEM_PATH_PREFIXES = (
     "/etc/",
     "/System/",
@@ -26,9 +29,11 @@ _SYSTEM_PATH_PREFIXES = (
     "/opt/",
     "/root/",
 )
-# 审计 E-9: 原子串匹配 (`part in sparts`) 假阳性 — `.ssh-backup` 含 `.ssh` 被挡,
-# `credentials_backup` 含 `credentials` 被挡. 改路径分量精确匹配: 目录名精确相等
-# (.ssh/.aws/...), 文件名精确相等 (id_rsa/credentials/...). 消假阳性, 不漏真敏感.
+# Audit E-9: naive substring matching (`part in sparts`) had false positives —
+# `.ssh-backup` contains `.ssh` and was blocked; `credentials_backup` contains
+# `credentials` and was blocked. Switched to exact path-component matching:
+# directory names exact-equal (.ssh/.aws/...), file names exact-equal
+# (id_rsa/credentials/...). Removes false positives, keeps real sensitivity.
 _CATASTROPHIC_DIR_PARTS = (
     ".ssh",
     ".aws",
@@ -45,9 +50,11 @@ _CATASTROPHIC_FILE_NAMES = (
     "id_ecdsa",
     ".env",
 )
-# 审计 E-9: ~/Library/LaunchAgents|LaunchDaemons 解析成 /Users/<u>/Library/...,
-# startswith("/Library/") 为 False -> 不挡 -> LaunchAgent 持久化可写.
-# 用分量名精确匹配 LaunchAgents/LaunchDaemons (不分系统/用户 Library, 均挡写).
+# Audit E-9: ~/Library/LaunchAgents|LaunchDaemons resolves to
+# /Users/<u>/Library/..., so startswith("/Library/") is False -> not blocked
+# -> LaunchAgent persistence stays writable. Match LaunchAgents/LaunchDaemons
+# by exact component name (system vs user Library not distinguished, block
+# writes to both).
 _CATASTROPHIC_PERSIST_DIRS = (
     "LaunchAgents",
     "LaunchDaemons",
@@ -55,8 +62,9 @@ _CATASTROPHIC_PERSIST_DIRS = (
 
 
 def _check_file_size(filepath: Path) -> tuple[bool, int, int]:
-    # 审计 P1-12/E-19: file_edit/file_grep 复用 file_read 的大小预检.
-    # 返回 (ok, size, max_bytes). ok=False 表示超限应拒. 读 stat 不读内容.
+    # Audit P1-12/E-19: file_edit/file_grep reuse file_read's size pre-check.
+    # Returns (ok, size, max_bytes). ok=False means over limit and should be
+    # rejected. Only stats the file, never reads content.
     try:
         size = filepath.stat().st_size
     except OSError:
@@ -72,7 +80,7 @@ def _check_file_size(filepath: Path) -> tuple[bool, int, int]:
 
 
 def _is_write_blocked(filepath: Path) -> str | None:
-    # 返回拦截原因 str, None=放行.
+    # Returns the block reason str, or None to allow.
     roots_env = os.environ.get("FUSION_FILE_ROOTS", "").strip()
     if roots_env:
         # #685: allowlist via the shared PathScope primitive — bare roots +
@@ -98,7 +106,7 @@ def _is_write_blocked(filepath: Path) -> str | None:
             return f"system path blocked by default ({prefix}...): {filepath}"
     name = filepath.name
     parts = filepath.parts
-    # E-9: 分量精确匹配, 消子串假阳性.
+    # E-9: exact component matching removes substring false positives.
     for part in parts:
         if part in _CATASTROPHIC_DIR_PARTS:
             return f"sensitive path blocked by default ({part}): {filepath}"
@@ -169,10 +177,12 @@ class FileReadTool(BaseTool):
         if not filepath.is_file():
             return f"Error: Not a file: {filepath}"
 
-        # 审计 E-19/P0-4: file_read 原全量 read_text 进内存, 无上限 -> 读 10GB
-        # 日志撑爆 daemon + LLM context + checkpoint 序列化. 先 stat 预检大小,
-        # 超 max_bytes (默认 1MB, FUSION_FILE_MAX_BYTES 调) 拒绝, 避免读入.
-        # 命中仍部分返回: 仅读前 max_bytes 字节, 标 truncated.
+        # Audit E-19/P0-4: file_read originally did a full read_text into
+        # memory with no cap -> reading a 10GB log would blow up the daemon,
+        # LLM context, and checkpoint serialization. Stat the size first and
+        # reject over max_bytes (default 1MB, tune via FUSION_FILE_MAX_BYTES)
+        # to avoid reading it in. On hit, still return partially: read only
+        # the first max_bytes bytes and mark truncated.
         try:
             size = filepath.stat().st_size
         except OSError as e:
@@ -388,8 +398,10 @@ class FileEditTool(BaseTool):
         if not filepath.is_file():
             return f"Error: Not a file: {filepath}"
 
-        # 审计 P1-12/E-19: file_edit 原直接 read_text 无大小预检, 读 10GB 文件
-        # 撑爆内存. 复用 _check_file_size 预检 (默认 1MB, FUSION_FILE_MAX_BYTES 调).
+        # Audit P1-12/E-19: file_edit originally called read_text directly
+        # with no size pre-check; reading a 10GB file would blow up memory.
+        # Reuse the _check_file_size pre-check (default 1MB, tune via
+        # FUSION_FILE_MAX_BYTES).
         ok, size, max_bytes = _check_file_size(filepath)
         if not ok:
             logger.warning(
@@ -564,8 +576,10 @@ class FileGrepTool(BaseTool):
                     for part in file_path.relative_to(root).parts[:-1]
                 ):
                     continue
-                # 审计 P1-12/E-19: rglob 逐文件 read_text 无大小预检, 遍历含大文件
-                # 目录撑爆内存. 超限跳过该文件 (grep 已对权限错误静默跳过, 一致).
+                # Audit P1-12/E-19: rglob read each file via read_text with no
+                # size pre-check; traversing a dir containing large files would
+                # blow up memory. Skip files over the limit (consistent with
+                # grep already silently skipping on permission errors).
                 g_ok, g_size, g_max = _check_file_size(file_path)
                 if not g_ok:
                     logger.debug(

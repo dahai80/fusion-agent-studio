@@ -94,6 +94,7 @@ describe('FcsComposer (#534, FCS-1)', () => {
         expect(r.onPickFiles).toHaveBeenCalledWith([file]);
     });
 
+    // i18n: user-facing
     it('⚙ popup shows the params content (显示思考 lives there, not in the row)', () => {
         const r = setup({
             paramsPopup: <label>show-thinking-switch</label>,

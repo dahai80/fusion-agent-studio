@@ -101,7 +101,8 @@ class MetricsEngine:
         self.db_path = Path(db_path) if db_path else DEFAULT_DB_PATH
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._conn: sqlite3.Connection | None = None
-        # 审计 A-6: 跨线程共享单连接无锁无 WAL. RLock 串行化, WAL 让读不堵写, busy_timeout 等锁.
+        # Audit A-6: single shared cross-thread connection had no lock and no WAL.
+        # RLock serializes writes, WAL keeps reads from blocking writes, busy_timeout waits for locks.
         self._write_lock = threading.RLock()
         self._init_db()
 

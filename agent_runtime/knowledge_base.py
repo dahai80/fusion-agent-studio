@@ -112,7 +112,8 @@ class KnowledgeBaseManager:
     # Data schemas: search params {query,top_k,threshold,hybrid,hybrid_alpha,hybrid_method,
     #   rerank,folder_prefix,filter,rewrite_mode}; ask params {question,model,max_tokens,
     #   temperature,hybrid,rerank,folder_prefix}
-    # User instruction: "fusion-rag 已经完成issue和pr，可以开展相关的工作落地"
+    # User instruction: "fusion-rag has finished its issues and PRs; the related
+    # integration work can now land"
 
     def __init__(self, base_path=None):
         if base_path is None:

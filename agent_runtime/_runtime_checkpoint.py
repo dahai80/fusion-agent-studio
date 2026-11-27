@@ -18,8 +18,9 @@ from .variable_manager import VariableManager
 class _CheckpointMixin:
     @staticmethod
     def _extract_pending_tool_calls(messages: list) -> list[dict]:
-        # 审计 P1-20/E-20: 找出尾段未闭合 tool_calls — assistant 发 tool_calls
-        # 后无匹配 tool 回复. 返回该 assistant 消息的 tool_calls 列表 (空则无 pending).
+        # Audit P1-20/E-20: find trailing unclosed tool_calls — an assistant
+        # message sent tool_calls with no matching tool reply after it.
+        # Returns that assistant message's tool_calls list (empty = no pending).
         if not messages:
             return []
         for msg in reversed(messages):
@@ -27,13 +28,13 @@ class _CheckpointMixin:
                 continue
             role = msg.get("role")
             if role == "tool":
-                # 最近一条是 tool 回复 -> 已闭合, 无 pending.
+                # Last message is a tool reply -> closed, no pending.
                 return []
             if role == "assistant" and msg.get("tool_calls"):
-                # assistant tool_calls 后无 tool 回复 -> pending.
+                # assistant tool_calls with no tool reply after -> pending.
                 return msg["tool_calls"]
             if role == "assistant":
-                # assistant 无 tool_calls -> 无 pending.
+                # assistant without tool_calls -> no pending.
                 return []
         return []
 
@@ -42,10 +43,12 @@ class _CheckpointMixin:
         if not self.store:
             return
         try:
-            # 审计 P1-20/E-20: 捕获未闭合 tool_calls (assistant 发了 tool_calls 但
-            # resume 前无对应 tool 角色回复). 原仅存 messages, resume 从
-            # current_node_id 重跑会重发 tool_call 致重复副作用 (文件写两遍/命令
-            # 跑两次). 现显式记录, resume 据此标记跳过.
+            # Audit P1-20/E-20: capture unclosed tool_calls (assistant sent
+            # tool_calls but no matching tool-role reply before resume).
+            # Previously only messages were stored; resuming from current_node_id
+            # re-ran the tool_call causing duplicate side effects (file written
+            # twice / command run twice). Now recorded explicitly and resume
+            # uses it to mark and skip.
             pending = self._extract_pending_tool_calls(ctx.messages)
             self.store.save_checkpoint(
                 graph_id=graph.name,
@@ -132,9 +135,12 @@ class _CheckpointMixin:
                     logger.warning("checkpoint hook error: %s", hook_err)
         except Exception as e:
             ctx.checkpoint_fail_count += 1
-            # 审计 M-3: 持续失败 (DB 满/锁/schema 不匹配) 仅 warning 但执行照常,
-            # 之后 resume 报 "No checkpoint found" 用户无信号. 连续 3 次升级 error.
-            # 审计 P3-1: 计数迁 per-exec ctx, 并发执行各自累计不互踩.
+            # Audit M-3: persistent failures (DB full/locked/schema mismatch)
+            # only warned while execution continued; resume then failed with
+            # "No checkpoint found" giving the user no signal. Escalate to
+            # error after 3 consecutive failures.
+            # Audit P3-1: counter moved to per-exec ctx so concurrent
+            # executions each accumulate without clobbering each other.
             if ctx.checkpoint_fail_count >= 3:
                 logger.error(
                     "Checkpoint save failed %d consecutive times (resume will not work): %s",
@@ -168,7 +174,8 @@ class _CheckpointMixin:
             return
 
         ctx = AgentContext(session_id=session_id)
-        # 审计 E-20: Checkpoint 是 dataclass 非 dict, 用属性 + 解析 state_json.
+        # Audit E-20: Checkpoint is a dataclass, not a dict — use attributes
+        # and parse state_json.
         raw_state = checkpoint.context_json or "{}"
         try:
             state = json.loads(raw_state) if raw_state else {}
@@ -178,10 +185,12 @@ class _CheckpointMixin:
         ctx.iteration_count = state.get("iteration_count", 0)
         ctx.current_node_id = checkpoint.current_node_id or graph.start_node_id
         ctx.tool_call_chain_count = state.get("tool_call_chain_count", 0)
-        # 审计 P1-20/E-20: resume 检测 pending tool_calls, 标记 metadata 供
-        # tool 节点跳过重发 (避免重复副作用). 消息里 assistant tool_calls 已在,
-        # runtime 续跑时若 current_node_id 是被中断的 tool 节点会重发; 标记让
-        # 上层感知. 此处仅记日志 + 标记, 不自动删消息 (保留 LLM 上下文).
+        # Audit P1-20/E-20: resume detects pending tool_calls and marks
+        # metadata so tool nodes skip re-sending (avoiding duplicate side
+        # effects). The assistant tool_calls are already in the messages;
+        # when the runtime continues and current_node_id is the interrupted
+        # tool node it would re-send; the marker lets upper layers detect it.
+        # Here only log + mark; do not auto-delete messages (preserve LLM context).
         pending_tools = state.get("pending_tool_calls", [])
         # #714 part 1: prefer the node-state binding (checkpoint_binding
         # "session:node" key) when it holds fresher state for the checkpointed
@@ -220,8 +229,9 @@ class _CheckpointMixin:
                 "reply) — caller should skip re-dispatch to avoid duplicate side effects",
                 len(pending_tools),
             )
-        # 审计 A-1 Tier3: resume 重建 per-exec variables (fresh VM + 载入快照),
-        # 不写回 singleton self.variables. dispatch 见 context 提供, 不 reseed.
+        # Audit A-1 Tier3: resume rebuilds per-exec variables (fresh VM +
+        # loaded snapshot), never writing back to the singleton self.variables.
+        # dispatch is provided via context; no reseed.
         ctx.variables = VariableManager()
 
         saved_vars = state.get("variables", {})

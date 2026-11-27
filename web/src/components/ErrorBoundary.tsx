@@ -28,7 +28,9 @@ export class ErrorBoundary extends Component<Props, State> {
             return (
                 <div className="px-4 py-6">
                     <ErrorState
+                        // i18n: user-facing
                         message={`页面渲染失败 / Page failed to render: ${this.state.error.message}`}
+                        // i18n: user-facing
                         retryLabel="重试 / Retry"
                         onRetry={() => this.setState({ error: null })}
                     />

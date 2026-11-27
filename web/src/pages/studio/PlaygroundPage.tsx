@@ -26,6 +26,7 @@ export function PlaygroundPage() {
         <div>
             <PageHeader
                 title={t('Playground', 'Playground')}
+                // i18n: user-facing
                 subtitle={t('本地模型提示词试验场', 'local-model prompt lab')}
             />
             <div className="pt-3">
@@ -55,6 +56,7 @@ function PlaygroundSection() {
             let res: ReplayResult;
             if (mode === 'trace') {
                 if (!traceId.trim()) {
+                    // i18n: user-facing
                     setError(t('需要 trace_id', 'trace_id required'));
                     setBusy(false);
                     return;
@@ -70,6 +72,7 @@ function PlaygroundSection() {
                 });
             } else {
                 if (!prompt.trim()) {
+                    // i18n: user-facing
                     setError(t('需要提示词', 'prompt required'));
                     setBusy(false);
                     return;
@@ -99,6 +102,7 @@ function PlaygroundSection() {
     const diffText =
         result?.diff?.unified ||
         (result && baseline && baseline !== result.output
+            // i18n: user-facing
             ? t('输出与基线不同（无 diff 详情）', 'output differs from baseline (no diff detail)')
             : '');
 
@@ -111,6 +115,7 @@ function PlaygroundSection() {
                     onClick={() => setMode('direct')}
                     className={`rounded-md px-3 py-1.5 ${mode === 'direct' ? 'bg-bg-muted font-medium text-text-primary' : 'text-text-secondary hover:bg-bg-muted/60'}`}
                 >
+                    {/* i18n: user-facing */}
                     {t('直接提示词', 'Direct prompt')}
                 </button>
                 <button
@@ -119,6 +124,7 @@ function PlaygroundSection() {
                     onClick={() => setMode('trace')}
                     className={`rounded-md px-3 py-1.5 ${mode === 'trace' ? 'bg-bg-muted font-medium text-text-primary' : 'text-text-secondary hover:bg-bg-muted/60'}`}
                 >
+                    {/* i18n: user-facing */}
                     {t('从 Trace 重放', 'From trace')}
                 </button>
             </div>
@@ -135,7 +141,9 @@ function PlaygroundSection() {
             <FormField
                 label={
                     mode === 'trace'
+                        // i18n: user-facing
                         ? t('改写最新用户输入（可选）', 'Override last user input (optional)')
+                        // i18n: user-facing
                         : t('提示词', 'Prompt')
                 }
             >
@@ -143,17 +151,21 @@ function PlaygroundSection() {
             </FormField>
             <div className="flex items-end gap-2">
                 <div className="w-32">
+                    {/* i18n: user-facing */}
                     <FormField label={t('温度', 'Temperature')}>
                         <TextInput value={temperature} onChange={setTemperature} />
                     </FormField>
                 </div>
                 <div className="w-32">
+                    {/* i18n: user-facing */}
                     <FormField label={t('最大 Token', 'Max tokens')}>
                         <TextInput value={maxTokens} onChange={setMaxTokens} />
                     </FormField>
                 </div>
                 <SubmitButton
+                    // i18n: user-facing
                     label={t('重放', 'Replay')}
+                    // i18n: user-facing
                     busyLabel={t('重放中…', 'replaying…')}
                     disabled={busy}
                     onAction={() => run()}
@@ -162,6 +174,7 @@ function PlaygroundSection() {
             {error ? (
                 <ErrorState
                     message={error}
+                    // i18n: user-facing
                     retryLabel={t('重试', 'Retry')}
                     onRetry={() => void run()}
                 />
@@ -170,6 +183,7 @@ function PlaygroundSection() {
             {result ? (
                 <div data-testid="playground-result" className="flex flex-col gap-2 text-xs">
                     <div className="flex items-center gap-3">
+                        {/* i18n: user-facing */}
                         <span className="font-medium text-text-primary">{t('输出', 'Output')}</span>
                         {result.duration_ms ? (
                             <span className="text-text-secondary">{result.duration_ms}ms</span>
@@ -180,7 +194,9 @@ function PlaygroundSection() {
                                 className={result.diff.changed ? 'text-warning' : 'text-success'}
                             >
                                 {result.diff.changed
+                                    // i18n: user-facing
                                     ? t('与基线不同', 'differs from baseline')
+                                    // i18n: user-facing
                                     : t('与基线一致', 'matches baseline')}
                             </span>
                         ) : null}
@@ -190,6 +206,7 @@ function PlaygroundSection() {
                     </pre>
                     {baseline ? (
                         <div>
+                            {/* i18n: user-facing */}
                             <div className="mb-1 text-text-secondary">{t('基线', 'Baseline')}</div>
                             <pre className="max-h-40 overflow-auto rounded-lg border border-border/70 bg-bg-elevated p-3 whitespace-pre-wrap text-text-secondary">
                                 {baseline}

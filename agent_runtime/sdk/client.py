@@ -14,9 +14,10 @@ class AgentClient:
             socket_path = str(studio_home() / "daemon.sock")
         self.socket_path = socket_path
         # #207: per-call timeout fallback. None keeps legacy hang-forever so
-        # existing callers (cron handler 调 daemon 内部直调不经此 client)不变.
-        # CLI/cron-触发脚本传 default_timeout=120 或 per-call timeout 防 daemon
-        # hung 时 readline 永久 await 挂死进程.
+        # existing callers (cron handlers calling the daemon directly, bypassing
+        # this client) stay unchanged. CLI/cron-triggered scripts pass
+        # default_timeout=120 or a per-call timeout to avoid hanging forever
+        # on readline when the daemon hangs.
         self.default_timeout = default_timeout
         self._request_id = 0
         logger.info("AgentClient init, socket=%s", socket_path)
@@ -34,7 +35,8 @@ class AgentClient:
             "method": method,
             "params": params or {},
         }
-        # per-call timeout 优先, 否则回退 __init__ default_timeout, 均空则永久等待(向后兼容).
+        # Per-call timeout wins, else fall back to __init__ default_timeout;
+        # when both are unset wait forever (backward compatible).
         effective_timeout = timeout if timeout is not None else self.default_timeout
         logger.debug("RPC call: %s (timeout=%s)", method, effective_timeout)
 
@@ -46,8 +48,10 @@ class AgentClient:
             writer.write(data.encode())
             await writer.drain()
 
-            # #207: wait_for 包 readline. daemon 接请求但不回 (事件循环卡死 /
-            # graph 长任务 / handler 内死等) 时 readline 永久 await, 调用方挂死.
+            # #207: wrap readline in wait_for. When the daemon accepts the
+            # request but never replies (event loop stuck / long-running graph
+            # task / handler dead-wait), readline awaits forever and the caller
+            # hangs.
             if effective_timeout is not None:
                 response_data = await asyncio.wait_for(reader.readline(), timeout=effective_timeout)
             else:
@@ -78,8 +82,9 @@ class AgentClient:
             )
             return {"error": f"rpc timeout {effective_timeout}s for {method}"}
         except (ConnectionRefusedError, FileNotFoundError):
-            # ConnectionRefused: socket 存在但 daemon 未监听; FileNotFoundError:
-            # socket 文件不存在 (daemon 从未起/已清理). 统一友好消息.
+            # ConnectionRefused: socket exists but daemon is not listening;
+            # FileNotFoundError: socket file missing (daemon never started or
+            # was cleaned up). Return one unified friendly message.
             logger.error("Daemon not running at %s", self.socket_path)
             return {"error": f"Daemon not running at {self.socket_path}"}
         except Exception as e:
@@ -89,8 +94,9 @@ class AgentClient:
     async def _connect(self):
         import asyncio
 
-        # asyncio StreamReader 默认 limit=64KB, graph.execute 全量 events 等大响应
-        # 单行 JSON 会超限抛 LimitOverrunError. 提高到 16MB 覆盖业务 DAG 响应.
+        # asyncio StreamReader defaults to limit=64KB; large single-line JSON
+        # responses such as full graph.execute event dumps would exceed it and
+        # raise LimitOverrunError. Raise to 16MB to cover business DAG replies.
         reader, writer = await asyncio.open_unix_connection(self.socket_path, limit=2**24)
         return reader, writer
 
@@ -119,7 +125,7 @@ class AgentClient:
         )
 
     async def register_hook(self, event: str, action: str = "", **kwargs) -> dict:
-        # C12: SDK hook 注册门面 -> hooks.register RPC.
+        # C12: SDK hook registration facade -> hooks.register RPC.
         params = {"event": event, "action": action, **kwargs}
         return await self.call("hooks.register", params)
 
@@ -127,13 +133,13 @@ class AgentClient:
         return await self.call("hooks.list")
 
     async def store_memory(self, agent_id: str, content: str, **kwargs) -> dict:
-        # C12: SDK memory 存储门面 -> memory.store RPC.
+        # C12: SDK memory store facade -> memory.store RPC.
         params = {"agent_id": agent_id, "content": content, **kwargs}
         return await self.call("memory.store", params)
 
     async def register_tool(self, tool_dict: dict) -> dict:
-        # C12: SDK Tool daemon 注册门面.
-        # Python handler 工具 -> tool.register_python (源码 exec);
+        # C12: SDK Tool daemon registration facade.
+        # Python-handler tools -> tool.register_python (source exec'd);
         # schema-only -> tool.dynamic_register (terminal/shell).
         if tool_dict.get("source"):
             return await self.call("tool.register_python", tool_dict)
@@ -143,5 +149,5 @@ class AgentClient:
         return await self.call("tool.dynamic_unregister", {"name": name})
 
     async def configure_agent(self, agent_id: str, config: dict) -> dict:
-        # C12: SDK agent 配置门面 -> agent.configure RPC.
+        # C12: SDK agent configuration facade -> agent.configure RPC.
         return await self.call("agent.configure", {"agent_id": agent_id, "config": config})

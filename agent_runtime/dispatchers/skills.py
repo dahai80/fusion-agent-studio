@@ -137,8 +137,9 @@ class SkillsDispatcher(SubDispatcher):
         return None
 
     def _persona_skill_check(self, params: dict, name: str) -> dict | None:
-        # #482: 调用方带 agent_id 时, persona skills 声明即白名单 —
-        # 声明了 skills 列表的 agent 只能 invoke 列表内技能.
+        # #482: when the caller passes agent_id, the persona skills declaration is
+        # the whitelist - an agent declaring a skills list can only invoke skills
+        # within that list.
         agent_id = str(params.get("agent_id", "") or "")
         if not agent_id:
             return None

@@ -36,12 +36,12 @@ class TestErrors:
             code=ErrorCode.API_KEY_INVALID,
             type=ErrorType.AUTH_ERROR,
             message="Invalid API key",
-            user_message="密钥无效",
+            user_message="密钥无效",  # i18n: user-facing
         )
         d = er.to_dict()
         assert d["code"] == "API_KEY_INVALID"
         assert d["type"] == "auth_error"
-        assert d["user_message"] == "密钥无效"
+        assert d["user_message"] == "密钥无效"  # i18n: user-facing
 
     def test_raise_api_error_missing_key(self):
         with pytest.raises(Exception) as exc_info:
@@ -368,7 +368,7 @@ class TestV1Routes:
         resp = client.get("/v1/health")
         assert resp.status_code == 200
         data = resp.json()
-        # 审计 P1-26: /v1/health 探 MLX 可达性, status ok|degraded, 含 mlx_reachable.
+        # Audit P1-26: /v1/health probes MLX reachability; status ok|degraded, includes mlx_reachable.
         assert data["status"] in ("ok", "degraded")
         assert "mlx_reachable" in data
 

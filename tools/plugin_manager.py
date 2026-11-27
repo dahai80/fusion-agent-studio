@@ -14,8 +14,9 @@ from tools.registry import ToolRegistry
 
 logger = logging.getLogger(__name__)
 
-# 审计 P1-24/E-6: plugin name 仅允许安全字符 (字母数字下划线), 挡路径穿越
-# (name="../../../etc/passwd" 逃出 plugin_dir). 命名规范同 Python 标识符.
+# Audit P1-24/E-6: plugin names only allow safe characters (alphanumerics and
+# underscore), blocking path traversal (name="../../../etc/passwd" would
+# escape plugin_dir). Naming rule matches Python identifiers.
 _SAFE_TOOL_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
@@ -35,7 +36,9 @@ class PluginManager:
         self.plugin_dir.mkdir(parents=True, exist_ok=True)
         self._loaded: dict[str, str] = {}  # plugin_name -> file_path
         self._loaded_tools: dict[str, list[str]] = {}  # plugin_name -> tool names
-        self._failed: dict[str, str] = {}  # plugin_name -> error (显式化加载失败, 见 issue #164)
+        self._failed: dict[
+            str, str
+        ] = {}  # plugin_name -> error (surfaced load failures, issue #164)
 
     def discover(self) -> list[dict[str, Any]]:
         """Scan the plugin directory and return metadata about available plugins."""
@@ -55,13 +58,15 @@ class PluginManager:
 
     def load_plugin(self, name: str) -> BaseTool | None:
         """Load a single plugin by name (without .py suffix)."""
-        # 审计 P1-24/E-6: name 安全校验 — 挡路径穿越 + 非法字符 (防 ../../etc/passwd).
+        # Audit P1-24/E-6: name safety validation — blocks path traversal and
+        # illegal characters (prevents ../../etc/passwd).
         if not _SAFE_TOOL_NAME_RE.match(name):
             logger.warning("Plugin name rejected (unsafe chars): %r", name)
             self._failed[name] = "unsafe plugin name (path traversal blocked)"
             return None
         plugin_path = self.plugin_dir / f"{name}.py"
-        # 审计 P1-24/E-6: resolve 后确认仍在 plugin_dir 内 (双保险挡符号链接/穿越).
+        # Audit P1-24/E-6: after resolve, confirm the path is still inside
+        # plugin_dir (belt-and-suspenders against symlinks/traversal).
         try:
             resolved = plugin_path.resolve()
             if not str(resolved).startswith(str(self.plugin_dir.resolve())):
@@ -101,9 +106,11 @@ class PluginManager:
 
     def load_all(self) -> list[BaseTool]:
         """Load all plugins from the plugin directory."""
-        # 审计 A-3: 自动扫描加载未签名 .py 文件 exec_module = 进程内全权限.
-        # secure-by-default: daemon 启动时自动加载需显式 env FUSION_PLUGINS_ENABLE=1.
-        # 单个 load_plugin(name) 仍可经 RPC 显式调用 (用户主动指定, 非自动执行).
+        # Audit A-3: auto-scanning and exec_module-ing unsigned .py files =
+        # full in-process privileges. secure-by-default: automatic load at
+        # daemon startup requires explicit env FUSION_PLUGINS_ENABLE=1.
+        # Individual load_plugin(name) can still be invoked explicitly via RPC
+        # (user-directed, not automatic execution).
         import os
 
         if os.environ.get("FUSION_PLUGINS_ENABLE", "").strip().lower() not in ("1", "true", "yes"):
@@ -233,5 +240,6 @@ class {name.capitalize()}Tool(BaseTool):
 
     @property
     def failed_plugins(self) -> dict[str, str]:
-        # 暴露加载失败的 plugin (name->error), 供 daemon.status/监控显式化, 见 issue #164.
+        # Expose failed-to-load plugins (name->error) for daemon.status /
+        # monitoring visibility, see issue #164.
         return dict(self._failed)

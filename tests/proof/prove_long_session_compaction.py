@@ -29,13 +29,13 @@ BIG = "x" * 4000
 
 RETENTION_LINES = [
     "TODO: wire run artifacts into Grafana",
-    "待办：补充 compaction 压测报告",
+    "待办：补充 compaction 压测报告",  # i18n: user-facing
     "async def build_agent_adhoc_graph(daemon, agent_id):",
-    "接口：graph.execute 必须支持 task_id 回写",
+    "接口：graph.execute 必须支持 task_id 回写",  # i18n: user-facing
     "constraint: never call cloud LLMs",
-    "约束：只允许修改本仓库代码",
+    "约束：只允许修改本仓库代码",  # i18n: user-facing
     "pending: fusion-bench SLO consumer",
-    "进行中：画布 undo/redo",
+    "进行中：画布 undo/redo",  # i18n: user-facing
 ]
 
 
@@ -44,7 +44,7 @@ def build_session() -> list[dict]:
     per_round = len(RETENTION_LINES)
     for i in range(ROUNDS):
         extra = RETENTION_LINES[i % per_round]
-        messages.append({"role": "user", "content": f"round {i} 任务 {extra}"})
+        messages.append({"role": "user", "content": f"round {i} 任务 {extra}"})  # i18n: user-facing
         messages.append(
             {
                 "role": "assistant",
@@ -98,8 +98,8 @@ def main() -> int:
     counts = {name: int(name in retention_text) for name in buckets}
     logger.info("retention buckets present after compaction: %s", counts)
     assert all(counts.values()), counts
-    assert "补充 compaction 压测报告" in retention_text
-    assert "画布 undo/redo" in retention_text
+    assert "补充 compaction 压测报告" in retention_text  # i18n: user-facing
+    assert "画布 undo/redo" in retention_text  # i18n: user-facing
     assert "never call cloud LLMs" in retention_text
     assert "graph.execute" in retention_text
 

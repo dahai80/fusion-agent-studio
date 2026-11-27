@@ -4,7 +4,8 @@ Runner: pytest tests/test_issue_238_task_idempotency.py
 API: task.submit with idempotency_key -> dedup returns existing task_id + deduped=True.
 TaskStore: partial UNIQUE INDEX WHERE idempotency_key != '' (empty keys don't conflict).
 
-User instruction: "处理issue和pr，提交代码到代码仓，合并所有分支到主干，确保ci和lint全绿，发布补丁版本"
+User instruction: "Handle issues and PRs, commit code to the repo, merge all
+branches to main, keep CI and lint green, release a patch version"
 """
 
 from __future__ import annotations

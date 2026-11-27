@@ -168,7 +168,7 @@ class WorkflowEngine:
         self._active_tasks: dict[str, asyncio.Task] = {}
         self._workflow_concurrency_limit = self._parse_workflow_concurrency()
         self._workflow_semaphore: asyncio.Semaphore | None = None
-        # 审计 P-2: single LLM admission path for the direct (no-graph) call.
+        # Audit P-2: single LLM admission path for the direct (no-graph) call.
         self.llm_funnel = LLMFunnel()
         logger.info(
             "WorkflowEngine init, llm_gateway=%s, orchestrator=%s, store=%s",
@@ -354,7 +354,8 @@ class WorkflowEngine:
         if not data:
             return None
         run = WorkflowRun.from_dict(data)
-        # 还原后重置运行时控制信号 (进程重启, 旧 event/flag 无效)。
+        # Reset runtime control signals after restore (process restart makes
+        # stale events/flags invalid).
         run._pause_event = asyncio.Event()
         run._pause_event.set()
         run._cancel_flag = False
@@ -456,7 +457,8 @@ class WorkflowEngine:
         if not phase.agent_configs:
             return {"output": current_input}
 
-        # 审计 P2-15: fan-out 分支数上限, 防失控并发耗尽资源.
+        # Audit P2-15: cap fan-out branch count to prevent runaway concurrency
+        # from exhausting resources.
         max_branches = int(phase.config.get("max_branches", 0)) or int(
             os.getenv("FUSION_WORKFLOW_MAX_BRANCHES", "32")
         )
@@ -551,7 +553,8 @@ class WorkflowEngine:
         if budget is None:
             budget = phase.config.get("default_budget", 50000)
 
-        # 审计 P2-14: max_iterations 独立于 token, 防无 usage 时的失控循环.
+        # Audit P2-14: max_iterations is independent of tokens, guarding
+        # against runaway loops when no usage is reported.
         max_iterations = phase.config.get("max_iterations", 50)
         fallback_cost = phase.config.get("cost_per_iteration", 5000)
         all_results = []
@@ -572,7 +575,8 @@ class WorkflowEngine:
                     all_results.append(out)
 
             current_input = all_results[-1] if all_results else current_input
-            # 审计 P2-14: 用真实 token; 上游未报 usage 时回退估算值, 标记估算.
+            # Audit P2-14: use real tokens; fall back to an estimate when the
+            # upstream reports no usage, and flag it as estimated.
             if token_acc:
                 tokens_used += sum(token_acc)
             else:
@@ -689,15 +693,17 @@ class WorkflowEngine:
         agent_id = agent_cfg.get("agent_id", "")
 
         def _record_tokens(u: dict | None):
-            # 审计 P2-14: 记录真实 token (原 cost_per_iteration 固定值与实际消耗脱节).
+            # Audit P2-14: record real tokens (the old fixed cost_per_iteration
+            # drifted from actual consumption).
             if not token_acc or not isinstance(u, dict):
                 return
             t = (u.get("prompt_tokens", 0) or 0) + (u.get("completion_tokens", 0) or 0)
             if t > 0:
                 token_acc.append(t)
 
-        # C16: 统一 soul.md 加载 — workflow agent_cfg 带 agent_id 时,
-        # soul.md 优先于配置 system_prompt (与 agent.execute 路径一致).
+        # C16: unified soul.md loading — when the workflow agent_cfg carries an
+        # agent_id, soul.md takes precedence over the configured system_prompt
+        # (consistent with the agent.execute path).
         if agent_id:
             try:
                 from .agent_package import resolve_soul_prompt
@@ -724,7 +730,8 @@ class WorkflowEngine:
                 else:
                     graph = AgentGraph(id=graph_id or f"g_{uuid.uuid4().hex[:8]}")
 
-                # C16: 已加载图 start 节点无 system_prompt 时, 回填 soul.
+                # C16: backfill the soul when the loaded graph's start node has
+                # no system_prompt.
                 if agent_id:
                     start_node = graph.get_node(graph.start_node_id) if graph else None
                     if start_node and not (start_node.system_prompt or "").strip():
@@ -752,7 +759,7 @@ class WorkflowEngine:
                             output = msg.get("content", "")
                             break
 
-                # 审计 P2-14: 图路径从 ctx 真实 token 用量记账.
+                # Audit P2-14: account real token usage from ctx on the graph path.
                 _record_tokens(ctx.token_usage())
 
                 logger.info("Agent %s completed, output len=%d", agent_name, len(output))
@@ -769,7 +776,7 @@ class WorkflowEngine:
                     messages.append({"role": "system", "content": system_prompt})
                 messages.append({"role": "user", "content": input_text})
 
-                # 审计 P-2: workflow direct path must pass LLMFunnel
+                # Audit P-2: workflow direct path must pass LLMFunnel
                 # (lifecycle llm_before/llm_after + budget + hooks).
                 fctx = SimpleNamespace(
                     session_id=f"workflow:{agent_name}", plan_mode=False, role="all"
@@ -786,7 +793,8 @@ class WorkflowEngine:
                 response = await self.llm_gateway.chat(
                     messages=messages, temperature=0.3, max_tokens=2048
                 )
-                # 审计 E-12: gateway finish_reason=="error" 哨兵 content="" 不代表成功.
+                # Audit E-12: gateway finish_reason=="error" with sentinel
+                # content="" does not mean success.
                 if getattr(response, "finish_reason", "") == "error":
                     err = (getattr(response, "usage", None) or {}).get("error", "gateway error")
                     raise RuntimeError(f"LLM gateway error: {err}")
@@ -795,7 +803,8 @@ class WorkflowEngine:
                     content = response.content or ""
                 elif isinstance(response, dict):
                     content = response.get("content", "")
-                # 审计 P2-14: gateway 直连路径从 response.usage 真实 token 记账.
+                # Audit P2-14: account real tokens from response.usage on the
+                # gateway direct path.
                 _record_tokens(getattr(response, "usage", None))
                 funnel.post_llm(
                     fctx,

@@ -83,8 +83,9 @@ class MultiAgentOrchestrator:
         self.swarm_router = swarm_router
         self.plaza = plaza
         self.fmp = fmp
-        # 审计 P2/dim3: team.orchestrate 起的子 AgentRuntime 原不传 safety_gateway
-        # -> 编排模式全无安全门 (注入/危险工具/审批全失效). 透传到每个子 runtime.
+        # Audit P2/dim3: sub-AgentRuntimes spawned by team.orchestrate did not get
+        # safety_gateway -> orchestration mode had no safety gates at all (injection/
+        # dangerous-tool/approval all disabled). Pass through to every child runtime.
         self.safety_gateway = safety_gateway
 
         if llm_gateway:

@@ -16,7 +16,7 @@ class Agent:
     model: str = ""
     skills: list[str] = field(default_factory=list)
     metadata: dict = field(default_factory=dict)
-    # C12: SDK 程序化配置字段 (hook/memory/graph 可达).
+    # C12: SDK programmatic configuration fields (hooks/memory/graph reachable).
     hooks: list[dict] = field(default_factory=list)
     memory: dict = field(default_factory=dict)
     context_window: int = 0
@@ -72,7 +72,7 @@ class Agent:
         logger.info("Agent %s configured: %s", self.name, list(kwargs.keys()))
 
     async def _ensure_created(self, client) -> None:
-        # C12: 建 agent (若未建) + 接线 hooks/memory/配置. 幂等.
+        # C12: create the agent (if not yet created) + wire hooks/memory/config. Idempotent.
         if not self.agent_id or not self.graph_id:
             result = await client.call(
                 "agent.create",
@@ -98,7 +98,7 @@ class Agent:
         await self._apply_config(client)
 
     async def _apply_config(self, client) -> None:
-        # C12: 按 Agent 字段调 agent.configure + hooks.register + memory.* RPC.
+        # C12: apply Agent fields via agent.configure + hooks.register + memory.* RPCs.
         if not self.agent_id:
             return
 
@@ -157,10 +157,11 @@ class Agent:
         return result
 
     def query(self, client, input_text: str, stream: bool = True):
-        # C12: SDK 主入口 (类 Claude Agent SDK query()). 同步分发器:
-        # stream=True 返回 async generator (供 async for), stream=False 返回
-        # coroutine (供 await). 单一 async def 不能既是 generator 又 return 值,
-        # 故拆成两个 async helper. 首调建 agent + 接线 hooks/memory/配置.
+        # C12: SDK main entry (mirrors Claude Agent SDK query()). Sync dispatcher:
+        # stream=True returns an async generator (for async for), stream=False
+        # returns a coroutine (for await). A single async def cannot be both a
+        # generator and return a value, hence two async helpers. First call
+        # creates the agent + wires hooks/memory/config.
         if stream:
             return self._query_stream(client, input_text)
         return self._query_result(client, input_text)

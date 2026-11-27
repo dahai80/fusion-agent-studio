@@ -181,6 +181,7 @@ describe('GovernancePage (#489)', () => {
         const errorBox = await screen.findByText(/unauthorized/i);
         expect(errorBox).toBeInTheDocument();
         // Retry control exists — the user is not stuck on a blank panel.
+        // i18n: user-facing
         expect(screen.getByRole('button', { name: /重试|retry/i })).toBeInTheDocument();
     });
 

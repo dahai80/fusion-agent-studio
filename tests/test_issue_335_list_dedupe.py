@@ -108,7 +108,7 @@ class TestAgentPurgeTest:
             ("c12_a", "c12_config"),
             ("c12_b", "c12_stream"),
             ("bot_a", "PyBot"),
-            ("real", "抖音电商带货"),
+            ("real", "抖音电商带货"),  # i18n: user-facing
         ]:
             pkg_dir = agents_root / aid / ".fusion-agent"
             pkg_dir.mkdir(parents=True)

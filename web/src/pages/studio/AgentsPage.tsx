@@ -68,7 +68,8 @@ const STATUS_KIND: Record<string, 'success' | 'running' | 'offline'> = {
     archived: 'offline',
 };
 
-// #417: wizard steps — 名称 → 系统提示 → 工具 → 模型 → 颜色.
+// #417: wizard steps — Name → Prompt → Tools → Model → Color.
+// i18n: user-facing
 const WIZARD_STEPS = ['名称/Name', '系统提示/Prompt', '工具/Tools', '模型/Model', '颜色/Color'];
 
 // #417: stable per-agent accent color — color:<hex> tag wins, else hash id.
@@ -195,7 +196,9 @@ export function AgentsPage() {
     };
 
     const remove = async (a: Agent) => {
+        // i18n: user-facing
         if (!window.confirm(t('确认删除？', 'Delete this agent?'))) return;
+        // i18n: user-facing
         await act(a.id ?? a.agent_id ?? '', 'delete', {}, t('已删除', 'deleted'));
     };
 
@@ -211,6 +214,7 @@ export function AgentsPage() {
                 model: model.trim(),
                 tags: color ? [`color:${color}`] : [],
             });
+            // i18n: user-facing
             sdk.toast.show({ level: 'success', message: t('已创建', 'created') });
             setShowCreate(false);
             setStep(0);
@@ -244,6 +248,7 @@ export function AgentsPage() {
                 ask: ask.trim(),
             });
             if (!r.ok || !r.doc) {
+                // i18n: user-facing
                 setComposeMsg(r.error || t('生成失败', 'compose failed'));
                 return;
             }
@@ -251,6 +256,7 @@ export function AgentsPage() {
                 definition_doc: r.doc,
             });
             if (!created.agent_id) {
+                // i18n: user-facing
                 setComposeMsg(t('草稿保存失败', 'draft save failed'));
                 return;
             }
@@ -272,6 +278,7 @@ export function AgentsPage() {
                 yaml: tpl.yaml,
             });
             if (!c.ok || !c.doc) {
+                // i18n: user-facing
                 setComposeMsg(c.error || t('模板编译失败', 'template compile failed'));
                 return;
             }
@@ -279,6 +286,7 @@ export function AgentsPage() {
                 definition_doc: c.doc,
             });
             if (!created.agent_id) {
+                // i18n: user-facing
                 setComposeMsg(t('草稿保存失败', 'draft save failed'));
                 return;
             }
@@ -318,11 +326,14 @@ export function AgentsPage() {
             }
             setRunOutput(
                 output ||
+                    // i18n: user-facing
                     `${t('状态', 'status')}: ${res.status ?? '-'} · ${t('事件', 'events')}: ${res.events?.length ?? 0}`
             );
+            // i18n: user-facing
             sdk.toast.show({ level: 'success', message: t('已执行', 'executed') });
             manualRetry();
         } catch (e) {
+            // i18n: user-facing
             setRunOutput(`${t('错误', 'error')}: ${(e as Error).message}`);
             sdk.toast.show({ level: 'error', message: (e as Error).message });
         } finally {
@@ -333,7 +344,9 @@ export function AgentsPage() {
     return (
         <div>
             <PageHeader
+                // i18n: user-facing
                 title={t('智能体', 'Agents')}
+                // i18n: user-facing
                 subtitle={t(`${rows.length} 个智能体`, `${rows.length} agents`)}
                 actions={
                     <button
@@ -341,6 +354,7 @@ export function AgentsPage() {
                         onClick={() => setShowCreate(true)}
                         className="rounded-md border border-border px-3 py-1.5 text-xs text-text-primary hover:bg-bg-muted"
                     >
+                        {/* i18n: user-facing */}
                         {t('快速创建', 'Quick create')}
                     </button>
                 }
@@ -354,6 +368,7 @@ export function AgentsPage() {
                         value={ask}
                         onChange={(v) => setAsk(v)}
                         placeholder={t(
+                            // i18n: user-facing
                             '用一句话描述你想要的智能体…',
                             'Describe the agent you want…'
                         )}
@@ -362,6 +377,7 @@ export function AgentsPage() {
                     <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
                         <span className="text-xs text-text-muted">
                             {t(
+                                // i18n: user-facing
                                 '对话式创建：一句话输入，产出可编辑的草稿 YAML',
                                 'Conversational: one sentence in, an editable draft YAML out'
                             )}
@@ -373,8 +389,10 @@ export function AgentsPage() {
                             className="rounded-md bg-brand px-3 py-1.5 text-xs text-white hover:opacity-90 disabled:opacity-50"
                         >
                             {composing
-                                ? t('生成中…', 'Generating…')
-                                : t('生成草稿', 'Generate draft')}
+                                ? // i18n: user-facing
+                                  t('生成中…', 'Generating…')
+                                : // i18n: user-facing
+                                  t('生成草稿', 'Generate draft')}
                         </button>
                     </div>
                     {composeMsg ? (
@@ -383,6 +401,7 @@ export function AgentsPage() {
                     {templates.length > 0 ? (
                         <div className="mt-4">
                             <div className="mb-2 text-xs font-medium text-text-secondary">
+                                {/* i18n: user-facing */}
                                 {t('从样例开始', 'Start from a sample')}
                             </div>
                             <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
@@ -406,6 +425,7 @@ export function AgentsPage() {
                                             onClick={() => useTemplate(tpl.key)}
                                             className="mt-auto self-start text-xs text-brand hover:underline disabled:opacity-50"
                                         >
+                                            {/* i18n: user-facing */}
                                             {t('使用 →', 'Use →')}
                                         </button>
                                     </div>
@@ -421,6 +441,7 @@ export function AgentsPage() {
                 ) : error ? (
                     <ErrorState
                         message={(error as Error).message}
+                        // i18n: user-facing
                         retryLabel={t('重试', 'Retry')}
                         onRetry={manualRetry}
                         retrying={attempt}
@@ -434,6 +455,7 @@ export function AgentsPage() {
                         >
                             <span className="text-2xl leading-none">+</span>
                             <span className="text-xs">
+                                {/* i18n: user-facing */}
                                 {t('快速创建（名称+描述）', 'Quick create (name + description)')}
                             </span>
                         </button>
@@ -465,6 +487,7 @@ export function AgentsPage() {
                                         />
                                     </div>
                                     <div className="line-clamp-2 min-h-8 text-xs text-text-secondary">
+                                        {/* i18n: user-facing */}
                                         {a.description || t('无描述', 'No description')}
                                     </div>
                                     <div className="flex flex-wrap items-center gap-1 text-[10px]">
@@ -473,6 +496,7 @@ export function AgentsPage() {
                                         </span>
                                         <span className="rounded bg-bg-muted px-1 font-mono text-text-secondary">
                                             {t(
+                                                // i18n: user-facing
                                                 `${a.tools?.length ?? 0} 工具`,
                                                 `${a.tools?.length ?? 0} tools`
                                             )}
@@ -486,10 +510,12 @@ export function AgentsPage() {
                                     <div className="text-[10px] text-text-muted">
                                         {u?.count
                                             ? t(
+                                                  // i18n: user-facing
                                                   `${u.count} 次运行${u.tokens ? ` · ${u.tokens} tokens` : ''} · 最近 ${formatRelativeTime((u.lastRun ?? 0) * 1000)}`,
                                                   `${u.count} runs${u.tokens ? ` · ${u.tokens} tokens` : ''} · last ${formatRelativeTime((u.lastRun ?? 0) * 1000)}`
                                               )
-                                            : t('暂无运行', 'No runs yet')}
+                                            : // i18n: user-facing
+                                              t('暂无运行', 'No runs yet')}
                                     </div>
                                     <div className="mt-auto flex flex-wrap gap-2 text-[11px]">
                                         <button
@@ -501,6 +527,7 @@ export function AgentsPage() {
                                             }}
                                             className="text-brand hover:underline"
                                         >
+                                            {/* i18n: user-facing */}
                                             {t('运行', 'Run')}
                                         </button>
                                         <button
@@ -510,6 +537,7 @@ export function AgentsPage() {
                                             }}
                                             className="text-text-secondary hover:underline"
                                         >
+                                            {/* i18n: user-facing */}
                                             {t('详情', 'Detail')}
                                         </button>
                                         {a.status === 'published' ? (
@@ -520,21 +548,25 @@ export function AgentsPage() {
                                                         id,
                                                         'unpublish',
                                                         {},
+                                                        // i18n: user-facing
                                                         t('已取消发布', 'unpublished')
                                                     )
                                                 }
                                                 className="text-warning hover:underline"
                                             >
+                                                {/* i18n: user-facing */}
                                                 {t('取消发布', 'Unpublish')}
                                             </button>
                                         ) : (
                                             <button
                                                 type="button"
                                                 onClick={() =>
+                                                    // i18n: user-facing
                                                     act(id, 'publish', {}, t('已发布', 'published'))
                                                 }
                                                 className="text-success hover:underline"
                                             >
+                                                {/* i18n: user-facing */}
                                                 {t('发布', 'Publish')}
                                             </button>
                                         )}
@@ -545,20 +577,24 @@ export function AgentsPage() {
                                                     id,
                                                     'clone',
                                                     { name: `${a.name} copy` },
+                                                    // i18n: user-facing
                                                     t('已克隆', 'cloned')
                                                 )
                                             }
                                             className="text-text-secondary hover:underline"
                                         >
+                                            {/* i18n: user-facing */}
                                             {t('克隆', 'Clone')}
                                         </button>
                                         <button
                                             type="button"
                                             onClick={() =>
+                                                // i18n: user-facing
                                                 act(id, 'archive', {}, t('已归档', 'archived'))
                                             }
                                             className="text-text-secondary hover:underline"
                                         >
+                                            {/* i18n: user-facing */}
                                             {t('归档', 'Archive')}
                                         </button>
                                         <button
@@ -566,6 +602,7 @@ export function AgentsPage() {
                                             onClick={() => remove(a)}
                                             className="text-error hover:underline"
                                         >
+                                            {/* i18n: user-facing */}
                                             {t('删除', 'Delete')}
                                         </button>
                                     </div>
@@ -578,6 +615,7 @@ export function AgentsPage() {
             <Modal
                 open={showCreate}
                 title={t(
+                    // i18n: user-facing
                     `新建智能体 · ${step + 1}/5 ${WIZARD_STEPS[step]}`,
                     `New agent · ${step + 1}/5 ${WIZARD_STEPS[step]}`
                 )}
@@ -593,6 +631,7 @@ export function AgentsPage() {
                                 onClick={() => setStep((s) => s - 1)}
                                 className="rounded-md border border-border px-3 py-1.5 text-xs text-text-secondary hover:text-text-primary"
                             >
+                                {/* i18n: user-facing */}
                                 {t('上一步', 'Back')}
                             </button>
                         ) : null}
@@ -603,9 +642,11 @@ export function AgentsPage() {
                                 onClick={() => setStep((s) => s + 1)}
                                 className="rounded-md bg-brand px-3 py-1.5 text-xs text-white hover:opacity-90 disabled:opacity-50"
                             >
+                                {/* i18n: user-facing */}
                                 {t('下一步', 'Next')}
                             </button>
                         ) : (
+                            // i18n: user-facing
                             <SubmitButton label={t('创建', 'Create')} onAction={create} />
                         )}
                     </div>
@@ -613,15 +654,18 @@ export function AgentsPage() {
             >
                 {step === 0 ? (
                     <>
+                        {/* i18n: user-facing */}
                         <FormField label={t('名称', 'Name')} required>
                             <TextInput value={name} onChange={setName} />
                         </FormField>
+                        {/* i18n: user-facing */}
                         <FormField label={t('描述', 'Description')}>
                             <TextInput value={description} onChange={setDescription} />
                         </FormField>
                     </>
                 ) : null}
                 {step === 1 ? (
+                    // i18n: user-facing
                     <FormField label={t('系统提示', 'System prompt')}>
                         <Textarea
                             value={systemPrompt}
@@ -634,6 +678,7 @@ export function AgentsPage() {
                 {step === 2 ? (
                     <FormField
                         label={t(
+                            // i18n: user-facing
                             `工具 · 已选 ${pickedTools.length}/${toolCatalog.length}`,
                             `Tools · ${pickedTools.length}/${toolCatalog.length} selected`
                         )}
@@ -641,6 +686,7 @@ export function AgentsPage() {
                         <div className="max-h-56 overflow-y-auto rounded-md border border-border p-2">
                             {toolCatalog.length === 0 ? (
                                 <div className="text-xs text-text-muted">
+                                    {/* i18n: user-facing */}
                                     {t('工具目录为空', 'tool catalog empty')}
                                 </div>
                             ) : (
@@ -678,14 +724,17 @@ export function AgentsPage() {
                     </FormField>
                 ) : null}
                 {step === 3 ? (
+                    // i18n: user-facing
                     <FormField label={t('模型', 'Model')}>
                         <TextInput value={model} onChange={setModel} placeholder="qwen3-4b" />
                         <div className="text-[10px] text-text-muted">
+                            {/* i18n: user-facing */}
                             {t('留空使用引擎默认模型', 'empty = engine default')}
                         </div>
                     </FormField>
                 ) : null}
                 {step === 4 ? (
+                    // i18n: user-facing
                     <FormField label={t('卡片颜色', 'Card color')}>
                         <div className="flex flex-wrap gap-2">
                             <button
@@ -715,21 +764,25 @@ export function AgentsPage() {
             </Modal>
             <Modal
                 open={runAgent !== null}
+                // i18n: user-facing
                 title={t(`运行 · ${runAgent?.name ?? ''}`, `Run · ${runAgent?.name ?? ''}`)}
                 onClose={() => setRunAgent(null)}
                 footer={
                     <SubmitButton
+                        // i18n: user-facing
                         label={runBusy ? t('运行中…', 'Running…') : t('运行', 'Run')}
                         onAction={runInline}
                         disabled={runBusy}
                     />
                 }
             >
+                {/* i18n: user-facing */}
                 <FormField label={t('输入', 'Input')} required>
                     <Textarea
                         value={runInput}
                         onChange={setRunInput}
                         rows={3}
+                        // i18n: user-facing
                         placeholder={t('给这个 Agent 的任务…', 'task for this agent…')}
                     />
                 </FormField>

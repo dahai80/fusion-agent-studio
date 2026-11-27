@@ -3,7 +3,8 @@
 Importers: pytest runner
 API: /api/v1/agents alias routes, _rebuild_agents_index_from_disk
 Data schemas: agents index.json (dict of agent_id -> manifest+id)
-User instruction: "处理issue和pr，提交代码到代码仓，合并所有分支到主干，确保ci和lint全绿，发布补丁版本"
+User instruction: "Handle issues and PRs, commit code to the repo, merge all
+branches to main, keep CI and lint green, release a patch version"
 """
 
 from __future__ import annotations

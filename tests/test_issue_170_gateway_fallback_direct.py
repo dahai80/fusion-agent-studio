@@ -1,12 +1,15 @@
-"""Issue #470: gateway 路径 chat 失败时不再直连 fusion-mlx 静默兜底.
+"""Issue #470: no more silent direct fusion-mlx fallback on gateway-path chat failure.
 
-历史: #170 曾加 _mlx_direct_client — gateway (:11432) 转发上游失败 (502) 时
-客户端直连 fusion-mlx 11434 兜底. fusion-gateway#301 落地后 gateway 自身拥有
-local→cloud overflow 策略 (有界+审计), 客户端静默 cloud→local 重试绕过
-路由策略/审计/成本上限, 故 #470 删除该兜底, gateway 错误直接上抛.
+History: #170 once added _mlx_direct_client — when the gateway (:11432) failed to
+forward upstream (502), the client fell back to fusion-mlx 11434 directly. After
+fusion-gateway#301 landed, the gateway itself owns a local-to-cloud overflow
+policy (bounded + audited); a silent client-side cloud-to-local retry bypasses
+routing policy/audit/cost caps, so #470 removed that fallback and gateway errors
+propagate to the caller.
 
-原 #170 空输出场景由 gateway 侧 overflow 承接 (见 fusion-gateway README
-"Local-first cloud overflow" 节).
+The original #170 empty-output scenario is now handled by the gateway-side
+overflow (see the "Local-first cloud overflow" section of the fusion-gateway
+README).
 """
 
 import pytest
@@ -15,7 +18,7 @@ from agent_runtime.llm_gateway import LLMGateway
 
 
 class _GatewayBoomClient:
-    # 模拟 gateway: 鉴权过但转发上游失败 (502).
+    # Simulated gateway: auth passes but upstream forwarding fails (502).
     base_url = "http://127.0.0.1:11432"
     api_key = "fg-admin-key"
 
@@ -32,7 +35,8 @@ class _MockResp:
 
 
 class _MlxDirectOkClient:
-    # 模拟直连 fusion-mlx: 正常返回. #470 后注入是 no-op, 永不被调用.
+    # Simulated direct fusion-mlx client: returns normally. After #470 injection is a
+    # no-op, never called.
     base_url = "http://127.0.0.1:11434"
     api_key = "dahai168"
 
@@ -49,7 +53,7 @@ class TestGatewayErrorsSurface:
         gw.register_default_local(name="Qwen3.5-9B-4bit")
 
         resp = await gw.chat(messages=[{"role": "user", "content": "say pong"}], model="default")
-        # #470: gateway 错误上抛给调用方, 无 cloud→local 静默重试.
+        # #470: gateway errors propagate to the caller, no silent cloud-to-local retry.
         assert resp.finish_reason == "error"
         assert "502" in str(resp.usage.get("error", ""))
         assert resp.fallback_from == ""

@@ -41,7 +41,7 @@ SKILLS_DIR = "skills"
 WORKSPACE_DIR = "workspace"
 SOURCES_FILE = "sources.json"
 
-# C16: 全局 agents 根目录 (~/.fusion-agent-studio/agents). 与 DaemonServer._agent_dir 同.
+# C16: global agents root (~/.fusion-agent-studio/agents). Same as DaemonServer._agent_dir.
 AGENTS_ROOT = studio_home() / "agents"
 
 
@@ -52,13 +52,17 @@ def resolve_soul_prompt(
     team_id: str = "",
     run_override: str = "",
 ) -> str:
-    """C16: 统一 soul.md 加载 — 各执行路径 (chat/workflow/session) 共用.
+    """C16: unified soul.md loading — shared by all execution paths
+    (chat/workflow/session).
 
-    给定 agent_id, 加载 ~/.fusion-agent-studio/agents/<agent_id>/.fusion-agent/soul.md
-    (soul.md 优先, 空则回退 manifest.system_prompt). agent_id 空或包不存在 -> fallback.
-    返回解析后的 system_prompt (永不抛异常, 缺失即 fallback).
-    N16 #355: tenant_id/team_id/run_override 任一非空时走 persona 分层合并
-    (global < tenant < team < agent < run), 否则保持原单文件快路径.
+    Given an agent_id, load
+    ~/.fusion-agent-studio/agents/<agent_id>/.fusion-agent/soul.md
+    (soul.md wins; when empty fall back to manifest.system_prompt). Empty
+    agent_id or missing package -> fallback. Returns the resolved
+    system_prompt (never raises; missing means fallback).
+    N16 #355: when any of tenant_id/team_id/run_override is non-empty, go
+    through the persona layered merge (global < tenant < team < agent < run);
+    otherwise keep the original single-file fast path.
     """
     if not agent_id:
         return fallback
@@ -126,7 +130,7 @@ class AgentManifest:
     top_p: float = 1.0
     context_window: int = 32768
     rate_limit_qps: int = 0
-    # 审计 P1-18: per-agent max_iterations. 0=用 runtime 默认 (25), 正数覆盖.
+    # Audit P1-18: per-agent max_iterations. 0 = runtime default (25); positive overrides.
     max_iterations: int = 0
 
     def to_dict(self) -> dict[str, Any]:

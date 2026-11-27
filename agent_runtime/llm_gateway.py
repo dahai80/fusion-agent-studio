@@ -48,8 +48,10 @@ class ModelConfig:
     name: str = ""
     provider: str = "local"
     base_url: str = DEFAULT_LOCAL_BASE_URL
-    # #509: 不在 import 期读 env — 实际解析收敛到 FusionMLXClient 构造时
-    # 经 fusion_core.config client_key() 单点完成 (dev 匿名 "", prod fail-fast)。
+    # #509: do not read env at import time — actual resolution is
+    # consolidated to FusionMLXClient construction via the
+    # fusion_core.config client_key() single point (dev anonymous "",
+    # prod fail-fast).
     api_key: str = ""
     priority: int = 0
     context_length: int = 4096
@@ -206,10 +208,11 @@ class LLMGateway:
         self._lock = threading.Lock()
         self._default_model = default_model
         self._default_client: Any = None
-        # 经 fusion-gateway 路径时, _default_client 指向 gateway (:11432).
-        # issue #470: 不再有直连 fusion-mlx (:11434) 的静默兜底 —
-        # gateway 自身拥有 local→cloud overflow 策略 (fusion-gateway#301),
-        # 客户端绕过会破坏审计面; gateway 错误直接抛给调用方.
+        # On the fusion-gateway path, _default_client points at the gateway (:11432).
+        # issue #470: no more silent direct-to-fusion-mlx (:11434) fallback —
+        # the gateway itself owns the local→cloud overflow policy
+        # (fusion-gateway#301); client-side bypass breaks the audit surface,
+        # and gateway errors are raised straight to the caller.
         self._compactor = compactor
         # #478: surface-replacement generation counter — bumped each time a
         # reactive compaction actually changes the message surface.
@@ -292,8 +295,10 @@ class LLMGateway:
             logger.info("Default client set with default_model=%s", self._default_model)
 
     def set_mlx_direct_client(self, client: Any) -> None:
-        # issue #470: 静默直连兜底已删除 (cloud→local 绕过 gateway 审计).
-        # 保留方法为 no-op 兼容旧调用方; 新代码不要注入直连 client.
+        # issue #470: the silent direct-connection fallback is removed
+        # (cloud→local bypassed gateway auditing). The method stays as a no-op
+        # for backwards compatibility with old callers; new code must not
+        # inject a direct client.
         logger.info(
             "MLX direct fallback client ignored (removed by #470, base_url=%s)",
             getattr(client, "base_url", "?"),
@@ -720,9 +725,11 @@ class LLMGateway:
         temp = temperature if temperature is not None else 0.7
         mtokens = max_tokens if max_tokens is not None else 4096
 
-        # 审计 P1-4/R-9: chat_stream 补 LLM 并发 semaphore. 原仅 _call_model_async
-        # + _call_default_client_async 获取 _get_llm_semaphore(), 流式调用无节流
-        # -> 并发流式请求压垮本地 MLX. 整流期间持有, finally 释放.
+        # Audit P1-4/R-9: chat_stream gains the LLM concurrency semaphore.
+        # Previously only _call_model_async + _call_default_client_async took
+        # _get_llm_semaphore(), so streaming calls were unthrottled and
+        # concurrent stream requests could overwhelm local MLX. Held for the
+        # whole stream, released in finally.
         sem = self._get_llm_semaphore()
         if sem is not None:
             await sem.acquire()
@@ -742,8 +749,11 @@ class LLMGateway:
                         elapsed = asyncio.get_event_loop().time() - start
                         if elapsed > timeout:
                             logger.warning("chat_stream exceeded timeout %.0fs, aborting", timeout)
-                            # 审计 P-3: 超时 return 前必须显式关闭底层 HTTP 流, 否则
-                            # 连接留到 GC, 繁忙 daemon 多流超时累积 socket 泄漏.
+                            # Audit P-3: the underlying HTTP stream must be
+                            # closed explicitly before the timeout return,
+                            # otherwise the connection lingers until GC and a
+                            # busy daemon with many timed-out streams
+                            # accumulates socket leaks.
                             aclose = getattr(stream_iter, "aclose", None)
                             if aclose is not None:
                                 try:
@@ -765,7 +775,8 @@ class LLMGateway:
                             "delta_reasoning": getattr(chunk, "delta_reasoning", ""),
                         }
                 finally:
-                    # 兜底: 任何路径退出 (异常/正常) 都尝试关闭流, 防连接泄漏.
+                    # Safety net: on any exit path (exception/normal) try to
+                    # close the stream to prevent connection leaks.
                     aclose = getattr(stream_iter, "aclose", None)
                     if aclose is not None:
                         try:
@@ -809,7 +820,8 @@ class LLMGateway:
     ) -> GatewayResponse:
         """Call a model via HTTP — async version returning GatewayResponse.
 
-        R-9: 全局 LLM 并发信号量节流, 防止多 agent/多节点同时打爆上游.
+        R-9: global LLM concurrency semaphore throttling, preventing many
+        agents/nodes from saturating the upstream at the same time.
         """
         sem = self._get_llm_semaphore()
         if sem is None:
@@ -836,8 +848,9 @@ class LLMGateway:
         """Call a model via HTTP — async version returning GatewayResponse."""
         logger.info("Calling model %s at %s", config.name, config.base_url)
 
-        # C1: tool_choice 从 kwargs 提取, 显式转发到 client.chat (client 无显式形参,
-        # 走 payload.update(kwargs) 兜底)。
+        # C1: extract tool_choice from kwargs and forward it explicitly to
+        # client.chat (the client has no explicit parameter; the
+        # payload.update(kwargs) path covers it as fallback).
         tool_choice = kwargs.pop("tool_choice", None)
 
         if self._default_client and config.provider == "local":
@@ -858,8 +871,9 @@ class LLMGateway:
                     model=config.name,
                 )
             except Exception as exc:
-                # issue #470: gateway 错误直接上抛, 不再直连 fusion-mlx 兜底 —
-                # 静默 cloud→local 重试会绕过 gateway 的路由策略/审计/成本上限.
+                # issue #470: gateway errors are raised straight through; no
+                # more direct fusion-mlx fallback — a silent cloud→local retry
+                # would bypass the gateway's routing policy/audit/cost caps.
                 # #633: str(exc) can be empty (e.g. wrapped httpx auth errors) —
                 # log class + repr so env/auth failures are diagnosable from logs.
                 logger.warning(
@@ -911,9 +925,9 @@ class LLMGateway:
                 finish_reason="error",
                 usage={"error": "No default client"},
             )
-        # C1: tool_choice 提取转发。
+        # C1: extract and forward tool_choice.
         tool_choice = kwargs.pop("tool_choice", None)
-        # R-9: LLM 并发节流, 同 _call_model_async.
+        # R-9: LLM concurrency throttling, same as _call_model_async.
         sem = self._get_llm_semaphore()
         if sem is not None:
             await sem.acquire()
