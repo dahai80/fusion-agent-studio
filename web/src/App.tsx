@@ -216,6 +216,7 @@ export function App() {
                             route.name === 'workflows' ? 'text-brand' : 'text-text-secondary'
                         }`}
                     >
+                        {/* i18n: user-facing */}
                         {t('工作流', 'Workflows')}
                     </a>
                     <a
@@ -226,6 +227,7 @@ export function App() {
                                 : 'text-text-secondary'
                         }`}
                     >
+                        {/* i18n: user-facing */}
                         {t('运行', 'Runs')}
                     </a>
                 </nav>

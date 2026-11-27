@@ -14,8 +14,10 @@ logger = logging.getLogger(__name__)
 
 
 def _context_max_messages() -> int:
-    # 审计 P1-11/A-8: 上下文消息软上限. 默认 0=不限 (向后兼容本地短会话).
-    # 设 FUSION_CONTEXT_MAX_MESSAGES 正数则裁剪最旧非 system 消息, 防 OOM.
+    # Audit P1-11/A-8: soft cap on context messages. Default 0 = unlimited
+    # (backwards compatible for short local sessions).
+    # Setting FUSION_CONTEXT_MAX_MESSAGES to a positive number trims the
+    # oldest non-system messages to prevent OOM.
     try:
         return max(0, int(os.environ.get("FUSION_CONTEXT_MAX_MESSAGES", "0")))
     except ValueError:
@@ -23,7 +25,7 @@ def _context_max_messages() -> int:
 
 
 def _context_max_events() -> int:
-    # 审计 P1-11/A-8: 事件缓冲软上限. 默认 0=不限.
+    # Audit P1-11/A-8: soft cap on the event buffer. Default 0 = unlimited.
     try:
         return max(0, int(os.environ.get("FUSION_CONTEXT_MAX_EVENTS", "0")))
     except ValueError:
@@ -133,25 +135,32 @@ class AgentContext:
     # max_iterations | error | cancelled. Aligned across runtime, END
     # event metadata, background execution payloads, and task writeback.
     stop_reason: str = ""
-    # 审计 A-1 Tier2: per-exec 状态迁出 singleton. 并发执行互不踩.
-    # C6 plan-as-mode: read-only explore 门禁, per-exec.
+    # Audit A-1 Tier2: per-exec state moved out of the singleton so
+    # concurrent executions never clobber each other.
+    # C6 plan-as-mode: read-only explore gate, per-exec.
     plan_mode: bool = False
-    # 连续 tool_call 链深度计数 (防 LLM 无限 tool 自调), per-exec.
+    # Consecutive tool_call chain depth counter (guards against LLM infinite
+    # tool self-calls), per-exec.
     tool_call_chain_count: int = 0
-    # 审计 A-2/A-1 Tier3: per-exec 变量空间. 顶层 exec 从 runtime seed
-    # 快照 copy (隔离不共享), 子 runtime 再 copy (已有 sub_vars 模式).
-    # 持 VariableManager 实例 (非裸 dict), 保留 interpolate/nested/coerce.
+    # Audit A-2/A-1 Tier3: per-exec variable space. Top-level exec copies the
+    # runtime seed snapshot (isolated, not shared); child runtimes copy again
+    # (existing sub_vars pattern). Holds a VariableManager instance (not a
+    # bare dict), preserving interpolate/nested/coerce.
     variables: Any = None
-    # 审计 P0-1/P1-1: per-exec 工具配置. daemon 构建到 ctx 而非写 singleton
-    # rt.tool_configs (并发 agent X 配置覆盖 Y). runtime._merge_tool_config_defaults
-    # 优先读 ctx.tool_configs, 无则回退 singleton.
+    # Audit P0-1/P1-1: per-exec tool config. The daemon builds it into ctx
+    # instead of writing singleton rt.tool_configs (concurrent agent X config
+    # overwriting Y). runtime._merge_tool_config_defaults prefers
+    # ctx.tool_configs, falling back to the singleton when absent.
     tool_configs: dict = field(default_factory=dict)
-    # 审计 P3-1: per-exec 连续 checkpoint 失败计数 (原 rt._checkpoint_fail_count
-    # singleton, 并发执行互踩致阈值误判). _save_checkpoint 读写 ctx 版本.
+    # Audit P3-1: per-exec consecutive checkpoint failure counter (was the
+    # rt._checkpoint_fail_count singleton, where concurrent executions
+    # clobbered each other and misjudged the threshold). _save_checkpoint
+    # reads/writes the ctx version.
     checkpoint_fail_count: int = 0
-    # #482: per-exec persona declarations (rules/memory_scope/skills), 由
-    # runtime._resolve_persona_declarations 从 persona 层栈解析填充,
-    # PersonaScopedFunnel 消费. per-ctx 审计 A-1 模式, 不落 singleton.
+    # #482: per-exec persona declarations (rules/memory_scope/skills),
+    # populated by runtime._resolve_persona_declarations from the persona
+    # layer stack, consumed by PersonaScopedFunnel. per-ctx Audit A-1
+    # pattern; never lands on the singleton.
     persona_declarations: dict = field(default_factory=dict)
     # #697 P9: hit provenance per run — which memory/skill assets fired
     # during execution, so eval can attribute quality deltas to the asset
@@ -175,9 +184,11 @@ class AgentContext:
             msg["tool_calls"] = tool_calls
         if tool_call_id:
             msg["tool_call_id"] = tool_call_id
-        # R-10: 透传 usage 到 message, token_usage() 聚合据此填 token_budget.
-        # 原流式 chunk.get("usage") 恒假 (gateway 不转发) + add_message 不收 usage
-        # -> 流式/非流式 token_budget.record_usage 恒读空. 现两路径都传 usage.
+        # R-10: pass usage through to the message; token_usage() aggregation
+        # uses it to fill token_budget. Previously streaming chunk.get("usage")
+        # was always falsy (gateway does not forward it) and add_message did
+        # not accept usage, so streaming/non-streaming
+        # token_budget.record_usage always read empty. Both paths now pass usage.
         if usage:
             msg["usage"] = usage
         self.messages.append(msg)
@@ -206,8 +217,9 @@ class AgentContext:
                     )
             except Exception as _e:
                 logger.warning("session event log append failed: %s", _e)
-        # 审计 P1-11/A-8: 消息软上限. 超限裁剪最旧非 system 消息 (保留 system
-        # 上下文), 防长会话无界增长 OOM. 默认 0=不限.
+        # Audit P1-11/A-8: message soft cap. Over the cap, trim the oldest
+        # non-system messages (system context is kept) to prevent unbounded
+        # OOM growth in long sessions. Default 0 = unlimited.
         cap = _context_max_messages()
         if cap > 0 and len(self.messages) > cap:
             kept = [m for m in self.messages if isinstance(m, dict) and m.get("role") == "system"]
@@ -222,7 +234,8 @@ class AgentContext:
 
     def add_event(self, event: AgentEvent) -> None:
         self.events.append(event)
-        # 审计 P1-11/A-8: 事件缓冲软上限. 超限丢弃最旧, 防 telemetry/事件无界累积.
+        # Audit P1-11/A-8: event buffer soft cap. Drop oldest over the cap to
+        # prevent unbounded telemetry/event accumulation.
         cap = _context_max_events()
         if cap > 0 and len(self.events) > cap:
             overflow = len(self.events) - cap
@@ -264,7 +277,8 @@ class AgentContext:
         }
 
     def to_dict(self) -> dict:
-        # 审计 A-1 Tier3: variables 序列化取 to_dict 快照 (VariableManager).
+        # Audit A-1 Tier3: variables serialize via the to_dict snapshot
+        # (VariableManager).
         var_snapshot = {}
         vm = self.variables
         if vm is not None and hasattr(vm, "to_dict"):
@@ -313,7 +327,8 @@ class AgentContext:
             plan_mode=data.get("plan_mode", False),
             tool_call_chain_count=data.get("tool_call_chain_count", 0),
         )
-        # 审计 A-1 Tier3: 反序列化重建 VariableManager, 载入快照.
+        # Audit A-1 Tier3: deserialization rebuilds VariableManager from the
+        # loaded snapshot.
         var_snapshot = data.get("variables", {})
         if var_snapshot:
             try:

@@ -141,7 +141,8 @@ class ApiKeyManager:
 
     def _load_index(self) -> None:
         if self.index_path.exists():
-            # 审计 E-22: 老文件可能 umask 644 组可读, 加载时强制收紧到 0o600.
+            # Audit E-22: legacy files may be umask 644 group-readable; tighten to
+            # 0o600 on load.
             try:
                 os.chmod(self.index_path, 0o600)
             except OSError as exc:
@@ -165,9 +166,10 @@ class ApiKeyManager:
             name="bootstrap",
             permissions=["agent:execute", "apikey:manage", "admin"],
         )
-        # 审计 E-22: 不把明文 key (含前缀片段) 写进磁盘日志. daemon 日志持久化,
-        # 记完整 key/prefix = 静态泄露面. 仅记载体标识 (fk-***), 完整 key 经
-        # create RPC 返回给调用方一次性保存.
+        # Audit E-22: never write the plaintext key (or prefix fragments) to
+        # on-disk logs. Daemon logs are persisted, so logging the full key/prefix
+        # would be a static leak surface. Only log the carrier identifier (fk-***);
+        # the full key is returned once to the caller via the create RPC.
         logger.warning(
             "Bootstrap API key created (one-time), prefix=fk-*** — full key returned "
             "via create RPC, save it now; it will not be shown again",

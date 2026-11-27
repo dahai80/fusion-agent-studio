@@ -621,7 +621,7 @@ class PlainTool(BaseTool):
 
 
 class TestToolOutputMapping:
-    """tool 节点 output_mapping：把工具返回值写入变量供下游引用。"""
+    """Tool node output_mapping: writes tool return values into variables for downstream nodes."""
 
     @pytest.mark.asyncio
     async def test_whole_result_mapping(self, mlx_client):
@@ -645,7 +645,8 @@ class TestToolOutputMapping:
         ctx = AgentContext()
         async for _ in runtime.execute_graph(graph, "go", context=ctx):
             pass
-        # 审计 A-1: output_mapping 写 ctx.variables (per-exec), 不回流 singleton.
+        # Audit A-1: output_mapping writes ctx.variables (per-exec), does not flow back
+        # into the singleton.
         assert ctx.variables.get("video_path") == "/tmp/video.mp4"
 
     @pytest.mark.asyncio
@@ -675,7 +676,8 @@ class TestToolOutputMapping:
         ctx = AgentContext()
         async for _ in runtime.execute_graph(graph, "go", context=ctx):
             pass
-        # 审计 A-1: output_mapping 写 ctx.variables (per-exec), 不回流 singleton.
+        # Audit A-1: output_mapping writes ctx.variables (per-exec), does not flow back
+        # into the singleton.
         assert ctx.variables.get("image_paths") == ["/tmp/a.png", "/tmp/b.png"]
         assert ctx.variables.get("desc") == "hi"
 
@@ -693,7 +695,7 @@ class TestToolOutputMapping:
         events = []
         async for event in runtime.execute_graph(graph, "go"):
             events.append(event)
-        # 无 mapping 时不写变量，行为与现状一致
+        # Without mapping no variables are written, behavior matches the current contract
         assert runtime.variables.get("video_path") == ""
         tool_results = [e for e in events if e.type == AgentEventType.TOOL_RESULT]
         assert tool_results and tool_results[0].content == "/tmp/video.mp4"
@@ -720,13 +722,14 @@ class TestToolOutputMapping:
         ctx = AgentContext()
         async for _ in runtime.execute_graph(graph, "go", context=ctx):
             pass
-        # 审计 A-1: output_mapping 写 ctx.variables (per-exec), 不回流 singleton.
-        # 非 JSON -> 回退整值
+        # Audit A-1: output_mapping writes ctx.variables (per-exec), does not flow back
+        # into the singleton.
+        # Non-JSON -> falls back to the whole value
         assert ctx.variables.get("out") == "/tmp/video.mp4"
 
 
 class TestLLMNodeDisableTools:
-    """LLM 节点 disable_tools：为 True 时不注入 tools_schema。"""
+    """LLM node disable_tools: when True, tools_schema is not injected."""
 
     @pytest.mark.asyncio
     async def test_disable_tools_passes_none(self, mlx_client, tool_registry):
@@ -744,11 +747,11 @@ class TestLLMNodeDisableTools:
         graph.add_node("end", NodeConfig(type="end", label="End"))
         graph.add_edge("start", "llm")
         graph.add_edge("llm", "end")
-        mlx_client.add_response("纯文本日报")
+        mlx_client.add_response("plain-text daily report")
         runtime = AgentRuntime(mlx_client, tool_registry)
-        async for _ in runtime.execute_graph(graph, "写日报"):
+        async for _ in runtime.execute_graph(graph, "write the daily report"):
             pass
-        # disable_tools=True -> 传给 LLM 的 tools 应为 None
+        # disable_tools=True -> tools passed to the LLM should be None
         assert mlx_client.last_tools is None
 
     @pytest.mark.asyncio
@@ -766,7 +769,7 @@ class TestLLMNodeDisableTools:
         runtime = AgentRuntime(mlx_client, tool_registry)
         async for _ in runtime.execute_graph(graph, "go"):
             pass
-        # 默认注入 -> tools_schema 非空且含已注册工具
+        # Default injection -> tools_schema non-empty and contains registered tools
         assert mlx_client.last_tools is not None
         assert isinstance(mlx_client.last_tools, list)
         assert len(mlx_client.last_tools) >= 1

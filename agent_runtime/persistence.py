@@ -55,9 +55,11 @@ class AgentStore:
         self.db_path = Path(db_path)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._conn: sqlite3.Connection | None = None
-        # 审计 A-6/R-7/3M-3: store/trigger/task 写经 asyncio.to_thread 跨线程共享单连接,
-        # 无锁无 WAL 致写竞态腐. RLock 串行化所有连接操作, WAL 让读不堵写, busy_timeout
-        # 等锁而非立即 SQLITE_BUSY 失败.
+        # Audit A-6/R-7/3M-3: store/trigger/task writes share a single connection
+        # across threads via asyncio.to_thread; no lock and no WAL meant write
+        # races corrupted data. RLock serializes all connection operations, WAL
+        # keeps reads from blocking writes, busy_timeout waits for the lock
+        # instead of failing immediately with SQLITE_BUSY.
         self._write_lock = threading.RLock()
         self._init_db()
 
@@ -163,8 +165,9 @@ class AgentStore:
                 ON workflow_runs(workflow_id, created_at DESC);
         """)
         conn.commit()
-        # 审计 3M-6: schema 版本管理. PRAGMA user_version 门禁有序迁移, 不再裸 ALTER.
-        # 每个迁移函数自带幂等列探测, 老库任意版本都能正确落地, 重跑安全.
+        # Audit 3M-6: schema version management. PRAGMA user_version gates ordered
+        # migrations, no more raw ALTER. Each migration function probes columns
+        # idempotently, so old databases at any version land correctly and reruns are safe.
         self._run_schema_migrations(conn)
 
     def _run_schema_migrations(self, conn) -> None:
@@ -185,16 +188,19 @@ class AgentStore:
                 conn.execute(f"PRAGMA user_version = {idx}")
                 conn.commit()
             except Exception:
-                # 审计 P2-20: 迁移失败须回滚未提交 ALTER, 不留半迁移损坏库, 版本不进位.
+                # Audit P2-20: failed migration must roll back uncommitted ALTERs,
+                # never leave a half-migrated corrupted db, version must not advance.
                 conn.rollback()
                 logger.exception("schema migration v%d failed, rolled back", idx)
                 raise
             current = idx
 
     def _migration_v1_checkpoint_columns(self, conn) -> None:
-        # 审计 E-20: checkpoints 缺 graph_id/state_json 列, save/load 签名不匹配致
-        # 写静默失败 + resume 报 "No checkpoint found". 补列 (IF NOT EXISTS 模式不
-        # 改老表, 需 ALTER). 幂等: 探列存在再 ALTER.
+        # Audit E-20: checkpoints lacked graph_id/state_json columns; save/load
+        # signature mismatch caused silent write failures + resume reporting
+        # "No checkpoint found". Add the columns (IF NOT EXISTS-style creation
+        # does not touch old tables, so ALTER is required). Idempotent: probe
+        # the column, ALTER only if missing.
         cols = {row[1] for row in conn.execute("PRAGMA table_info(checkpoints)")}
         if "graph_id" not in cols:
             conn.execute("ALTER TABLE checkpoints ADD COLUMN graph_id TEXT DEFAULT ''")
@@ -344,7 +350,8 @@ class AgentStore:
                     now,
                 ),
             )
-            # #484: 每次保存产出不可变版本记录; 保存与版本记录同事务.
+            # #484: every save produces an immutable version record; save and
+            # version record share one transaction.
             try:
                 self._record_graph_version(conn, graph, now)
             except Exception:
@@ -455,8 +462,9 @@ class AgentStore:
         return cursor.rowcount > 0
 
     def delete_graphs_by_names(self, names: list[str]) -> int:
-        # 批量删除指定名称的 graph（用于清理测试残留）。
-        # names: 要删除的 graph 名称列表（精确匹配）; 返回实际删除的条数。
+        # Bulk delete graphs by exact name (used to clean up test leftovers).
+        # names: list of graph names to delete (exact match); returns the
+        # number of rows actually deleted.
         if not names:
             return 0
         placeholders = ",".join("?" for _ in names)
@@ -470,8 +478,9 @@ class AgentStore:
         return deleted
 
     def delete_graphs_by_name_prefix(self, prefix: str) -> int:
-        # 删除名称以指定前缀开头的 graph（如 'e2e-' 前缀清理 e2e 测试残留）。
-        # prefix: 名称前缀; 返回实际删除的条数。
+        # Delete graphs whose name starts with the given prefix (e.g. the
+        # 'e2e-' prefix cleans up e2e test leftovers).
+        # prefix: name prefix; returns the number of rows actually deleted.
         if not prefix:
             return 0
         pattern = f"{prefix}%"
@@ -529,12 +538,15 @@ class AgentStore:
         node_id: str = "",
         state: dict | None = None,
     ) -> int:
-        # 审计 E-20: 签名对齐 runtime._save_checkpoint 调用 (graph_id/session_id/
-        # node_id/state). state 含 messages/iteration_count/variables/工具链计数.
-        # context_json 保留兼容老读路径, 写 state_json 为 resume 真真源.
-        # 兼容老签名 save_checkpoint(session_id, context, current_node_id):
-        # ctx 落到 session_id 形参槽, 检测后回填. state 取 ctx.to_dict()
-        # 保 from_dict 完整往返 (session_id/agent_id/metadata 等).
+        # Audit E-20: signature aligned with the runtime._save_checkpoint call
+        # (graph_id/session_id/node_id/state). state holds messages,
+        # iteration_count, variables, and tool-chain counters. context_json is
+        # kept for the legacy read path; state_json is written as the source of
+        # truth for resume. Back-compat with the old signature
+        # save_checkpoint(session_id, context, current_node_id): ctx lands in
+        # the session_id parameter slot and is back-filled after detection.
+        # state comes from ctx.to_dict() so from_dict round-trips fully
+        # (session_id/agent_id/metadata, etc.).
         if isinstance(session_id, AgentContext):
             ctx = session_id
             session_id = ctx.session_id
@@ -562,7 +574,8 @@ class AgentStore:
         return cursor.lastrowid or 0
 
     def load_latest_checkpoint(self, session_id: str = "", graph_id: str = "") -> Checkpoint | None:
-        # 审计 E-20: 支持 graph_id 过滤; 老表无 graph_id 列时退化为 session-only.
+        # Audit E-20: supports graph_id filtering; falls back to session-only
+        # when the old table lacks a graph_id column.
         with self._cursor() as conn:
             if graph_id:
                 row = conn.execute(
@@ -677,7 +690,7 @@ class AgentStore:
             cursor = conn.execute("DELETE FROM chat_sessions WHERE id = ?", (session_id,))
         return cursor.rowcount > 0
 
-    # ── Workflow CRUD (C5: 工作流持久化) ──
+    # ── Workflow CRUD (C5: workflow persistence) ──
 
     def save_workflow(self, workflow_id: str, name: str, data: dict) -> None:
         now = time.time()
@@ -759,12 +772,15 @@ class AgentStore:
         return cursor.rowcount > 0
 
     def _migration_v2_team_state(self, conn) -> None:
-        # M1-3: swarm/plaza 持久化 + launch phase reconcile. 5 新表入 store.db.
-        # plaza_messages: 消息持久化, hash 去重 (INSERT OR IGNORE), message_id 唯一.
-        # plaza_channels: 频道状态, name 唯一.
-        # swarm_agents: agent 注册表, agent_id 唯一.
-        # swarm_delegations: 委托链, id 唯一.
-        # team_launch_phases: launch 三态 (active/finished/reconciled), 崩溃恢复靠此.
+        # M1-3: swarm/plaza persistence + launch phase reconcile. 5 new tables
+        # go into store.db.
+        # plaza_messages: message persistence, hash dedupe (INSERT OR IGNORE),
+        # message_id unique.
+        # plaza_channels: channel state, name unique.
+        # swarm_agents: agent registry, agent_id unique.
+        # swarm_delegations: delegation chain, id unique.
+        # team_launch_phases: launch tri-state (active/finished/reconciled),
+        # crash recovery relies on this.
         conn.executescript("""
             CREATE TABLE IF NOT EXISTS plaza_messages (
                 message_id TEXT PRIMARY KEY,
@@ -824,8 +840,9 @@ class AgentStore:
         """)
 
     def _migration_v3_resource_leases(self, conn) -> None:
-        # M1-4: 资源注册表 + 租约表 (§5.3). 独占/shared-slot/advisory 三类资源.
-        # lease_apply → granted 或 queued(排队, 不 kill). ttl 到期 → expired + 证据 + 告警.
+        # M1-4: resource registry + lease tables (§5.3). Three resource kinds:
+        # exclusive/shared-slot/advisory. lease_apply → granted or queued
+        # (queued, never killed). ttl expiry → expired + evidence + alert.
         conn.executescript("""
             CREATE TABLE IF NOT EXISTS resource_registry (
                 resource_id TEXT PRIMARY KEY,
@@ -858,8 +875,9 @@ class AgentStore:
         """)
 
     def _migration_v4_graph_versions(self, conn) -> None:
-        # #484: 图版本历史 — 每次保存产出不可变版本记录, 支持列表/回滚.
-        # CREATE IF NOT EXISTS 幂等, 老库重跑安全.
+        # #484: graph version history — every save produces an immutable
+        # version record, listing/rollback supported. CREATE IF NOT EXISTS is
+        # idempotent, safe to rerun on old databases.
         conn.executescript("""
             CREATE TABLE IF NOT EXISTS graph_versions (
                 graph_id TEXT NOT NULL,
@@ -884,7 +902,7 @@ class AgentStore:
         description: str = "",
         team: str = "default",
     ) -> None:
-        # 资源注册表 upsert. kind: exclusive/shared_slot/advisory.
+        # Resource registry upsert. kind: exclusive/shared_slot/advisory.
         with self._cursor() as conn:
             conn.execute(
                 """INSERT INTO resource_registry
@@ -952,7 +970,7 @@ class AgentStore:
         ]
 
     def save_lease(self, lease: dict) -> None:
-        # 租约 upsert (granted/queued/released/expired).
+        # Lease upsert (granted/queued/released/expired).
         with self._cursor() as conn:
             conn.execute(
                 """INSERT INTO resource_leases
@@ -1010,7 +1028,7 @@ class AgentStore:
         }
 
     def list_leases(self, resource_id: str = "", status: str = "", team: str = "") -> list[dict]:
-        # 查租约. 可按 resource/status/team 过滤.
+        # Query leases. Filterable by resource/status/team.
         with self._cursor() as conn:
             sql = """SELECT lease_id, resource_id, task_id, owner_role, owner_agent,
                             status, position, ttl, granted_at, expires_at,
@@ -1048,7 +1066,7 @@ class AgentStore:
         ]
 
     def count_active_leases(self, resource_id: str) -> int:
-        # granted 状态租约数 (shared_slot 槽位判定用).
+        # Count of granted leases (used for shared_slot slot decisions).
         with self._cursor() as conn:
             row = conn.execute(
                 "SELECT COUNT(*) FROM resource_leases WHERE resource_id=? AND status='granted'",
@@ -1057,7 +1075,7 @@ class AgentStore:
         return row[0] if row else 0
 
     def max_queued_position(self, resource_id: str) -> int:
-        # 当前最大排队位置 (新 queued 拿 position+1).
+        # Current max queued position (a new queued lease takes position+1).
         with self._cursor() as conn:
             row = conn.execute(
                 "SELECT COALESCE(MAX(position), 0) FROM resource_leases WHERE resource_id=? AND status='queued'",
@@ -1066,7 +1084,7 @@ class AgentStore:
         return row[0] if row else 0
 
     def list_expired_leases(self, now: float) -> list[dict]:
-        # granted 且 expires_at>0 且已过期. (expiry sweep 用)
+        # granted with expires_at>0 and already expired. (used by expiry sweep)
         with self._cursor() as conn:
             rows = conn.execute(
                 """SELECT lease_id, resource_id, task_id, owner_role, owner_agent,
@@ -1114,7 +1132,8 @@ class AgentStore:
         role: str = "",
         task_ref: str = "",
     ) -> bool:
-        # INSERT OR IGNORE on hash UNIQUE — sha256 去重. 返回 True=新写入, False=重复跳过.
+        # INSERT OR IGNORE on hash UNIQUE — sha256 dedupe. Returns True for a
+        # new write, False when a duplicate is skipped.
         with self._cursor() as conn:
             cursor = conn.execute(
                 """INSERT OR IGNORE INTO plaza_messages
@@ -1134,7 +1153,8 @@ class AgentStore:
         return cursor.rowcount > 0
 
     def verify_plaza_message(self, message_id: str) -> bool:
-        # 回读验证: 写后立即 SELECT 确认落盘. 缺失=告警不静默 (源方案 §5.5).
+        # Read-back verification: SELECT immediately after write to confirm
+        # durability. Missing = alert, never silent (source plan §5.5).
         with self._cursor() as conn:
             row = conn.execute(
                 "SELECT 1 FROM plaza_messages WHERE message_id = ?",
@@ -1361,7 +1381,7 @@ class AgentStore:
     # ── M1-3 Team Launch Phase CRUD ──
 
     def set_team_launch_phase(self, team: str, phase: str) -> None:
-        # phase: active / finished / reconciled. 崩溃恢复扫 active.
+        # phase: active / finished / reconciled. Crash recovery scans active.
         with self._cursor() as conn:
             conn.execute(
                 """INSERT INTO team_launch_phases (team, phase, updated_at)

@@ -119,6 +119,7 @@ export function ChatPage() {
             const id = session.session_id ?? session.id ?? '';
             await manualRetry();
             if (id) setSelected(id);
+            // i18n: user-facing
             sdk.toast.show({ level: 'success', message: t('会话已创建', 'session created') });
         } catch (e) {
             sdk.toast.show({ level: 'error', message: (e as Error).message });
@@ -132,6 +133,7 @@ export function ChatPage() {
                 setSelected('');
                 setMessages([]);
             }
+            // i18n: user-facing
             sdk.toast.show({ level: 'success', message: t('已删除', 'deleted') });
             manualRetry();
         } catch (e) {
@@ -146,7 +148,9 @@ export function ChatPage() {
     return (
         <div>
             <PageHeader
+                // i18n: user-facing
                 title={t('对话', 'Chat')}
+                // i18n: user-facing
                 subtitle={t(`${sessions.length} 个会话`, `${sessions.length} sessions`)}
                 actions={
                     <button
@@ -154,6 +158,7 @@ export function ChatPage() {
                         onClick={() => setShowCreate(true)}
                         className="rounded-md border border-border px-3 py-1.5 text-xs text-text-primary hover:bg-bg-muted"
                     >
+                        {/* i18n: user-facing */}
                         {t('新建对话', 'New chat')}
                     </button>
                 }
@@ -170,13 +175,16 @@ export function ChatPage() {
                     ) : error ? (
                         <ErrorState
                             message={(error as Error).message}
+                            // i18n: user-facing
                             retryLabel={t('重试', 'Retry')}
                             onRetry={manualRetry}
                             retrying={attempt}
                         />
                     ) : sessions.length === 0 ? (
                         <EmptyState
+                            // i18n: user-facing
                             title={t('暂无会话', 'no sessions yet')}
+                            // i18n: user-facing
                             description={t('新建一个对话', 'create your first chat')}
                         />
                     ) : (
@@ -226,7 +234,9 @@ export function ChatPage() {
                                                 }`}
                                             >
                                                 {confirmDelete === id
+                                                    // i18n: user-facing
                                                     ? t('确认删除？', 'Confirm delete?')
+                                                    // i18n: user-facing
                                                     : t('删除', 'Delete')}
                                             </button>
                                         </div>
@@ -248,13 +258,16 @@ export function ChatPage() {
                                 ) : threadError ? (
                                     <ErrorState
                                         message={threadError}
+                                        // i18n: user-facing
                                         retryLabel={t('重试', 'Retry')}
                                         onRetry={() => loadHistory(selected)}
                                         retrying={0}
                                     />
                                 ) : messages.length === 0 ? (
                                     <EmptyState
+                                        // i18n: user-facing
                                         title={t('暂无消息', 'no messages yet')}
+                                        // i18n: user-facing
                                         description={t('发送第一条消息', 'send your first message')}
                                     />
                                 ) : (
@@ -283,9 +296,11 @@ export function ChatPage() {
                                     value={draft}
                                     onChange={setDraft}
                                     rows={2}
+                                    // i18n: user-facing
                                     placeholder={t('输入消息…', 'type a message…')}
                                 />
                                 <SubmitButton
+                                    // i18n: user-facing
                                     label={sending ? t('发送中…', 'sending…') : t('发送', 'Send')}
                                     onAction={send}
                                     disabled={sending || !draft.trim()}
@@ -295,7 +310,9 @@ export function ChatPage() {
                     ) : (
                         <div className="flex flex-1 items-center justify-center p-8">
                             <EmptyState
+                                // i18n: user-facing
                                 title={t('选择左侧会话', 'select a session')}
+                                // i18n: user-facing
                                 description={t('或新建一个对话', 'or start a new chat')}
                             />
                         </div>
@@ -304,13 +321,16 @@ export function ChatPage() {
             </div>
             <Modal
                 open={showCreate}
+                // i18n: user-facing
                 title={t('新建对话', 'New chat')}
                 onClose={() => setShowCreate(false)}
+                // i18n: user-facing
                 footer={<SubmitButton label={t('创建', 'Create')} onAction={createSession} />}
             >
                 <TextInput
                     value={newTitle}
                     onChange={setNewTitle}
+                    // i18n: user-facing
                     placeholder={t('会话标题', 'session title')}
                 />
             </Modal>

@@ -163,9 +163,11 @@ class _DynamicToolsMixin:
                 import asyncio
                 import shlex
 
-                # 审计 P1-3: 动态工具执行补 safety gate. 原仅语法名检查
-                # (_SAFE_TOOL_NAME_RE), LLM 注册动态工具后可任意 exec subprocess
-                # 绕过 L3 内容检查. 在 cmd 解析后过 evaluate_action, block 即拒.
+                # Audit P1-3: add a safety gate to dynamic tool execution. The old
+                # path only checked the syntactic name (_SAFE_TOOL_NAME_RE); after
+                # registering a dynamic tool the LLM could exec arbitrary subprocesses
+                # bypassing the L3 content check. Run evaluate_action after cmd parsing;
+                # block means reject.
                 if self.safety_gateway:
                     sr = self.safety_gateway.evaluate_action(
                         category="tool_call",

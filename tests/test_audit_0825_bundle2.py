@@ -1,14 +1,16 @@
-"""审计 0825 Bundle2 回归 — E-5/E-12/E-13/E-14/E-15/E-17/E-18/E-20/E-22.
+"""Audit 0825 Bundle2 regression — E-5/E-12/E-13/E-14/E-15/E-17/E-18/E-20/E-22.
 
-E-5  MCP register_server RCE/SSRF 门 (metadata IP + shell stdio + allowlist).
-E-12 gateway finish_reason=="error" 哨兵 4 调用方检查.
-E-13 _code_tasks TTL reaper + 容量上限.
-E-14 graph.execute 注册 _active_executions (daemon.status 报真实活跃).
-E-15 stop() drain 在途执行.
-E-17 _core_handlers 单一真相源 (RPC dict 不漂).
-E-18 MLX_BASE_URL 运行时解析 + gateway.reconfigure RPC 热切.
-E-20 checkpoint 读写签名对齐 + graph.resume RPC 闭合读路径.
-E-22 apikey/mlx-key 文件 0o600 收紧 + bootstrap key 不写明文进日志.
+E-5  MCP register_server RCE/SSRF gate (metadata IP + shell stdio + allowlist).
+E-12 gateway finish_reason=="error" sentinel checked by 4 callers.
+E-13 _code_tasks TTL reaper + capacity cap.
+E-14 graph.execute registers _active_executions (daemon.status reports real
+activity).
+E-15 stop() drains in-flight executions.
+E-17 _core_handlers single source of truth (no RPC dict drift).
+E-18 MLX_BASE_URL runtime resolution + gateway.reconfigure RPC hot-swap.
+E-20 checkpoint read/write signature alignment + graph.resume RPC closes the
+read path.
+E-22 apikey/mlx-key file 0o600 tightening + bootstrap key not logged in plaintext.
 """
 
 from __future__ import annotations
@@ -40,8 +42,9 @@ def store_db(tmp_path):
 
 @pytest.fixture
 async def daemon_stub(socket_path, store_db):
-    # 复用 test_daemon_server 的 stub 模式: 清 default client/model + _models,
-    # 使 gateway.route 返 None → 走 stub, 确定性. 避免连真实 fusion-mlx.
+    # Reuse the test_daemon_server stub pattern: clear default client/model +
+    # _models so gateway.route returns None -> stub path, deterministic. Avoids
+    # hitting real fusion-mlx.
     d = DaemonServer(
         socket_path=socket_path, ws_port=0, cluster_port=0, http_port=0, store_path=store_db
     )

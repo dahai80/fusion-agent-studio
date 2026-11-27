@@ -72,9 +72,10 @@ class DeployDispatcher(SubDispatcher):
         filepath = params.get("filepath", "")
         if not filepath:
             return {"status": "error", "message": "filepath parameter required"}
-        # 审计 P2/dim3: deploy.import 原接任意路径 -> 路径穿越/任意文件读取.
-        # 限定 import 源在 ~/.fusion-agent-studio/exports/ 内 (resolve + startswith,
-        # 防 ../ 穿越逃逸). exports 目录由 deploy.export 写出, 自治闭环.
+        # Audit P2/dim3: deploy.import originally accepted any path ->
+        # path traversal / arbitrary file read. Restrict import sources to inside
+        # ~/.fusion-agent-studio/exports/ (resolve + startswith to stop ../ escapes).
+        # The exports dir is written by deploy.export - a self-contained loop.
 
         export_root = (studio_home() / "exports").resolve()
         try:

@@ -9,7 +9,7 @@ API: JSON-RPC 2.0 with module.action method naming.
 Data schemas: AgentStore for graph persistence, AgentRuntime for execution,
               AgentPackage for agent identity, subprocess.Popen for MLX lifecycle.
 
-User instruction: "坚各个产品的边界和原则，fusion-studio的GUI基本定稿了，现在把功能做起来，开始吧"
+User instruction: "Hold each product's boundaries and principles; the fusion-studio GUI is basically finalized - now build out the features. Let's begin."
 """
 
 from __future__ import annotations
@@ -59,8 +59,8 @@ WS_MAGIC = "258EAFA5-E914-47DA-95CA-5AB5DC65B283"
 _RUN_SPANS_MAX_LINES = 5000
 
 # #209: peer credential constants. macOS LOCAL_PEERCRED (SOL_LOCAL=0).
-# 审计 E-8: Linux 用错常量 getsockopt 恒失败 -> 旧代码 fail-open 放行所有连接.
-# 补 Linux SO_PEERCRED (SOL_SOCKET=1, opt=17) 正确常量, 异常改 fail-closed.
+# Audit E-8: Linux used the wrong constant so getsockopt always failed -> old code failed open and allowed all connections.
+# Add the correct Linux SO_PEERCRED constants (SOL_SOCKET=1, opt=17) and change failure to fail-closed.
 _SOL_LOCAL = 0
 _LOCAL_PEERCRED = 0x001
 _SOL_SOCKET = 1
@@ -68,19 +68,19 @@ _SO_PEERCRED = 17
 
 
 def _verify_peer_uid(writer: asyncio.StreamWriter) -> bool:
-    # #209: accept 后校验对端 UID, 拒绝非同 UID 连接. 防 0o600 socket 被本机
-    # 低权限进程连入伪造 JSON-RPC. macOS 用 LOCAL_PEERCRED (SOL_LOCAL) 取
-    # xucred{uid,pid,euid}; Linux 用 SO_PEERCRED (SOL_SOCKET) 取 ucred{pid,uid,gid}.
-    # 取不到 socket (非 UDS) 时 fail-open 兼容测试路径; getsockopt 失败 (内核
-    # 不支持 / 平台常量错) 改 fail-closed (审计 E-8): 拒连接而非放行, 避免
-    # 非支持平台恒失败致安全门形同虚设.
+    # #209: verify the peer UID after accept and reject non-same-UID connections. Prevents local
+    # low-privilege processes from connecting to the 0o600 socket and forging JSON-RPC. macOS uses
+    # LOCAL_PEERCRED (SOL_LOCAL) to read xucred{uid,pid,euid}; Linux uses SO_PEERCRED (SOL_SOCKET)
+    # for ucred{pid,uid,gid}. No socket to query (non-UDS) fails open for test-path compatibility;
+    # a getsockopt failure (kernel unsupported / wrong platform constant) now fails closed (audit E-8):
+    # reject instead of allowing, so the security gate never becomes a no-op on unsupported platforms.
     sock = writer.get_extra_info("socket")
     if sock is None:
         logger.warning("#209 peer-uid check: no socket, fail-open (test path)")
         return True
     uid = _peer_uid_from_socket(sock)
     if uid is None:
-        # getsockopt 失败: 无法确认对端 UID -> fail-closed 拒绝 (审计 E-8).
+        # getsockopt failed: cannot confirm peer UID -> fail-closed reject (audit E-8).
         logger.warning("#209 peer-uid getsockopt failed, fail-closed (reject)")
         return False
     if uid != os.getuid():
@@ -90,9 +90,9 @@ def _verify_peer_uid(writer: asyncio.StreamWriter) -> bool:
 
 
 def _peer_uid_from_socket(sock) -> int | None:
-    # 取对端 UID, macOS 先试 LOCAL_PEERCRED, 失败回退 Linux SO_PEERCRED.
-    # 任一成功返 UID; 都失败返 None (调用方 fail-closed). 非抛异常, 区分
-    # "取到非同 UID" (返 int) 与 "取不到" (返 None) 两态.
+    # Read the peer UID: try macOS LOCAL_PEERCRED first, fall back to Linux SO_PEERCRED.
+    # Return the UID on success; None when both fail (caller fails closed). No exception raised, so
+    # 'got a different UID' (returns int) and 'could not read' (returns None) stay distinguishable.
     try:
         cred = sock.getsockopt(_SOL_LOCAL, _LOCAL_PEERCRED, struct.calcsize("iII"))
         _, uid, _ = struct.unpack("iII", cred)
@@ -108,15 +108,15 @@ def _peer_uid_from_socket(sock) -> int | None:
 
 
 def _resolve_socket_path(default: str = SOCKET_PATH) -> str:
-    # #209: env FUSION_SOCKET_DIR opt-in 私有目录. 设了则用 <dir>/fusion-studio.sock
-    # 且目录 0700 (根治 /tmp TOC-TOU). 不设则保留 /tmp/fusion-studio.sock 默认
-    # 兼容下游 (fusion-cli 等), 仅靠 0o600 + UID 校验加固. 非破坏性.
+    # #209: env FUSION_SOCKET_DIR opts into a private directory. When set, use <dir>/fusion-studio.sock
+    # with directory mode 0700 (root-cures the /tmp TOC-TOU). Unset keeps the /tmp/fusion-studio.sock default
+    # for downstream compatibility (fusion-cli etc.), hardened only by 0o600 + UID check. Non-breaking.
     socket_dir = os.environ.get("FUSION_SOCKET_DIR", "").strip()
     if not socket_dir:
         return default
     socket_dir = os.path.expanduser(socket_dir)
     os.makedirs(socket_dir, mode=0o700, exist_ok=True)
-    # makedirs 后再显式 chmod 防 umask 放宽.
+    # Explicit chmod after makedirs so umask cannot loosen the permissions.
     try:
         os.chmod(socket_dir, 0o700)
     except OSError:
@@ -125,11 +125,11 @@ def _resolve_socket_path(default: str = SOCKET_PATH) -> str:
 
 
 def _ws_enabled() -> bool:
-    # 审计 D-1: WS 曾默认关 (无鉴权 RCE 面). E7: 事件流是控制室地基, 默认
-    # 改为开 — 但 D-1 鉴权不放松: 起时必须同时设 FUSION_WS_TOKEN 共享密钥
-    # (客户端首帧 Sec-WebSocket-Protocol 携带 token), 未设 token 时 start()
-    # 降级回关 + 告警, 不阻断 daemon. 显式 FUSION_ENABLE_WS=0 保持关闭.
-    # #327: 端口 11433 (registry); 11435=fm-server, 11437=cowork-sync, 均避开.
+    # Audit D-1: WS used to default off (unauthenticated RCE surface). E7: the event stream is the
+    # foundation of the control room, so default it on — but D-1 auth is not relaxed: startup must also set
+    # the FUSION_WS_TOKEN shared secret (client carries the token in the first frame's Sec-WebSocket-Protocol);
+    # without a token start() degrades back to off + warning without blocking the daemon. Explicit FUSION_ENABLE_WS=0 keeps it off.
+    # #327: port 11433 (registry); 11435=fm-server, 11437=cowork-sync, all avoided.
     raw = os.environ.get("FUSION_ENABLE_WS", "").strip().lower()
     if raw in ("0", "false", "off", "no"):
         return False
@@ -176,8 +176,8 @@ def _ws_write_frame(writer: asyncio.StreamWriter, data: str) -> None:
     writer.write(bytes(frame))
 
 
-# NetLayer 方案B: 默认经 fusion-gateway :11432 调用 fusion-mlx，不直连 :11434。
-# 保留 FUSION_GATEWAY_URL / FUSION_MLX_PORT 显式覆盖 (可回退直连 11434)。
+# NetLayer plan B: call fusion-mlx via fusion-gateway :11432 by default, not direct :11434.
+# Keep FUSION_GATEWAY_URL / FUSION_MLX_PORT explicit overrides (can fall back to direct 11434).
 _MLX_PORT_DEFAULT = int(os.environ.get("FUSION_MLX_PORT", "11432"))
 MLX_PORT = _MLX_PORT_DEFAULT
 MLX_BASE_URL = os.environ.get(
@@ -187,8 +187,8 @@ MLX_BASE_URL = os.environ.get(
 
 
 def _resolve_mlx_base_url() -> str:
-    # 审计 E-18: MLX_BASE_URL 模块级常量 import 时冻结, 改 env 后需重启 daemon.
-    # 运行时热切 gateway 走此函数 (每次读 env), 不再依赖冻结常量.
+    # Audit E-18: the MLX_BASE_URL module-level constant is frozen at import; changing env requires a daemon restart.
+    # Runtime gateway hot-switches go through this function (reads env every time), not the frozen constant.
     port = os.environ.get("FUSION_MLX_PORT", str(_MLX_PORT_DEFAULT))
     return os.environ.get("FUSION_GATEWAY_URL", f"http://127.0.0.1:{port}/v1")
 
@@ -266,16 +266,16 @@ class DaemonServer:
         http_port: int = 11442,
         store_path: str = "",
     ):
-        # #209: 空则走 env 感知解析 (FUSION_SOCKET_DIR 私有目录 opt-in), 否则
-        # 默认 /tmp/fusion-studio.sock 向后兼容. 显式传值 (测试临时 socket) 不改.
+        # #209: empty -> env-aware resolution (FUSION_SOCKET_DIR private-dir opt-in), otherwise
+        # default /tmp/fusion-studio.sock for backward compatibility. Explicit values (test temp sockets) unchanged.
         self.socket_path = socket_path or _resolve_socket_path()
         self.ws_port = ws_port
         self.cluster_port = cluster_port
         self.http_port = http_port
-        # store_path 非空时用指定 db 路径（测试隔离用临时库），空则默认用户库.
+        # Non-empty store_path uses the given db path (temp store for test isolation); empty uses the default user store.
         self.store = AgentStore(store_path) if store_path else AgentStore()
-        # Issue #174: memory.db 与 store.db 同目录，测试隔离时落临时库，
-        # 生产落 ~/.fusion-agent-studio/memory.db（避免 CWD-relative 漂移）.
+        # Issue #174: memory.db lives in the same directory as store.db; test isolation lands in the temp store,
+        # production lands in ~/.fusion-agent-studio/memory.db (avoids CWD-relative drift).
         if store_path:
             self._memory_db_path = str(Path(store_path).parent / "memory.db")
         else:
@@ -289,10 +289,10 @@ class DaemonServer:
         self._gateway = LLMGateway()
         self._runtime: AgentRuntime | None = None
         self._mlx_process: subprocess.Popen | None = None
-        # 审计 P-2: MLX start/stop 并发锁. _handle_mlx_start 是 async 且
-        # check-then-act (先查端口空再 Popen), 两个并发 start 请求 (如 RPC
-        # + cron 同时触发) 都过 already_running 检查后各自 Popen, 端口冲突/
-        # 双进程. 用锁串行化 start/stop/restart 生命周期操作.
+        # Audit P-2: MLX start/stop concurrency lock. _handle_mlx_start is async with a
+        # check-then-act pattern (check port free, then Popen); two concurrent start requests (e.g. RPC
+        # + cron at once) can both pass the already_running check and each Popen -> port conflict /
+        # duplicate processes. Serialize start/stop/restart lifecycle ops with a lock.
         self._mlx_start_lock = asyncio.Lock()
         # #694: background re-attach worker — the startup attach is gated on
         # a single health check with no retry; if the daemon comes up while
@@ -303,9 +303,9 @@ class DaemonServer:
         self._active_chains: dict[str, asyncio.Task] = {}
         self._code_tasks: dict[str, dict] = {}
 
-        # 审计 E-13: _code_tasks 原无 TTL/无 LRU/无显式删除, 长跑 daemon (launchd
-        # 保活) 下线性膨胀至 OOM. 加 TTL 清理 (默认 1h, FUSION_CODE_TASK_TTL 秒)
-        # + 容量上限 (默认 1000, FUSION_CODE_TASK_MAX). 完成态任务过期自动删.
+        # Audit E-13: _code_tasks had no TTL / LRU / explicit removal; a long-running daemon (launchd
+        # keepalive) grows it linearly to OOM. Add TTL cleanup (default 1h, FUSION_CODE_TASK_TTL seconds)
+        # + capacity cap (default 1000, FUSION_CODE_TASK_MAX). Finished tasks auto-expire.
         def _envint(name: str, default: int) -> int:
             raw = os.environ.get(name, "").strip()
             try:
@@ -321,9 +321,9 @@ class DaemonServer:
         # internal_error / unknown. Logged in stop() so silent graceful
         # exits under the supervisor are attributable.
         self.stop_reason = ""
-        # #214: graph.execute 并发节流 opt-in. env FUSION_GRAPH_CONCURRENCY=N
-        # 限制同时执行 graph 数 (GPU 任务建议 N=1). 空/0 = 不限流 (向后兼容).
-        # 超限请求排队等待, 不拒. Semaphore 在 start() 的 event loop 内创建.
+        # #214: graph.execute concurrency throttle opt-in. env FUSION_GRAPH_CONCURRENCY=N
+        # caps concurrently executing graphs (N=1 recommended for GPU tasks). Empty/0 = unlimited (backward compatible).
+        # Over-limit requests queue and wait, never rejected. Semaphore created inside start()'s event loop.
         self._graph_concurrency_limit = 0
         self._graph_semaphore: asyncio.Semaphore | None = None
         self._planner = None
@@ -398,9 +398,9 @@ class DaemonServer:
         raise AttributeError(f"'{type(self).__name__}' object has no attribute '{name}'")
 
     def _reap_code_tasks(self) -> None:
-        # 审计 E-13: 清理过期/超容的 _code_tasks. 完成态 (completed/cancelled/
-        # failed) 超 TTL 删; 超容量上限删最旧. 在途 (running/pending) 不删.
-        # 调用方: submit 前扫一次 + status/tasks 读时扫一次, 摊销 O(n).
+        # Audit E-13: evict expired/over-capacity _code_tasks. Finished tasks (completed/cancelled/
+        # failed) deleted past TTL; over capacity drops the oldest finished. In-flight (running/pending) kept.
+        # Callers: scan once before submit + once on status/tasks reads, amortized O(n).
         if not self._code_tasks:
             return
         now = time.time()
@@ -416,7 +416,7 @@ class DaemonServer:
             self._code_tasks.pop(tid, None)
         if reapable:
             logger.info("E-13 reaped %d expired code_tasks", len(reapable))
-        # 容量上限: 超限删最旧完成态.
+        # Capacity cap: drop the oldest finished tasks over the limit.
         if len(self._code_tasks) > self._code_tasks_max:
             done = sorted(
                 (
@@ -551,7 +551,7 @@ class DaemonServer:
                 swarm_router=self._get_swarm(),
                 plaza=self._get_plaza(),
                 fmp=self._get_fmp(),
-                # 审计 P2/dim3: 透传 safety_gateway, 编排模式子 runtime 安全门生效.
+                # Audit P2/dim3: pass through safety_gateway so orchestration-mode sub-runtimes enforce the safety gate.
                 safety_gateway=self._get_safety(),
             )
             logger.info("MultiAgentOrchestrator created (swarm+plaza+fmp wired)")
@@ -750,7 +750,7 @@ class DaemonServer:
         if os.path.exists(self.socket_path):
             os.unlink(self.socket_path)
 
-        # #214: 在 event loop 内创建 Semaphore (需 running loop). 默认不限流.
+        # #214: create the Semaphore inside the event loop (needs a running loop). Unlimited by default.
         try:
             limit = int(os.environ.get("FUSION_GRAPH_CONCURRENCY", "0") or "0")
         except ValueError:
@@ -771,8 +771,8 @@ class DaemonServer:
         self._start_persona_watcher()
 
         self._server = await asyncio.start_unix_server(self._handle_client, path=self.socket_path)
-        # #209: 0o666→0o600. 同 UID (fusion-cli/cron) 仍可连, 低权限恶意进程被挡.
-        # 私有目录 (FUSION_SOCKET_DIR) 时目录已 0o700, 双重限流.
+        # #209: 0o666->0o600. Same-UID clients (fusion-cli/cron) can still connect; low-privilege malicious processes are blocked.
+        # With a private dir (FUSION_SOCKET_DIR) the directory is already 0o700 — double containment.
         os.chmod(self.socket_path, 0o600)
 
         self._ws_server = None
@@ -822,7 +822,7 @@ class DaemonServer:
             except Exception as e:
                 logger.warning("FastAPI HTTP server failed to start: %s", e)
 
-        # #327: union-web shell 模块注册 + 心跳 (env-gated, 见 shell_registry.py).
+        # #327: union-web shell module registration + heartbeat (env-gated, see shell_registry.py).
         self._shell_registry_task: asyncio.Task | None = None
         try:
             from .shell_registry import shell_registration_enabled, shell_registry_loop
@@ -896,10 +896,10 @@ class DaemonServer:
         self._reconcile_task_states()
 
     def _reconcile_team_launch_phases(self) -> None:
-        # M1-3: 启动 reconcile. 扫 team_launch_phases WHERE phase='active'
-        # → 逐团队 reconcile → phase='reconciled'.
-        # 完整证据驱动恢复 (in_progress 任务按 evidence jsonl 判定) 依赖 M1-2;
-        # M1-3 先建 phase 跟踪 + stub reconcile (标记 active→reconciled + 日志告警).
+        # M1-3: startup reconcile. Scan team_launch_phases WHERE phase='active'
+        # -> reconcile per team -> phase='reconciled'.
+        # Full evidence-driven recovery (in_progress tasks judged from evidence jsonl) depends on M1-2;
+        # M1-3 first adds phase tracking + stub reconcile (mark active->reconciled + warning log).
         try:
             active = self.store.get_team_launch_phases("active")
             if not active:
@@ -918,8 +918,8 @@ class DaemonServer:
             logger.exception("reconcile: team launch phase reconcile failed")
 
     async def _reconcile_expired_leases(self) -> None:
-        # M1-4: 启动扫过期租约 (daemon 崩溃期间 ttl 到期未释放).
-        # expired → 写证据 + team 告警 (Plaza broadcast) + promote 排队.
+        # M1-4: sweep expired leases at startup (TTL elapsed while the daemon was down, never released).
+        # expired -> write evidence + team alert (Plaza broadcast) + promote queue.
         try:
             rl = self._get_resource_lease()
             expired = rl.expiry_sweep()
@@ -960,7 +960,7 @@ class DaemonServer:
                         )
                 except Exception as exc:
                     logger.warning("resource.lease_expired broadcast failed: %s", exc)
-                # team 告警消息 (非静默回收, §5.3)
+                # Team alert message (not silent reclamation, §5.3)
                 try:
                     plaza = self._get_plaza()
                     channel = f"team_{lease.get('team', 'default')}"
@@ -970,9 +970,9 @@ class DaemonServer:
                         channel=channel,
                         sender="supervisor",
                         content=(
-                            f"⚠️ 资源租约过期回收: {lease.get('resource_id', '')} "
+                            f"⚠️ 资源租约过期回收: {lease.get('resource_id', '')} "  # i18n: user-facing
                             f"(task={lease.get('task_id', '')}, lease={lease.get('lease_id', '')}). "
-                            f"请核查该任务执行证据后决定重试/降级."
+                            f"请核查该任务执行证据后决定重试/降级."  # i18n: user-facing
                         ),
                     )
                 except Exception:
@@ -982,9 +982,9 @@ class DaemonServer:
             logger.exception("reconcile: expired lease sweep failed")
 
     def _reconcile_task_states(self) -> None:
-        # M1-7: 启动证据驱动任务状态恢复. 扫 running 任务 → 读 evidence jsonl
-        # → 有终态证据(completed/failed/canceled)则修正任务状态; 否则标 needs_fix
-        # 留 running (可续). 设计 §M1-3: in_progress 任务按证据判定.
+        # M1-7: evidence-driven task state recovery at startup. Scan running tasks -> read evidence jsonl
+        # -> terminal evidence (completed/failed/canceled) corrects the task state; otherwise mark needs_fix
+        # and leave it running (resumable). Design §M1-3: in_progress tasks judged from evidence.
         try:
             ts = self._get_task_store()
             running = ts.list(status="running", limit=500)
@@ -1063,7 +1063,7 @@ class DaemonServer:
             logger.exception("reconcile: task state reconcile failed")
 
     def _read_evidence_tail_by_path(self, path: str, n: int = 20) -> list[dict]:
-        # 按完整路径读证据尾部 (reconcile 用 evidence_ref, 不经 execution_id).
+        # Read the evidence tail by full path (reconcile uses evidence_ref, bypassing execution_id).
         p = Path(path)
         if not p.exists():
             return []
@@ -1100,9 +1100,9 @@ class DaemonServer:
         for task in self._active_executions.values():
             if not task.done():
                 task.cancel()
-        # 审计 E-15: stop() 原取消后立即 store.close(), 在途 graph 的
-        # save_checkpoint/save_session 写被打断 -> 半截事务. drain 等待在途执行
-        # 收尾 (带超时, 防卡死), 再关 store. _active_executions 经 E-14 真实注册.
+        # Audit E-15: stop() used to close the store immediately after cancellation, interrupting
+        # save_checkpoint/save_session writes of in-flight graphs -> half-committed transactions.
+        # Drain in-flight executions (with a timeout to avoid hangs), then close the store. _active_executions is really registered via E-14.
         if self._active_executions:
             pending = [t for t in self._active_executions.values() if not t.done()]
             if pending:
@@ -1141,10 +1141,10 @@ class DaemonServer:
         if getattr(self, "_shell_registry_task", None) and not self._shell_registry_task.done():
             self._shell_registry_task.cancel()
         if self._mlx_process and self._mlx_process.poll() is None:
-            # 审计 P-1: MLX 子进程停机原仅 terminate() 后立即置 None, 不等
-            # 进程真正退出 — SIGTERM 后进程仍在收尾, daemon 已认定其停止,
-            # 端口/内存残留致下次 start 误判已在运行. 补 wait+超时+SIGKILL
-            # 兜底, 与 start 的生命周期对齐 (start 起进程等就绪, stop 等退出).
+            # Audit P-1: MLX subprocess stop used to terminate() then immediately set None without
+            # waiting for the process to actually exit — after SIGTERM the process is still shutting down
+            # while the daemon already considers it stopped; leftover port/memory makes the next start
+            # misjudge it as already running. Add wait+timeout+SIGKILL fallback, aligned with start's lifecycle (start waits for ready, stop waits for exit).
             proc = self._mlx_process
             try:
                 proc.terminate()
@@ -1176,10 +1176,10 @@ class DaemonServer:
         logger.info("Daemon stopped (stop_reason=%s)", self.stop_reason or "unknown")
 
     def register_execution(self, scope: str, key_id: str):
-        # 审计 P2-5/A-9: _active_executions 原 2/6 路径 (仅 graph.execute/resume).
-        # agent.execute/execute_stream + WS/SSE 直调 rt 不注册 -> daemon.status
-        # 活跃数失真 + stop() drain 漏掉在途流式执行. 统一注册入口, 各执行路径调.
-        # 返回 (exec_key, unregister), 调方 try/finally 调 unregister.
+        # Audit P2-5/A-9: _active_executions previously covered only 2/6 paths (graph.execute/resume).
+        # agent.execute/execute_stream + WS/SSE calling rt directly never registered -> daemon.status
+        # active count wrong + stop() drain missed in-flight streaming executions. One registration entry point, called by every execution path.
+        # Returns (exec_key, unregister); callers invoke unregister in try/finally.
         exec_key = f"{scope}:{key_id or id(asyncio.current_task())}"
         self._active_executions[exec_key] = asyncio.current_task()
         logger.info("execution registered scope=%s key=%s", scope, key_id)
@@ -1192,19 +1192,19 @@ class DaemonServer:
 
     @property
     def graph_semaphore(self) -> asyncio.Semaphore | None:
-        # 审计 P2-6/NEW-3: graph 并发节流原仅 graph.execute RPC 路径走, WS/SSE +
-        # agent.execute/execute_stream 直调 rt 绕过 -> 节流失效. 统一暴露给各路径.
+        # Audit P2-6/NEW-3: the graph concurrency throttle previously only applied on the graph.execute RPC path;
+        # WS/SSE + agent.execute/execute_stream calling rt directly bypassed it -> throttle ineffective. Exposed uniformly to all paths.
         return getattr(self, "_graph_semaphore", None)
 
     @property
     def token_budget_ref(self):
-        # 审计 P0-3: token_budget 透传统一访问点 (WS/SSE/agent 路径漏传=死代码).
+        # Audit P0-3: token_budget pass-through single access point (WS/SSE/agent paths missed it = dead code).
         return getattr(self, "_token_budget", None)
 
     def _validate_config(self) -> None:
-        # 审计 P2-23: 启动前校验 FUSION_* 互斥/依赖组合, 配置矛盾则 fail-loud 不起.
-        # E7: WS 默认开但 token 未设的降级在 start() 里做 (实例态 _ws_active,
-        # 不改 env — env 改动会泄漏到进程其他读者且被测试 monkeypatch 还原).
+        # Audit P2-23: validate FUSION_* mutual-exclusion/dependency combos before startup; contradictory config fails loud and does not start.
+        # E7: WS on-by-default but missing-token degradation is handled in start() (instance state _ws_active,
+        # not env — env changes leak to other readers in-process and get restored by test monkeypatch).
         errors: list[str] = []
         safety_level = os.environ.get("FUSION_SAFETY_LEVEL", "L1").upper()
         if safety_level not in ("L0", "L1", "L2", "L3"):
@@ -1259,8 +1259,8 @@ class DaemonServer:
         self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter
     ) -> None:
         peer = writer.get_extra_info("peername")
-        # #209: 拒绝非同 UID 连接 (0o666 时代遗留防御; 现 0o600 + 私有目录已限,
-        # 此为纵深防御, 防 socket 权限被误放宽或 /tmp 竞态 bind).
+        # #209: reject peers with a different UID (defense left over from the 0o666 era; now 0o600 + private dir contain it,
+        # this is defense in depth against socket permissions being loosened by mistake or a /tmp bind race).
         if not _verify_peer_uid(writer):
             logger.warning("#209 closing non-owner connection: %s", peer)
             writer.close()
@@ -1317,8 +1317,8 @@ class DaemonServer:
         msg_id = message.get("id")
         method = message.get("method", "")
         params = message.get("params", {})
-        # JSON-RPC 2.0 允许 params 是 object 或 array, 部分客户端序列化 str params 为字符串值.
-        # 规范化 str -> dict, 避免 handler 内 params.get 崩溃 (issue #172).
+        # JSON-RPC 2.0 allows params to be object or array; some clients serialize str params as a string value.
+        # Normalize str -> dict so params.get inside handlers does not crash (issue #172).
         if isinstance(params, str):
             try:
                 params = json.loads(params) if params.strip() else {}
@@ -1401,9 +1401,9 @@ class DaemonServer:
                     pass
 
     def _core_handlers(self) -> dict:
-        # 审计 E-17: 核心 RPC handler dict 原两处重复 (_get_handler +
-        # _handle_rpc_discover), 新增 RPC 漏改一处则该传输路径 404. 单真相源,
-        # 两调用方共用, 杜绝漂移.
+        # Audit E-17: the core RPC handler dict was duplicated in two places (_get_handler +
+        # _handle_rpc_discover); adding an RPC but updating only one made that transport path 404.
+        # Single source of truth shared by both callers, no drift.
         return {
             "budget.set": self._handle_budget_set,
             "budget.status": self._handle_budget_status,
@@ -1520,10 +1520,10 @@ class DaemonServer:
             TeamDispatcher(self),
             TeamsDispatcher(self),
             InfraDispatcher(self),
-            # 审计 P1-15: ArtifactDispatcher 须在 WorkflowDispatcher 之前注册.
-            # 两者都声明 artifact.create RPC (Workflow 的是 stub), _get_handler
-            # first-wins 按注册顺序, 原序 Workflow 在前致真实 artifact.create 被
-            # Workflow stub 影子覆盖. 前置 ArtifactDispatcher 让真实现优先.
+            # Audit P1-15: ArtifactDispatcher must be registered before WorkflowDispatcher.
+            # Both declare the artifact.create RPC (Workflow's is a stub); _get_handler is
+            # first-wins by registration order and the original order put Workflow first, so the real
+            # artifact.create was shadowed by the Workflow stub. Registering ArtifactDispatcher first gives the real impl priority.
             ArtifactDispatcher(self),
             WorkflowDispatcher(self),
             EvalDispatcher(self),
@@ -1637,7 +1637,7 @@ class DaemonServer:
             if hasattr(self, "_start_time") and self._start_time
             else 0,
             "failed_plugins": self._get_tool_registry().failed_plugins,
-            # 审计 N6: env-gated surfaces must be observable so GUI can state
+            # Audit N6: env-gated surfaces must be observable so GUI can state
             # whether outbound MCP discover and ToolSearch are on.
             # #488: ToolSearch is ON by default (opt-out via FUSION_TOOLSEARCH).
             "capabilities": {
@@ -1660,7 +1660,7 @@ class DaemonServer:
 
     async def _handle_rpc_discover(self, params: dict) -> dict:
         methods = {}
-        methods.update(self._core_handlers())  # E-17: 单真相源, 不再重复 dict
+        methods.update(self._core_handlers())  # E-17: single source of truth, no duplicated dict
         for sd in self._sub_dispatchers:
             methods.update(sd.get_handlers())
         return {"methods": sorted(methods.keys()), "count": len(methods)}
@@ -1687,8 +1687,8 @@ class DaemonServer:
             if self._mlx_process and self._mlx_process.poll() is None:
                 return {"status": "already_running", "port": MLX_PORT}
 
-            # 复用已在运行的 fusion-mlx (如 fusion-studio start.sh 启动的)，
-            # 避免在已占用端口上再起子进程导致冲突 (bug1 联动)
+            # Reuse an already-running fusion-mlx (e.g. started by fusion-studio start.sh),
+            # avoiding spawning another subprocess on an occupied port and causing conflicts (bug1 follow-up).
             if await self._check_mlx_health():
                 self._attach_mlx_client()
                 logger.info("Reusing already-running fusion-mlx on port %d", MLX_PORT)
@@ -1743,17 +1743,17 @@ class DaemonServer:
             return {"status": "stopped"}
 
     async def _handle_mlx_restart(self, params: dict) -> dict:
-        # restart = stop + start. 两步各自 acquire 锁 (start/stop 内部已
-        # 带 async with), 这里不再外层加锁 — 否则 async with 内再调同样
-        # acquire 的 _handle_mlx_start 会死锁 (asyncio.Lock 非重入).
+        # restart = stop + start. Each step acquires the lock itself (async with inside
+        # start/stop); do not add an outer lock here — otherwise calling _handle_mlx_start,
+        # which acquires the same lock, inside async with would deadlock (asyncio.Lock is not reentrant).
         await self._handle_mlx_stop(params)
         return await self._handle_mlx_start(params)
 
     async def _handle_mlx_reconnect(self, params: dict) -> dict:
-        # 审计 E-18: MLX_BASE_URL import 期冻结, 运行时改 env/切 gateway 不重建 client.
-        # reconnect 不重启 MLX 进程, 仅按当前 env 重解析 base_url 重 attach client,
-        # 让 gateway 重部署/节点故障转移热生效, 不需重启 daemon.
-        # _attach_mlx_client 内部按当前 env 重解析 base_url/api_key, 这里仅记录前后值.
+        # Audit E-18: MLX_BASE_URL is frozen at import; runtime env changes / gateway switches never rebuild the client.
+        # reconnect does not restart the MLX process; it re-resolves base_url from the current env and re-attaches the client,
+        # so gateway redeployments / node failovers take effect hot without a daemon restart.
+        # _attach_mlx_client internally re-resolves base_url/api_key from the current env; here we just log before/after values.
         before_url = (
             str(self._gateway._default_client.base_url) if self._gateway._default_client else ""
         )
@@ -1788,9 +1788,9 @@ class DaemonServer:
         if running:
             models = await self._list_mlx_models()
 
-        # issue #225: 透出 fusion-mlx 推理池生命周期 (LRU last_used / loaded_at /
-        # pinned / 加载中 / 尺寸 / 内存水位). pool 字段仅 MLX 运行时填充,
-        # 取数失败不降级整体 status (审计 M-2: 与 health/list 失败一致, warning 记原因).
+        # issue #225: expose the fusion-mlx inference pool lifecycle (LRU last_used / loaded_at /
+        # pinned / loading / size / memory watermark). The pool field is only filled by the MLX runtime;
+        # pool fetch failure does not degrade the overall status (audit M-2: consistent with health/list failures, log the reason as a warning).
         pool = await self._fetch_mlx_pool_state() if running else None
         return {
             "running": running,
@@ -1803,7 +1803,7 @@ class DaemonServer:
         }
 
     async def _handle_mlx_pool(self, params: dict) -> dict:
-        # issue #225: 独立池状态 RPC, 客户端可单查池 (不经全量 status).
+        # issue #225: dedicated pool status RPC so clients can query the pool alone (without full status).
         running = self._mlx_process is not None and self._mlx_process.poll() is None
         if not running:
             return {"running": False, "pool": None}
@@ -1985,19 +1985,19 @@ class DaemonServer:
                         label=e.get("label", e.get("condition", "")),
                     )
 
-        # #213: stable_id opt-in — 按 name+内容 hash 复用既有 graph_id (upsert 语义).
-        # 下游 cron/缓存绑定旧 id, 同内容 sync 重建拿新 uuid 会失效. 默认关 (uuid 不变).
+        # #213: stable_id opt-in — reuse the existing graph_id by name+content hash (upsert semantics).
+        # Downstream cron/cache bindings hold old ids; rebuilding the same content with a new uuid would break them. Default off (uuid unchanged).
         if params.get("stable_id"):
             graph.id = graph.stable_id()
             existing = self.store.load_graph(graph.id)
             logger.info("graph.create stable_id=%s (existing=%s)", graph.id, bool(existing))
-        # #215: 内容 schema 校验. 默认软校验 (只 log, 不拒); strict_validate=true 拒硬错.
-        # 硬错 = 结构错 + tool_name 不在 registry + condition_expr 无法解析.
-        # warning: = output_mapping/tool_params 未知 key (动态输出/config 注入合法).
-        # 性能: 默认路径不加载 registry (create_default_registry 56 工具 ~140ms,
-        # 套件内每 daemon 重建叠加负载致 planner RPC 5s 超时 flaky). 仅 strict_validate
-        # 需 tool_name/condition_expr 硬校验时才加载. 软路径 validate(None) 只查结构,
-        # 与 runtime 执行前结构校验一致, 不丢真错 (硬错仍会在执行前结构校验拦截).
+        # #215: content schema validation. Soft validation by default (log only, no rejection); strict_validate=true hard-rejects.
+        # Hard errors = structural errors + tool_name not in registry + condition_expr unparseable.
+        # Warnings: unknown keys in output_mapping/tool_params (dynamic outputs/config injection are legal).
+        # Perf: the default path does not load the registry (create_default_registry's 56 tools take ~140ms,
+        # and per-daemon rebuilds across the suite piled up into planner RPC 5s timeout flakiness). Load only when
+        # strict_validate needs tool_name/condition_expr hard validation. The soft path validate(None) only checks structure,
+        # consistent with the runtime pre-execution structural check, so real errors are not lost (hard errors are still caught pre-execution).
         strict = bool(params.get("strict_validate"))
         try:
             issues = graph.validate(self._get_tool_registry() if strict else None)
@@ -2057,11 +2057,11 @@ class DaemonServer:
         return {"deleted": True}
 
     async def _handle_graph_purge_test(self, params: dict) -> dict:
-        # 清理测试残留 graph。
+        # Clean up leftover test graphs.
         # params:
-        #   names: list[str] — 精确匹配名称批量删（可选）
-        #   prefixes: list[str] — 按名称前缀批量删（可选，如 ["e2e-"]）
-        #   dry_run: bool — 仅返回将删除的数量，不实际删除（默认 false）
+        #   names: list[str] — exact-match batch delete by name (optional)
+        #   prefixes: list[str] — batch delete by name prefix (optional, e.g. ["e2e-"])
+        #   dry_run: bool — only return the would-be delete count, no actual deletion (default false)
         names = params.get("names") or []
         prefixes = params.get("prefixes") or []
         dry_run = bool(params.get("dry_run", False))
@@ -2106,7 +2106,7 @@ class DaemonServer:
         if not isinstance(input_text, str):
             input_text = json.dumps(input_text, ensure_ascii=False)
         session_id = params.get("session_id", "")
-        # #141 priority-4: 透传 task_id, 执行产物回写 task.artifact_ids + 状态.
+        # #141 priority-4: pass through task_id; write execution artifacts back to task.artifact_ids + status.
         task_id = params.get("task_id", "")
 
         graph = self.store.load_graph(graph_id)
@@ -2114,13 +2114,13 @@ class DaemonServer:
             raise ValueError(f"Graph not found: {graph_id}")
 
         rt = self._get_runtime()
-        # 审计 E-14: 注册当前 task 到 _active_executions, 让 daemon.status 报真实
-        # 活跃数 + stop() 可取消/等待. graph.execute 在调用方 RPC task 内同步跑,
-        # 旧版从不注册 -> status 恒 0 + stop 啥也不停. try/finally 保证注销.
-        # 审计 P0-12: 旧 fallback id(rt) 是进程级单例常量, 并发同 graph+无 task_id
-        # 的多执行互覆同一个 exec_key -> 先注册者被后注册者覆盖, stop()/status 失真,
-        # finally 误注销在途执行. 改走 register_execution, fallback id(current_task)
-        # 每个 asyncio task 唯一, 无碰撞.
+        # Audit E-14: register the current task in _active_executions so daemon.status reports the real
+        # active count + stop() can cancel/wait. graph.execute runs synchronously inside the caller's RPC task and
+        # never registered before -> status stuck at 0 + stop stopped nothing. try/finally guarantees unregistration.
+        # Audit P0-12: the old fallback id(rt) is a process-level singleton constant; concurrent executions of the same
+        # graph without task_id overwrote the same exec_key -> the first registration was clobbered by a later one,
+        # making stop()/status wrong and finally unregistering an in-flight execution. Switch to register_execution;
+        # the fallback id(current_task) is unique per asyncio task, no collisions.
         exec_key, _unregister = self.register_execution("graph", task_id or session_id)
         try:
             # #426: file checkpoint — snapshot the working directory before the
@@ -2149,12 +2149,12 @@ class DaemonServer:
                 except Exception as exc:
                     logger.warning("graph.execute %s file checkpoint failed: %s", graph_id, exc)
             initial_vars = params.get("variables", {})
-            # 审计 P0-1/P1-1/P1-2: 构建 per-exec ctx, 变量+工具配置进 ctx 隔离, 不写 singleton.
-            # 旧版 rt.variables.set 写 singleton VariableManager -> _seed_ctx_variables 快照
-            # 污染 singleton 进每个新 ctx -> 跨执行变量泄漏 (user A api_key 进 user B ctx).
-            # 旧版 rt.set_tool_configs 写 rt.tool_configs -> 并发 agent X 配置覆盖 Y.
-            # 旧版 execute_graph 不传 context= -> ctx.session_id 新 UUID, 与返回 session_id 不符
-            # -> task/trajectory/checkpoint 链错 id, resume 断裂.
+            # Audit P0-1/P1-1/P1-2: build a per-exec ctx; variables + tool config go into the ctx, not the singleton.
+            # The old rt.variables.set wrote the singleton VariableManager -> the _seed_ctx_variables snapshot
+            # polluted the singleton into every new ctx -> cross-execution variable leaks (user A's api_key into user B's ctx).
+            # The old rt.set_tool_configs wrote rt.tool_configs -> concurrent agent X config overwrote Y.
+            # The old execute_graph passed no context= -> ctx.session_id was a fresh UUID, mismatching the returned session_id
+            # -> task/trajectory/checkpoint chains broke on ids and resume failed.
             from .context import AgentContext
             from .variable_manager import VariableManager
 
@@ -2174,9 +2174,9 @@ class DaemonServer:
                     len(initial_vars),
                     list(initial_vars.keys()),
                 )
-            # 声明工具配置注入 (#125/#131): agent_id 优先取 params, 回退 graph 元数据.
-            # graph 内嵌 agent_id 让 CLI/GUI 等任意调用方零改动触发注入.
-            # 审计 P1-1: 构建到 ctx.tool_configs (隔离), 不调 rt.set_tool_configs (写 singleton).
+            # Tool config injection declaration (#125/#131): agent_id taken from params first, falling back to graph metadata.
+            # The embedded graph agent_id lets any caller (CLI/GUI etc.) trigger injection with zero changes.
+            # Audit P1-1: build into ctx.tool_configs (isolated); do not call rt.set_tool_configs (writes the singleton).
             if agent_id:
                 try:
                     from .agent_definition import AgentDefinition
@@ -2211,7 +2211,7 @@ class DaemonServer:
             events = []
             tool_errors: list[str] = []
 
-            # #141 priority-4: 关联 task 时, 执行前置 running.
+            # #141 priority-4: when a task is linked, mark it running before execution.
             artifact_ids: list[str] = []
             if task_id:
                 try:
@@ -2223,11 +2223,11 @@ class DaemonServer:
                         "graph.execute %s set task %s running failed: %s", graph_id, task_id, exc
                     )
 
-            # #214: 并发节流. 有 Semaphore 时 acquire 再执行, 超限排队等待 (不拒).
-            # 无 Semaphore (默认) 直接执行, 行为不变.
+            # #214: concurrency throttle. With a Semaphore, acquire before executing; over-limit requests queue (not rejected).
+            # Without a Semaphore (default), execute directly; behavior unchanged.
             async def _run_stream():
-                # 审计 P0-1/P1-2/P0-3: 传 per-exec ctx (变量+配置隔离+session_id 链对齐)
-                # + token_budget (预算控制接线, 旧版 11 处调用点全漏传=死代码).
+                # Audit P0-1/P1-2/P0-3: pass the per-exec ctx (variable + config isolation + session_id chain alignment)
+                # + token_budget (budget wiring; the old 11 call sites all missed it = dead code).
                 async for event in rt.execute_graph(
                     graph,
                     input_text,
@@ -2236,7 +2236,7 @@ class DaemonServer:
                 ):
                     ev_dict = event.to_dict() if hasattr(event, "to_dict") else {"type": str(event)}
                     events.append(ev_dict)
-                    # 收集 artifact_create 工具产物 id, 执行后回写 task.artifact_ids.
+                    # Collect artifact ids produced by the artifact_create tool and write them back to task.artifact_ids after execution.
                     if (
                         ev_dict.get("type") == "tool_result"
                         and ev_dict.get("name") == "artifact_create"
@@ -2288,7 +2288,7 @@ class DaemonServer:
             except Exception as exc:
                 logger.warning("graph.execute %s run artifact failed: %s", graph_id, exc)
 
-            # #141 priority-4: 关联 task 时, 回写 artifact_ids + 完成状态 + last_result.
+            # #141 priority-4: when a task is linked, write back artifact_ids + completion status + last_result.
             if task_id:
                 try:
                     ts = self._get_task_store()
@@ -2325,14 +2325,14 @@ class DaemonServer:
                 "file_snapshot_id": file_snapshot_id,
             }
         finally:
-            # 审计 E-14: 注销活跃执行, 无论成功/异常/取消.
+            # Audit E-14: unregister the active execution on success/exception/cancel alike.
             _unregister()
 
-    # ── M1-2: 异步执行 + 证据 jsonl + status/cancel ──
+    # ── M1-2: async execution + evidence jsonl + status/cancel ──
 
     def _evidence_dir(self, team: str = "default") -> Path:
-        # 证据 jsonl 目录: ~/.fusion-agent-studio/out/<team>/evidence/executions/
-        # M1-7: FUSION_OUT_DIR env 让 proof 脚本隔离证据目录.
+        # Evidence jsonl directory: ~/.fusion-agent-studio/out/<team>/evidence/executions/
+        # M1-7: FUSION_OUT_DIR env lets proof scripts isolate the evidence directory.
         out_root = os.environ.get("FUSION_OUT_DIR", "")
         if out_root:
             base = Path(out_root) / (team or "default")
@@ -2505,7 +2505,7 @@ class DaemonServer:
         }
 
     def _write_evidence(self, execution_id: str, record: dict, team: str = "default") -> None:
-        # 每个状态变化写证据行 (jsonl append). 崩溃恢复靠证据 reconcile.
+        # Write an evidence line on every state change (jsonl append). Crash recovery reconciles from evidence.
         # record: {ts, type, node_id?, status?, events_count?, error?}
         record["ts"] = record.get("ts", time.time())
         record["execution_id"] = execution_id
@@ -2519,7 +2519,7 @@ class DaemonServer:
     def _read_evidence_tail(
         self, execution_id: str, team: str = "default", n: int = 20
     ) -> list[dict]:
-        # 读证据 jsonl 尾部 n 行 (graph.status 进度用).
+        # Read the last n lines of the evidence jsonl (for graph.status progress).
         path = self._evidence_path(execution_id, team)
         if not path.exists():
             return []
@@ -2535,8 +2535,8 @@ class DaemonServer:
             return []
 
     async def _handle_graph_execute_async(self, params: dict) -> dict:
-        # M1-2: 异步执行. 返回 execution_id ≤5s, 后台跑 graph, 事件走流 + 证据 jsonl.
-        # graph.execute (同步) 保留向后兼容, 调用方迁移后可删.
+        # M1-2: async execution. Return execution_id within 5s, run the graph in the background, events flow through the stream + evidence jsonl.
+        # graph.execute (synchronous) kept for backward compatibility; removable after callers migrate.
         graph_id = params.get("graph_id", "")
         input_text = params.get("input", "")
         if not isinstance(input_text, str):
@@ -2550,8 +2550,8 @@ class DaemonServer:
         if graph is None:
             raise ValueError(f"Graph not found: {graph_id}")
 
-        # #497: fork_from 校验前置 (fail-fast, 守住 ≤5s 返回契约) —
-        # 未知 run / 无事件在启动前拒绝, 不等后台任务跑挂.
+        # #497: fork_from validation moved up front (fail-fast, preserving the <=5s return contract) —
+        # unknown run / no events are rejected before launch instead of letting the background task crash later.
         fork_from = params.get("fork_from") or {}
         if isinstance(fork_from, dict) and fork_from.get("run_id"):
             fork_msgs = self._get_event_tree().messages_at(
@@ -2560,7 +2560,7 @@ class DaemonServer:
             if fork_msgs is None:
                 raise ValueError(f"fork_from run not found or has no events: {fork_from['run_id']}")
 
-        # 写启动证据
+        # Write launch evidence
         self._write_evidence(
             execution_id,
             {
@@ -2572,7 +2572,7 @@ class DaemonServer:
             team=team,
         )
 
-        # 创建后台任务
+        # Create the background task
         bg_task = asyncio.create_task(
             self._run_graph_async(
                 execution_id=execution_id,
@@ -2587,7 +2587,7 @@ class DaemonServer:
         )
         self._active_executions[execution_id] = bg_task
 
-        # task_id 关联时前置 running + 记录 evidence_ref (崩溃恢复靠此链接)
+        # With task_id linked, mark running up front + record evidence_ref (crash recovery links via this)
         if task_id:
             try:
                 ts = self._get_task_store()
@@ -2819,7 +2819,7 @@ class DaemonServer:
         team: str,
         params: dict,
     ) -> None:
-        # 后台执行 graph: 获取 semaphore → 建 ctx → 跑 execute_graph → 证据 + 事件 + task 回写.
+        # Background graph execution: acquire semaphore -> build ctx -> run execute_graph -> evidence + events + task write-back.
         events_count = 0
         artifact_ids: list[str] = []
         tool_errors: list[str] = []
@@ -2951,7 +2951,7 @@ class DaemonServer:
                         "tool_error"
                     ):
                         stop_reason = "error"
-                    # 每 5 个事件写一次进度证据 + 广播
+                    # Write progress evidence + broadcast every 5 events
                     if events_count % 5 == 0:
                         self._write_evidence(
                             execution_id,
@@ -2995,7 +2995,7 @@ class DaemonServer:
             # N7: budget_exceeded path returns without END event — read ctx directly.
             if not stop_reason:
                 stop_reason = getattr(exec_ctx, "stop_reason", "") or "end_turn"
-            # 完成证据
+            # Completion evidence
             if not stop_reason:
                 stop_reason = "end_turn"
             # N9 #348: run artifact versioned triple (graph + env + conversation).
@@ -3042,7 +3042,7 @@ class DaemonServer:
                 team=team,
             )
 
-            # task 回写: completed + artifact_ids + evidence_ref
+            # Task write-back: completed + artifact_ids + evidence_ref
             if task_id:
                 try:
                     ts = self._get_task_store()
@@ -3084,7 +3084,7 @@ class DaemonServer:
                 len(artifact_ids),
             )
         except asyncio.CancelledError:
-            # cancel: 写 cancelled 证据 + task cancelled. #477: stop_reason is
+            # cancel: write cancelled evidence + task cancelled. #477: stop_reason is
             # set by the real cancellation path (bg_task.cancel / supervisor
             # stop) and surfaced on every downstream record.
             self._append_run_span(
@@ -3164,7 +3164,7 @@ class DaemonServer:
             logger.exception("graph.execute_async %s failed: %s", execution_id, error_msg)
 
     async def _handle_graph_status(self, params: dict) -> dict:
-        # M1-2: 查执行状态. _active_executions 有=running, 无+证据有 completed/failed=终态.
+        # M1-2: query execution status. In _active_executions = running; absent + evidence has completed/failed = terminal.
         execution_id = params.get("execution_id", "")
         team = params.get("team", "default")
         if not execution_id:
@@ -3184,7 +3184,7 @@ class DaemonServer:
                 "last_event_at": last_ev.get("ts", 0),
             }
 
-        # 不在活跃表 → 查证据判终态
+        # Not in the active table -> check evidence for terminal state
         evidence = self._read_evidence_tail(execution_id, team, n=50)
         if not evidence:
             return {
@@ -3202,7 +3202,7 @@ class DaemonServer:
             status = "cancelled"
         else:
             status = "running"
-        # 清理已完成的 _active_executions 条目
+        # Clean up completed _active_executions entries
         if bg_task is not None and bg_task.done():
             self._active_executions.pop(execution_id, None)
         return {
@@ -3217,7 +3217,7 @@ class DaemonServer:
         }
 
     async def _handle_graph_cancel(self, params: dict) -> dict:
-        # M1-2: 取消执行. 取 asyncio.Task.cancel() → 写 cancelled 证据 (在 CancelledError 路径).
+        # M1-2: cancel execution. Call asyncio.Task.cancel() -> write cancelled evidence (on the CancelledError path).
         execution_id = params.get("execution_id", "")
         reason = params.get("reason", "")
         if not execution_id:
@@ -3236,8 +3236,8 @@ class DaemonServer:
     # ── M1-4: ResourceLease RPCs (§5.3) ──
 
     async def _handle_resource_lease_apply(self, params: dict) -> dict:
-        # lease_apply(resource, task_id, role, ttl) → granted 或 queued(position).
-        # granted 时回写 task.resource_lease_id (task_store 链路).
+        # lease_apply(resource, task_id, role, ttl) -> granted or queued(position).
+        # On granted, write back task.resource_lease_id (task_store chain).
         rl = self._get_resource_lease()
         result = rl.lease_apply(
             resource_id=params.get("resource_id", ""),
@@ -3322,8 +3322,8 @@ class DaemonServer:
         return {"status": "ok", "resource_id": params.get("resource_id", "")}
 
     async def _handle_graph_resume(self, params: dict) -> dict:
-        # 审计 E-20: 闭合 checkpoint 读路径. 旧版只写不读 (write-only stage),
-        # resume_from_checkpoint 存在但无 RPC 暴露 + 签名错致 TypeError.
+        # Audit E-20: close the checkpoint read path. The old version only wrote, never read (write-only stage):
+        # resume_from_checkpoint existed but had no RPC exposure + a wrong signature causing TypeError.
         graph_id = params.get("graph_id", "")
         session_id = params.get("session_id", "")
         stream = bool(params.get("stream", False))
@@ -3333,9 +3333,9 @@ class DaemonServer:
         if graph is None:
             raise ValueError(f"Graph not found: {graph_id}")
         rt = self._get_runtime()
-        # 审计 P0-12: 旧键 resume:{graph_id}:{session_id} 同 graph+session 并发 resume
-        # 互覆 -> 同 graph.execute 的 id(rt) 碰撞. 改走 register_execution,
-        # fallback id(current_task) 每 task 唯一.
+        # Audit P0-12: the old key resume:{graph_id}:{session_id} let concurrent resumes of the same graph+session
+        # overwrite each other -> the same id(rt) collision as graph.execute. Switch to register_execution,
+        # with fallback id(current_task) unique per task.
         exec_key, _unregister = self.register_execution("resume", f"{graph_id}:{session_id}")
         try:
             events = []
@@ -3353,8 +3353,8 @@ class DaemonServer:
             _unregister()
 
     def _extract_artifact_id(self, content: str) -> str:
-        # #141 priority-4: 从 artifact_create 工具结果 JSON 提取 artifact_id.
-        # 工具返回 json.dumps({"status":..., "artifact_id":...}); 容错非 JSON.
+        # #141 priority-4: extract artifact_id from the artifact_create tool result JSON.
+        # The tool returns json.dumps({"status":..., "artifact_id":...}); tolerate non-JSON.
         if not content:
             return ""
         try:
@@ -3441,7 +3441,7 @@ class DaemonServer:
         }
 
     async def _handle_graph_version_list(self, params: dict) -> dict:
-        # #484: 不可变版本记录列表 (新→旧), 不含 data 大字段.
+        # #484: immutable version record list (newest first), excluding the large data field.
         graph_id = params.get("graph_id", "")
         if not graph_id:
             raise ValueError("graph_id is required")
@@ -3450,8 +3450,8 @@ class DaemonServer:
         return {"graph_id": graph_id, "versions": versions}
 
     async def _handle_graph_version_restore(self, params: dict) -> dict:
-        # #484: 回滚到指定版本. restore 本身也是一次保存 — 恢复内容记为新版本,
-        # 被替换的当前状态仍留在历史里 (它是上一条版本记录), 无丢失.
+        # #484: roll back to the given version. restore itself is also a save — the restored content is recorded as a new version,
+        # and the replaced current state stays in history (it is the previous version record), so nothing is lost.
         graph_id = params.get("graph_id", "")
         version = params.get("version")
         if not graph_id:
@@ -3652,9 +3652,9 @@ class DaemonServer:
     async def _handle_env_repair(self, params: dict) -> dict:
         item_id = params.get("item_id", "")
         logger.info("Repair requested for: %s (not_implemented)", item_id)
-        # #217: 返回结构化 not_implemented 状态, 让前端区分
-        # "环境真的修不了" vs "功能未实现", 不再混淆.
-        # repaired=False 保留向后兼容; status/implemented 为新增明确字段.
+        # #217: return a structured not_implemented status so the frontend can distinguish
+        # "environment genuinely unfixable" vs "feature not implemented" instead of conflating them.
+        # repaired=False is kept for backward compatibility; status/implemented are new explicit fields.
         return {
             "repaired": False,
             "status": "not_implemented",
@@ -3802,8 +3802,8 @@ class DaemonServer:
         return self._cron_manager
 
     def _on_cron_execution_failure(self, job, exe) -> None:
-        # #501: cron 执行失败告警 — WS 广播 cron.execution_failed + 审计落库.
-        # CronManager._run_single_job 同步上下文内调用; 广播是 async, 丢事件循环排队.
+        # #501: cron execution failure alert — WS broadcast cron.execution_failed + audit record.
+        # Called from CronManager._run_single_job's sync context; broadcast is async, queue when there is no event loop.
         try:
             asyncio.get_running_loop()
         except RuntimeError:
@@ -3937,8 +3937,8 @@ class DaemonServer:
         return self._task_executor
 
     def _get_task_store(self):
-        # #141: 通用 Task 持久化, 独立 tasks.db. 测试可设 self._task_store 注入临时库.
-        # M1-7: FUSION_TASK_DB env 让 proof 脚本子进程隔离 tasks.db.
+        # #141: generic Task persistence, separate tasks.db. Tests can inject a temp store via self._task_store.
+        # M1-7: FUSION_TASK_DB env lets proof script subprocesses isolate tasks.db.
         from .task_store import TaskStore
 
         if not hasattr(self, "_task_store") or self._task_store is None:
@@ -3961,9 +3961,9 @@ class DaemonServer:
         return self._event_tree
 
     async def _cron_default_handler(self, job) -> dict:
-        # M1-5: cron 降为触发器. job 触发 = 创建 Task(idempotency_key=job_id+fire_time)
-        # → graph.execute_async (异步). 不再同步执行 graph (F2 半根因: cron 同步执行 graph
-        # 致客户端 600s 等待). job 失败语义 = 任务创建失败 (不再含执行失败).
+        # M1-5: cron demoted to trigger. Job fire = create Task(idempotency_key=job_id+fire_time)
+        # -> graph.execute_async (async). No longer executes the graph synchronously (F2 half root cause: cron running the graph
+        # synchronously made clients wait 600s). Job failure semantics = task creation failure (no longer includes execution failure).
         import json as _json
 
         from .task_store import TRIGGER_CRON, Task
@@ -4004,8 +4004,8 @@ class DaemonServer:
                     logger.warning("Cron job %s input_data not JSON dict: %s", job.id, exc)
                     variables = {}
 
-        # M1-5: 幂等触发. idempotency_key = cron:{job_id}:{fire_time}.
-        # 同一 fire_time 重复触发 (cron 重试/崩溃恢复) → find_by_idempotency 命中 → skip.
+        # M1-5: idempotent triggering. idempotency_key = cron:{job_id}:{fire_time}.
+        # A duplicate fire of the same fire_time (cron retry/crash recovery) -> find_by_idempotency hit -> skip.
         fire_time = getattr(job, "next_run", 0) or time.time()
         idem_key = f"cron:{job.id}:{int(fire_time)}"
         team = "default"
@@ -4196,9 +4196,9 @@ class DaemonServer:
         }
 
     async def _handle_tool_register_python(self, params: dict) -> dict:
-        # C12: SDK Tool (Python handler) daemon 注册. 收 handler 源码,
-        # daemon 端 exec 成 BaseTool 子类 (handler 函数名已知), 注册入动态 registry.
-        # 本地受信环境: exec 源码安全可接受 (等同本地运行 SDK handler).
+        # C12: SDK Tool (Python handler) daemon registration. Capture the handler source,
+        # exec it daemon-side into a BaseTool subclass (handler function name is known) and register it in the dynamic registry.
+        # Local trusted environment: exec'ing source is acceptable (equivalent to running the SDK handler locally).
         from tools import ToolRegistry
         from tools.base import BaseTool
 
@@ -4228,9 +4228,9 @@ class DaemonServer:
                     pv if isinstance(pv, dict) else {"type": "string", "description": str(pv)}
                 )
 
-        # inspect.getsource 对嵌套/缩进 handler 捕获前导缩进, dedent 规整后 exec.
+        # inspect.getsource captures leading indentation for nested/indented handlers; dedent normalizes it before exec.
         source = textwrap.dedent(source)
-        # 在隔离命名空间 exec 源码, 提取 handler 可调用对象.
+        # Exec the source in an isolated namespace and extract the handler callable.
         exec_ns: dict = {}
         try:
             exec(compile(source, f"<sdk_tool_{name}>", "exec"), exec_ns)
@@ -4421,7 +4421,7 @@ class DaemonServer:
         max_tokens = params.get("max_tokens", 0)
         budget = TokenBudget(max_tokens=max_tokens)
         self._token_budget = budget
-        # 审计 P0-3: 写入 runtime 实例默认预算, execute_graph 回退读取, 全调用点生效.
+        # Audit P0-3: write the runtime instance default budget so execute_graph's fallback reads it and every call site is covered.
         try:
             self._get_runtime()._default_token_budget = budget
         except Exception as exc:
@@ -4458,8 +4458,8 @@ class DaemonServer:
                         ws_key = h.split(":", 1)[1].strip()
                     elif h.lower().startswith("sec-websocket-protocol:"):
                         ws_proto = h.split(":", 1)[1].strip()
-                # 审计 D-1: token 鉴权. 客户端须在 Sec-WebSocket-Protocol 携带
-                # FUSION_WS_TOKEN (形如 "Bearer <token>"). 不匹配则拒握手.
+                # Audit D-1: token auth. The client must carry FUSION_WS_TOKEN in Sec-WebSocket-Protocol
+                # (like "Bearer <token>"). Reject the handshake on mismatch.
                 token = _ws_token()
                 if token and ws_proto != f"Bearer {token}":
                     logger.warning("WS handshake rejected: bad/missing token from %s", peer)
@@ -4761,19 +4761,19 @@ class DaemonServer:
         try:
             import httpx
 
-            # 携带对应路径的 api_key，否则开启鉴权时 /models 返回 401
-            # 被误判为不健康 (bug6 一直显示检测中)
+            # Carry the api_key for the corresponding path, otherwise with auth enabled /models returns 401
+            # and is misread as unhealthy (bug6 kept showing "checking")
             key = self._attach_mlx_api_key()
             headers = {"Authorization": f"Bearer {key}"} if key else {}
-            # 审计 P1-25: 每次读 env 解析 base_url, 不用 import 时冻结的 MLX_BASE_URL
-            # 常量 (reconnect/gateway 切换后探测旧地址误报不健康).
+            # Audit P1-25: resolve base_url from env on every probe, not the MLX_BASE_URL constant frozen at import
+            # (after reconnect/gateway switch the probe would hit the stale address and falsely report unhealthy).
             base_url = _resolve_mlx_base_url()
             async with httpx.AsyncClient(timeout=2.0) as client:
                 resp = await client.get(f"{base_url}/models", headers=headers)
                 return resp.status_code == 200
         except Exception as e:
-            # 审计 M-2: 健康检查所有失败 (401/拒连/DNS/超时) 统一 return False,
-            # 运维分不清"服务器宕"vs"密钥轮换"vs"网络分区". debug 级记原因可诊断.
+            # Audit M-2: all health check failures (401/refused/DNS/timeout) uniformly return False, so
+            # ops cannot tell "server down" vs "key rotated" vs "network partition". Log the reason at debug level for diagnosability.
             logger.debug("MLX health check failed (%s): %s", type(e).__name__, e)
             return False
 
@@ -4783,7 +4783,7 @@ class DaemonServer:
 
             key = self._attach_mlx_api_key()
             headers = {"Authorization": f"Bearer {key}"} if key else {}
-            # 审计 P1-25: 同 _check_mlx_health, 每次读 env 解析 base_url.
+            # Audit P1-25: same as _check_mlx_health, resolve base_url from env on every call.
             base_url = _resolve_mlx_base_url()
             async with httpx.AsyncClient(timeout=5.0) as client:
                 resp = await client.get(f"{base_url}/models", headers=headers)
@@ -4791,27 +4791,27 @@ class DaemonServer:
                 data = resp.json()
                 return data.get("data", [])
         except Exception as e:
-            # 审计 M-2: 列模型失败 (401 鉴权轮换/500/响应畸形) -> [] 与"MLX 运行
-            # 但无模型加载"不可区分. warning 级记原因.
+            # Audit M-2: model list failures (401 auth rotation/500/malformed response) -> [] is indistinguishable from
+            # "MLX running but no models loaded". Log the reason at warning level.
             logger.warning("MLX list models failed (%s): %s", type(e).__name__, e)
             return []
 
     def _resolve_mlx_server_root(self) -> str:
-        # issue #225: 池状态走 fusion-mlx /admin/api/models (非 /v1).
-        # /v1 经 gateway (:11432) 转发, /admin/* 仅 MLX server 本身暴露,
-        # 故池取数必须直连 MLX server root, 不经 gateway.
-        # issue #470: 已接受的直连例外 — gateway 不代理 MLX admin 路由,
-        # 此处仅读取池状态 (无推理流量, 无 cloud→local 重试语义).
-        # 默认直连端口 11434, FUSION_MLX_DIRECT_PORT 可显式覆盖 (非 11434 部署).
+        # issue #225: pool status goes to fusion-mlx /admin/api/models (not /v1).
+        # /v1 is forwarded via the gateway (:11432); /admin/* is only exposed by the MLX server itself,
+        # so pool fetches must hit the MLX server root directly, not through the gateway.
+        # issue #470: accepted direct-connect exception — the gateway does not proxy MLX admin routes,
+        # and this only reads pool status (no inference traffic, no cloud->local retry semantics).
+        # Default direct port 11434; FUSION_MLX_DIRECT_PORT can override explicitly (non-11434 deployments).
         port = os.environ.get("FUSION_MLX_DIRECT_PORT", "11434")
         return f"http://127.0.0.1:{port}"
 
     async def _fetch_mlx_pool_state(self) -> dict | None:
-        # issue #225: 代理 fusion-mlx 推理池状态. 数据源:
+        # issue #225: proxy the fusion-mlx inference pool status. Data sources:
         #   /admin/api/models -> per-model loaded/last_access(LRU)/pinned/size/loading
-        #   /admin/api/stats  -> 内存水位 + per-model active/waiting 请求数
-        # 两端点均需 admin 鉴权 (loopback + MLX api_key, daemon 已持 _read_mlx_api_key).
-        # lease refcount (in_use) + TTL 配置上游未暴露, 待 fusion-mlx#647 落地后补.
+        #   /admin/api/stats  -> memory watermark + per-model active/waiting request counts
+        # Both endpoints need admin auth (loopback + MLX api_key; the daemon already holds _read_mlx_api_key).
+        # lease refcount (in_use) + TTL config are not yet exposed upstream; to add after fusion-mlx#647 lands.
         import httpx
 
         key = self._read_mlx_api_key()
@@ -4918,8 +4918,8 @@ class DaemonServer:
             )
             logger.warning("mlx pool /admin/api/stats failed (%s)", err)
 
-        # 合并 stats 的生命周期字段进 loaded 条目. stats /active_models 仅含
-        # loaded/loading 模型, 故未匹配的 registered-but-unloaded 条目保留 /admin/api/models 原值.
+        # Merge the stats lifecycle fields into the loaded entries. stats /active_models only contains
+        # loaded/loading models, so unmatched registered-but-unloaded entries keep their /admin/api/models values.
         for entry in loaded:
             extra = active_by_model.get(entry["id"])
             if extra:
@@ -4948,8 +4948,8 @@ class DaemonServer:
             # #541: fusion-mlx prefix-cache aggregate (None when stats fetch
             # failed or engine reported nothing).
             "prefix_cache": prefix_cache,
-            # lease refcount (in_use) 上游未暴露, 占位待 fusion-mlx#647.
-            # TTL 已通过 stats ttl_remaining_seconds 暴露 (剩余秒数).
+            # lease refcount (in_use) not exposed upstream; placeholder until fusion-mlx#647.
+            # TTL is already exposed via stats ttl_remaining_seconds (seconds remaining).
             "pending_upstream": ["lease_refcount"],
         }
 
@@ -4964,7 +4964,7 @@ class DaemonServer:
     def _attach_mlx_client(self) -> None:
         from server.fusion_mlx_client import FusionMLXClient
 
-        # 审计 E-18: 用运行时解析函数替代冻结常量, 支持 env 热切后重 attach.
+        # Audit E-18: replace the frozen constant with a runtime resolver so env hot-switches re-attach.
         base_url = _resolve_mlx_base_url()
         api_key = self._attach_mlx_api_key()
         client = FusionMLXClient(base_url=base_url, api_key=api_key)
@@ -4973,9 +4973,9 @@ class DaemonServer:
         if loaded:
             self._gateway._default_model = loaded
             self._gateway.register_default_local(name=loaded, base_url=base_url)
-        # issue #470: gateway 路径不再挂直连 fusion-mlx 11434 兜底 client —
-        # gateway 自身拥有 local→cloud overflow 策略 (fusion-gateway#301),
-        # 客户端静默 cloud→local 重试绕过审计面, 已删除.
+        # issue #470: the gateway path no longer attaches a direct fusion-mlx 11434 fallback client —
+        # the gateway owns its own local->cloud overflow policy (fusion-gateway#301),
+        # and silent client cloud->local retries bypass the audit surface, so removed.
         logger.info(
             "MLX client attached to gateway (api_key=%s, default_model=%s)",
             "set" if api_key else "none",
@@ -4983,22 +4983,22 @@ class DaemonServer:
         )
 
     def _is_gateway_path(self) -> bool:
-        # NetLayer 方案B: MLX_BASE_URL 默认经 fusion-gateway (:11432)，
-        # gateway 客户端鉴权独立一套 (FUSION_GATEWAY_API_KEY / shell settings,
-        # #509 收敛到 fusion_core.config gateway_admin_key)，
-        # 与 fusion-mlx 的 upstream key (dahai168) 不同。直连 :11434 时返回 False。
-        # 运行时读 FUSION_MLX_PORT (而非 import 期捕获的 MLX_PORT), 支持 start.sh
-        # 重启时切换端口而不重新 import 模块 (issue #128 测试复现)。
+        # NetLayer plan B: MLX_BASE_URL defaults through fusion-gateway (:11432);
+        # gateway client auth is a separate set (FUSION_GATEWAY_API_KEY / shell settings,
+        # #509 converged into fusion_core.config gateway_admin_key),
+        # different from fusion-mlx's upstream key. Direct :11434 returns False.
+        # Read FUSION_MLX_PORT at runtime (not the import-time MLX_PORT) so a start.sh
+        # port switch takes effect without re-importing the module (issue #128 test reproduction).
         if os.environ.get("FUSION_GATEWAY_URL"):
             return True
         port = int(os.environ.get("FUSION_MLX_PORT", str(MLX_PORT)))
         return port != 11434
 
     def _attach_mlx_api_key(self) -> str:
-        # #509: 原 _resolve_mlx_api_key_for_attach 改名 — 验收 grep 禁止
-        # `hand-rolled _resolve-key helpers` 手写解析器 (config Phase 2.2, fusion-core#31)。
-        # 经 gateway 路径需用 gateway client key，否则 gateway 返回 401 →
-        # _discover_mlx_model_id 失败 → _default_model 空 → LLM 调用静默空输出 (issue #128)。
+        # #509: _resolve_mlx_api_key_for_attach renamed — acceptance grep bans hand-rolled
+        # `_resolve-key` helpers (config Phase 2.2, fusion-core#31).
+        # The gateway path needs the gateway client key, otherwise the gateway returns 401 ->
+        # _discover_mlx_model_id fails -> _default_model empty -> LLM calls silently return empty (issue #128).
         if self._is_gateway_path():
             key = self._read_gateway_api_key()
             if key:
@@ -5011,19 +5011,19 @@ class DaemonServer:
         return self._read_mlx_api_key()
 
     def _read_gateway_api_key(self) -> str:
-        # #509: 手写 config.yaml master_key/api_keys[0] 解析链删除,
-        # 统一走 fusion_core.config gateway_admin_key() 单点解析:
-        #   FUSION_GATEWAY_API_KEY 环境变量 > shell settings shell.gateway_admin_key
-        #   dev 缺 key = 空 + warning; FUSION_PROFILE=prod 缺 key = RuntimeError。
+        # #509: the hand-written config.yaml master_key/api_keys[0] parsing chain removed,
+        # unified through the fusion_core.config gateway_admin_key() single-point resolution:
+        #   FUSION_GATEWAY_API_KEY env var > shell settings shell.gateway_admin_key
+        #   missing key in dev = empty + warning; FUSION_PROFILE=prod missing key = RuntimeError.
         return _fusion_gateway_admin_key()
 
     def _read_mlx_api_key(self) -> str:
-        # #509: 手写解析器删除, 统一走 fusion_core.config 单点解析:
-        #   client_key() = FUSION_CLIENT_KEY > 弃用别名 (告警) > dev 匿名 ""
-        #   resolve_api_key() = 弃用别名 env > ~/.fusion-mlx/settings.json auth.api_key
-        # 审计 E-22 的 0o600 权限收紧保留 (读 settings 前顺手收紧)。
-        # 相比旧实现收敛两点 (随解析器上收): Library/Application Support 候选路径
-        # 与 settings 顶层 api_key 字段不再读取 (legacy 死路径)。
+        # #509: hand-written resolvers removed, unified through fusion_core.config single-point resolution:
+        #   client_key() = FUSION_CLIENT_KEY > deprecated alias (warning) > dev anonymous ""
+        #   resolve_api_key() = deprecated alias env > ~/.fusion-mlx/settings.json auth.api_key
+        # The audit E-22 0o600 permission tightening is kept (tightened while reading settings).
+        # Compared with the old implementation, two things converge (along with the resolver uplift): the Library/Application Support
+        # candidate path and the settings top-level api_key field are no longer read (legacy dead paths).
         self._harden_mlx_settings()
         key = _fusion_client_key()
         if key:
@@ -5032,7 +5032,7 @@ class DaemonServer:
 
     @staticmethod
     def _harden_mlx_settings() -> None:
-        # 审计 E-22: 静态凭据存储, 读时顺手收紧文件权限到 0o600 (umask 可能留 644).
+        # Audit E-22: static credential storage; tighten file permissions to 0o600 while reading (umask may leave 644).
         path = os.path.expanduser("~/.fusion-mlx/settings.json")
         try:
             if os.path.isfile(path) and (os.stat(path).st_mode & 0o777) != 0o600:
@@ -5042,19 +5042,19 @@ class DaemonServer:
             logger.debug("chmod settings.json failed: %s", exc)
 
     def _discover_mlx_model_id(self, api_key: str) -> str:
-        # 查询已运行 fusion-mlx 的模型目录，作为 gateway 默认模型 (bug1 联动)。
-        # /v1/models 返回目录内全部模型，含图像/视频/编码器组件，
-        # 需过滤出对话模型。#626: 旧 preferred 列表是过期硬编码（真实目录
-        # 已无这些 id），qwen fallback 又按目录序取第一个 -> 0.6B 成为
-        # daemon 默认，seat agent 工具调用全挂。改为：
-        # 1) fusion-mlx settings.json 自带 default_model 优先（目录内存在时）；
-        # 2) 否则按解析参数量取最大 qwen（27B > 9B > 4B > 0.6B），不靠目录序；
-        # 3) 低于 4B 记 WARNING（seat agent 依赖工具调用质量）。
+        # Query the running fusion-mlx model directory as the gateway default model (bug1 follow-up).
+        # /v1/models returns every model in the directory, including image/video/encoder components;
+        # filter down to chat models. #626: the old preferred list was stale hardcoding (the real directory
+        # no longer has those ids) and the qwen fallback took the first by directory order -> 0.6B became
+        # the daemon default and seat agent tool calls all failed. Now:
+        # 1) fusion-mlx settings.json's own default_model wins (when present in the directory);
+        # 2) otherwise pick the largest qwen by parsed parameter count (27B > 9B > 4B > 0.6B), not directory order;
+        # 3) below 4B log a WARNING (seat agents depend on tool call quality).
         try:
             import urllib.request
 
             headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
-            # 审计 P1-25: 同 _check_mlx_health, 读 env 解析 base_url (非冻结常量).
+            # Audit P1-25: same as _check_mlx_health, resolve base_url from env (not the frozen constant).
             base_url = _resolve_mlx_base_url()
             req = urllib.request.Request(f"{base_url}/models", headers=headers)
             with urllib.request.urlopen(req, timeout=5.0) as resp:
@@ -5187,9 +5187,9 @@ class DaemonServer:
             return {"switched": False, "error": str(e)}
 
     async def _handle_gateway_reconfigure(self, params: dict) -> dict:
-        # 审计 E-18: MLX_BASE_URL import 时冻结, gateway 切换需重启 daemon.
-        # 此 RPC 热切: 接收 base_url (可选, 缺省读 env FUSION_GATEWAY_URL/FUSION_MLX_PORT)
-        # + 重建 default/direct client + 重新发现 model, 无需重启.
+        # Audit E-18: MLX_BASE_URL frozen at import; gateway switching required a daemon restart.
+        # This RPC hot-switches: takes base_url (optional, defaults to env FUSION_GATEWAY_URL/FUSION_MLX_PORT)
+        # + rebuilds the default/direct clients + rediscovers the model, no restart needed.
         base_url = (params.get("base_url") or "").strip()
         if base_url:
             os.environ["FUSION_GATEWAY_URL"] = base_url
@@ -5265,8 +5265,8 @@ class DaemonServer:
                 if perms:
                     return perms
             except Exception as e:
-                # 审计 L-4: definition.json 损坏静默降级派生默认权限 = 完整性失败,
-                # 运维无信号. 记 warning 让权限漂移可诊断 (考虑后续直接 raise).
+                # Audit L-4: a corrupted definition.json silently degrading to derived default permissions is an integrity failure
+                # with no ops signal. Log a warning so permission drift is diagnosable (consider raising directly later).
                 logger.warning(
                     "agent %s definition.json corrupt, falling back to derived default perms: %s",
                     agent_id,
@@ -5282,9 +5282,9 @@ class DaemonServer:
 
 
 def run_daemon(socket_path: str = ""):
-    # #209: 空 → DaemonServer.__init__ 走 _resolve_socket_path (FUSION_SOCKET_DIR
-    # opt-in 私有目录, 否则 /tmp/fusion-studio.sock 默认). 显式传值 (测试) 不改.
-    # M1-7: argparse CLI 让 proof 脚本子进程隔离 socket/store/port.
+    # #209: empty -> DaemonServer.__init__ goes through _resolve_socket_path (FUSION_SOCKET_DIR
+    # opt-in private dir, otherwise /tmp/fusion-studio.sock default). Explicit values (tests) unchanged.
+    # M1-7: argparse CLI lets proof script subprocesses isolate socket/store/port.
     import argparse
 
     logging.basicConfig(

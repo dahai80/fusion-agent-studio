@@ -242,9 +242,9 @@ class TestAgentTemplates:
 class TestAPIServer:
     @pytest.fixture(autouse=True)
     def _no_auth_for_unit_tests(self, monkeypatch):
-        # 审计 D-6: 变更端点配置了 api-key 则强制鉴权. 单元测试验 HTTP 行为
-        # 不应依赖宿主机 ~/.fusion-agent-studio 是否真有 key — 统一置为本地
-        # 受信模式 (无 key). 鉴权本身由专用测试覆盖.
+        # Audit D-6: mutating endpoints enforce auth when an api-key is configured. HTTP
+        # behavior tests must not depend on whether ~/.fusion-agent-studio really has a key
+        # — force local trusted mode (no key) here. Auth itself is covered by dedicated tests.
         monkeypatch.setattr("agent_runtime.api_server._auth_configured", lambda: False)
 
     @pytest.fixture
@@ -260,7 +260,7 @@ class TestAPIServer:
             resp = await c.get("/health")
             assert resp.status_code == 200
             data = resp.json()
-            # 审计 P1-26: /health 探 MLX, status ok|degraded, 含 mlx_reachable.
+            # Audit P1-26: /health probes MLX; status ok|degraded, includes mlx_reachable.
             assert data["status"] in ("ok", "degraded")
             assert "mlx_reachable" in data
 

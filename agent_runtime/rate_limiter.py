@@ -7,7 +7,8 @@ logger = logging.getLogger(__name__)
 
 
 def _mask_key(key: str) -> str:
-    # 审计 P0-4: 日志不记全量 api_key (明文泄露). 短 key 全挡, 长 key 首尾留 4.
+    # Audit P0-4: never log the full api_key (plaintext leak). Mask short keys fully;
+    # keep first/last 4 chars of long keys.
     if not key or len(key) <= 8:
         return "***"
     return key[:4] + "..." + key[-4:]

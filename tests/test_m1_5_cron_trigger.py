@@ -1,7 +1,7 @@
 """M1-5 contract tests: cron trigger → task creation (no sync graph exec).
 
 Issue #304: cron job triggers = create Task (idempotency_key=job_id+fire_time),
-not sync execute graph. cron从执行器降为触发器.
+not sync execute graph. cron is downgraded from executor to plain trigger.
 
 Runner: pytest tests/test_m1_5_cron_trigger.py -v
 """

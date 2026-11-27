@@ -275,9 +275,9 @@ class TestParallelToolCalls:
 
     @pytest.mark.asyncio
     async def test_e3_parallel_safety_blocks_dangerous_content(self):
-        # 审计 E-3/P0-3: parallel_tool_calls=True 旧路径绕过 SafetyGateway.
-        # 一工具 args 含 `rm -rf /` (L3 BLOCK 内容模式), 并行路径必须 block 它
-        # 而非执行. 另一安全工具仍应完成 (block 只挡危险那个).
+        # Audit E-3/P0-3: the parallel_tool_calls=True legacy path bypassed SafetyGateway.
+        # One tool's args contain `rm -rf /` (L3 BLOCK content pattern); the parallel path
+        # must block it, not run it; the other safe tool still completes.
         from agent_runtime.safety import SafetyGateway, SafetyLevel
 
         resp = _llm_response(
@@ -308,7 +308,7 @@ class TestParallelToolCalls:
 
     @pytest.mark.asyncio
     async def test_e3_parallel_safety_safe_tools_run_unblocked(self):
-        # 审计 E-3: 无危险内容的并行工具仍正常执行 (SafetyGateway 内容放行).
+        # Audit E-3: parallel tools with no dangerous content still run (SafetyGateway allows).
         from agent_runtime.safety import SafetyGateway, SafetyLevel
 
         resp = _llm_response(

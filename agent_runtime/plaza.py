@@ -103,7 +103,8 @@ def _parse_mentions(content: str) -> list[str]:
 
 
 def _message_hash(channel: str, sender: str, content: str, round_number: int) -> str:
-    # sha256 去重: 同 channel+sender+content+round 视为重复 (重试/崩溃恢复场景).
+    # sha256 dedup: same channel+sender+content+round counts as duplicate
+    # (retry/crash-recovery scenarios).
     raw = f"{channel}|{sender}|{content}|{round_number}"
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
@@ -126,7 +127,8 @@ class Plaza:
         )
 
     def _load_from_store(self) -> None:
-        # 启动: 从 SQLite 加载频道 + 消息进内存缓存. 内存 dict 降为缓存层.
+        # Startup: load channels + messages from SQLite into the in-memory cache.
+        # The in-memory dict is demoted to a cache layer.
         if self._store is None:
             return
         try:
@@ -164,7 +166,8 @@ class Plaza:
             logger.exception("Plaza _load_from_store failed, starting empty cache")
 
     def _persist_message(self, msg: PlazaMessage) -> bool:
-        # 持久化消息 + 回读验证 + hash 去重. 返回 True=新写入, False=重复跳过.
+        # Persist message + readback verification + hash dedup. Returns True=new
+        # write, False=duplicate skipped.
         if self._store is None:
             return True
         hash_val = _message_hash(msg.channel, msg.sender, msg.content, msg.round_number)
@@ -185,7 +188,8 @@ class Plaza:
         if not written:
             logger.info("Plaza message dedup skipped (hash=%s): id=%s", hash_val[:12], msg.id)
             return False
-        # 回读验证: 写后立即确认落盘. 缺失=告警不静默 (源方案 §5.5).
+        # Readback verification: confirm the write landed immediately after writing.
+        # Missing = alert, never silent (source plan §5.5).
         if not self._store.verify_plaza_message(msg.id):
             logger.error(
                 "Plaza message readback VERIFY FAILED: id=%s channel=%s — missing after write",

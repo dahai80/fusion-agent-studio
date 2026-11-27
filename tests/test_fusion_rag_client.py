@@ -2,7 +2,7 @@
 # Importers: pytest runner
 # API: FusionRAGClient, SearchResult, AskResult, DocumentInfo, RAG_BASE_URL, RAG_PORT
 # Schemas: SearchResult(content,score,source,metadata,chunk_id), AskResult(answer,sources,confidence)
-# User instruction: "fusion-rag 已经完成issue和pr，可以开展相关的工作落地"
+# User instruction: "fusion-rag issues and PRs are done; start the related implementation work"
 
 from unittest.mock import AsyncMock, MagicMock
 

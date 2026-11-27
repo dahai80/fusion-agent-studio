@@ -11,7 +11,7 @@ from agent_runtime.graph import AgentGraph, NodeConfig
 from agent_runtime.runtime import ConditionEngine
 from agent_runtime.variable_manager import VariableManager
 
-# ── #211: variable_manager.interpolate 复杂类型产合法 JSON ──────────────
+# ── #211: variable_manager.interpolate makes valid JSON for complex types ──────────────
 
 
 class TestIssue211JsonInterpolate:
@@ -57,12 +57,12 @@ class TestIssue211JsonInterpolate:
 
     def test_ensure_ascii_false_keeps_chinese(self):
         v = VariableManager()
-        v.set("cn", {"k": "中文"})
+        v.set("cn", {"k": "中文"})  # i18n: user-facing
         out = v.interpolate("{{cn}}")
-        assert "中文" in out
+        assert "中文" in out  # i18n: user-facing
 
 
-# ── #212: ConditionEngine._compare 类型归一 ──────────────────────────
+# ── #212: ConditionEngine._compare type coercion ──────────────────────────
 
 
 class TestIssue212CompareCoercion:
@@ -105,7 +105,7 @@ class TestIssue212CompareCoercion:
         assert ce.evaluate("flag != false", self._ctx(), v) == "true"
 
 
-# ── #213: graph_id 按 name+内容稳定 ──────────────────────────────────
+# ── #213: graph_id stable by name+content ──────────────────────────────────
 
 
 class TestIssue213StableGraphId:
@@ -166,7 +166,7 @@ class TestIssue213StableGraphId:
         assert g1.id != g2.id
 
 
-# ── #214: daemon graph.execute 并发节流 ──────────────────────────────
+# ── #214: daemon graph.execute concurrency throttling ──────────────────────────────
 
 
 class TestIssue214ConcurrencyThrottle:
@@ -202,7 +202,7 @@ class TestIssue214ConcurrencyThrottle:
 
     @pytest.mark.asyncio
     async def test_env_sets_limit(self, monkeypatch):
-        # env 解析逻辑: 模拟 start() 内的 int(env or "0") parse, 非法值回退 0.
+        # env parsing: mirrors int(env or "0") in start(); invalid values fall back to 0.
         def parse_limit(env_val):
             try:
                 return max(0, int(env_val or "0"))
@@ -217,7 +217,7 @@ class TestIssue214ConcurrencyThrottle:
         assert parse_limit(os.environ.get("FUSION_GRAPH_CONCURRENCY", "0")) == 0
 
 
-# ── #215: AgentGraph.validate 内容 schema ─────────────────────────────
+# ── #215: AgentGraph.validate content schema ─────────────────────────────
 
 
 class TestIssue215ValidateContentSchema:

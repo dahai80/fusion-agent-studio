@@ -1,8 +1,8 @@
-"""审计 0825 Bundle5 测试 — P2 基建 + 可维护性.
+"""Audit 0825 Bundle5 tests — P2 infrastructure + maintainability.
 
-3M-6: schema 版本管理 (PRAGMA user_version 门禁有序迁移).
-E-18: mlx.reconnect RPC (运行时 env 热切 client).
-验证 E-17/E-20/E-21/A-7 已落地 (回归断言).
+3M-6: schema version management (PRAGMA user_version gates ordered migrations).
+E-18: mlx.reconnect RPC (runtime env hot-swap of client).
+Verify E-17/E-20/E-21/A-7 landed (regression assertions).
 """
 
 from __future__ import annotations
@@ -16,7 +16,7 @@ from agent_runtime.triggers import CronManager
 
 
 class Test3M6SchemaVersioning:
-    """3M-6: PRAGMA user_version 门禁有序迁移, 老库/新库/重跑都安全."""
+    """3M-6: PRAGMA user_version gates ordered migrations; safe for old/new/rerun DBs."""
 
     def test_persistence_new_db_sets_user_version(self, tmp_path):
         store = AgentStore(str(tmp_path / "store.db"))
@@ -26,7 +26,8 @@ class Test3M6SchemaVersioning:
         store.close()
 
     def test_persistence_old_db_without_columns_migrates(self, tmp_path):
-        # 模拟老库: 手建无 graph_id/state_json 列的 checkpoints 表.
+        # Simulate an old DB: hand-create the checkpoints table without
+        # graph_id/state_json columns.
         db = tmp_path / "old.db"
         conn = sqlite3.connect(str(db))
         conn.executescript("""
@@ -128,10 +129,11 @@ class Test3M6SchemaVersioning:
 
 
 class TestE18MlxReconnect:
-    """E-18: mlx.reconnect RPC 运行时重 attach client, env 热切生效."""
+    """E-18: mlx.reconnect RPC re-attaches the client at runtime; env hot-swap works."""
 
     def test_mlx_reconnect_handler_registered(self):
-        # 不构造完整 DaemonServer (需 socket/端口), 直接验方法存在 + 源内 dict 注册.
+        # Skip building a full DaemonServer (needs socket/port); verify the method
+        # exists + dict registration in source.
         import inspect
 
         from agent_runtime import daemon_server
@@ -142,7 +144,7 @@ class TestE18MlxReconnect:
         assert "_handle_mlx_reconnect" in src
 
     def test_mlx_reconnect_reattaches_with_new_env(self, tmp_path, monkeypatch):
-        # 切 env 后 reconnect 应重解析 base_url 重 attach.
+        # After switching env, reconnect should re-resolve base_url and re-attach.
         from agent_runtime.daemon_server import DaemonServer
 
         ds = DaemonServer.__new__(DaemonServer)
@@ -175,10 +177,10 @@ class TestE18MlxReconnect:
 
 
 class TestBundle5PriorFixesRegression:
-    """验证前序 bundle 已落地的 P2 修复仍在 (E-17/E-20/E-21/A-7)."""
+    """Verify prior-bundle P2 fixes are still in place (E-17/E-20/E-21/A-7)."""
 
     def test_e17_core_handlers_single_source(self):
-        # E-17: _core_handlers 是单真相源, 不再有第二份重复 dict.
+        # E-17: _core_handlers is the single source of truth; no second duplicate dict.
         import inspect
 
         from agent_runtime import daemon_server
@@ -186,14 +188,15 @@ class TestBundle5PriorFixesRegression:
         src = inspect.getsource(daemon_server.DaemonServer._core_handlers)
         assert '"daemon.ping"' in src
         assert '"graph.resume"' in src
-        # _get_handler / _handle_rpc_discover 应复用 _core_handlers, 不再自建 dict.
+        # _get_handler / _handle_rpc_discover should reuse _core_handlers, not build
+        # their own dict.
         for method in ("_get_handler",):
             if hasattr(daemon_server.DaemonServer, method):
                 msrc = inspect.getsource(getattr(daemon_server.DaemonServer, method))
                 assert "_core_handlers" in msrc, f"{method} not using single source"
 
     def test_e21_interpolate_complex_types_json(self):
-        # E-21: dict/list/None/bool 插值产合法 JSON, 非 Python repr.
+        # E-21: dict/list/None/bool interpolation produces valid JSON, not Python repr.
         from agent_runtime.variable_manager import VariableManager
 
         vm = VariableManager()
@@ -206,11 +209,11 @@ class TestBundle5PriorFixesRegression:
         assert "true" in out
         assert "null" in out
         assert "false" in out
-        # 不含 Python repr 单引号.
+        # No Python repr single quotes.
         assert "'" not in out
 
     def test_a7_error_sentinel_checked_in_callers(self):
-        # A-7/E-12: planner/workflow/chat/verifier 四处查 finish_reason=="error".
+        # A-7/E-12: planner/workflow/chat/verifier all check finish_reason=="error".
         import inspect
 
         from agent_runtime import chat_engine, planner, verifier, workflow_engine
@@ -224,7 +227,8 @@ class TestBundle5PriorFixesRegression:
         for mod, name in targets.items():
             fn = getattr(mod, name, None)
             if fn is None:
-                # 方法名可能不同, 退而扫模块源含哨兵检查.
+                # Method names may differ; fall back to scanning module source for the
+                # sentinel check.
                 src = inspect.getsource(mod)
                 assert "finish_reason" in src and '"error"' in src, (
                     f"{mod.__name__} missing error sentinel check"

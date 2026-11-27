@@ -4,7 +4,8 @@ Runner: pytest tests/test_issue_141_task_rpc.py
 API: task.submit/list/get/status/cancel/rerun RPC over UDS; TaskStore sqlite.
 Data schemas: Task records (task_id/title/agent_id/graph_id/trigger/status/...).
 
-User instruction: "处理issue和pr，提交代码到代码仓，合并所有分支到主干，确保ci和lint全绿，发布补丁版本"
+User instruction: "Handle issues and PRs, commit code to the repo, merge all branches
+into main, keep CI and lint green, release a patch version"
 """
 
 from __future__ import annotations
@@ -63,7 +64,7 @@ def socket_path():
 
 @pytest.fixture
 async def daemon(socket_path, tmp_path):
-    # 注入临时 tasks.db, 不污染用户真实库.
+    # Inject a temporary tasks.db, do not pollute the user's real DB.
     d = DaemonServer(
         socket_path=socket_path,
         ws_port=0,
@@ -141,7 +142,7 @@ class TestTaskStoreUnit:
         store.submit(Task(task_id="t1", title="x"))
         assert store.cancel("t1") is True
         assert store.get("t1").status == TASK_STATUS_CANCELED
-        # 已 canceled 幂等返 False.
+        # Already-canceled is idempotent and returns False.
         assert store.cancel("t1") is False
         store.submit(Task(task_id="t2", title="y", status=TASK_STATUS_COMPLETED))
         assert store.cancel("t2") is False
@@ -200,7 +201,8 @@ class TestTaskRpc:
     async def test_task_list_and_status(self, daemon):
         s1 = await _rpc_call(daemon.socket_path, "task.submit", {"title": "one"})
         s2 = await _rpc_call(daemon.socket_path, "task.submit", {"title": "two"})
-        # 两次提交必须拿到不同 task_id (修复同毫秒并发撞 id 后的回归断言).
+        # Two submits must get different task_ids (regression assertion after the
+        # same-millisecond id-collision fix).
         assert s1["result"]["task"]["task_id"] != s2["result"]["task"]["task_id"]
         list_resp = await _rpc_call(daemon.socket_path, "task.list", {"limit": 10})
         assert list_resp["result"]["total"] == 2
@@ -236,7 +238,7 @@ class TestTaskRpc:
         dele = await _rpc_call(daemon.socket_path, "task.delete", {"task_id": task_id})
         assert dele["result"]["status"] == "ok"
         assert dele["result"]["deleted"] is True
-        # 删除后 get 应找不到.
+        # After deletion, get should not find it.
         get = await _rpc_call(daemon.socket_path, "task.get", {"task_id": task_id})
         assert "error" in get["result"] or get["result"]["status"] == "error"
 
@@ -257,7 +259,7 @@ class TestTaskRpc:
         assert resp["result"]["status"] == "ok"
         assert resp["result"]["added"] is True
         assert resp["result"]["artifact_ids"] == ["art-1", "art-2"]
-        # 重复 add 不应产生重复.
+        # Repeated add must not produce duplicates.
         resp2 = await _rpc_call(
             daemon.socket_path,
             "task.add_artifacts",
@@ -290,11 +292,12 @@ class TestTaskRpc:
         assert done["result"]["tasks"][0]["task_id"] == tid
 
 
-# ── #141 priority-4: task↔artifact 回写 (graph.execute 透传 task_id) ──
+# -- #141 priority-4: task<->artifact writeback (graph.execute passes through task_id) --
 
 
 class _FakeArtifactCreateTool:
-    # 假 artifact_create 工具: 直接返回带 artifact_id 的 JSON, 不依赖 ArtifactManager/LLM.
+    # Fake artifact_create tool: returns JSON with artifact_id directly, no
+    # ArtifactManager/LLM dependency.
     name = "artifact_create"
     description = "fake artifact create"
     parameters = {"name": {"type": "string"}}
@@ -317,7 +320,7 @@ class TestTaskArtifactWriteback:
         from agent_runtime.runtime import AgentRuntime
         from tools.registry import ToolRegistry
 
-        # 注入带假 artifact_create 工具的 runtime.
+        # Inject a runtime with the fake artifact_create tool.
         reg = ToolRegistry()
         reg.register(_FakeArtifactCreateTool())
         daemon._runtime = AgentRuntime(tool_registry=reg)
@@ -338,7 +341,7 @@ class TestTaskArtifactWriteback:
         graph.add_edge("art", "end")
         daemon.store.save_graph(graph)
 
-        # 提交一个关联该 graph 的 task.
+        # Submit a task bound to that graph.
         sub = await _rpc_call(
             daemon.socket_path,
             "task.submit",
@@ -346,7 +349,8 @@ class TestTaskArtifactWriteback:
         )
         task_id = sub["result"]["task"]["task_id"]
 
-        # graph.execute 透传 task_id, 执行后应回写 artifact_ids + completed.
+        # graph.execute passes through task_id; after execution artifact_ids should be
+        # written back + status completed.
         resp = await _rpc_call(
             daemon.socket_path,
             "graph.execute",
@@ -355,7 +359,7 @@ class TestTaskArtifactWriteback:
         assert resp["result"]["status"] == "completed"
         assert "art-report" in resp["result"]["artifact_ids"]
 
-        # 查 task: artifact_ids 已回写, 状态 completed.
+        # Fetch the task: artifact_ids written back, status completed.
         get = await _rpc_call(daemon.socket_path, "task.get", {"task_id": task_id})
         task = get["result"]["task"]
         assert task["status"] == TASK_STATUS_COMPLETED
@@ -364,7 +368,7 @@ class TestTaskArtifactWriteback:
 
     @pytest.mark.asyncio
     async def test_graph_execute_without_task_id_no_writeback(self, daemon, tmp_path):
-        # 不传 task_id 时, 行为不变, 不触发 task 回写.
+        # Without task_id, behavior is unchanged and no task writeback is triggered.
         from agent_runtime.graph import AgentGraph, NodeConfig
         from agent_runtime.runtime import AgentRuntime
         from tools.registry import ToolRegistry
@@ -395,7 +399,7 @@ class TestTaskArtifactWriteback:
         assert resp["result"]["task_id"] == ""
 
 
-# ── #141 priority-2: project.* 多 Task 聚合容器 (TaskBoardView 看板) ──
+# -- #141 priority-2: project.* multi-Task aggregation container (TaskBoardView board) --
 
 
 class TestProjectStoreUnit:
@@ -407,7 +411,7 @@ class TestProjectStoreUnit:
             Task(task_id="t2", title="b", project_id="proj-A", status=TASK_STATUS_COMPLETED)
         )
         store.submit(Task(task_id="t3", title="c", project_id="proj-B", status=TASK_STATUS_RUNNING))
-        # project_id 空的不计入聚合.
+        # Entries with empty project_id are excluded from aggregation.
         store.submit(Task(task_id="t4", title="d", project_id=""))
         projects = store.projects()
         pids = {p["project_id"] for p in projects}
@@ -439,7 +443,8 @@ class TestProjectStoreUnit:
         s2.close()
 
     def test_old_db_migrates_project_id_column(self, tmp_path):
-        # 老库无 project_id 列(其余列齐全), 重新打开应自动 ALTER 迁移, 不报错.
+        # Old DB lacks the project_id column (other columns intact); reopening should
+        # auto-ALTER migrate without error.
         import sqlite3
 
         dbp = str(tmp_path / "old_tasks.db")

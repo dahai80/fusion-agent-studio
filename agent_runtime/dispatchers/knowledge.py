@@ -250,8 +250,9 @@ class KnowledgeDispatcher(SubDispatcher):
         return {"kbs": kbs_dicts, "building": False, "progress": 1.0}
 
     async def _handle_kb_query(self, params: dict) -> dict:
-        # 审计 P2/dim1: 旧实现给所有文件硬塞 relevance 1.0/0.8 (与 query 无关, 假相关).
-        # 路由到真实向量/混合检索 mgr.search, 与 kb.search 同源.
+        # Audit P2/dim1: the old implementation hard-coded relevance 1.0/0.8 onto
+        # all files (unrelated to the query - fake relevance). Route to the real
+        # vector/hybrid retrieval mgr.search, same source as kb.search.
         query = params.get("query", "")
         kb_id = params.get("kb_id", "")
         limit = params.get("limit", 10)

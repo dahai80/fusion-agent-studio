@@ -51,8 +51,10 @@ class Tool:
         }
 
     def to_daemon_dict(self) -> dict:
-        # C12: 序列化 Tool 供 daemon 注册. Python handler 工具附源码 (inspect.getsource),
-        # daemon 端 exec 成 BaseTool 子类; 无 handler 则 schema-only (terminal/shell).
+        # C12: serialize the Tool for daemon registration. Python-handler tools
+        # carry their source (inspect.getsource); the daemon exec's it into a
+        # BaseTool subclass. Without a handler the tool is schema-only
+        # (terminal/shell).
         import inspect
 
         payload = {
@@ -91,8 +93,9 @@ class Tool:
             return {"error": str(e)}
 
     async def register_to_daemon(self, client) -> dict:
-        # C12: 注册本 Tool 到 daemon (Python handler -> tool.register_python,
-        # schema-only -> tool.dynamic_register). 注册后 agent 可调用此工具.
+        # C12: register this Tool with the daemon (Python handler ->
+        # tool.register_python, schema-only -> tool.dynamic_register). Once
+        # registered, agents can call this tool.
         payload = self.to_daemon_dict()
         result = await client.register_tool(payload)
         if "error" in result:

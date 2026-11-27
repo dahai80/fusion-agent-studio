@@ -189,7 +189,7 @@ class _SafetyApprovalMixin:
         # N11 #350: approval latency = request -> resolve/reject/timeout.
         slo_t0 = time.time()
         self._safety_futures[action_id] = future
-        # 审计 A-1 Tier1: 登记归属 exec, 异常路径 reap 兜底.
+        # Audit A-1 Tier1: register ownership under the exec so the error path reaps it.
         self._register_exec_future(ctx.session_id, action_id)
 
         if self.safety_gateway:
@@ -243,12 +243,15 @@ class _SafetyApprovalMixin:
             self._safety_futures.pop(action_id, None)
             self._record_approval_slo(slo_t0)
             logger.warning("Safety approval timed out: action_id=%s", action_id)
-            # 审计 P1-21/R-4: headless/CI 无人工审批必挂满 timeout. 原 timeout
-            # 路径恒报 ERROR 终止 — 自动化执行 (cron/task) 卡死. 读 env disposition:
-            # FUSION_SAFETY_AUTO_APPROVE=1 -> 超时视同批准继续;
-            # FUSION_SAFETY_AUTO_REJECT=1 -> 超时视同拒绝 (报错终止, 原默认行为);
-            # FUSION_SAFETY_FAIL_FAST=1 -> 立即失败不等 timeout (timeout 设 0).
-            # 默认 auto_reject (向后兼容: 报错终止).
+            # Audit P1-21/R-4: headless/CI has no human approver and would always
+            # hang through the full timeout. The old timeout path always errored and
+            # terminated - automated runs (cron/task) stalled. Read the env disposition:
+            # FUSION_SAFETY_AUTO_APPROVE=1 -> timeout treated as approval, continue;
+            # FUSION_SAFETY_AUTO_REJECT=1 -> timeout treated as rejection (error
+            # termination, the original default);
+            # FUSION_SAFETY_FAIL_FAST=1 -> fail immediately without waiting for the
+            # timeout (set timeout to 0).
+            # Default auto_reject (backward compatible: error termination).
             disposition = (
                 os.environ.get("FUSION_SAFETY_TIMEOUT_DISPOSITION", "reject").strip().lower()
             )

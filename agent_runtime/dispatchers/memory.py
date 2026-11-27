@@ -283,8 +283,9 @@ class MemoryDispatcher(SubDispatcher):
         return import_pack(mem, in_dir, scope=params.get("scope", ""))
 
     async def _handle_memory_backend(self, params: dict) -> dict:
-        # issue #246 后续: 暴露当前记忆后端 (fusion_memory adapter 或 legacy sqlite),
-        # 供运维查活服务到底走的哪条路。鸭子类型按类名判, 免跨模块 import。
+        # issue #246 follow-up: expose the current memory backend (fusion_memory
+        # adapter or legacy sqlite) so ops can see which path the live service uses.
+        # Duck-typed by class name to avoid cross-module imports.
         mem = self._daemon._get_memory()
         cls_name = type(mem).__name__
         if cls_name == "FusionMemoryAdapter":
@@ -293,7 +294,7 @@ class MemoryDispatcher(SubDispatcher):
             api_key_configured = bool(getattr(mem, "_api_key", ""))
         else:
             backend = "sqlite"
-            # MemoryEngine.db_path 是 PosixPath, JSON 不序列化 -> str()。
+            # MemoryEngine.db_path is a PosixPath, not JSON-serializable -> str().
             base_url = str(getattr(mem, "db_path", ""))
             api_key_configured = False
         logger.info("memory.backend: %s base=%s", backend, base_url)

@@ -12,9 +12,9 @@ import { sdk } from '../../sdk';
 // (`current_doc` refinement turns); the right-hand config-draft card
 // updates live per turn; capability suggestions install inline; the test
 // run executes inside the conversation (trajectory + result + event count);
-// [部署] lands the agent on the Dashboard as ready-to-use (and, via the
+// [Deploy] lands the agent on the Dashboard as ready-to-use (and, via the
 // #531 marketplace API, in Cowork's Sub-agents tab). The form editor stays
-// the [编辑] advanced view of the same draft document.
+// the [Edit] advanced view of the same draft document.
 interface DraftDoc {
     name?: string;
     description?: string;
@@ -161,6 +161,7 @@ export function BuilderPage() {
         const created = await apiPost<{ agent_id?: string }>('/v1/agents-platform/agents', {
             definition_doc: nextDoc,
         });
+        // i18n: user-facing
         if (!created.agent_id) throw new Error(t('草稿保存失败', 'draft save failed'));
         setAgentId(created.agent_id);
         return created.agent_id;
@@ -179,6 +180,7 @@ export function BuilderPage() {
             if (!r.ok || !r.doc) {
                 pushTurn({
                     kind: 'assistant',
+                    // i18n: user-facing
                     text: r.error || t('生成失败', 'compose failed'),
                 });
                 return;
@@ -189,7 +191,9 @@ export function BuilderPage() {
             pushTurn({
                 kind: 'assistant',
                 text: t(
+                    // i18n: user-facing
                     `草案已更新：${r.doc.name ?? '-'} · 能力 ${(r.doc.tools ?? []).length} 个${
+                        // i18n: user-facing
                         r.warnings?.length ? ` · 警告 ${r.warnings.length}` : ''
                     }`,
                     `draft updated: ${r.doc.name ?? '-'} · ${(r.doc.tools ?? []).length} capabilities${
@@ -226,11 +230,13 @@ export function BuilderPage() {
             pushTurn({
                 kind: 'test',
                 text: t(
+                    // i18n: user-facing
                     `试跑 ${r.status ?? '-'} · 事件 ${(r.events ?? []).length} 个\n${output || '-'}`,
                     `test ${r.status ?? '-'} · ${(r.events ?? []).length} events\n${output || '-'}`
                 ),
             });
         } catch (e) {
+            // i18n: user-facing
             pushTurn({ kind: 'test', text: `${t('错误', 'error')}: ${(e as Error).message}` });
         } finally {
             setTestInput('');
@@ -247,10 +253,12 @@ export function BuilderPage() {
             pushTurn({
                 kind: 'assistant',
                 text: t(
+                    // i18n: user-facing
                     '已部署 — Dashboard「可直接使用」可见，Cowork 能力市场 Sub-agents 同步收录',
                     'deployed — visible on the Dashboard and in Cowork Sub-agents'
                 ),
             });
+            // i18n: user-facing
             sdk.toast.show({ level: 'success', message: t('已部署', 'deployed') });
         } catch (e) {
             sdk.toast.show({ level: 'error', message: (e as Error).message });
@@ -312,6 +320,7 @@ export function BuilderPage() {
         if (!connectorId) {
             sdk.toast.show({
                 level: 'error',
+                // i18n: user-facing
                 message: t('该能力未声明连接器', 'capability declares no connector'),
             });
             return;
@@ -319,6 +328,7 @@ export function BuilderPage() {
         if (needsApproval(authFor) && !approvalRef.trim()) {
             sdk.toast.show({
                 level: 'error',
+                // i18n: user-facing
                 message: t('敏感范围需审批单号', 'sensitive scopes need an approval reference'),
             });
             return;
@@ -349,6 +359,7 @@ export function BuilderPage() {
                 ...(approvalRef.trim() ? { approval_ref: approvalRef.trim() } : {}),
             });
             await refreshConnectors();
+            // i18n: user-facing
             sdk.toast.show({ level: 'success', message: t('已授权', 'authorized') });
             addCapability(authFor.id);
             setAuthFor(null);
@@ -367,6 +378,7 @@ export function BuilderPage() {
 
     return (
         <div>
+            {/* i18n: user-facing */}
             <PageHeader title={t('构建智能体', 'Build agent')} />
             <div className="grid gap-4 px-4 pt-3 pb-6 lg:grid-cols-[1fr_20rem]">
                 <div className="flex flex-col gap-3">
@@ -374,6 +386,7 @@ export function BuilderPage() {
                     {error ? (
                         <ErrorState
                             message={(error as Error).message}
+                            // i18n: user-facing
                             retryLabel={t('重试', 'Retry')}
                             onRetry={manualRetry}
                             retrying={attempt}
@@ -382,6 +395,7 @@ export function BuilderPage() {
                     {!doc && (data?.starters ?? []).length > 0 ? (
                         <div className="rounded-card border border-border bg-bg-elevated p-3">
                             <div className="mb-2 text-xs font-medium text-text-secondary">
+                                {/* i18n: user-facing */}
                                 {t('从场景开始', 'Start from a use case')}
                             </div>
                             <div className="grid gap-2 sm:grid-cols-2">
@@ -411,6 +425,7 @@ export function BuilderPage() {
                         {turns.length === 0 ? (
                             <div className="py-10 text-center text-xs text-text-muted">
                                 {t(
+                                    // i18n: user-facing
                                     '描述你想要的智能体，配置草案将随对话实时更新',
                                     'describe the agent — the draft updates as you talk'
                                 )}
@@ -434,6 +449,7 @@ export function BuilderPage() {
                         )}
                         {busy ? (
                             <div className="text-xs text-text-muted">
+                                {/* i18n: user-facing */}
                                 {t('思考中…', 'thinking…')}
                             </div>
                         ) : null}
@@ -443,12 +459,14 @@ export function BuilderPage() {
                         onChange={setAsk}
                         rows={3}
                         placeholder={t(
+                            // i18n: user-facing
                             '描述用途，或继续调整当前草稿…',
                             'describe the agent, or refine the current draft…'
                         )}
                     />
                     <div className="flex items-center gap-2">
                         <SubmitButton
+                            // i18n: user-facing
                             label={busy ? t('生成中…', 'Generating…') : t('发送', 'Send')}
                             onAction={() => compose(ask)}
                             disabled={busy}
@@ -457,6 +475,7 @@ export function BuilderPage() {
                     {suggestions.length > 0 ? (
                         <div className="rounded-card border border-border bg-bg-elevated p-3">
                             <div className="mb-2 text-xs font-medium text-text-secondary">
+                                {/* i18n: user-facing */}
                                 {t('建议装配的能力', 'Suggested capabilities')}
                             </div>
                             <div className="flex flex-wrap gap-2">
@@ -474,8 +493,10 @@ export function BuilderPage() {
                                             {needsAuth ? '🔐' : c.mutation ? '⚡' : '◇'} {c.title}
                                             <span className="ml-1 text-[10px] text-brand">
                                                 {needsAuth
-                                                    ? t('授权', 'authorize')
-                                                    : t('加入', 'add')}
+                                                    ? // i18n: user-facing
+                                                      t('授权', 'authorize')
+                                                    : // i18n: user-facing
+                                                      t('加入', 'add')}
                                             </span>
                                         </button>
                                     );
@@ -490,10 +511,12 @@ export function BuilderPage() {
                                     value={testInput}
                                     onChange={setTestInput}
                                     rows={2}
+                                    // i18n: user-facing
                                     placeholder={t('试跑样例输入…', 'sample input for a test run…')}
                                 />
                             </div>
                             <SubmitButton
+                                // i18n: user-facing
                                 label={t('试跑一下？', 'Test run')}
                                 onAction={runTest}
                                 disabled={busy}
@@ -504,11 +527,13 @@ export function BuilderPage() {
                 {/* config-draft card — updates live per turn */}
                 <div className="h-fit rounded-card border border-border bg-bg-elevated p-4">
                     <div className="mb-3 text-sm font-medium text-text-primary">
+                        {/* i18n: user-facing */}
                         {t('配置草案', 'Config draft')}
                     </div>
                     {!doc ? (
                         <p className="text-xs text-text-muted">
                             {t(
+                                // i18n: user-facing
                                 '描述用途后，草案将在此实时更新',
                                 'the draft updates here as you describe the agent'
                             )}
@@ -516,16 +541,19 @@ export function BuilderPage() {
                     ) : (
                         <div className="flex flex-col gap-2 text-xs">
                             <div>
+                                {/* i18n: user-facing */}
                                 <span className="text-text-muted">{t('名称', 'Name')}: </span>
                                 <span className="text-text-primary">{doc.name ?? '-'}</span>
                             </div>
                             <div>
                                 <span className="text-text-muted">
+                                    {/* i18n: user-facing */}
                                     {t('描述', 'Description')}:{' '}
                                 </span>
                                 <span className="text-text-primary">{doc.description ?? '-'}</span>
                             </div>
                             <div>
+                                {/* i18n: user-facing */}
                                 <span className="text-text-muted">{t('模型', 'Model')}: </span>
                                 <span className="font-mono text-text-primary">
                                     {doc.model?.id ?? 'base'}
@@ -534,6 +562,7 @@ export function BuilderPage() {
                             </div>
                             <div>
                                 <span className="text-text-muted">
+                                    {/* i18n: user-facing */}
                                     {t('指令', 'Instructions')}:
                                 </span>
                                 <pre className="mt-1 max-h-40 overflow-y-auto whitespace-pre-wrap rounded-md bg-bg-muted p-2 font-mono text-[10px] text-text-secondary">
@@ -542,6 +571,7 @@ export function BuilderPage() {
                             </div>
                             <div>
                                 <span className="text-text-muted">
+                                    {/* i18n: user-facing */}
                                     {t('能力', 'Capabilities')}:
                                 </span>
                                 <div className="mt-1 flex flex-wrap gap-1">
@@ -558,6 +588,7 @@ export function BuilderPage() {
                                                     title={
                                                         ungranted
                                                             ? t(
+                                                                  // i18n: user-facing
                                                                   '连接器未授权',
                                                                   'connector not authorized'
                                                               )
@@ -579,6 +610,7 @@ export function BuilderPage() {
                                     disabled={busy || deployed}
                                     className="rounded-md bg-brand px-3 py-1.5 text-xs text-white hover:opacity-90 disabled:opacity-50"
                                 >
+                                    {/* i18n: user-facing */}
                                     {deployed ? t('已部署 ✓', 'Deployed ✓') : t('部署', 'Deploy')}
                                 </button>
                                 {agentId ? (
@@ -587,6 +619,7 @@ export function BuilderPage() {
                                         className="text-center text-xs text-text-secondary hover:text-text-primary"
                                     >
                                         {t(
+                                            // i18n: user-facing
                                             '在表单编辑器中打开（高级）',
                                             'Open in form editor (advanced)'
                                         )}
@@ -597,6 +630,7 @@ export function BuilderPage() {
                                         href="#/home"
                                         className="text-center text-xs text-brand hover:underline"
                                     >
+                                        {/* i18n: user-facing */}
                                         {t('回到 Dashboard →', 'Back to Dashboard →')}
                                     </a>
                                 ) : null}
@@ -610,6 +644,7 @@ export function BuilderPage() {
             <Modal
                 open={authFor !== null}
                 title={t(
+                    // i18n: user-facing
                     `授权连接器：${authFor?.title ?? ''}`,
                     `Authorize connector: ${authFor?.title ?? ''}`
                 )}
@@ -621,6 +656,7 @@ export function BuilderPage() {
                             onClick={() => setAuthFor(null)}
                             className="rounded-md border border-border px-3 py-1.5 text-xs text-text-secondary hover:text-text-primary"
                         >
+                            {/* i18n: user-facing */}
                             {t('取消', 'Cancel')}
                         </button>
                         <button
@@ -634,13 +670,16 @@ export function BuilderPage() {
                             className="rounded-md bg-brand px-3 py-1.5 text-xs text-white hover:opacity-90 disabled:opacity-50"
                         >
                             {authBusy
-                                ? t('授权中…', 'Authorizing…')
-                                : t('授权并加入', 'Authorize & add')}
+                                ? // i18n: user-facing
+                                  t('授权中…', 'Authorizing…')
+                                : // i18n: user-facing
+                                  t('授权并加入', 'Authorize & add')}
                         </button>
                     </div>
                 }
             >
                 <label className="flex flex-col gap-1 text-xs text-text-secondary">
+                    {/* i18n: user-facing */}
                     {t('授权方式', 'Auth type')}
                     <select
                         value={authType}
@@ -650,17 +689,22 @@ export function BuilderPage() {
                         }}
                         className="rounded-md border border-border bg-bg px-2 py-1.5 text-xs text-text-primary"
                     >
+                        {/* i18n: user-facing */}
                         <option value="api_key">{t('API 密钥', 'API key')}</option>
                         <option value="oauth2">OAuth2</option>
+                        {/* i18n: user-facing */}
                         <option value="webhook">{t('Webhook 地址', 'Webhook URL')}</option>
                     </select>
                 </label>
                 <label className="flex flex-col gap-1 text-xs text-text-secondary">
                     {authType === 'oauth2'
-                        ? t('访问令牌', 'Access token')
+                        ? // i18n: user-facing
+                          t('访问令牌', 'Access token')
                         : authType === 'webhook'
-                          ? t('地址', 'URL')
-                          : t('密钥', 'Key')}
+                          ? // i18n: user-facing
+                            t('地址', 'URL')
+                          : // i18n: user-facing
+                            t('密钥', 'Key')}
                     <input
                         type={authType === 'webhook' ? 'url' : 'password'}
                         value={authField}
@@ -669,8 +713,10 @@ export function BuilderPage() {
                             authType === 'webhook'
                                 ? 'https://…'
                                 : authType === 'oauth2'
-                                  ? t('粘贴访问令牌', 'paste access token')
-                                  : t('粘贴密钥', 'paste key')
+                                  ? // i18n: user-facing
+                                    t('粘贴访问令牌', 'paste access token')
+                                  : // i18n: user-facing
+                                    t('粘贴密钥', 'paste key')
                         }
                         className="rounded-md border border-border bg-bg px-2 py-1.5 font-mono text-xs text-text-primary"
                     />
@@ -678,6 +724,7 @@ export function BuilderPage() {
                 {authFor !== null && needsApproval(authFor) ? (
                     <label className="flex flex-col gap-1 text-xs text-text-secondary">
                         {t(
+                            // i18n: user-facing
                             `审批单号（敏感范围：${(authFor.sensitive_scopes ?? []).join('、')}）`,
                             `Approval reference (sensitive scopes: ${(authFor.sensitive_scopes ?? []).join(', ')})`
                         )}
@@ -685,6 +732,7 @@ export function BuilderPage() {
                             type="text"
                             value={approvalRef}
                             onChange={(e) => setApprovalRef(e.target.value)}
+                            // i18n: user-facing
                             placeholder={t('如 APPR-2026-0042', 'e.g. APPR-2026-0042')}
                             className="rounded-md border border-border bg-bg px-2 py-1.5 font-mono text-xs text-text-primary"
                         />
@@ -692,6 +740,7 @@ export function BuilderPage() {
                 ) : null}
                 <p className="text-[10px] text-text-muted">
                     {t(
+                        // i18n: user-facing
                         '授权通过后能力才会加入草案；未授权能力不会部署。',
                         'the capability attaches only after authorization passes; ungranted capabilities are not deployed.'
                     )}

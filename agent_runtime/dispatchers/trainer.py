@@ -12,13 +12,15 @@ logger = logging.getLogger(__name__)
 class TrainerDispatcher(SubDispatcher):
     def __init__(self, daemon):
         super().__init__(daemon)
-        # 审计 P1-22/NEW-2: 持 training task 引用防 GC 静默取消 + done_callback
-        # 兜底 mark failed (CancelledError / _task 体外异常). key=run_id.
+        # Audit P1-22/NEW-2: hold training task references to prevent silent GC
+        # cancellation, plus a done_callback fallback that marks failed
+        # (CancelledError / exceptions outside the _task body). key=run_id.
         self._training_tasks: dict[str, asyncio.Task] = {}
 
     def _spawn_training_task(self, run_id: str, coro) -> None:
-        # 审计 P1-22/NEW-2: 原 asyncio.create_task() fire-and-forget — 无引用
-        # 可被 GC 静默取消, 异常吞没, run 状态恒 "running". 现持引用 + done_callback.
+        # Audit P1-22/NEW-2: the original asyncio.create_task() was fire-and-forget -
+        # unreferenced tasks could be silently GC-cancelled with exceptions swallowed
+        # and the run stuck at "running". Now holds a reference + done_callback.
         task = asyncio.create_task(coro)
         self._training_tasks[run_id] = task
 
@@ -35,7 +37,8 @@ class TrainerDispatcher(SubDispatcher):
                 return
             exc = t.exception()
             if exc is not None:
-                # _task 体已 try/except 记 _RUNS, 此为体外漏网 (如 coro 启动即崩).
+                # The _task body already try/excepts into _RUNS; this catches
+                # escapes outside the body (e.g. the coro crashing on startup).
                 logger.error("training run %s task-level exception: %s", run_id, exc)
                 try:
                     svc = self._daemon._training_service
@@ -97,7 +100,8 @@ class TrainerDispatcher(SubDispatcher):
         )
         if "error" in result:
             return self._err(result["error"])
-        # 审计 P1-22/NEW-2: 持引用 + done_callback, 防 GC 静默取消/异常吞没.
+        # Audit P1-22/NEW-2: hold reference + done_callback to prevent silent GC
+        # cancellation / swallowed exceptions.
         self._spawn_training_task(result["run_id"], result["_task"]())
         logger.info("trainer.sft -> %s", result["run_id"])
         return self._ok(
@@ -120,7 +124,7 @@ class TrainerDispatcher(SubDispatcher):
         )
         if "error" in result:
             return self._err(result["error"])
-        # 审计 P1-22/NEW-2: 持引用 + done_callback, 同 sft.
+        # Audit P1-22/NEW-2: hold reference + done_callback, same as sft.
         self._spawn_training_task(result["run_id"], result["_task"]())
         logger.info("trainer.rlsl method=%s -> %s", method, result["run_id"])
         return self._ok(

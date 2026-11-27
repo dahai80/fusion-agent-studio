@@ -1,7 +1,8 @@
 """Task persistence — generic Task records backed by SQLite.
 
-模式参考 triggers.CronManager: 同目录 ~/.fusion-agent-studio/ 下独立 db,
-INSERT OR REPLACE upsert, check_same_thread=False, to_thread 异步写.
+Pattern follows triggers.CronManager: standalone db in the same
+~/.fusion-agent-studio/ directory, INSERT OR REPLACE upsert,
+check_same_thread=False, to_thread async writes.
 """
 
 from __future__ import annotations
@@ -29,16 +30,19 @@ def _task_ttl() -> float:
 
 
 def _lazy_load_enabled() -> bool:
-    # 审计 P2-16/3M-1-leg3: 默认开启懒加载, 防 10 万历史 task 启动全载致内存膨胀.
-    # 显式 FUSION_TASK_LAZY_LOAD=0 关闭 (回退 eager 全载, 兼容旧部署).
+    # Audit P2-16/3M-1-leg3: lazy-load is on by default, preventing 100k
+    # historical tasks from being fully loaded at startup and ballooning memory.
+    # Set FUSION_TASK_LAZY_LOAD=0 explicitly to disable (falls back to eager
+    # full load, compatible with old deployments).
     val = os.environ.get("FUSION_TASK_LAZY_LOAD", "1").strip().lower()
     return val not in ("0", "false", "no", "off")
 
 
 def _task_max_concurrency() -> int:
-    # #239: task 执行并发上限, task.health 上报给 fusion-event 做反向背压.
-    # 默认 5 (对齐 fusion-event tokenBucketMax). cron run_loop 当前无信号量,
-    # 此值是声明式上限 (运维契约), 非 hard gate.
+    # #239: task execution concurrency cap, reported via task.health to
+    # fusion-event as reverse backpressure. Default 5 (aligned with fusion-event
+    # tokenBucketMax). The cron run_loop currently has no semaphore, so this
+    # value is a declarative cap (ops contract), not a hard gate.
     raw = os.environ.get("FUSION_TASK_CONCURRENCY", "5").strip()
     try:
         val = int(raw)
@@ -48,14 +52,15 @@ def _task_max_concurrency() -> int:
     return val if val > 0 else 5
 
 
-# Task 状态机: pending(已提交待触发) -> running(执行中) -> completed/failed/canceled
+# Task state machine: pending(submitted, awaiting trigger) -> running(executing)
+# -> completed/failed/canceled
 TASK_STATUS_PENDING = "pending"
 TASK_STATUS_RUNNING = "running"
 TASK_STATUS_COMPLETED = "completed"
 TASK_STATUS_FAILED = "failed"
 TASK_STATUS_CANCELED = "canceled"
 
-# 触发类型: immediate(立即) / cron(周期) / run_at(一次性定时)
+# Trigger types: immediate(right away) / cron(recurring) / run_at(one-shot timed)
 TRIGGER_IMMEDIATE = "immediate"
 TRIGGER_CRON = "cron"
 TRIGGER_RUN_AT = "run_at"
@@ -69,7 +74,7 @@ _VALID_STATUSES = {
 }
 _VALID_TRIGGERS = {TRIGGER_IMMEDIATE, TRIGGER_CRON, TRIGGER_RUN_AT}
 
-# 评审态 (正交维度 2, M1-1): none/review/needs_fix/approved
+# Review state (orthogonal dimension 2, M1-1): none/review/needs_fix/approved
 REVIEW_STATE_NONE = "none"
 REVIEW_STATE_REVIEW = "review"
 REVIEW_STATE_NEEDS_FIX = "needs_fix"
@@ -81,7 +86,8 @@ _VALID_REVIEW_STATES = {
     REVIEW_STATE_APPROVED,
 }
 
-# 列读取顺序(显式 SELECT, 保证 from_row 位置稳定, 不受 ALTER 追列影响).
+# Column read order (explicit SELECT keeps from_row positions stable and
+# unaffected by later ALTER-added columns).
 _TASK_COLUMNS = [
     "task_id",
     "title",
@@ -112,15 +118,16 @@ _TASK_COLUMNS = [
     "resource_lease_id",
     "evidence_ref",
     "team",
-    # M3-2 issue#324: 看板任务依赖. JSON list of task_ids this task waits on.
+    # M3-2 issue#324: board task dependencies. JSON list of task_ids this task waits on.
     "depends_on",
-    # #432: 运行沙箱 (local / multi-node:<node_id>).
+    # #432: run sandbox (local / multi-node:<node_id>).
     "sandbox",
 ]
 
 
 def _parse_depends_on(raw: str) -> list[str]:
-    # M3-2 issue#324: parse depends_on JSON list from DB row. 容错: 非JSON/非list -> [].
+    # M3-2 issue#324: parse depends_on JSON list from DB row. Fault tolerant:
+    # non-JSON / non-list -> [].
     if not raw:
         return []
     try:
@@ -134,7 +141,8 @@ def _parse_depends_on(raw: str) -> list[str]:
 
 @dataclass
 class Task:
-    # 通用 Task 记录: 关联 agent/graph, 可 immediate/cron/run_at 触发, 持久化产物与结果.
+    # Generic Task record: linked to an agent/graph, triggerable via
+    # immediate/cron/run_at, persists artifacts and results.
     task_id: str = ""
     title: str = ""
     description: str = ""
@@ -157,7 +165,7 @@ class Task:
     updated_at: float = 0.0
     last_run_at: float = 0.0
     idempotency_key: str = ""
-    # M1-1 双状态机扩展 (正交维度 2 + 归属/租约/证据)
+    # M1-1 dual state machine extension (orthogonal dimension 2 + ownership/lease/evidence)
     review_state: str = REVIEW_STATE_NONE
     attempt_token: str = ""
     owner_role: str = ""
@@ -165,10 +173,12 @@ class Task:
     resource_lease_id: str = ""
     evidence_ref: str = ""
     team: str = "default"
-    # M3-2 issue#324: 看板任务依赖. task_ids this task waits on (空=无依赖=current behavior).
+    # M3-2 issue#324: board task dependencies. task_ids this task waits on
+    # (empty = no dependencies = current behavior).
     depends_on: list[str] = field(default_factory=list)
-    # #432: 运行沙箱选择 — "local" (daemon 本地执行) 或 "multi-node:<node_id>"
-    # (委派给 fusion-multi-node 集群路由执行).
+    # #432: run sandbox selection — "local" (executed locally by the daemon)
+    # or "multi-node:<node_id>" (delegated to the fusion-multi-node cluster
+    # for routed execution).
     sandbox: str = "local"
 
     def to_dict(self) -> dict[str, Any]:
@@ -208,7 +218,7 @@ class Task:
 
     @classmethod
     def from_row(cls, row: tuple) -> Task:
-        # row 顺序与 _init_db 列定义一致.
+        # Row order matches the _init_db column definitions.
         artifact_ids = []
         if row[13]:
             try:
@@ -216,7 +226,8 @@ class Task:
                 if not isinstance(artifact_ids, list):
                     artifact_ids = []
             except Exception as e:
-                # 审计 L-3: 静默吞 JSON 解析错 -> 空列表, 调试无法定位坏数据.
+                # Audit L-3: silently swallowing JSON parse errors -> empty list
+                # makes bad data impossible to locate during debugging.
                 logger.warning(
                     "task_store.from_row: bad artifact_ids JSON (task=%s): %s", row[0], e
                 )
@@ -266,17 +277,23 @@ class Task:
 
 
 class TaskStore:
-    # SQLite 持久化 Task 记录. db_path 空则不落库(仅内存, 测试可用).
+    # SQLite-backed Task records. Empty db_path means no persistence
+    # (memory only, useful for tests).
     def __init__(self, db_path: str = ""):
         self._tasks: dict[str, Task] = {}
         self._db_path = db_path
         self._conn: sqlite3.Connection | None = None
-        # 审计 A-6/R-1/3M-1/3M-3: 跨线程共享单连接无锁无 WAL 致写竞态 + _id_seq 非线程安全.
-        # Lock 串行化所有 DB 操作与 _id_seq 自增; WAL 让读不堵写; busy_timeout 等锁.
+        # Audit A-6/R-1/3M-1/3M-3: a single connection shared across threads
+        # with no lock and no WAL caused write races, plus _id_seq was not
+        # thread-safe. Lock serializes all DB operations and _id_seq increments;
+        # WAL keeps reads from blocking writes; busy_timeout waits for the lock.
         self._write_lock = threading.RLock()
-        # 自增序号, 配合毫秒时间戳生成唯一 task_id, 避免同毫秒并发提交撞 id.
+        # Auto-increment sequence, combined with a millisecond timestamp to
+        # generate unique task_ids, avoiding id collisions from concurrent
+        # submits within the same millisecond.
         self._id_seq = 0
-        # #238: 上次 submit 是否命中幂等去重 (RPC 层读此标志回写 deduped).
+        # #238: whether the last submit hit idempotency dedupe (the RPC layer
+        # reads this flag to write back "deduped").
         self.last_submit_deduped = False
         self._lazy_load = _lazy_load_enabled()
         if db_path:
@@ -328,7 +345,7 @@ class TaskStore:
         self._conn.execute("CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status)")
         self._conn.execute("CREATE INDEX IF NOT EXISTS idx_tasks_agent ON tasks(agent_id)")
         self._conn.commit()
-        # 审计 3M-6: schema 版本管理. PRAGMA user_version 门禁有序迁移.
+        # Audit 3M-6: schema version management. PRAGMA user_version gates ordered migrations.
         self._run_schema_migrations(self._conn)
         logger.info("TaskStore DB initialized: %s", db_path)
 
@@ -351,8 +368,9 @@ class TaskStore:
             current = idx
 
     def _migration_v1_project_id(self, conn) -> None:
-        # 老库迁移: CREATE IF NOT EXISTS 不会补列, ALTER 补 project_id, 再建其索引
-        # (#141 priority-2). 幂等: 探列存在再 ALTER.
+        # Old-database migration: CREATE IF NOT EXISTS does not add missing
+        # columns, so ALTER adds project_id, then builds its index
+        # (#141 priority-2). Idempotent: probe the column, ALTER only if missing.
         cols = {row[1] for row in conn.execute("PRAGMA table_info(tasks)").fetchall()}
         if "project_id" not in cols:
             conn.execute("ALTER TABLE tasks ADD COLUMN project_id TEXT DEFAULT ''")
@@ -360,8 +378,9 @@ class TaskStore:
         conn.execute("CREATE INDEX IF NOT EXISTS idx_tasks_project ON tasks(project_id)")
 
     def _migration_v2_idempotency_key(self, conn) -> None:
-        # #238: task.submit 幂等去重. ALTER 补 idempotency_key 列 + 唯一索引
-        # (空键不冲突, 多空行允许). 幂等: 探列存在再 ALTER.
+        # #238: task.submit idempotency dedupe. ALTER adds the idempotency_key
+        # column + unique index (empty keys do not conflict, multiple empty rows
+        # allowed). Idempotent: probe the column, ALTER only if missing.
         cols = {row[1] for row in conn.execute("PRAGMA table_info(tasks)").fetchall()}
         if "idempotency_key" not in cols:
             conn.execute("ALTER TABLE tasks ADD COLUMN idempotency_key TEXT DEFAULT ''")
@@ -372,9 +391,10 @@ class TaskStore:
         )
 
     def _migration_v3_team_state(self, conn) -> None:
-        # M1-1 双状态机: review_state + attempt_token + owner/lease/evidence/team 列,
-        # task_history 表 (迁移审计) + idempotency_index 表 (跨状态查重).
-        # 幂等: 探列存在再 ALTER.
+        # M1-1 dual state machine: review_state + attempt_token +
+        # owner/lease/evidence/team columns, task_history table (migration
+        # audit) + idempotency_index table (cross-status dedupe).
+        # Idempotent: probe the column, ALTER only if missing.
         cols = {row[1] for row in conn.execute("PRAGMA table_info(tasks)").fetchall()}
         new_cols = [
             ("review_state", "TEXT DEFAULT 'none'"),
@@ -393,7 +413,8 @@ class TaskStore:
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_tasks_owner ON tasks(owner_agent) WHERE owner_agent != ''"
         )
-        # 迁移历史表: 谁何时为何迁移 (from->to status/review).
+        # Migration history table: who moved what when and why
+        # (from->to status/review).
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS task_history (
@@ -413,7 +434,8 @@ class TaskStore:
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_task_history_task ON task_history(task_id, ts)"
         )
-        # 幂等索引独立表: 跨状态查重 (替代 tasks 上偏索引, 支持查重查询不耦合主表).
+        # Standalone idempotency index table: cross-status dedupe (replaces the
+        # partial index on tasks, keeps dedupe queries decoupled from the main table).
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS idempotency_index (
@@ -426,8 +448,8 @@ class TaskStore:
         logger.info("Migrated tasks table: v3 team_state (task_history + idempotency_index)")
 
     def _migration_v4_depends_on(self, conn) -> None:
-        # M3-2 issue#324: 看板任务依赖. depends_on = JSON list of task_ids.
-        # 幂等: 探列存在再 ALTER.
+        # M3-2 issue#324: board task dependencies. depends_on = JSON list of task_ids.
+        # Idempotent: probe the column, ALTER only if missing.
         cols = {row[1] for row in conn.execute("PRAGMA table_info(tasks)").fetchall()}
         if "depends_on" not in cols:
             conn.execute("ALTER TABLE tasks ADD COLUMN depends_on TEXT DEFAULT '[]'")
@@ -438,7 +460,8 @@ class TaskStore:
         )
 
     def _migration_v5_sandbox(self, conn) -> None:
-        # #432: fusion-agent CLI 沙箱选择. 幂等: 探列存在再 ALTER.
+        # #432: fusion-agent CLI sandbox selection. Idempotent: probe the
+        # column, ALTER only if missing.
         cols = {row[1] for row in conn.execute("PRAGMA table_info(tasks)").fetchall()}
         if "sandbox" not in cols:
             conn.execute("ALTER TABLE tasks ADD COLUMN sandbox TEXT DEFAULT 'local'")
@@ -457,9 +480,11 @@ class TaskStore:
         logger.info("Loaded %d tasks from DB", len(self._tasks))
 
     def _get_task(self, task_id: str) -> Task | None:
-        # 审计 P2-12: lazy-load 模式下 task 仅在磁盘, 内存 dict miss -> update_status/
-        # cancel/rerun/add_artifacts/delete 恒 False (盲区). 缓存 miss 时按 id 从磁盘
-        # 单行加载进 dict, 后续写操作正常. eager 模式行为不变 (dict 已满).
+        # Audit P2-12: in lazy-load mode tasks live only on disk, so a memory
+        # dict miss made update_status/cancel/rerun/add_artifacts/delete always
+        # return False (blind spot). On a cache miss, load the single row from
+        # disk by id into the dict so subsequent write operations work normally.
+        # Eager mode behavior is unchanged (dict already full).
         task = self._tasks.get(task_id)
         if task is not None:
             return task
@@ -527,7 +552,8 @@ class TaskStore:
             self._conn.commit()
 
     def _delete_task(self, task_id: str) -> int:
-        # 审计 P2-12: 返回删除行数, 供 delete() 判定磁盘上是否真存在 (lazy 模式).
+        # Audit P2-12: return the deleted row count so delete() can tell
+        # whether the row really existed on disk (lazy mode).
         if not self._conn:
             return 0
         with self._write_lock:
@@ -562,8 +588,11 @@ class TaskStore:
         return len(ids)
 
     def submit(self, task: Task) -> Task:
-        # 新建/覆盖提交. 自动补 task_id/时间戳; trigger/status 走校验回退默认.
-        # task_id 用 毫秒+自增序号 避免同毫秒并发提交撞 id (INSERT OR REPLACE 会覆盖).
+        # New/overwrite submit. Auto-fills task_id/timestamps; trigger/status
+        # are validated with fallback to defaults. task_id uses
+        # millisecond-timestamp + auto-increment sequence to avoid id collisions
+        # from concurrent submits in the same millisecond (INSERT OR REPLACE
+        # would overwrite).
         if not task.created_at:
             task.created_at = time.time()
         task.updated_at = time.time()
@@ -572,10 +601,12 @@ class TaskStore:
             task.trigger = TRIGGER_IMMEDIATE
         if task.status not in _VALID_STATUSES:
             task.status = TASK_STATUS_PENDING
-        # 审计 P0: _id_seq 自增 + dict 写 + _save_task 必须原子, 否则并发提交撞 id 覆盖.
+        # Audit P0: _id_seq increment + dict write + _save_task must be atomic,
+        # otherwise concurrent submits collide on ids and overwrite each other.
         self.reap_expired()
         with self._write_lock:
-            # #238: 幂等去重. 同 idempotency_key 已存在 -> 返回旧 task, 不新建行.
+            # #238: idempotency dedupe. If the same idempotency_key already
+            # exists -> return the old task instead of creating a new row.
             if task.idempotency_key:
                 existing = self._find_by_idempotency_key(task.idempotency_key)
                 if existing is not None:
@@ -592,7 +623,8 @@ class TaskStore:
                 task.task_id = f"task_{int(time.time() * 1000)}_{self._id_seq}"
             self._tasks[task.task_id] = task
             self._save_task(task)
-            # M1-1: 幂等索引独立表 (跨状态查重, 不耦合主表).
+            # M1-1: standalone idempotency index table (cross-status dedupe,
+            # decoupled from the main table).
             if task.idempotency_key and self._conn:
                 self._conn.execute(
                     "INSERT OR IGNORE INTO idempotency_index (idempotency_key, task_id, created_at) "
@@ -610,7 +642,8 @@ class TaskStore:
         return task
 
     def get(self, task_id: str) -> Task | None:
-        # 审计 P2-12: 复用 _get_task 的 lazy-load 磁盘回填, 统一盲区修复入口.
+        # Audit P2-12: reuses _get_task's lazy-load disk backfill as the single
+        # blind-spot fix entry point.
         return self._get_task(task_id)
 
     def list(
@@ -677,8 +710,9 @@ class TaskStore:
         return [Task.from_row(row).to_dict() for row in rows]
 
     def _find_by_idempotency_key(self, key: str) -> Task | None:
-        # #238: 幂等查找. 走 _TASK_COLUMNS 显式 SELECT (ALTER 追列位置稳定).
-        # caller 必须持有 _write_lock (submit 内调用).
+        # #238: idempotency lookup. Uses the _TASK_COLUMNS explicit SELECT
+        # (positions stay stable when ALTER adds columns).
+        # Caller must hold _write_lock (called inside submit).
         if not self._conn or not key:
             return None
         sql = "SELECT " + ", ".join(_TASK_COLUMNS) + " FROM tasks WHERE idempotency_key = ? LIMIT 1"
@@ -690,7 +724,8 @@ class TaskStore:
         return task
 
     def count_by_status(self, status: str) -> int:
-        # #239: 按状态计数, task.health 队列深度上报. 无 db 时走内存 dict.
+        # #239: count by status for task.health queue-depth reporting. Falls
+        # back to the in-memory dict when there is no db.
         if self._lazy_load and self._conn:
             with self._write_lock:
                 row = self._conn.execute(
@@ -700,7 +735,7 @@ class TaskStore:
         return sum(1 for t in self._tasks.values() if t.status == status)
 
     def total_count(self) -> int:
-        # #239: 全量计数, task.health.total_tasks.
+        # #239: total count, task.health.total_tasks.
         if self._lazy_load and self._conn:
             with self._write_lock:
                 row = self._conn.execute("SELECT COUNT(*) FROM tasks").fetchone()
@@ -742,7 +777,8 @@ class TaskStore:
         return True
 
     def cancel(self, task_id: str) -> bool:
-        # 仅 pending/running 可取消; completed/failed/canceled 幂等返 False.
+        # Only pending/running can be canceled; completed/failed/canceled
+        # return False idempotently.
         task = self._get_task(task_id)
         if not task:
             return False
@@ -751,7 +787,7 @@ class TaskStore:
         return self.update_status(task_id, TASK_STATUS_CANCELED)
 
     def rerun(self, task_id: str) -> Task | None:
-        # 重置为 pending, retry_count+1, 供调度/前端再次拉起.
+        # Reset to pending, retry_count+1, so the scheduler/frontend can pick it up again.
         task = self._get_task(task_id)
         if not task:
             return None
@@ -775,8 +811,10 @@ class TaskStore:
         return True
 
     def delete(self, task_id: str) -> bool:
-        # 审计 P2-12: lazy 模式 task 仅磁盘, pop miss -> 返 False 但磁盘残留.
-        # 先弹缓存, 再无条件删磁盘行 (存在则删, 不存在无副作用), 按磁盘实际删除数判定.
+        # Audit P2-12: in lazy mode tasks exist only on disk, so a pop miss
+        # returned False while the row stayed on disk. Pop the cache first,
+        # then delete the disk row unconditionally (delete if present, no-op
+        # if absent), and decide based on the actual number of rows deleted.
         self._tasks.pop(task_id, None)
         deleted_rows = self._delete_task(task_id)
         if deleted_rows:
@@ -785,8 +823,10 @@ class TaskStore:
         return False
 
     def projects(self) -> list[dict]:
-        # 聚合 distinct project_id 及其任务数/状态分布 (#141 priority-2 多 Task 看板).
-        # 审计 P2-12: lazy 模式 dict 仅部分 task, 从 DB 聚合保证全量.
+        # Aggregate distinct project_ids with their task counts/status
+        # distribution (#141 priority-2 multi-project Task board).
+        # Audit P2-12: in lazy mode the dict holds only some tasks, so
+        # aggregate from the DB to guarantee full coverage.
         buckets: dict[str, dict[str, Any]] = {}
         if self._lazy_load and self._conn:
             with self._write_lock:
@@ -844,7 +884,7 @@ class TaskStore:
         actor: str,
         reason: str,
     ) -> None:
-        # M1-1: 迁移审计行 (谁何时为何迁移). caller 持有 _write_lock.
+        # M1-1: migration audit row (who moved what when and why). Caller holds _write_lock.
         if not self._conn:
             return
         self._conn.execute(
@@ -854,12 +894,15 @@ class TaskStore:
         )
 
     def dequeue(self, team: str, owner_agent: str, task_type: str = "") -> Task | None:
-        # M1-1/M1-7: 认领 todo 列首个任务 (worker pull 模型). 原子单语句
-        # UPDATE...RETURNING — subquery 选首个 pending 无 owner 任务 + WHERE
-        # status=pending guard + RETURNING task_id. SQLite 写锁保护整个语句,
-        # 无 RMW 窗口, 跨进程安全 (RLock 仅进程内串行, DB 写锁跨进程串行).
-        # RETURNING 仅在行实际被更新 (status 仍 pending) 时返回 task_id,
-        # 否则 None → 跨进程竞争第二个进程正确得到 None.
+        # M1-1/M1-7: claim the first task in the todo column (worker pull
+        # model). Atomic single-statement UPDATE...RETURNING — the subquery
+        # picks the first pending unowned task + a WHERE status=pending guard +
+        # RETURNING task_id. The SQLite write lock protects the whole statement,
+        # leaving no RMW window; safe across processes (RLock serializes only
+        # within the process, the DB write lock serializes across processes).
+        # RETURNING yields the task_id only if the row was actually updated
+        # (status still pending), otherwise None — a second process losing the
+        # cross-process race correctly gets None.
         if not self._conn or not owner_agent:
             return None
         import uuid
@@ -930,10 +973,12 @@ class TaskStore:
                 "dequeue claim",
             )
             self._conn.commit()
-        # 强制从 DB 重载缓存 (UPDATE 不回填 _tasks dict, 旧对象 status 过期).
+        # Force-reload the cache from the DB (UPDATE does not backfill the
+        # _tasks dict, so the old object's status is stale).
         self._tasks.pop(task_id, None)
         task = self._get_task(task_id)
-        # M3-2 issue#324: 依赖门禁. 已 dequeue 但依赖未完成 -> 回退 pending.
+        # M3-2 issue#324: dependency gate. Already dequeued but dependencies
+        # unfinished -> revert to pending.
         if task and not self.deps_met(task.task_id):
             with self._write_lock:
                 self._conn.execute(
@@ -956,7 +1001,8 @@ class TaskStore:
         return task
 
     def deps_met(self, task_id: str) -> bool:
-        # M3-2 issue#324: 检查 task 的 depends_on 全部 completed. 无依赖 -> True.
+        # M3-2 issue#324: check that all of a task's depends_on are completed.
+        # No dependencies -> True.
         task = self._get_task(task_id)
         if not task or not task.depends_on:
             return True
@@ -1047,7 +1093,8 @@ class TaskStore:
         actor: str = "",
         reason: str = "",
     ) -> Task | None:
-        # M1-1: 状态迁移 + 写 task_history 行. review_state 空串=不变.
+        # M1-1: status transition + write a task_history row. Empty
+        # review_state = unchanged.
         task = self._get_task(task_id)
         if not task:
             return None
@@ -1091,7 +1138,8 @@ class TaskStore:
         return task
 
     def set_evidence(self, task_id: str, evidence_ref: str) -> bool:
-        # M1-1: 写证据 jsonl 路径 (execution 证据链, 崩溃恢复靠证据 reconcile).
+        # M1-1: write the evidence jsonl path (execution evidence chain; crash
+        # recovery relies on evidence reconcile).
         task = self._get_task(task_id)
         if not task:
             return False
@@ -1102,7 +1150,8 @@ class TaskStore:
         return True
 
     def set_review_state(self, task_id: str, state: str) -> bool:
-        # M1-7: 写评审态 (reconcile 标 needs_fix). none/review/needs_fix/approved.
+        # M1-7: write the review state (reconcile marks needs_fix).
+        # none/review/needs_fix/approved.
         if state not in _VALID_REVIEW_STATES:
             logger.warning("invalid review_state=%s, ignore", state)
             return False
@@ -1116,7 +1165,7 @@ class TaskStore:
         return True
 
     def claim_lease(self, task_id: str, lease_id: str) -> bool:
-        # M1-1: 关联资源租约 (M1-4 ResourceLease 写 resource_lease_id).
+        # M1-1: associate a resource lease (M1-4 ResourceLease writes resource_lease_id).
         task = self._get_task(task_id)
         if not task:
             return False
@@ -1127,7 +1176,8 @@ class TaskStore:
         return True
 
     def list_by_column(self, team: str = "") -> dict[str, list[dict]]:
-        # M1-1: 按 derive_column 分组 (GUI 看板用). 推导式列避免双写不一致.
+        # M1-1: group by derive_column (used by the GUI board). The derived
+        # column avoids dual-write inconsistency.
         from .task_board import derive_column
 
         team = team or "default"
@@ -1164,7 +1214,8 @@ class TaskStore:
         return columns
 
     def find_by_idempotency(self, key: str) -> Task | None:
-        # M1-1: 跨状态幂等查重 (查 idempotency_index 独立表). 公开方法 (非 submit 内部).
+        # M1-1: cross-status idempotency dedupe (queries the standalone
+        # idempotency_index table). Public method (not submit-internal).
         if not self._conn or not key:
             return None
         with self._write_lock:

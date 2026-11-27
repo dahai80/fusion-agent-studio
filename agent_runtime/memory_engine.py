@@ -33,15 +33,20 @@ _MAX_ENTRIES_BEFORE_SUMMARY = 200
 _SUMMARY_BATCH_SIZE = 50
 _TIME_WINDOW_SECONDS = 3600  # 1-hour chunks for compression grouping
 
-# C16: 记忆语义类型分类 (对齐 Claude 记忆分类法).
-# user=身份偏好, feedback=用户纠正/确认的工作方式, project=进行中工作目标约束,
-# reference=外部资源指针. 默认 project (auto-store 多为执行上下文).
+# C16: memory semantic type taxonomy (aligned with Claude's memory taxonomy).
+# user=identity preferences, feedback=user-corrected/confirmed ways of working,
+# project=in-flight work goals/constraints,
+# reference=external resource pointers. Default project (auto-store is mostly
+# execution context).
 DEFAULT_MEMORY_TYPE = "project"
 VALID_MEMORY_TYPES = {"user", "feedback", "project", "reference"}
 
-# C16: 自动分类启发式关键词 (lowercased 子串匹配). 命中即归类, 无命中 -> project.
-# 顺序: user 优先于 feedback — "i prefer X" 是身份偏好(user)而非工作方式纠正(feedback),
-# 避免裸 "prefer" 抢先命中 feedback. reference (URL/票据) 与前两者正交故置末.
+# C16: auto-classification heuristic keywords (lowercased substring match).
+# First match wins; no match -> project.
+# Order: user takes priority over feedback — "i prefer X" is an identity
+# preference (user), not a working-style correction (feedback); the bare "prefer"
+# keyword would otherwise hit feedback first. reference (URLs/tickets) is
+# orthogonal to the other two, hence last.
 _TYPE_KEYWORDS = (
     ("user", ("i am", "i'm", "my role", "i use", "i work", "i prefer", "expertise")),
     (
@@ -53,7 +58,7 @@ _TYPE_KEYWORDS = (
 
 
 def classify_memory_type(content: str) -> str:
-    # C16: 按内容关键词启发式归类. 无命中默认 project.
+    # C16: classify by content keyword heuristics. Default project when nothing matches.
     text = (content or "").lower()
     for mem_type, keywords in _TYPE_KEYWORDS:
         if any(kw in text for kw in keywords):
@@ -118,7 +123,7 @@ class MemoryEntry:
     created_at: float = 0.0
     metadata: dict[str, Any] = field(default_factory=dict)
     tier: str = "short_term"
-    # C16: 语义记忆类型 (user/feedback/project/reference).
+    # C16: semantic memory type (user/feedback/project/reference).
     memory_type: str = DEFAULT_MEMORY_TYPE
     # N15 #390: tenant/team isolation dimensions on top of scope.
     tenant_id: str = ""
@@ -247,11 +252,13 @@ class MemoryEngine:
             CREATE INDEX IF NOT EXISTS idx_memories_tier ON memories(tier)
         """)
         self.conn.commit()
-        # 审计 3M-6: schema 版本管理. PRAGMA user_version 门禁有序迁移,
-        # 取代裸调用迁移函数. 迁移函数本身幂等 (try/except), 版本门禁只防漏跑/重跑混乱.
+        # Audit 3M-6: schema version management. PRAGMA user_version gates ordered
+        # migrations, replacing bare migration calls. The migrations themselves are
+        # idempotent (try/except); the version gate only prevents missed or repeated runs.
         self._run_schema_migrations(c)
         self.conn.commit()
-        # C16: memory_type 索引须在迁移加列之后建 — 老库无此列时先建索引会 OperationalError.
+        # C16: the memory_type index must be created after the migration adds the
+        # column — creating it first on an old DB without the column raises OperationalError.
         c.execute("""
             CREATE INDEX IF NOT EXISTS idx_memories_type ON memories(memory_type)
         """)
@@ -290,7 +297,7 @@ class MemoryEngine:
             """)
 
     def _migrate_add_memory_type_column(self, c: sqlite3.Cursor) -> None:
-        # C16: 老库无 memory_type 列 -> 加列, 旧条目归 project 默认.
+        # C16: old DBs lack the memory_type column -> add it; existing entries default to project.
         try:
             c.execute("SELECT memory_type FROM memories LIMIT 1")
         except sqlite3.OperationalError:

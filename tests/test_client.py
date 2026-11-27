@@ -61,7 +61,7 @@ class TestFusionMLXClient:
         assert client.base_url == "http://localhost:11434/v1"
 
     def test_health_no_server(self):
-        # 显式死端口, 避免环境依赖 (默认 base_url 可能连上真实 gateway/MLX).
+        # Explicit dead port avoids environment deps (default base_url may reach a real gateway/MLX).
         client = FusionMLXClient(base_url="http://127.0.0.1:1/v1", timeout=1.0)
         # No server running, should return False
         import asyncio
@@ -70,7 +70,7 @@ class TestFusionMLXClient:
         assert result is False
 
     def test_get_server_stats_no_server(self):
-        # 显式死端口, 避免环境依赖 (默认 base_url 可能连上真实 gateway/MLX).
+        # Explicit dead port avoids environment deps (default base_url may reach a real gateway/MLX).
         client = FusionMLXClient(base_url="http://127.0.0.1:1/v1", timeout=1.0)
         import asyncio
 
