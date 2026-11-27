@@ -139,7 +139,7 @@ _ERROR_REGISTRY: dict[str, dict[str, str]] = {
     ErrorCode.ARTIFACT_NOT_FOUND: {
         "type": ErrorType.RESOURCE_NOT_FOUND,
         "message": "Artifact does not exist",
-        "user_message": "产物不存在或已被删除",
+        "user_message": "产物不存在或已被删除",  # i18n: user-facing
     },
     ErrorCode.SESSION_NOT_FOUND: {
         "type": ErrorType.RESOURCE_NOT_FOUND,
