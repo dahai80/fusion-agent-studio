@@ -127,7 +127,7 @@ export function MarketplacePage() {
                     className="flex items-center gap-1.5 whitespace-nowrap rounded-md border border-border px-4 py-2 text-sm text-text-primary hover:bg-bg-muted disabled:opacity-50"
                 >
                     <Search className="h-3.5 w-3.5" />
-                    // i18n: user-facing
+                    {/* i18n: user-facing */}
                     {t('搜索', 'Search')}
                 </button>
             </div>
@@ -199,7 +199,7 @@ export function MarketplacePage() {
                                         {e.installed ? (
                                             <span className="flex items-center gap-1 text-[11px] text-success">
                                                 <Package className="h-3 w-3" />
-                                                // i18n: user-facing
+                                                {/* i18n: user-facing */}
                                                 {t('已安装', 'installed')}
                                             </span>
                                         ) : (
@@ -212,7 +212,7 @@ export function MarketplacePage() {
                                                 onClick={() => act(e, 'uninstall')}
                                                 className="rounded-md border border-border px-2.5 py-1 text-xs text-warning hover:bg-bg-muted disabled:opacity-50"
                                             >
-                                                // i18n: user-facing
+                                                {/* i18n: user-facing */}
                                                 {t('卸载', 'Uninstall')}
                                             </button>
                                         ) : (
@@ -222,7 +222,7 @@ export function MarketplacePage() {
                                                 onClick={() => act(e, 'install')}
                                                 className="rounded-md bg-brand px-2.5 py-1 text-xs text-white hover:opacity-90 disabled:opacity-50"
                                             >
-                                                // i18n: user-facing
+                                                {/* i18n: user-facing */}
                                                 {t('安装', 'Install')}
                                             </button>
                                         )}

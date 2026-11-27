@@ -122,7 +122,7 @@ export function MemoryPage() {
                             onClick={() => setShowStore(true)}
                             className="rounded-md border border-border px-3 py-1.5 text-xs text-text-primary hover:bg-bg-muted"
                         >
-                            // i18n: user-facing
+                            {/* i18n: user-facing */}
                             {t('存入记忆', 'Store')}
                         </button>
                     </div>
@@ -141,7 +141,7 @@ export function MemoryPage() {
                     disabled={busy}
                     className="whitespace-nowrap rounded-md border border-border px-4 py-2 text-sm text-text-primary hover:bg-bg-muted disabled:opacity-50"
                 >
-                    // i18n: user-facing
+                    {/* i18n: user-facing */}
                     {t('召回', 'Recall')}
                 </button>
             </div>
@@ -211,7 +211,7 @@ export function MemoryPage() {
                                         onClick={() => remove(e.id)}
                                         className="text-xs text-error hover:underline"
                                     >
-                                        // i18n: user-facing
+                                        {/* i18n: user-facing */}
                                         {t('删除', 'Delete')}
                                     </button>
                                 ),
@@ -228,28 +228,28 @@ export function MemoryPage() {
                 // i18n: user-facing
                 footer={<SubmitButton label={t('存入', 'Store')} onAction={store} />}
             >
-                // i18n: user-facing
+                {/* i18n: user-facing */}
                 <FormField label={t('内容', 'Content')} required>
                     <Textarea value={content} onChange={setContent} rows={4} />
                 </FormField>
-                // i18n: user-facing
+                {/* i18n: user-facing */}
                 <FormField label={t('范围', 'Scope')}>
                     <TextInput value={scope} onChange={setScope} />
                 </FormField>
-                // i18n: user-facing
+                {/* i18n: user-facing */}
                 <FormField label={t('层级', 'Tier')}>
                     <SelectInput value={tier} onChange={setTier} options={tierOptions} />
                 </FormField>
-                // i18n: user-facing
+                {/* i18n: user-facing */}
                 <FormField label={t('标签', 'Tags')}>
                     <TextInput value={tags} onChange={setTags} />
                 </FormField>
-                // i18n: user-facing
+                {/* i18n: user-facing */}
                 <FormField label={t('重要性 (1-10)', 'Importance (1-10)')}>
                     <TextInput value={importance} onChange={setImportance} type="number" />
                 </FormField>
             </Modal>
-            // i18n: user-facing
+            {/* i18n: user-facing */}
             {busy ? <StatusBadge status="running" label={t('召回中…', 'recalling…')} /> : null}
         </div>
     );

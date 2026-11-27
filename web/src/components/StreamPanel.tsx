@@ -135,12 +135,12 @@ export function StreamPanel({
         <div className="flex flex-col gap-2 rounded-card border border-border bg-bg-elevated p-4">
             <div className="flex items-center justify-between gap-2">
                 <span className="text-sm text-text-primary">
-                    // i18n: user-facing
+                    {/* i18n: user-facing */}
                     {t('流式输出', 'Streaming output')}
                     <span className="ml-2 font-mono text-xs tabular-nums text-text-muted">
                         {formatTokenCount(stats?.tokens ?? 0)} tok ·{' '}
                         {formatDuration(elapsed || (stats ? Date.now() - stats.startedAt : 0))} ·{' '}
-                        // i18n: user-facing
+                        {/* i18n: user-facing */}
                         {eventCount} {t('事件', 'events')}
                     </span>
                 </span>
@@ -150,7 +150,7 @@ export function StreamPanel({
                         onClick={stop}
                         className="rounded-md border border-error/60 px-3 py-1.5 text-xs text-error hover:bg-error/10"
                     >
-                        // i18n: user-facing
+                        {/* i18n: user-facing */}
                         {t('停止', 'Stop')}
                     </button>
                 ) : (
@@ -159,7 +159,7 @@ export function StreamPanel({
                         onClick={restart}
                         className="rounded-md border border-border px-3 py-1.5 text-xs text-text-secondary hover:bg-bg-muted"
                     >
-                        // i18n: user-facing
+                        {/* i18n: user-facing */}
                         {t('重新运行', 'Rerun')}
                     </button>
                 )}
@@ -173,7 +173,7 @@ export function StreamPanel({
                 <StreamingMarkdown text={text} className="rounded-md bg-bg p-3" />
             ) : (
                 <div className="px-3 py-6 text-center text-xs text-text-muted">
-                    // i18n: user-facing
+                    {/* i18n: user-facing */}
                     {streaming ? t('等待首个 token…', 'waiting for first token…') : ''}
                 </div>
             )}

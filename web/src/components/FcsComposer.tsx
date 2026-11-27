@@ -196,9 +196,9 @@ export function FcsComposer(props: {
                     </button>
                 </div>
                 <div className="px-4 pb-2 text-[11px] text-text-muted">
-                    // i18n: user-facing
+                    {/* i18n: user-facing */}
                     {t('Enter 发送 · Shift+Enter 换行', 'Enter to send · Shift+Enter for newline')}
-                    // i18n: user-facing
+                    {/* i18n: user-facing */}
                     {streaming ? ` · ${t('Esc 停止', 'Esc to stop')}` : ''}
                 </div>
             </div>

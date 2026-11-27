@@ -149,7 +149,7 @@ export function RunDetailPage({ runId }: { runId: string }) {
     if (loadError && !run) {
         return (
             <div>
-                // i18n: user-facing
+                {/* i18n: user-facing */}
                 <PageHeader title={t('运行详情', 'Run detail')} subtitle={runId} />
                 <div className="px-4 pt-3">
                     <ErrorState
@@ -167,7 +167,7 @@ export function RunDetailPage({ runId }: { runId: string }) {
     if (!run) {
         return (
             <div>
-                // i18n: user-facing
+                {/* i18n: user-facing */}
                 <PageHeader title={t('运行详情', 'Run detail')} subtitle={runId} />
                 <div className="px-4 pt-3">
                     <SkeletonLines rows={6} />
@@ -210,7 +210,7 @@ export function RunDetailPage({ runId }: { runId: string }) {
                                 onClick={() => setCancelOpen(true)}
                                 className="rounded-md border border-error/60 px-3 py-1.5 text-xs text-error hover:bg-error/10"
                             >
-                                // i18n: user-facing
+                                {/* i18n: user-facing */}
                                 {t('取消运行', 'Cancel run')}
                             </button>
                         ) : null}
@@ -326,11 +326,11 @@ export function RunDetailPage({ runId }: { runId: string }) {
                     <div className="flex flex-col gap-2">
                         <div className="flex items-center justify-between gap-2">
                             <span className="text-sm text-text-primary">
-                                // i18n: user-facing
+                                {/* i18n: user-facing */}
                                 {t('流式重放', 'Live replay')}
                                 {rerunNode ? (
                                     <span className="ml-2 font-mono text-xs text-warning">
-                                        // i18n: user-facing
+                                        {/* i18n: user-facing */}
                                         {t('单节点重跑', 'rerun')}: {rerunNode}
                                     </span>
                                 ) : null}
@@ -342,7 +342,7 @@ export function RunDetailPage({ runId }: { runId: string }) {
                                         onClick={() => setRerunNode('')}
                                         className="rounded-md border border-border px-3 py-1.5 text-xs text-text-secondary hover:bg-bg-muted"
                                     >
-                                        // i18n: user-facing
+                                        {/* i18n: user-facing */}
                                         {t('改为整图重放', 'Full graph replay')}
                                     </button>
                                 ) : null}
@@ -422,14 +422,14 @@ function EventsTab({
             <table className="w-full text-left text-xs">
                 <thead className="text-text-secondary">
                     <tr>
-                        // i18n: user-facing
+                        {/* i18n: user-facing */}
                         <th className="py-1.5 pr-3">{t('节点', 'Node')}</th>
-                        // i18n: user-facing
+                        {/* i18n: user-facing */}
                         <th className="py-1.5 pr-3">{t('状态', 'Status')}</th>
-                        // i18n: user-facing
+                        {/* i18n: user-facing */}
                         <th className="py-1.5 pr-3">{t('工具调用', 'Tool calls')}</th>
                         <th className="py-1.5 pr-3">{t('Token', 'Tokens')}</th>
-                        // i18n: user-facing
+                        {/* i18n: user-facing */}
                         <th className="py-1.5 pr-3">{t('错误', 'Error')}</th>
                         <th className="py-1.5" />
                     </tr>
@@ -451,7 +451,7 @@ function EventsTab({
                                         onClick={() => onRerunNode(n.node_id)}
                                         className="rounded-md border border-border px-2 py-0.5 text-text-secondary hover:bg-bg-muted"
                                     >
-                                        // i18n: user-facing
+                                        {/* i18n: user-facing */}
                                         {t('重跑', 'rerun')}
                                     </button>
                                 ) : null}
@@ -501,7 +501,7 @@ function ToolsTab({
     if (!stats.length) {
         return (
             <div className="text-xs text-text-secondary">
-                // i18n: user-facing
+                {/* i18n: user-facing */}
                 {t('该运行没有工具调用', 'no tool calls in this run')}
             </div>
         );
@@ -511,15 +511,15 @@ function ToolsTab({
             <table className="w-full text-left text-xs">
                 <thead className="text-text-secondary">
                     <tr>
-                        // i18n: user-facing
+                        {/* i18n: user-facing */}
                         <th className="py-1.5 pr-3">{t('工具', 'Tool')}</th>
-                        // i18n: user-facing
+                        {/* i18n: user-facing */}
                         <th className="py-1.5 pr-3">{t('调用', 'Calls')}</th>
-                        // i18n: user-facing
+                        {/* i18n: user-facing */}
                         <th className="py-1.5 pr-3">{t('失败', 'Failures')}</th>
-                        // i18n: user-facing
+                        {/* i18n: user-facing */}
                         <th className="py-1.5 pr-3">{t('失败率', 'Failure rate')}</th>
-                        // i18n: user-facing
+                        {/* i18n: user-facing */}
                         <th className="py-1.5 pr-3">{t('中位时长', 'Median')}</th>
                         <th className="py-1.5">{t('P95', 'P95')}</th>
                     </tr>
@@ -590,7 +590,7 @@ function ThreadsTab({
     if (!lanes.length) {
         return (
             <div className="text-xs text-text-secondary">
-                // i18n: user-facing
+                {/* i18n: user-facing */}
                 {t('该运行没有事件线程', 'no event threads in this run')}
             </div>
         );
@@ -607,7 +607,7 @@ function ThreadsTab({
                         <div className="flex items-center justify-between text-xs">
                             <span className="font-mono text-text-primary">{lane.label}</span>
                             <span className="text-text-secondary">
-                                // i18n: user-facing
+                                {/* i18n: user-facing */}
                                 {lane.event_count} {t('事件', 'events')} · {t('深度', 'depth')}{' '}
                                 {lane.max_depth}
                             </span>
@@ -723,7 +723,7 @@ function SessionOps({ sessionId }: { sessionId: string }) {
     return (
         <div data-testid="session-ops" className="mt-3 text-xs">
             <div className="text-text-primary">
-                // i18n: user-facing
+                {/* i18n: user-facing */}
                 {t('会话操作', 'Session ops')}{' '}
                 <span className="font-mono text-text-secondary">{sessionId}</span>
             </div>
@@ -734,7 +734,7 @@ function SessionOps({ sessionId }: { sessionId: string }) {
                     onClick={fork}
                     className="rounded-md border border-border px-3 py-1 text-text-primary hover:bg-bg-muted"
                 >
-                    // i18n: user-facing
+                    {/* i18n: user-facing */}
                     {t('分支会话', 'Fork session')}
                 </button>
                 <input
@@ -751,7 +751,7 @@ function SessionOps({ sessionId }: { sessionId: string }) {
                     onClick={inject}
                     className="rounded-md border border-border px-3 py-1 text-text-primary hover:bg-bg-muted"
                 >
-                    // i18n: user-facing
+                    {/* i18n: user-facing */}
                     {t('注入', 'Inject')}
                 </button>
             </div>

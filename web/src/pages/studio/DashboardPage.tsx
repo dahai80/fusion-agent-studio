@@ -84,7 +84,7 @@ export function DashboardPage() {
 
     return (
         <div>
-            // i18n: user-facing
+            {/* i18n: user-facing */}
             <PageHeader title={t('仪表盘', 'Dashboard')} />
             <div className="space-y-6 px-4 pt-3 pb-6">
                 {loading && attempt === 0 ? (
@@ -101,7 +101,7 @@ export function DashboardPage() {
                     <>
                         <section>
                             <h3 className="mb-2 text-sm font-medium text-text-primary">
-                                // i18n: user-facing
+                                {/* i18n: user-facing */}
                                 {t('概览', 'Overview')}
                             </h3>
                             {statEntries.length > 0 ? (
@@ -114,11 +114,11 @@ export function DashboardPage() {
                         </section>
                         <section>
                             <h3 className="mb-2 text-sm font-medium text-text-primary">
-                                // i18n: user-facing
+                                {/* i18n: user-facing */}
                                 {t('模型', 'Model')}
                             </h3>
                             <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-                                // i18n: user-facing
+                                {/* i18n: user-facing */}
                                 <MetricTile label={t('模型', 'Model')} value={model ?? '-'} />
                                 <MetricTile
                                     // i18n: user-facing
@@ -146,7 +146,7 @@ export function DashboardPage() {
                                 model === undefined &&
                                 memory === undefined ? (
                                     <p className="text-xs text-text-muted">
-                                        // i18n: user-facing
+                                        {/* i18n: user-facing */}
                                         {t('暂无模型状态', 'no model status')}
                                     </p>
                                 ) : null}
@@ -155,7 +155,7 @@ export function DashboardPage() {
                         {capabilities.length > 0 ? (
                             <section>
                                 <h3 className="mb-2 text-sm font-medium text-text-primary">
-                                    // i18n: user-facing
+                                    {/* i18n: user-facing */}
                                     {t('能力开关', 'Capabilities')}
                                 </h3>
                                 <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
@@ -173,7 +173,7 @@ export function DashboardPage() {
                         {usageRows.length > 0 ? (
                             <section>
                                 <h3 className="mb-2 text-sm font-medium text-text-primary">
-                                    // i18n: user-facing
+                                    {/* i18n: user-facing */}
                                     {t('Agent 用量', 'Agent usage')}
                                 </h3>
                                 <DataTable<AgentUsage>
@@ -204,7 +204,7 @@ export function DashboardPage() {
                         {auditRows.length > 0 ? (
                             <section>
                                 <h3 className="mb-2 text-sm font-medium text-text-primary">
-                                    // i18n: user-facing
+                                    {/* i18n: user-facing */}
                                     {t('审计日志', 'Audit log')}
                                 </h3>
                                 <DataTable<AuditEntry>

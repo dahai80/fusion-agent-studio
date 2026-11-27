@@ -92,7 +92,7 @@ export function RunsPage() {
                             onClick={() => setRefreshTick((v) => v + 1)}
                             className="rounded-md border border-border px-3 py-1.5 text-xs text-text-secondary hover:bg-bg-muted"
                         >
-                            // i18n: user-facing
+                            {/* i18n: user-facing */}
                             {t('刷新', 'Refresh')}
                         </button>
                         <div className="w-32">
@@ -112,7 +112,7 @@ export function RunsPage() {
             />
             {pollError ? (
                 <div className="mx-4 mt-2 rounded-md bg-warning/10 px-3 py-2 text-xs text-warning">
-                    // i18n: user-facing
+                    {/* i18n: user-facing */}
                     {t('轮询失败', 'poll failed')}: {pollError}
                 </div>
             ) : null}

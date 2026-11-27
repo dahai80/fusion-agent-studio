@@ -156,7 +156,7 @@ export function WorkflowsPage() {
                         onClick={() => void openCreate()}
                         className="rounded-md border border-border px-4 py-2 text-sm text-text-primary hover:bg-bg-muted"
                     >
-                        // i18n: user-facing
+                        {/* i18n: user-facing */}
                         {t('新建工作流', 'New workflow')}
                     </button>
                 }
@@ -235,7 +235,7 @@ export function WorkflowsPage() {
                                             className="text-brand hover:underline"
                                             onClick={() => openCanvas(g.graph_id)}
                                         >
-                                            // i18n: user-facing
+                                            {/* i18n: user-facing */}
                                             {t('在画布中编辑', 'Edit on canvas')}
                                         </button>
                                         <button
@@ -243,7 +243,7 @@ export function WorkflowsPage() {
                                             className="text-error hover:underline"
                                             onClick={() => void deleteGraph(g)}
                                         >
-                                            // i18n: user-facing
+                                            {/* i18n: user-facing */}
                                             {t('删除', 'Delete')}
                                         </button>
                                     </div>
@@ -343,7 +343,7 @@ export function WorkflowsPage() {
                             onClick={() => setEditorOpen(false)}
                             className="rounded-md border border-border px-4 py-2 text-sm text-text-primary hover:bg-bg-muted"
                         >
-                            // i18n: user-facing
+                            {/* i18n: user-facing */}
                             {t('取消', 'Cancel')}
                         </button>
                         <SubmitButton
@@ -357,7 +357,7 @@ export function WorkflowsPage() {
                     </div>
                 }
             >
-                // i18n: user-facing
+                {/* i18n: user-facing */}
                 <FormField label={t('名称', 'Name')} required htmlFor="wf-name">
                     <TextInput
                         id="wf-name"
@@ -367,7 +367,7 @@ export function WorkflowsPage() {
                         placeholder={t('例如：新闻摘要工作流', 'e.g. news digest workflow')}
                     />
                 </FormField>
-                // i18n: user-facing
+                {/* i18n: user-facing */}
                 <FormField label={t('描述', 'Description')} htmlFor="wf-desc">
                     <TextInput
                         id="wf-desc"
@@ -590,7 +590,7 @@ function OrchestrationsSection() {
                         onClick={() => setCreating(true)}
                         className="rounded-md border border-border px-4 py-2 text-sm text-text-primary hover:bg-bg-muted"
                     >
-                        // i18n: user-facing
+                        {/* i18n: user-facing */}
                         {t('新建编排', 'New orchestration')}
                     </button>
                 }
@@ -624,7 +624,7 @@ function OrchestrationsSection() {
                                     className="text-error hover:underline"
                                     onClick={() => void deleteWorkflow(wf)}
                                 >
-                                    // i18n: user-facing
+                                    {/* i18n: user-facing */}
                                     {t('删除', 'Delete')}
                                 </button>
                             </div>
@@ -660,7 +660,7 @@ function OrchestrationsSection() {
                                     {runs.length > 0 ? (
                                         <div className="space-y-1">
                                             <div className="text-text-secondary">
-                                                // i18n: user-facing
+                                                {/* i18n: user-facing */}
                                                 {t('运行记录', 'Runs')}
                                             </div>
                                             {runs.map((r) => (
@@ -698,7 +698,7 @@ function OrchestrationsSection() {
                                                             className="ml-auto text-error hover:underline"
                                                             onClick={() => void cancelRun(r.id)}
                                                         >
-                                                            // i18n: user-facing
+                                                            {/* i18n: user-facing */}
                                                             {t('取消', 'Cancel')}
                                                         </button>
                                                     ) : null}
@@ -724,7 +724,7 @@ function OrchestrationsSection() {
                             onClick={() => setCreating(false)}
                             className="rounded-md border border-border px-4 py-2 text-sm text-text-primary hover:bg-bg-muted"
                         >
-                            // i18n: user-facing
+                            {/* i18n: user-facing */}
                             {t('取消', 'Cancel')}
                         </button>
                         <SubmitButton
@@ -738,7 +738,7 @@ function OrchestrationsSection() {
                     </div>
                 }
             >
-                // i18n: user-facing
+                {/* i18n: user-facing */}
                 <FormField label={t('名称', 'Name')} required htmlFor="orch-name">
                     <TextInput
                         id="orch-name"
@@ -796,7 +796,7 @@ function OrchestrationsSection() {
                             <div className="mt-1 flex flex-wrap gap-2">
                                 {agents.length === 0 ? (
                                     <span className="text-text-secondary">
-                                        // i18n: user-facing
+                                        {/* i18n: user-facing */}
                                         {t('暂无可选 agent', 'no agents available')}
                                     </span>
                                 ) : (

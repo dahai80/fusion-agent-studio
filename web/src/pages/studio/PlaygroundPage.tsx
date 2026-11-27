@@ -115,7 +115,7 @@ function PlaygroundSection() {
                     onClick={() => setMode('direct')}
                     className={`rounded-md px-3 py-1.5 ${mode === 'direct' ? 'bg-bg-muted font-medium text-text-primary' : 'text-text-secondary hover:bg-bg-muted/60'}`}
                 >
-                    // i18n: user-facing
+                    {/* i18n: user-facing */}
                     {t('直接提示词', 'Direct prompt')}
                 </button>
                 <button
@@ -124,7 +124,7 @@ function PlaygroundSection() {
                     onClick={() => setMode('trace')}
                     className={`rounded-md px-3 py-1.5 ${mode === 'trace' ? 'bg-bg-muted font-medium text-text-primary' : 'text-text-secondary hover:bg-bg-muted/60'}`}
                 >
-                    // i18n: user-facing
+                    {/* i18n: user-facing */}
                     {t('从 Trace 重放', 'From trace')}
                 </button>
             </div>
@@ -151,13 +151,13 @@ function PlaygroundSection() {
             </FormField>
             <div className="flex items-end gap-2">
                 <div className="w-32">
-                    // i18n: user-facing
+                    {/* i18n: user-facing */}
                     <FormField label={t('温度', 'Temperature')}>
                         <TextInput value={temperature} onChange={setTemperature} />
                     </FormField>
                 </div>
                 <div className="w-32">
-                    // i18n: user-facing
+                    {/* i18n: user-facing */}
                     <FormField label={t('最大 Token', 'Max tokens')}>
                         <TextInput value={maxTokens} onChange={setMaxTokens} />
                     </FormField>
@@ -183,7 +183,7 @@ function PlaygroundSection() {
             {result ? (
                 <div data-testid="playground-result" className="flex flex-col gap-2 text-xs">
                     <div className="flex items-center gap-3">
-                        // i18n: user-facing
+                        {/* i18n: user-facing */}
                         <span className="font-medium text-text-primary">{t('输出', 'Output')}</span>
                         {result.duration_ms ? (
                             <span className="text-text-secondary">{result.duration_ms}ms</span>
@@ -206,7 +206,7 @@ function PlaygroundSection() {
                     </pre>
                     {baseline ? (
                         <div>
-                            // i18n: user-facing
+                            {/* i18n: user-facing */}
                             <div className="mb-1 text-text-secondary">{t('基线', 'Baseline')}</div>
                             <pre className="max-h-40 overflow-auto rounded-lg border border-border/70 bg-bg-elevated p-3 whitespace-pre-wrap text-text-secondary">
                                 {baseline}

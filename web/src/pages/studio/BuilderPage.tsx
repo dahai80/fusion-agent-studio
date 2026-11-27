@@ -378,7 +378,7 @@ export function BuilderPage() {
 
     return (
         <div>
-            // i18n: user-facing
+            {/* i18n: user-facing */}
             <PageHeader title={t('构建智能体', 'Build agent')} />
             <div className="grid gap-4 px-4 pt-3 pb-6 lg:grid-cols-[1fr_20rem]">
                 <div className="flex flex-col gap-3">
@@ -395,7 +395,7 @@ export function BuilderPage() {
                     {!doc && (data?.starters ?? []).length > 0 ? (
                         <div className="rounded-card border border-border bg-bg-elevated p-3">
                             <div className="mb-2 text-xs font-medium text-text-secondary">
-                                // i18n: user-facing
+                                {/* i18n: user-facing */}
                                 {t('从场景开始', 'Start from a use case')}
                             </div>
                             <div className="grid gap-2 sm:grid-cols-2">
@@ -449,7 +449,7 @@ export function BuilderPage() {
                         )}
                         {busy ? (
                             <div className="text-xs text-text-muted">
-                                // i18n: user-facing
+                                {/* i18n: user-facing */}
                                 {t('思考中…', 'thinking…')}
                             </div>
                         ) : null}
@@ -475,7 +475,7 @@ export function BuilderPage() {
                     {suggestions.length > 0 ? (
                         <div className="rounded-card border border-border bg-bg-elevated p-3">
                             <div className="mb-2 text-xs font-medium text-text-secondary">
-                                // i18n: user-facing
+                                {/* i18n: user-facing */}
                                 {t('建议装配的能力', 'Suggested capabilities')}
                             </div>
                             <div className="flex flex-wrap gap-2">
@@ -527,7 +527,7 @@ export function BuilderPage() {
                 {/* config-draft card — updates live per turn */}
                 <div className="h-fit rounded-card border border-border bg-bg-elevated p-4">
                     <div className="mb-3 text-sm font-medium text-text-primary">
-                        // i18n: user-facing
+                        {/* i18n: user-facing */}
                         {t('配置草案', 'Config draft')}
                     </div>
                     {!doc ? (
@@ -541,19 +541,19 @@ export function BuilderPage() {
                     ) : (
                         <div className="flex flex-col gap-2 text-xs">
                             <div>
-                                // i18n: user-facing
+                                {/* i18n: user-facing */}
                                 <span className="text-text-muted">{t('名称', 'Name')}: </span>
                                 <span className="text-text-primary">{doc.name ?? '-'}</span>
                             </div>
                             <div>
                                 <span className="text-text-muted">
-                                    // i18n: user-facing
+                                    {/* i18n: user-facing */}
                                     {t('描述', 'Description')}:{' '}
                                 </span>
                                 <span className="text-text-primary">{doc.description ?? '-'}</span>
                             </div>
                             <div>
-                                // i18n: user-facing
+                                {/* i18n: user-facing */}
                                 <span className="text-text-muted">{t('模型', 'Model')}: </span>
                                 <span className="font-mono text-text-primary">
                                     {doc.model?.id ?? 'base'}
@@ -562,7 +562,7 @@ export function BuilderPage() {
                             </div>
                             <div>
                                 <span className="text-text-muted">
-                                    // i18n: user-facing
+                                    {/* i18n: user-facing */}
                                     {t('指令', 'Instructions')}:
                                 </span>
                                 <pre className="mt-1 max-h-40 overflow-y-auto whitespace-pre-wrap rounded-md bg-bg-muted p-2 font-mono text-[10px] text-text-secondary">
@@ -571,7 +571,7 @@ export function BuilderPage() {
                             </div>
                             <div>
                                 <span className="text-text-muted">
-                                    // i18n: user-facing
+                                    {/* i18n: user-facing */}
                                     {t('能力', 'Capabilities')}:
                                 </span>
                                 <div className="mt-1 flex flex-wrap gap-1">
@@ -610,7 +610,7 @@ export function BuilderPage() {
                                     disabled={busy || deployed}
                                     className="rounded-md bg-brand px-3 py-1.5 text-xs text-white hover:opacity-90 disabled:opacity-50"
                                 >
-                                    // i18n: user-facing
+                                    {/* i18n: user-facing */}
                                     {deployed ? t('已部署 ✓', 'Deployed ✓') : t('部署', 'Deploy')}
                                 </button>
                                 {agentId ? (
@@ -630,7 +630,7 @@ export function BuilderPage() {
                                         href="#/home"
                                         className="text-center text-xs text-brand hover:underline"
                                     >
-                                        // i18n: user-facing
+                                        {/* i18n: user-facing */}
                                         {t('回到 Dashboard →', 'Back to Dashboard →')}
                                     </a>
                                 ) : null}
@@ -656,7 +656,7 @@ export function BuilderPage() {
                             onClick={() => setAuthFor(null)}
                             className="rounded-md border border-border px-3 py-1.5 text-xs text-text-secondary hover:text-text-primary"
                         >
-                            // i18n: user-facing
+                            {/* i18n: user-facing */}
                             {t('取消', 'Cancel')}
                         </button>
                         <button
@@ -679,7 +679,7 @@ export function BuilderPage() {
                 }
             >
                 <label className="flex flex-col gap-1 text-xs text-text-secondary">
-                    // i18n: user-facing
+                    {/* i18n: user-facing */}
                     {t('授权方式', 'Auth type')}
                     <select
                         value={authType}
@@ -689,10 +689,10 @@ export function BuilderPage() {
                         }}
                         className="rounded-md border border-border bg-bg px-2 py-1.5 text-xs text-text-primary"
                     >
-                        // i18n: user-facing
+                        {/* i18n: user-facing */}
                         <option value="api_key">{t('API 密钥', 'API key')}</option>
                         <option value="oauth2">OAuth2</option>
-                        // i18n: user-facing
+                        {/* i18n: user-facing */}
                         <option value="webhook">{t('Webhook 地址', 'Webhook URL')}</option>
                     </select>
                 </label>

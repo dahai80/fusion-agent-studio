@@ -84,7 +84,7 @@ export function AgentDetailPage({ agentId }: { agentId: string }) {
                             }}
                             className="rounded-md border border-border px-3 py-1.5 text-xs text-text-primary hover:bg-bg-muted"
                         >
-                            // i18n: user-facing
+                            {/* i18n: user-facing */}
                             {t('返回', 'Back')}
                         </button>
                         <button
@@ -196,12 +196,12 @@ function SoulSection({ agentId }: { agentId: string }) {
     }
     return (
         <div className="flex flex-col gap-3 px-4">
-            // i18n: user-facing
+            {/* i18n: user-facing */}
             <FormField label={t('灵魂 (Markdown)', 'Soul (Markdown)')}>
                 <Textarea value={value} onChange={setSoul} rows={14} mono />
             </FormField>
             <div>
-                // i18n: user-facing
+                {/* i18n: user-facing */}
                 <SubmitButton label={t('保存灵魂', 'Save soul')} onAction={save} />
             </div>
         </div>
@@ -253,7 +253,7 @@ function SkillsSection({ agentId }: { agentId: string }) {
                     onClick={() => setShowAdd(true)}
                     className="rounded-md border border-border px-3 py-1.5 text-xs text-text-primary hover:bg-bg-muted"
                 >
-                    // i18n: user-facing
+                    {/* i18n: user-facing */}
                     {t('新增技能', 'Add skill')}
                 </button>
             </div>
@@ -306,7 +306,7 @@ function SkillsSection({ agentId }: { agentId: string }) {
                                         onClick={() => del(s.name as string)}
                                         className="text-xs text-error hover:underline"
                                     >
-                                        // i18n: user-facing
+                                        {/* i18n: user-facing */}
                                         {t('删除', 'Delete')}
                                     </button>
                                 ) : null,
@@ -322,11 +322,11 @@ function SkillsSection({ agentId }: { agentId: string }) {
                 // i18n: user-facing
                 footer={<SubmitButton label={t('添加', 'Add')} onAction={add} />}
             >
-                // i18n: user-facing
+                {/* i18n: user-facing */}
                 <FormField label={t('名称', 'Name')} required>
                     <TextInput value={name} onChange={setName} />
                 </FormField>
-                // i18n: user-facing
+                {/* i18n: user-facing */}
                 <FormField label={t('内容', 'Content')}>
                     <Textarea value={content} onChange={setContent} rows={8} mono />
                 </FormField>
@@ -365,7 +365,7 @@ function VersionsSection({ agentId }: { agentId: string }) {
     if (rows.length === 0) {
         return (
             <div className="px-4">
-                // i18n: user-facing
+                {/* i18n: user-facing */}
                 <EmptyState title={t('暂无版本', 'no versions')} />
             </div>
         );
@@ -430,12 +430,12 @@ function TestSection({ agentId }: { agentId: string }) {
 
     return (
         <div className="flex flex-col gap-3 px-4">
-            // i18n: user-facing
+            {/* i18n: user-facing */}
             <FormField label={t('输入', 'Input')}>
                 <Textarea value={input} onChange={setInput} rows={6} />
             </FormField>
             <div>
-                // i18n: user-facing
+                {/* i18n: user-facing */}
                 <SubmitButton label={t('运行测试', 'Run test')} onAction={run} disabled={busy} />
             </div>
             {result !== null ? (
@@ -545,29 +545,29 @@ function PersonaSection({ agentId }: { agentId: string }) {
         <div className="flex flex-col gap-4 px-4 pb-4">
             <div className="rounded-card border border-border bg-bg-elevated p-4">
                 <div className="text-sm font-medium text-text-primary">
-                    // i18n: user-facing
+                    {/* i18n: user-facing */}
                     {t('生效人设', 'Effective persona')}
                 </div>
                 <div className="mt-1 text-xs text-text-muted">
-                    // i18n: user-facing
+                    {/* i18n: user-facing */}
                     {t('应用层', 'Layers')}: {(data?.layers_applied ?? []).join(' → ') || '-'}
                 </div>
                 <div className="mt-2 text-xs text-text-muted">
-                    // i18n: user-facing
+                    {/* i18n: user-facing */}
                     {t('规则', 'Rules')}: {decls.rules.length ? decls.rules.join('; ') : '-'}
                 </div>
                 <div className="mt-1 text-xs text-text-muted">
-                    // i18n: user-facing
+                    {/* i18n: user-facing */}
                     {t('记忆范围', 'Memory scope')}: {decls.memory_scope || '-'}
                 </div>
                 <div className="mt-1 text-xs text-text-muted">
-                    // i18n: user-facing
+                    {/* i18n: user-facing */}
                     {t('技能', 'Skills')}: {decls.skills.length ? decls.skills.join('; ') : '-'}
                 </div>
                 <div className="mt-2">
                     {conflicts.length === 0 ? (
                         <span className="text-xs text-text-muted">
-                            // i18n: user-facing
+                            {/* i18n: user-facing */}
                             {t('无冲突', 'No conflicts')}
                         </span>
                     ) : (
@@ -584,7 +584,7 @@ function PersonaSection({ agentId }: { agentId: string }) {
 
             <div className="rounded-card border border-border bg-bg-elevated p-4">
                 <div className="text-sm font-medium text-text-primary">
-                    // i18n: user-facing
+                    {/* i18n: user-facing */}
                     {t('层级文件', 'Layer files')}
                 </div>
                 <div className="mt-2 flex flex-wrap items-center gap-2">
@@ -617,7 +617,7 @@ function PersonaSection({ agentId }: { agentId: string }) {
                         onClick={() => loadFiles(layer, name)}
                         className="rounded-md border border-border px-3 py-1.5 text-xs text-text-primary hover:bg-bg-muted"
                     >
-                        // i18n: user-facing
+                        {/* i18n: user-facing */}
                         {t('加载', 'Load')}
                     </button>
                 </div>
@@ -657,7 +657,7 @@ function PersonaSection({ agentId }: { agentId: string }) {
                         onClick={createFile}
                         className="rounded-md border border-border px-3 py-1.5 text-xs text-text-primary hover:bg-bg-muted"
                     >
-                        // i18n: user-facing
+                        {/* i18n: user-facing */}
                         {t('新建', 'Create')}
                     </button>
                 </div>

@@ -1795,7 +1795,7 @@ function CanvasInner() {
     return (
         <div className="flex h-full">
             <div className="w-56 border-r border-border p-3 space-y-2 overflow-y-auto">
-                // i18n: user-facing
+                {/* i18n: user-facing */}
                 <div className="text-sm font-medium">{t('工作流画布', 'Workflow Canvas')}</div>
                 <select
                     className="w-full rounded border border-border bg-bg px-2 py-1 text-xs"
@@ -1810,14 +1810,14 @@ function CanvasInner() {
                         void loadGraph(e.target.value);
                     }}
                 >
-                    // i18n: user-facing
+                    {/* i18n: user-facing */}
                     <option value="">{t('选择工作流…', 'Select workflow…')}</option>
                     {graphs.map((g) => (
                         <option key={g.graph_id} value={g.graph_id}>
                             {g.name}
                         </option>
                     ))}
-                    // i18n: user-facing
+                    {/* i18n: user-facing */}
                     <option value="__new__">+ {t('新建工作流…', 'New workflow…')}</option>
                 </select>
                 {newGraphOpen ? (
@@ -1846,7 +1846,7 @@ function CanvasInner() {
                                 void createGraph(newGraphName.trim());
                             }}
                         >
-                            // i18n: user-facing
+                            {/* i18n: user-facing */}
                             {t('创建', 'Create')}
                         </button>
                     </div>
@@ -1903,7 +1903,7 @@ function CanvasInner() {
                     disabled={selectedIds.length === 0}
                     onClick={groupSelected}
                 >
-                    // i18n: user-facing
+                    {/* i18n: user-facing */}
                     🗂 {t('分组选中节点', 'Group selected nodes')}
                 </button>
                 <button
@@ -1912,7 +1912,7 @@ function CanvasInner() {
                     disabled={!graphId || saving}
                     onClick={() => void save()}
                 >
-                    // i18n: user-facing
+                    {/* i18n: user-facing */}
                     {saving ? t('保存中…', 'Saving…') : t('保存', 'Save')}
                 </button>
                 <label className="flex items-center gap-1 text-[10px]">
@@ -1921,7 +1921,7 @@ function CanvasInner() {
                         checked={strictSave}
                         onChange={(e) => setStrictSave(e.target.checked)}
                     />
-                    // i18n: user-facing
+                    {/* i18n: user-facing */}
                     {t('严格校验 (错误阻止保存)', 'Strict validate (errors block save)')}
                 </label>
                 <button
@@ -1930,7 +1930,7 @@ function CanvasInner() {
                     disabled={!graphId || running}
                     onClick={() => void runWithStream()}
                 >
-                    // i18n: user-facing
+                    {/* i18n: user-facing */}
                     {running ? t('运行中…', 'Running…') : t('运行并监视', 'Run & watch')}
                 </button>
                 {running ? (
@@ -1939,7 +1939,7 @@ function CanvasInner() {
                         className="w-full rounded border border-red-400/60 px-2 py-1 text-xs text-red-500"
                         onClick={() => void cancelRun()}
                     >
-                        // i18n: user-facing
+                        {/* i18n: user-facing */}
                         {t('取消运行', 'Cancel run')}
                     </button>
                 ) : null}
@@ -1959,16 +1959,16 @@ function CanvasInner() {
                         void runWithStream({ onlyNode: first.id });
                     }}
                 >
-                    // i18n: user-facing
+                    {/* i18n: user-facing */}
                     {t('单步执行', 'Step')}
                 </button>
                 {runTotals.nodes > 0 ? (
                     <div className="rounded border border-border bg-bg-elevated px-2 py-1 text-[10px] text-text-secondary">
-                        // i18n: user-facing
+                        {/* i18n: user-facing */}
                         {t('本次运行', 'This run')}:{' '}
                         <span className="tabular-nums text-brand">{runTotals.tokens}</span> tok ·{' '}
                         <span className="tabular-nums">{runTotals.toolCalls}</span>{' '}
-                        // i18n: user-facing
+                        {/* i18n: user-facing */}
                         {t('工具调用', 'tool calls')} · {runTotals.nodes} {t('节点', 'nodes')}
                     </div>
                 ) : null}
@@ -1979,11 +1979,11 @@ function CanvasInner() {
                         disabled={!graphId}
                         onClick={() => void exportGraph()}
                     >
-                        // i18n: user-facing
+                        {/* i18n: user-facing */}
                         ⬇ {t('导出', 'Export')}
                     </button>
                     <label className="flex-1 rounded border border-border px-1 py-0.5 text-[10px] text-center cursor-pointer hover:border-brand">
-                        // i18n: user-facing
+                        {/* i18n: user-facing */}
                         ⬆ {t('导入', 'Import')}
                         <input
                             type="file"
@@ -1998,7 +1998,7 @@ function CanvasInner() {
                     className="w-full rounded border border-border px-2 py-1 text-[10px] hover:border-brand"
                     onClick={() => void openGallery()}
                 >
-                    // i18n: user-facing
+                    {/* i18n: user-facing */}
                     ▦ {t('模板库', 'Templates')}
                 </button>
                 <button
@@ -2007,7 +2007,7 @@ function CanvasInner() {
                     disabled={!graphId || saving}
                     onClick={() => setTemplateNameOpen((v) => !v)}
                 >
-                    // i18n: user-facing
+                    {/* i18n: user-facing */}
                     ⇗ {t('存为模板', 'Save as template')}
                 </button>
                 {templateNameOpen ? (
@@ -2026,7 +2026,7 @@ function CanvasInner() {
                             disabled={!graphId || saving}
                             onClick={() => void saveAsTemplate()}
                         >
-                            // i18n: user-facing
+                            {/* i18n: user-facing */}
                             {t('存为模板', 'Save')}
                         </button>
                     </div>
@@ -2034,7 +2034,7 @@ function CanvasInner() {
                 {TEMPLATES.length > 0 ? (
                     <div>
                         <div className="text-xs text-text-secondary pt-1">
-                            // i18n: user-facing
+                            {/* i18n: user-facing */}
                             {t('模板', 'Templates')}
                         </div>
                         <div className="space-y-0.5">
@@ -2059,7 +2059,7 @@ function CanvasInner() {
                         onClick={undo}
                         title="Cmd/Ctrl+Z"
                     >
-                        // i18n: user-facing
+                        {/* i18n: user-facing */}
                         ↶ {t('撤销', 'Undo')}
                     </button>
                     <button
@@ -2069,7 +2069,7 @@ function CanvasInner() {
                         onClick={redo}
                         title="Cmd/Ctrl+Shift+Z"
                     >
-                        // i18n: user-facing
+                        {/* i18n: user-facing */}
                         ↷ {t('重做', 'Redo')}
                     </button>
                 </div>
@@ -2089,7 +2089,7 @@ function CanvasInner() {
                     <div className="space-y-0.5">
                         {versions.length === 0 ? (
                             <div className="text-[10px] text-text-secondary">
-                                // i18n: user-facing
+                                {/* i18n: user-facing */}
                                 {t('暂无版本记录', 'No versions recorded')}
                             </div>
                         ) : (
@@ -2110,7 +2110,7 @@ function CanvasInner() {
                                         disabled={running || saving}
                                         onClick={() => void restoreVersion(v.version)}
                                     >
-                                        // i18n: user-facing
+                                        {/* i18n: user-facing */}
                                         {t('回滚', 'Restore')}
                                     </button>
                                 </div>
@@ -2135,7 +2135,7 @@ function CanvasInner() {
                     <div className="space-y-0.5">
                         {runHistory.length === 0 ? (
                             <div className="text-[10px] text-text-secondary">
-                                // i18n: user-facing
+                                {/* i18n: user-facing */}
                                 {t('暂无历史运行', 'No archived runs')}
                             </div>
                         ) : (
@@ -2171,7 +2171,7 @@ function CanvasInner() {
                                             className="rounded border border-border px-1 hover:border-brand"
                                             onClick={() => void replayRun(r.run_id)}
                                         >
-                                            // i18n: user-facing
+                                            {/* i18n: user-facing */}
                                             {t('回放', 'Replay')}
                                         </button>
                                     </div>
@@ -2189,14 +2189,14 @@ function CanvasInner() {
                                 className="w-full rounded border border-brand px-2 py-1 text-[10px] text-brand"
                                 onClick={() => void diffSelectedRuns()}
                             >
-                                // i18n: user-facing
+                                {/* i18n: user-facing */}
                                 {t('Diff 选中运行', 'Diff selected runs')}
                             </button>
                         ) : null}
                         {runDiff ? (
                             <div className="rounded border border-border px-1 py-0.5 text-[10px]">
                                 <div className="text-text-secondary">
-                                    // i18n: user-facing
+                                    {/* i18n: user-facing */}
                                     {t('变更节点', 'Changed nodes')}: {runDiff.changed_count}
                                 </div>
                                 {runDiff.nodes.map((row) => (
@@ -2219,7 +2219,7 @@ function CanvasInner() {
                     className="w-full rounded border border-border px-2 py-1 text-[10px] disabled:opacity-40"
                     onClick={() => setNlOpen((v) => !v)}
                 >
-                    // i18n: user-facing
+                    {/* i18n: user-facing */}
                     {nlOpen ? t('▾ AI 搭建', '▾ AI Builder') : t('▸ AI 搭建', '▸ AI Builder')}
                 </button>
                 {nlOpen ? (
@@ -2272,7 +2272,7 @@ function CanvasInner() {
                                 disabled={nlBusy || !nlInput.trim()}
                                 onClick={() => void sendNlPrompt()}
                             >
-                                // i18n: user-facing
+                                {/* i18n: user-facing */}
                                 {nlBusy ? t('生成中…', 'Planning…') : t('生成', 'Plan')}
                             </button>
                         </div>
@@ -2351,19 +2351,19 @@ function CanvasInner() {
                             className="mt-1 w-full rounded border border-border px-1 py-0.5 text-[10px]"
                             onClick={() => setConnectMenu(null)}
                         >
-                            // i18n: user-facing
+                            {/* i18n: user-facing */}
                             {t('取消', 'Cancel')}
                         </button>
                     </div>
                 )}
             </div>
             <div className="w-72 border-l border-border p-3 space-y-3 overflow-y-auto">
-                // i18n: user-facing
+                {/* i18n: user-facing */}
                 <div className="text-sm font-medium">{t('节点检查器', 'Node Inspector')}</div>
                 {selectedEdge ? (
                     <div className="space-y-2 text-xs">
                         <div className="text-text-secondary">
-                            // i18n: user-facing
+                            {/* i18n: user-facing */}
                             {t('边', 'Edge')} {selectedEdge.source} → {selectedEdge.target}
                         </div>
                         <div>
@@ -2396,14 +2396,14 @@ function CanvasInner() {
                             className="rounded border border-error px-2 py-1 text-error"
                             onClick={deleteSelectedEdge}
                         >
-                            // i18n: user-facing
+                            {/* i18n: user-facing */}
                             {t('删除边', 'Delete edge')}
                         </button>
                     </div>
                 ) : selectedNode ? (
                     <div className="space-y-2 text-xs">
                         <div>
-                            // i18n: user-facing
+                            {/* i18n: user-facing */}
                             <div className="text-text-secondary">{t('名称', 'Label')}</div>
                             <input
                                 className="w-full rounded border border-border bg-bg px-2 py-1"
@@ -2412,7 +2412,7 @@ function CanvasInner() {
                             />
                         </div>
                         <div>
-                            // i18n: user-facing
+                            {/* i18n: user-facing */}
                             <div className="text-text-secondary">{t('类型', 'Type')}</div>
                             <select
                                 className="w-full rounded border border-border bg-bg px-2 py-1"
@@ -2442,7 +2442,7 @@ function CanvasInner() {
                                     className="text-[10px] text-brand"
                                     onClick={() => setAdvancedOpen((v) => !v)}
                                 >
-                                    // i18n: user-facing
+                                    {/* i18n: user-facing */}
                                     {advancedOpen ? '▾' : '▸'} {t('高级参数', 'Advanced')}
                                 </button>
                                 {advancedOpen ? (
@@ -2458,7 +2458,7 @@ function CanvasInner() {
                                 className="text-[10px] text-brand"
                                 onClick={() => setRawJsonOpen((v) => !v)}
                             >
-                                // i18n: user-facing
+                                {/* i18n: user-facing */}
                                 {rawJsonOpen ? '▾' : '▸'} {t('原始 JSON', 'Raw JSON')}
                             </button>
                             {rawJsonOpen ? (
@@ -2483,7 +2483,7 @@ function CanvasInner() {
                                 checked={Boolean(selectedNode.data.pinned)}
                                 onChange={(e) => updateSelectedConfig({ pinned: e.target.checked })}
                             />
-                            // i18n: user-facing
+                            {/* i18n: user-facing */}
                             {t('固定数据 (pin)', 'Pin data')}
                         </label>
                         <label className="flex items-center gap-1">
@@ -2494,13 +2494,13 @@ function CanvasInner() {
                                     updateSelectedConfig({ breakpoint: e.target.checked })
                                 }
                             />
-                            // i18n: user-facing
+                            {/* i18n: user-facing */}
                             {t('断点 (运行到此暂停)', 'Breakpoint (pause here)')}
                         </label>
                         {pins[selectedNode.id] ? (
                             <div className="rounded border border-border bg-bg p-1">
                                 <div className="text-text-secondary">
-                                    // i18n: user-facing
+                                    {/* i18n: user-facing */}
                                     {t('已固定输出', 'Pinned output')}
                                 </div>
                                 <pre className="max-h-24 overflow-auto whitespace-pre-wrap text-[9px]">
@@ -2514,7 +2514,7 @@ function CanvasInner() {
                             disabled={running || !graphId}
                             onClick={() => void runWithStream({ fromNode: selectedNode.id })}
                         >
-                            // i18n: user-facing
+                            {/* i18n: user-facing */}
                             {t('从此节点重跑下游', 'Rerun downstream from here')}
                         </button>
                         <button
@@ -2523,7 +2523,7 @@ function CanvasInner() {
                             disabled={running || !graphId}
                             onClick={() => void runWithStream({ onlyNode: selectedNode.id })}
                         >
-                            // i18n: user-facing
+                            {/* i18n: user-facing */}
                             {t('仅试跑此节点', 'Run this node only')}
                         </button>
                         <button
@@ -2531,13 +2531,13 @@ function CanvasInner() {
                             className="rounded border border-error px-2 py-1 text-error"
                             onClick={removeSelected}
                         >
-                            // i18n: user-facing
+                            {/* i18n: user-facing */}
                             {t('删除节点', 'Delete node')}
                         </button>
                     </div>
                 ) : (
                     <div className="text-xs text-text-secondary">
-                        // i18n: user-facing
+                        {/* i18n: user-facing */}
                         {t('点击节点或边以编辑', 'Click a node or edge to inspect')}
                     </div>
                 )}
@@ -2556,7 +2556,7 @@ function CanvasInner() {
                 {testOpen ? (
                     <div className="space-y-1 rounded border border-border bg-bg-elevated p-2 text-xs">
                         <div className="text-text-secondary">
-                            // i18n: user-facing
+                            {/* i18n: user-facing */}
                             {t('固定输入 (canned input)', 'Canned input')}
                         </div>
                         <textarea
@@ -2579,7 +2579,7 @@ function CanvasInner() {
                                     void runWithStream({ onlyNode: selectedId, input: testInput })
                                 }
                             >
-                                // i18n: user-facing
+                                {/* i18n: user-facing */}
                                 {t('仅试跑选中节点', 'Run selected node only')}
                             </button>
                             <button
@@ -2590,7 +2590,7 @@ function CanvasInner() {
                                     void runWithStream({ fromNode: selectedId, input: testInput })
                                 }
                             >
-                                // i18n: user-facing
+                                {/* i18n: user-facing */}
                                 {t('跑选中节点下游', 'Run downstream')}
                             </button>
                         </div>
@@ -2600,13 +2600,13 @@ function CanvasInner() {
                             disabled={running || !graphId}
                             onClick={() => void runWithStream({ input: testInput })}
                         >
-                            // i18n: user-facing
+                            {/* i18n: user-facing */}
                             {t('整图试跑', 'Run whole graph')}
                         </button>
                         {testOutput ? (
                             <div>
                                 <div className="text-text-secondary">
-                                    // i18n: user-facing
+                                    {/* i18n: user-facing */}
                                     {t('最近节点输出', 'Last node output')} · {testOutput.nodeId}
                                 </div>
                                 <pre className="max-h-40 overflow-auto whitespace-pre-wrap rounded border border-border bg-bg p-1 text-[10px]">
@@ -2619,7 +2619,7 @@ function CanvasInner() {
                 {saveIssues.length > 0 ? (
                     <div className="rounded border border-warning/40 bg-bg-elevated p-1 text-[10px]">
                         <div className="text-text-secondary">
-                            // i18n: user-facing
+                            {/* i18n: user-facing */}
                             {t('校验提示', 'Validation notes')} ({saveIssues.length})
                         </div>
                         {saveIssues.map((iss, i) => (
@@ -2635,18 +2635,18 @@ function CanvasInner() {
                     </div>
                 ) : null}
                 <div className="text-sm font-medium pt-2">
-                    // i18n: user-facing
+                    {/* i18n: user-facing */}
                     {t('治理事件流', 'Governance events')}
                 </div>
                 {budget ? (
                     <div className="rounded border border-border bg-bg-elevated px-2 py-1 text-[10px] text-text-secondary">
-                        // i18n: user-facing
+                        {/* i18n: user-facing */}
                         {t('预算余量', 'Budget remaining')}:{' '}
                         <span className="text-brand">{String(budget.remaining ?? '∞')}</span> /{' '}
                         {String(budget.max_tokens ?? '∞')}
                     </div>
                 ) : null}
-                // i18n: user-facing
+                {/* i18n: user-facing */}
                 <div className="text-sm font-medium pt-2">{t('变量', 'Variables')}</div>
                 {Object.keys(flowVars).length > 0 ? (
                     <div className="space-y-0.5">
@@ -2664,14 +2664,14 @@ function CanvasInner() {
                     </div>
                 ) : (
                     <div className="text-[10px] text-text-secondary">
-                        // i18n: user-facing
+                        {/* i18n: user-facing */}
                         {t('运行期间显示 FlowState 快照', 'FlowState snapshots appear on run')}
                     </div>
                 )}
                 {pending.length > 0 ? (
                     <div className="space-y-1">
                         <div className="text-[10px] text-text-secondary">
-                            // i18n: user-facing
+                            {/* i18n: user-facing */}
                             {t('待审批', 'Pending approvals')} ({pending.length})
                         </div>
                         {pending.map((action, i) => {
@@ -2692,7 +2692,7 @@ function CanvasInner() {
                                             className="rounded bg-brand px-1.5 py-0.5 text-white"
                                             onClick={() => void decide(actionId, true)}
                                         >
-                                            // i18n: user-facing
+                                            {/* i18n: user-facing */}
                                             {t('批准', 'Approve')}
                                         </button>
                                         <button
@@ -2700,7 +2700,7 @@ function CanvasInner() {
                                             className="rounded border border-error px-1.5 py-0.5 text-error"
                                             onClick={() => void decide(actionId, false)}
                                         >
-                                            // i18n: user-facing
+                                            {/* i18n: user-facing */}
                                             {t('拒绝', 'Deny')}
                                         </button>
                                     </div>
@@ -2712,7 +2712,7 @@ function CanvasInner() {
                 {humanInputs.length > 0 ? (
                     <div className="space-y-1">
                         <div className="text-[10px] text-text-secondary">
-                            // i18n: user-facing
+                            {/* i18n: user-facing */}
                             {t('等待人工输入', 'Awaiting human input')} ({humanInputs.length})
                         </div>
                         {humanInputs.map((h) => (
@@ -2738,7 +2738,7 @@ function CanvasInner() {
                                         className="rounded bg-brand px-1.5 py-0.5 text-white"
                                         onClick={() => void respondHumanInput(h.input_id, true)}
                                     >
-                                        // i18n: user-facing
+                                        {/* i18n: user-facing */}
                                         {t('批准', 'Approve')}
                                     </button>
                                     <button
@@ -2746,7 +2746,7 @@ function CanvasInner() {
                                         className="rounded border border-error px-1.5 py-0.5 text-error"
                                         onClick={() => void respondHumanInput(h.input_id, false)}
                                     >
-                                        // i18n: user-facing
+                                        {/* i18n: user-facing */}
                                         {t('拒绝', 'Reject')}
                                     </button>
                                 </div>
@@ -2853,7 +2853,7 @@ function CanvasInner() {
                     >
                         <div className="mb-2 flex items-center justify-between">
                             <div className="text-sm text-text-primary">
-                                // i18n: user-facing
+                                {/* i18n: user-facing */}
                                 {t('模板库', 'Template gallery')}
                             </div>
                             <button
@@ -2867,7 +2867,7 @@ function CanvasInner() {
                         <div className="grid grid-cols-2 gap-2">
                             {gallery.length === 0 ? (
                                 <div className="col-span-2 py-6 text-center text-xs text-text-secondary">
-                                    // i18n: user-facing
+                                    {/* i18n: user-facing */}
                                     {t('暂无模板', 'No templates available')}
                                 </div>
                             ) : null}

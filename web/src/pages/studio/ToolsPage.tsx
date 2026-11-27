@@ -93,7 +93,7 @@ export function ToolsPage() {
                         onClick={() => setShowRegister(true)}
                         className="rounded-md border border-border px-3 py-1.5 text-xs text-text-primary hover:bg-bg-muted"
                     >
-                        // i18n: user-facing
+                        {/* i18n: user-facing */}
                         {t('注册工具', 'Register tool')}
                     </button>
                 }
@@ -154,7 +154,7 @@ export function ToolsPage() {
                                             onClick={() => unregister(tool.name)}
                                             className="text-error hover:underline"
                                         >
-                                            // i18n: user-facing
+                                            {/* i18n: user-facing */}
                                             {t('注销', 'Unregister')}
                                         </button>
                                     </div>
@@ -172,15 +172,15 @@ export function ToolsPage() {
                 // i18n: user-facing
                 footer={<SubmitButton label={t('注册', 'Register')} onAction={register} />}
             >
-                // i18n: user-facing
+                {/* i18n: user-facing */}
                 <FormField label={t('名称', 'Name')} required>
                     <TextInput value={name} onChange={setName} />
                 </FormField>
-                // i18n: user-facing
+                {/* i18n: user-facing */}
                 <FormField label={t('描述', 'Description')}>
                     <TextInput value={description} onChange={setDescription} />
                 </FormField>
-                // i18n: user-facing
+                {/* i18n: user-facing */}
                 <FormField label={t('分类', 'Category')}>
                     <SelectInput
                         value={category}
@@ -188,7 +188,7 @@ export function ToolsPage() {
                         options={categoryOptions}
                     />
                 </FormField>
-                // i18n: user-facing
+                {/* i18n: user-facing */}
                 <FormField label={t('参数模式 (JSON)', 'Parameters schema (JSON)')}>
                     <JsonEditor value={schemaJson} onChange={setSchemaJson} rows={6} />
                 </FormField>

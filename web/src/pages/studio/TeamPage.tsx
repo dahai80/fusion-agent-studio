@@ -52,7 +52,7 @@ export function TeamPage() {
 
     return (
         <div>
-            // i18n: user-facing
+            {/* i18n: user-facing */}
             <PageHeader title={t('团队', 'Team')} />
             <Tabs
                 tabs={TABS.map((k) => ({
@@ -242,7 +242,7 @@ function PlazaSection() {
                     <div className="flex max-h-96 flex-col gap-2 overflow-y-auto rounded-card border border-border bg-bg-elevated p-4">
                         {messages.length === 0 ? (
                             <span className="text-sm text-text-secondary">
-                                // i18n: user-facing
+                                {/* i18n: user-facing */}
                                 {t('暂无消息', 'no messages')}
                             </span>
                         ) : (
@@ -305,15 +305,15 @@ function OrchestrateSection() {
 
     return (
         <div className="flex flex-col gap-3 px-4">
-            // i18n: user-facing
+            {/* i18n: user-facing */}
             <FormField label={t('目标', 'Objective')} required>
                 <Textarea value={objective} onChange={setObjective} rows={4} />
             </FormField>
-            // i18n: user-facing
+            {/* i18n: user-facing */}
             <FormField label={t('模式', 'Pattern')}>
                 <SelectInput value={pattern} onChange={setPattern} options={patternOptions} />
             </FormField>
-            // i18n: user-facing
+            {/* i18n: user-facing */}
             <FormField label={t('最大轮数', 'Max rounds')}>
                 <TextInput value={maxRounds} onChange={setMaxRounds} type="number" />
             </FormField>
@@ -328,7 +328,7 @@ function OrchestrateSection() {
             {result ? (
                 <div className="rounded-card border border-border bg-bg-elevated p-4 text-sm">
                     <div className="flex items-center gap-2">
-                        // i18n: user-facing
+                        {/* i18n: user-facing */}
                         <span className="text-text-secondary">{t('耗时', 'Duration')}:</span>
                         <span className="font-medium">
                             {result.total_duration != null ? `${result.total_duration}s` : '-'}

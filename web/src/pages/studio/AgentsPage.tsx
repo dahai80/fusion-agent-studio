@@ -354,7 +354,7 @@ export function AgentsPage() {
                         onClick={() => setShowCreate(true)}
                         className="rounded-md border border-border px-3 py-1.5 text-xs text-text-primary hover:bg-bg-muted"
                     >
-                        // i18n: user-facing
+                        {/* i18n: user-facing */}
                         {t('快速创建', 'Quick create')}
                     </button>
                 }
@@ -401,7 +401,7 @@ export function AgentsPage() {
                     {templates.length > 0 ? (
                         <div className="mt-4">
                             <div className="mb-2 text-xs font-medium text-text-secondary">
-                                // i18n: user-facing
+                                {/* i18n: user-facing */}
                                 {t('从样例开始', 'Start from a sample')}
                             </div>
                             <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
@@ -425,7 +425,7 @@ export function AgentsPage() {
                                             onClick={() => useTemplate(tpl.key)}
                                             className="mt-auto self-start text-xs text-brand hover:underline disabled:opacity-50"
                                         >
-                                            // i18n: user-facing
+                                            {/* i18n: user-facing */}
                                             {t('使用 →', 'Use →')}
                                         </button>
                                     </div>
@@ -455,7 +455,7 @@ export function AgentsPage() {
                         >
                             <span className="text-2xl leading-none">+</span>
                             <span className="text-xs">
-                                // i18n: user-facing
+                                {/* i18n: user-facing */}
                                 {t('快速创建（名称+描述）', 'Quick create (name + description)')}
                             </span>
                         </button>
@@ -487,7 +487,7 @@ export function AgentsPage() {
                                         />
                                     </div>
                                     <div className="line-clamp-2 min-h-8 text-xs text-text-secondary">
-                                        // i18n: user-facing
+                                        {/* i18n: user-facing */}
                                         {a.description || t('无描述', 'No description')}
                                     </div>
                                     <div className="flex flex-wrap items-center gap-1 text-[10px]">
@@ -527,7 +527,7 @@ export function AgentsPage() {
                                             }}
                                             className="text-brand hover:underline"
                                         >
-                                            // i18n: user-facing
+                                            {/* i18n: user-facing */}
                                             {t('运行', 'Run')}
                                         </button>
                                         <button
@@ -537,7 +537,7 @@ export function AgentsPage() {
                                             }}
                                             className="text-text-secondary hover:underline"
                                         >
-                                            // i18n: user-facing
+                                            {/* i18n: user-facing */}
                                             {t('详情', 'Detail')}
                                         </button>
                                         {a.status === 'published' ? (
@@ -554,7 +554,7 @@ export function AgentsPage() {
                                                 }
                                                 className="text-warning hover:underline"
                                             >
-                                                // i18n: user-facing
+                                                {/* i18n: user-facing */}
                                                 {t('取消发布', 'Unpublish')}
                                             </button>
                                         ) : (
@@ -566,7 +566,7 @@ export function AgentsPage() {
                                                 }
                                                 className="text-success hover:underline"
                                             >
-                                                // i18n: user-facing
+                                                {/* i18n: user-facing */}
                                                 {t('发布', 'Publish')}
                                             </button>
                                         )}
@@ -583,7 +583,7 @@ export function AgentsPage() {
                                             }
                                             className="text-text-secondary hover:underline"
                                         >
-                                            // i18n: user-facing
+                                            {/* i18n: user-facing */}
                                             {t('克隆', 'Clone')}
                                         </button>
                                         <button
@@ -594,7 +594,7 @@ export function AgentsPage() {
                                             }
                                             className="text-text-secondary hover:underline"
                                         >
-                                            // i18n: user-facing
+                                            {/* i18n: user-facing */}
                                             {t('归档', 'Archive')}
                                         </button>
                                         <button
@@ -602,7 +602,7 @@ export function AgentsPage() {
                                             onClick={() => remove(a)}
                                             className="text-error hover:underline"
                                         >
-                                            // i18n: user-facing
+                                            {/* i18n: user-facing */}
                                             {t('删除', 'Delete')}
                                         </button>
                                     </div>
@@ -631,7 +631,7 @@ export function AgentsPage() {
                                 onClick={() => setStep((s) => s - 1)}
                                 className="rounded-md border border-border px-3 py-1.5 text-xs text-text-secondary hover:text-text-primary"
                             >
-                                // i18n: user-facing
+                                {/* i18n: user-facing */}
                                 {t('上一步', 'Back')}
                             </button>
                         ) : null}
@@ -642,7 +642,7 @@ export function AgentsPage() {
                                 onClick={() => setStep((s) => s + 1)}
                                 className="rounded-md bg-brand px-3 py-1.5 text-xs text-white hover:opacity-90 disabled:opacity-50"
                             >
-                                // i18n: user-facing
+                                {/* i18n: user-facing */}
                                 {t('下一步', 'Next')}
                             </button>
                         ) : (
@@ -654,11 +654,11 @@ export function AgentsPage() {
             >
                 {step === 0 ? (
                     <>
-                        // i18n: user-facing
+                        {/* i18n: user-facing */}
                         <FormField label={t('名称', 'Name')} required>
                             <TextInput value={name} onChange={setName} />
                         </FormField>
-                        // i18n: user-facing
+                        {/* i18n: user-facing */}
                         <FormField label={t('描述', 'Description')}>
                             <TextInput value={description} onChange={setDescription} />
                         </FormField>
@@ -686,7 +686,7 @@ export function AgentsPage() {
                         <div className="max-h-56 overflow-y-auto rounded-md border border-border p-2">
                             {toolCatalog.length === 0 ? (
                                 <div className="text-xs text-text-muted">
-                                    // i18n: user-facing
+                                    {/* i18n: user-facing */}
                                     {t('工具目录为空', 'tool catalog empty')}
                                 </div>
                             ) : (
@@ -728,7 +728,7 @@ export function AgentsPage() {
                     <FormField label={t('模型', 'Model')}>
                         <TextInput value={model} onChange={setModel} placeholder="qwen3-4b" />
                         <div className="text-[10px] text-text-muted">
-                            // i18n: user-facing
+                            {/* i18n: user-facing */}
                             {t('留空使用引擎默认模型', 'empty = engine default')}
                         </div>
                     </FormField>
@@ -776,7 +776,7 @@ export function AgentsPage() {
                     />
                 }
             >
-                // i18n: user-facing
+                {/* i18n: user-facing */}
                 <FormField label={t('输入', 'Input')} required>
                     <Textarea
                         value={runInput}

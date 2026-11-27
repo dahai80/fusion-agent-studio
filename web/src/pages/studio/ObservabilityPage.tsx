@@ -68,18 +68,18 @@ export function ObservabilityPage() {
                         onClick={exportLogs}
                         className="rounded-md border border-border px-3 py-1.5 text-xs text-text-primary hover:bg-bg-muted"
                     >
-                        // i18n: user-facing
+                        {/* i18n: user-facing */}
                         {t('导出日志', 'Export logs')}
                     </button>
                 }
             />
             <div className="mx-4 mt-3 text-xs">
-                // i18n: user-facing
+                {/* i18n: user-facing */}
                 <div className="text-text-primary">{t('告警', 'Alerts')}</div>
                 <AlertsList state={alerts} t={t} />
             </div>
             <div className="mx-4 mt-3 text-xs">
-                // i18n: user-facing
+                {/* i18n: user-facing */}
                 <div className="text-text-primary">{t('建议', 'Suggestions')}</div>
                 <SuggestionsList state={suggestions} t={t} />
             </div>

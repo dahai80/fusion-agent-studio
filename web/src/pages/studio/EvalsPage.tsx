@@ -34,7 +34,7 @@ export function EvalsPage() {
     const t = useT();
     return (
         <div>
-            // i18n: user-facing
+            {/* i18n: user-facing */}
             <PageHeader title={t('评测', 'Evals')} />
             <div className="pt-3">
                 <EvalRunSection />
@@ -124,7 +124,7 @@ function EvalRunSection() {
                     </FormField>
                 </div>
                 <div className="w-32">
-                    // i18n: user-facing
+                    {/* i18n: user-facing */}
                     <FormField label={t('用例上限', 'Case limit')}>
                         <TextInput value={limit} onChange={setLimit} placeholder="20" />
                     </FormField>
@@ -134,9 +134,9 @@ function EvalRunSection() {
                 <table className="w-full text-left text-xs">
                     <thead className="text-text-secondary">
                         <tr>
-                            // i18n: user-facing
+                            {/* i18n: user-facing */}
                             <th className="py-1.5 pr-3">{t('数据集', 'Dataset')}</th>
-                            // i18n: user-facing
+                            {/* i18n: user-facing */}
                             <th className="py-1.5 pr-3">{t('用例数', 'Cases')}</th>
                             <th className="py-1.5" />
                         </tr>
@@ -158,7 +158,7 @@ function EvalRunSection() {
                                             onClick={() => void runEval(path)}
                                             className="rounded-md border border-border px-3 py-1 text-text-primary hover:bg-bg-muted disabled:opacity-50"
                                         >
-                                            // i18n: user-facing
+                                            {/* i18n: user-facing */}
                                             {busy ? t('运行中…', 'running…') : t('运行', 'Run')}
                                         </button>
                                     </td>
@@ -176,7 +176,7 @@ function EvalRunSection() {
                 >
                     <div className="mb-2 flex items-center gap-3">
                         <span className="font-medium text-text-primary">
-                            // i18n: user-facing
+                            {/* i18n: user-facing */}
                             {t('通过率', 'Pass rate')}
                         </span>
                         <span data-testid="eval-pass-rate" className="font-mono">

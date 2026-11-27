@@ -120,7 +120,7 @@ export function StudioNav(props: { active: string }) {
                         : 'text-text-secondary hover:text-text-primary'
                 }`}
             >
-                // i18n: user-facing
+                {/* i18n: user-facing */}
                 {t('更多', 'More')} {moreOpen ? '▴' : '▾'}
             </button>
             {moreOpen && morePos

@@ -198,7 +198,7 @@ function BudgetTab() {
             <div className="rounded border border-border bg-bg-elevated p-4 space-y-2">
                 <div className="flex items-baseline justify-between">
                     <span className="text-sm text-text-secondary">
-                        // i18n: user-facing
+                        {/* i18n: user-facing */}
                         {t('Token 预算使用', 'Token budget usage')}
                     </span>
                     <span className="text-sm font-mono">
@@ -218,12 +218,12 @@ function BudgetTab() {
             </div>
             <div className="flex items-end gap-2">
                 <div className="w-64">
-                    // i18n: user-facing
+                    {/* i18n: user-facing */}
                     <FormField label={t('最大 Token 数', 'Max tokens')}>
                         <TextInput value={maxTokens} onChange={setMaxTokens} placeholder="0" />
                     </FormField>
                 </div>
-                // i18n: user-facing
+                {/* i18n: user-facing */}
                 <SubmitButton label={t('设置预算', 'Set budget')} onAction={() => setBudget()} />
             </div>
         </div>
@@ -282,7 +282,7 @@ function PermissionsTab() {
     return (
         <div className="space-y-3">
             <div className="w-72">
-                // i18n: user-facing
+                {/* i18n: user-facing */}
                 <FormField label={t('选择 Agent', 'Select agent')}>
                     <select
                         className="w-full rounded border border-border bg-bg px-2 py-1.5 text-sm"
@@ -319,12 +319,12 @@ function PermissionsTab() {
                             render: (tool) =>
                                 denied.includes(tool) ? (
                                     <span className="rounded bg-error/10 text-error px-1.5 text-xs">
-                                        // i18n: user-facing
+                                        {/* i18n: user-facing */}
                                         {t('拒绝', 'deny')}
                                     </span>
                                 ) : (
                                     <span className="rounded bg-brand/10 text-brand px-1.5 text-xs">
-                                        // i18n: user-facing
+                                        {/* i18n: user-facing */}
                                         {t('允许', 'allow')}
                                     </span>
                                 ),
@@ -339,7 +339,7 @@ function PermissionsTab() {
                                     className="rounded border border-border px-2 py-0.5 text-xs hover:border-brand"
                                     onClick={() => void toggle(tool, denied.includes(tool))}
                                 >
-                                    // i18n: user-facing
+                                    {/* i18n: user-facing */}
                                     {denied.includes(tool) ? t('允许', 'Allow') : t('拒绝', 'Deny')}
                                 </button>
                             ),
@@ -408,7 +408,7 @@ function EventsTab() {
                 ))}
             </div>
             <div className="rounded border border-border bg-bg-elevated p-3">
-                // i18n: user-facing
+                {/* i18n: user-facing */}
                 <div className="text-sm font-medium mb-2">{t('引擎计数器', 'Engine counters')}</div>
                 <div className="flex flex-wrap gap-2">
                     {Object.entries(counters).map(([k, v]) => (
@@ -515,7 +515,7 @@ function ArtifactsTab() {
                                 className="text-xs text-brand hover:underline"
                                 onClick={() => void open(a.artifact_id)}
                             >
-                                // i18n: user-facing
+                                {/* i18n: user-facing */}
                                 {t('查看三元组', 'Open triple')}
                             </button>
                         ),
@@ -534,7 +534,7 @@ function ArtifactsTab() {
                             className="text-xs text-text-secondary hover:text-text-primary"
                             onClick={() => setSelected(null)}
                         >
-                            // i18n: user-facing
+                            {/* i18n: user-facing */}
                             {t('关闭', 'Close')}
                         </button>
                     </div>
@@ -656,7 +656,7 @@ function ApprovalsTab() {
         <div className="space-y-3">
             <div className="flex flex-wrap items-end gap-2">
                 <div className="w-56">
-                    // i18n: user-facing
+                    {/* i18n: user-facing */}
                     <FormField label={t('当前审批人', 'Current principal')}>
                         {/* #596: selection, not free text — decided_by in the
                             ledger stores the chosen identity verbatim. */}
@@ -682,26 +682,26 @@ function ApprovalsTab() {
                     </FormField>
                 </div>
                 <div className="w-40">
-                    // i18n: user-facing
+                    {/* i18n: user-facing */}
                     <FormField label={t('状态', 'Status')}>
                         <select
                             className="w-full rounded border border-border bg-bg px-2 py-1.5 text-sm"
                             value={status}
                             onChange={(e) => setStatus(e.target.value)}
                         >
-                            // i18n: user-facing
+                            {/* i18n: user-facing */}
                             <option value="pending">{t('待审', 'pending')}</option>
-                            // i18n: user-facing
+                            {/* i18n: user-facing */}
                             <option value="approved">{t('已批准', 'approved')}</option>
-                            // i18n: user-facing
+                            {/* i18n: user-facing */}
                             <option value="rejected">{t('已拒绝', 'rejected')}</option>
-                            // i18n: user-facing
+                            {/* i18n: user-facing */}
                             <option value="">{t('全部', 'all')}</option>
                         </select>
                     </FormField>
                 </div>
                 <div className="w-64">
-                    // i18n: user-facing
+                    {/* i18n: user-facing */}
                     <FormField label={t('拒绝理由', 'Rejection reason')}>
                         <TextInput
                             value={reason}
@@ -711,7 +711,7 @@ function ApprovalsTab() {
                         />
                     </FormField>
                 </div>
-                // i18n: user-facing
+                {/* i18n: user-facing */}
                 <SubmitButton label={t('刷新', 'Refresh')} onAction={() => void refresh()} />
             </div>
             {error ? <ErrorState message={error} /> : null}
@@ -750,7 +750,7 @@ function ApprovalsTab() {
                                         </div>
                                         {issue ? (
                                             <div className="text-xs text-text-secondary">
-                                                // i18n: user-facing
+                                                {/* i18n: user-facing */}
                                                 {t('关联 Issue', 'Issue')}: {issue}
                                             </div>
                                         ) : null}
@@ -764,21 +764,21 @@ function ApprovalsTab() {
                                                             rel="noreferrer"
                                                             className="text-brand hover:underline"
                                                         >
-                                                            // i18n: user-facing
+                                                            {/* i18n: user-facing */}
                                                             {t('关联 PR', 'PR')}
                                                         </a>
                                                     </div>
                                                 ) : null}
                                                 {arts.length ? (
                                                     <div className="text-xs text-text-secondary">
-                                                        // i18n: user-facing
+                                                        {/* i18n: user-facing */}
                                                         {t('产物预览', 'Artifacts')}:{' '}
                                                         {arts.join(', ')}
                                                     </div>
                                                 ) : null}
                                                 {verdicts ? (
                                                     <div className="text-xs text-text-secondary">
-                                                        // i18n: user-facing
+                                                        {/* i18n: user-facing */}
                                                         {t('评审结论', 'Reviews')}: {verdicts}
                                                     </div>
                                                 ) : null}
@@ -795,7 +795,7 @@ function ApprovalsTab() {
                             render: (r) => (
                                 <span className="text-xs text-text-secondary">
                                     {r.requester || '-'} →{' '}
-                                    // i18n: user-facing
+                                    {/* i18n: user-facing */}
                                     {r.assigned_to || t('未指派', 'unassigned')}
                                 </span>
                             ),
@@ -843,7 +843,7 @@ function ApprovalsTab() {
                                             className="rounded border border-border px-2 py-0.5 text-xs enabled:hover:border-brand disabled:opacity-40"
                                             onClick={() => void decide(r, true)}
                                         >
-                                            // i18n: user-facing
+                                            {/* i18n: user-facing */}
                                             {t('批准', 'Approve')}
                                         </button>
                                         <button
@@ -852,7 +852,7 @@ function ApprovalsTab() {
                                             className="rounded border border-border px-2 py-0.5 text-xs enabled:hover:border-error disabled:opacity-40"
                                             onClick={() => void decide(r, false)}
                                         >
-                                            // i18n: user-facing
+                                            {/* i18n: user-facing */}
                                             {t('拒绝', 'Reject')}
                                         </button>
                                     </div>
@@ -928,12 +928,12 @@ function WebhooksTab() {
         <div className="space-y-3">
             <div className="rounded border border-border bg-bg-elevated p-3 space-y-2">
                 <div className="text-sm font-medium">
-                    // i18n: user-facing
+                    {/* i18n: user-facing */}
                     {t('注册决策 Webhook', 'Register decision webhook')}
                 </div>
                 <div className="flex flex-wrap items-end gap-2">
                     <div className="w-72">
-                        // i18n: user-facing
+                        {/* i18n: user-facing */}
                         <FormField label={t('回调 URL', 'Callback URL')}>
                             <TextInput
                                 value={url}
@@ -943,13 +943,13 @@ function WebhooksTab() {
                         </FormField>
                     </div>
                     <div className="w-56">
-                        // i18n: user-facing
+                        {/* i18n: user-facing */}
                         <FormField label={t('签名密钥 (≥16 字符)', 'Signing secret (≥16 chars)')}>
                             <TextInput value={secret} onChange={setSecret} placeholder="********" />
                         </FormField>
                     </div>
                     <div className="w-56">
-                        // i18n: user-facing
+                        {/* i18n: user-facing */}
                         <FormField label={t('事件 (逗号分隔)', 'Events (comma separated)')}>
                             <TextInput
                                 value={events}
@@ -958,7 +958,7 @@ function WebhooksTab() {
                             />
                         </FormField>
                     </div>
-                    // i18n: user-facing
+                    {/* i18n: user-facing */}
                     <SubmitButton label={t('注册', 'Register')} onAction={() => register()} />
                 </div>
             </div>
@@ -1009,7 +1009,7 @@ function WebhooksTab() {
                                     className="rounded border border-border px-2 py-0.5 text-xs hover:border-error"
                                     onClick={() => void remove(r.id)}
                                 >
-                                    // i18n: user-facing
+                                    {/* i18n: user-facing */}
                                     {t('删除', 'Delete')}
                                 </button>
                             ),

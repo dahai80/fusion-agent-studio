@@ -90,7 +90,7 @@ export function ReviewPage() {
 
     return (
         <div>
-            // i18n: user-facing
+            {/* i18n: user-facing */}
             <PageHeader title={t('评审包', 'Reviewer Packs')} />
             <div className="pt-3 space-y-3">
                 {loadError ? (
@@ -100,7 +100,7 @@ export function ReviewPage() {
                 ) : (
                     <div className="rounded-xl border border-zinc-200/80 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
                         <div className="text-sm font-medium mb-2">
-                            // i18n: user-facing
+                            {/* i18n: user-facing */}
                             {t('选择评审包', 'Select reviewer packs')}
                         </div>
                         <div className="grid gap-2 sm:grid-cols-2" data-testid="pack-list">
@@ -134,7 +134,7 @@ export function ReviewPage() {
                                 checked={blind}
                                 onChange={(e) => setBlind(e.target.checked)}
                             />
-                            // i18n: user-facing
+                            {/* i18n: user-facing */}
                             {t('盲审模式（排除作者说明）', 'Blind review (exclude author notes)')}
                         </label>
                     </div>
@@ -195,7 +195,7 @@ export function ReviewPage() {
                         data-testid="review-result"
                     >
                         <div className="text-sm font-medium mb-2">
-                            // i18n: user-facing
+                            {/* i18n: user-facing */}
                             {t('发现', 'Findings')} · {result.total}
                         </div>
                         {result.total === 0 ? (
@@ -231,7 +231,7 @@ export function ReviewPage() {
                                         </div>
                                         <div className="mt-1 text-sm">{f.rationale}</div>
                                         <div className="mt-1 text-sm text-zinc-600 dark:text-zinc-300">
-                                            // i18n: user-facing
+                                            {/* i18n: user-facing */}
                                             {t('建议', 'Recommendation')}: {f.recommendation}
                                         </div>
                                     </div>

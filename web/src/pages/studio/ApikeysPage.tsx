@@ -103,7 +103,7 @@ export function ApikeysPage() {
                         onClick={() => setShowCreate(true)}
                         className="rounded-md border border-border px-3 py-1.5 text-xs text-text-primary hover:bg-bg-muted"
                     >
-                        // i18n: user-facing
+                        {/* i18n: user-facing */}
                         {t('新建密钥', 'Create key')}
                     </button>
                 }
@@ -114,7 +114,7 @@ export function ApikeysPage() {
                     className="mx-4 mt-2 rounded-md border border-border bg-bg-card px-3 py-2 text-xs"
                 >
                     <div className="text-text-primary">
-                        // i18n: user-facing
+                        {/* i18n: user-facing */}
                         {t('本机直连访问密钥', 'Standalone access key')}
                     </div>
                     <div className="mt-1 text-text-secondary">
@@ -151,7 +151,7 @@ export function ApikeysPage() {
                             }}
                             className="rounded-md border border-border px-3 py-1 text-xs text-text-primary hover:bg-bg-muted"
                         >
-                            // i18n: user-facing
+                            {/* i18n: user-facing */}
                             {t('保存', 'Save')}
                         </button>
                         <button
@@ -168,7 +168,7 @@ export function ApikeysPage() {
                             }}
                             className="rounded-md border border-border px-3 py-1 text-xs text-text-secondary hover:bg-bg-muted"
                         >
-                            // i18n: user-facing
+                            {/* i18n: user-facing */}
                             {t('清除', 'Clear')}
                         </button>
                         <span data-testid="standalone-key-state" className="text-text-muted">
@@ -189,7 +189,7 @@ export function ApikeysPage() {
                 className="mx-4 mt-2 rounded-md border border-border bg-bg-card px-3 py-2 text-xs text-text-secondary"
             >
                 <div className="text-text-primary">
-                    // i18n: user-facing
+                    {/* i18n: user-facing */}
                     {t('如何拿到可用密钥', 'How to get a working key')}
                 </div>
                 <ol className="mt-1 list-decimal space-y-0.5 pl-4">
@@ -226,14 +226,14 @@ export function ApikeysPage() {
             {created ? (
                 <div className="mx-4 mt-2 rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-xs">
                     <div className="text-text-primary">
-                        // i18n: user-facing
+                        {/* i18n: user-facing */}
                         {t('新密钥（仅显示一次）', 'new key (shown once)')}:
                     </div>
                     <code className="break-all font-mono text-text-secondary">{created}</code>
                     {/* #530: Claude-console-parity usage example — the key
                         authorizes external calls against deployed agents. */}
                     <div className="mt-2 text-text-secondary">
-                        // i18n: user-facing
+                        {/* i18n: user-facing */}
                         {t('外部调用示例', 'external call example')}:
                     </div>
                     <pre className="mt-1 overflow-x-auto rounded bg-bg-muted p-2 font-mono text-[10px] text-text-secondary">
@@ -314,7 +314,7 @@ export function ApikeysPage() {
                                             onClick={() => rotate(k.id ?? k.key_id ?? '')}
                                             className="text-text-secondary hover:underline"
                                         >
-                                            // i18n: user-facing
+                                            {/* i18n: user-facing */}
                                             {t('轮换', 'Rotate')}
                                         </button>
                                         <button
@@ -322,7 +322,7 @@ export function ApikeysPage() {
                                             onClick={() => revoke(k.id ?? k.key_id ?? '')}
                                             className="text-error hover:underline"
                                         >
-                                            // i18n: user-facing
+                                            {/* i18n: user-facing */}
                                             {t('吊销', 'Revoke')}
                                         </button>
                                     </div>
@@ -340,7 +340,7 @@ export function ApikeysPage() {
                 // i18n: user-facing
                 footer={<SubmitButton label={t('创建', 'Create')} onAction={create} />}
             >
-                // i18n: user-facing
+                {/* i18n: user-facing */}
                 <FormField label={t('名称', 'Name')} required>
                     <TextInput value={name} onChange={setName} />
                 </FormField>

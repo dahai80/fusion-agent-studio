@@ -105,7 +105,7 @@ export function CronPage() {
                         onClick={() => setShowCreate(true)}
                         className="rounded-md border border-border px-3 py-1.5 text-xs text-text-primary hover:bg-bg-muted"
                     >
-                        // i18n: user-facing
+                        {/* i18n: user-facing */}
                         {t('新建', 'New')}
                     </button>
                 }
@@ -170,7 +170,7 @@ export function CronPage() {
                                             onClick={() => showExecs(j.id)}
                                             className="text-text-secondary hover:underline"
                                         >
-                                            // i18n: user-facing
+                                            {/* i18n: user-facing */}
                                             {t('执行历史', 'Executions')}
                                         </button>
                                         <button
@@ -178,7 +178,7 @@ export function CronPage() {
                                             onClick={() => unregister(j.id)}
                                             className="text-error hover:underline"
                                         >
-                                            // i18n: user-facing
+                                            {/* i18n: user-facing */}
                                             {t('注销', 'Unregister')}
                                         </button>
                                     </div>
@@ -192,7 +192,7 @@ export function CronPage() {
                 <div className="mx-4 mt-2 rounded-card border border-border bg-bg-elevated p-4">
                     <div className="flex items-center justify-between">
                         <span className="text-sm font-medium">
-                            // i18n: user-facing
+                            {/* i18n: user-facing */}
                             {t('执行历史', 'Executions')}: {execsFor}
                         </span>
                         <button
@@ -257,15 +257,15 @@ export function CronPage() {
                 // i18n: user-facing
                 footer={<SubmitButton label={t('注册', 'Register')} onAction={register} />}
             >
-                // i18n: user-facing
+                {/* i18n: user-facing */}
                 <FormField label={t('名称', 'Name')}>
                     <TextInput value={name} onChange={setName} />
                 </FormField>
-                // i18n: user-facing
+                {/* i18n: user-facing */}
                 <FormField label={t('Cron 表达式', 'Cron expression')} required>
                     <TextInput value={expression} onChange={setExpression} />
                 </FormField>
-                // i18n: user-facing
+                {/* i18n: user-facing */}
                 <FormField label={t('工作流 ID', 'Graph ID')}>
                     <TextInput value={graphId} onChange={setGraphId} />
                 </FormField>

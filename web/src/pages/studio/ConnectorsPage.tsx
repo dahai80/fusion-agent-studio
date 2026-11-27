@@ -97,7 +97,7 @@ export function ConnectorsPage() {
                         onClick={() => setShowCreate(true)}
                         className="rounded-md border border-border px-3 py-1.5 text-xs text-text-primary hover:bg-bg-muted"
                     >
-                        // i18n: user-facing
+                        {/* i18n: user-facing */}
                         {t('新增', 'Add')}
                     </button>
                 }
@@ -154,7 +154,7 @@ export function ConnectorsPage() {
                                             }
                                             className="text-text-secondary hover:underline"
                                         >
-                                            // i18n: user-facing
+                                            {/* i18n: user-facing */}
                                             {t('测试', 'Test')}
                                         </button>
                                         {c.status === 'connected' ? (
@@ -170,7 +170,7 @@ export function ConnectorsPage() {
                                                 }
                                                 className="text-warning hover:underline"
                                             >
-                                                // i18n: user-facing
+                                                {/* i18n: user-facing */}
                                                 {t('断开', 'Disconnect')}
                                             </button>
                                         ) : (
@@ -182,7 +182,7 @@ export function ConnectorsPage() {
                                                 }
                                                 className="text-success hover:underline"
                                             >
-                                                // i18n: user-facing
+                                                {/* i18n: user-facing */}
                                                 {t('连接', 'Connect')}
                                             </button>
                                         )}
@@ -194,7 +194,7 @@ export function ConnectorsPage() {
                                             }
                                             className="text-error hover:underline"
                                         >
-                                            // i18n: user-facing
+                                            {/* i18n: user-facing */}
                                             {t('删除', 'Delete')}
                                         </button>
                                     </div>
@@ -212,15 +212,15 @@ export function ConnectorsPage() {
                 // i18n: user-facing
                 footer={<SubmitButton label={t('创建', 'Create')} onAction={create} />}
             >
-                // i18n: user-facing
+                {/* i18n: user-facing */}
                 <FormField label={t('名称', 'Name')} required>
                     <TextInput value={name} onChange={setName} />
                 </FormField>
-                // i18n: user-facing
+                {/* i18n: user-facing */}
                 <FormField label={t('类型', 'Type')}>
                     <SelectInput value={ctype} onChange={setCtype} options={typeOptions} />
                 </FormField>
-                // i18n: user-facing
+                {/* i18n: user-facing */}
                 <FormField label={t('鉴权配置 (JSON)', 'Auth config (JSON)')}>
                     <JsonEditor value={authJson} onChange={setAuthJson} rows={4} />
                 </FormField>

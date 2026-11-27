@@ -23,13 +23,13 @@ function SpanDrawer({ span, onRerunNode }: { span: RunSpan; onRerunNode?: () => 
                 <span>
                     {formatDuration((span.end - span.start) * 1000)} ·{' '}
                     {formatTokenCount(span.tokens ?? span.token_events)} tok · {span.tool_calls}{' '}
-                    // i18n: user-facing
+                    {/* i18n: user-facing */}
                     {t('调用', 'calls')} · {span.events ?? 0} {t('事件', 'events')}
                 </span>
             </div>
             {span.input ? (
                 <div className="mt-1.5">
-                    // i18n: user-facing
+                    {/* i18n: user-facing */}
                     <div className="text-[10px] text-text-muted">{t('输入', 'Input')}</div>
                     <pre className="mt-0.5 max-h-40 overflow-auto whitespace-pre-wrap font-mono text-[11px] text-text-primary">
                         {span.input}
@@ -38,7 +38,7 @@ function SpanDrawer({ span, onRerunNode }: { span: RunSpan; onRerunNode?: () => 
             ) : null}
             {span.output ? (
                 <div className="mt-1.5">
-                    // i18n: user-facing
+                    {/* i18n: user-facing */}
                     <div className="text-[10px] text-text-muted">{t('输出', 'Output')}</div>
                     <pre className="mt-0.5 max-h-60 overflow-auto whitespace-pre-wrap font-mono text-[11px] text-text-primary">
                         {span.output}
@@ -47,7 +47,7 @@ function SpanDrawer({ span, onRerunNode }: { span: RunSpan; onRerunNode?: () => 
             ) : null}
             {span.error ? (
                 <div className="mt-1.5">
-                    // i18n: user-facing
+                    {/* i18n: user-facing */}
                     <div className="text-[10px] text-error">{t('错误', 'Error')}</div>
                     <pre className="mt-0.5 max-h-40 overflow-auto whitespace-pre-wrap font-mono text-[11px] text-error">
                         {span.error}
@@ -56,7 +56,7 @@ function SpanDrawer({ span, onRerunNode }: { span: RunSpan; onRerunNode?: () => 
             ) : null}
             {!span.input && !span.output && !span.error ? (
                 <div className="mt-1.5 text-[11px] text-text-muted">
-                    // i18n: user-facing
+                    {/* i18n: user-facing */}
                     {t('该节点没有记录 I/O 摘要', 'no I/O summary recorded for this node')}
                 </div>
             ) : null}
@@ -66,7 +66,7 @@ function SpanDrawer({ span, onRerunNode }: { span: RunSpan; onRerunNode?: () => 
                     onClick={onRerunNode}
                     className="mt-2 rounded border border-brand/60 px-2 py-0.5 text-[10px] text-brand hover:bg-brand/10"
                 >
-                    // i18n: user-facing
+                    {/* i18n: user-facing */}
                     {t('重跑至该节点', 'Re-run to this node')}
                 </button>
             ) : null}
@@ -88,7 +88,7 @@ export function RunWaterfall({
     if (!spans.length) {
         return (
             <div className="rounded-card border border-border bg-bg-elevated p-4 text-xs text-text-muted">
-                // i18n: user-facing
+                {/* i18n: user-facing */}
                 {t('暂无节点事件（运行尚未产生结构事件）', 'no node events yet')}
             </div>
         );
@@ -104,13 +104,13 @@ export function RunWaterfall({
         <div className="rounded-card border border-border bg-bg-elevated p-4">
             <div className="mb-3 flex items-center justify-between gap-2">
                 <span className="text-sm text-text-primary">
-                    // i18n: user-facing
+                    {/* i18n: user-facing */}
                     {t('运行事件瀑布', 'Run event waterfall')}
                     <span className="ml-2 font-mono text-xs tabular-nums text-text-muted">
                         {formatDuration(totalMs)} · {formatTokenCount(totalTokens)} tok ·{' '}
-                        // i18n: user-facing
+                        {/* i18n: user-facing */}
                         {spans.length} {t('节点', 'nodes')}
-                        // i18n: user-facing
+                        {/* i18n: user-facing */}
                         {failed ? ` · ${failed} ${t('失败', 'failed')}` : ''}
                         {events.stop_reason ? ` · ${events.stop_reason}` : ''}
                     </span>
@@ -149,7 +149,7 @@ export function RunWaterfall({
                                     {formatTokenCount(tokensOf(s))} tok
                                 </span>
                                 <span className="w-12 shrink-0 text-right font-mono text-xs tabular-nums text-text-muted">
-                                    // i18n: user-facing
+                                    {/* i18n: user-facing */}
                                     {s.tool_calls} {t('调用', 'calls')}
                                 </span>
                                 {s.status === 'failed' && onRerunNode ? (
@@ -167,7 +167,7 @@ export function RunWaterfall({
                                         }}
                                         className="shrink-0 rounded border border-error/60 px-2 py-0.5 text-[10px] text-error hover:bg-error/10"
                                     >
-                                        // i18n: user-facing
+                                        {/* i18n: user-facing */}
                                         {t('重跑至该节点', 'Re-run to this node')}
                                     </span>
                                 ) : null}

@@ -412,7 +412,7 @@ export function AiAgentPage() {
                     <div className="flex flex-col gap-3">
                         <div className="flex items-center gap-2 text-xs">
                             <span className="text-text-secondary">
-                                // i18n: user-facing
+                                {/* i18n: user-facing */}
                                 {t('会话', 'Session')} {activeSession + 1}/{sessions.length}
                             </span>
                             {sessions.length > 1 ? (
@@ -433,7 +433,7 @@ export function AiAgentPage() {
                                 onClick={forkSession}
                                 className="rounded-md border border-border px-2 py-0.5 text-text-secondary hover:text-text-primary"
                             >
-                                // i18n: user-facing
+                                {/* i18n: user-facing */}
                                 {t('分叉会话', 'Fork session')}
                             </button>
                         </div>
@@ -443,7 +443,7 @@ export function AiAgentPage() {
                                 className="rounded-md border border-border bg-bg-muted p-3 text-xs text-text-secondary"
                             >
                                 <summary className="cursor-pointer">
-                                    // i18n: user-facing
+                                    {/* i18n: user-facing */}
                                     {t('思考通道', 'Thinking channel')}
                                 </summary>
                                 <pre className="mt-2 max-h-40 overflow-y-auto whitespace-pre-wrap font-mono">
@@ -457,7 +457,7 @@ export function AiAgentPage() {
                         >
                             {messages.length === 0 ? (
                                 <div className="py-10 text-center text-xs text-text-muted">
-                                    // i18n: user-facing
+                                    {/* i18n: user-facing */}
                                     {t('输入消息开始对话', 'type a message to start')}
                                 </div>
                             ) : (
@@ -580,7 +580,7 @@ export function AiAgentPage() {
                                     </div>
                                 ) : (
                                     <div className="text-xs text-text-muted">
-                                        // i18n: user-facing
+                                        {/* i18n: user-facing */}
                                         {t('该技能无需参数', 'this skill takes no parameters')}
                                     </div>
                                 )}
@@ -596,7 +596,7 @@ export function AiAgentPage() {
                                         disabled={streaming}
                                         className="rounded-md bg-brand px-3 py-1.5 text-xs text-white hover:opacity-90 disabled:opacity-50"
                                     >
-                                        // i18n: user-facing
+                                        {/* i18n: user-facing */}
                                         {t('运行技能', 'Run skill')}
                                     </button>
                                     <button
@@ -607,7 +607,7 @@ export function AiAgentPage() {
                                         }}
                                         className="rounded-md border border-border px-3 py-1.5 text-xs text-text-secondary hover:text-text-primary"
                                     >
-                                        // i18n: user-facing
+                                        {/* i18n: user-facing */}
                                         {t('取消', 'Cancel')}
                                     </button>
                                 </div>
@@ -664,7 +664,7 @@ export function AiAgentPage() {
                         {preflightOpen ? (
                             <div className="rounded-md border border-border bg-bg-elevated p-3">
                                 <div className="mb-2 text-xs font-medium text-text-primary">
-                                    // i18n: user-facing
+                                    {/* i18n: user-facing */}
                                     {t('发送前权限检查', 'Pre-run permission check')}
                                 </div>
                                 <PermissionCards allowed={allowedClasses} />
@@ -675,7 +675,7 @@ export function AiAgentPage() {
                                         disabled={streaming}
                                         className="rounded-md bg-brand px-3 py-1.5 text-xs text-white hover:opacity-90 disabled:opacity-50"
                                     >
-                                        // i18n: user-facing
+                                        {/* i18n: user-facing */}
                                         {t('确认发送', 'Confirm send')}
                                     </button>
                                     <button
@@ -686,7 +686,7 @@ export function AiAgentPage() {
                                         }}
                                         className="rounded-md border border-border px-3 py-1.5 text-xs text-text-secondary hover:text-text-primary"
                                     >
-                                        // i18n: user-facing
+                                        {/* i18n: user-facing */}
                                         {t('取消', 'Cancel')}
                                     </button>
                                 </div>
@@ -706,7 +706,7 @@ export function AiAgentPage() {
                     <div className="h-96 overflow-y-auto rounded-md border border-border bg-bg p-3">
                         {events.length === 0 ? (
                             <div className="text-xs text-text-muted">
-                                // i18n: user-facing
+                                {/* i18n: user-facing */}
                                 {t('暂无事件', 'no events yet')}
                             </div>
                         ) : (

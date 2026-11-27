@@ -171,11 +171,11 @@ function TasksSection() {
                                         label={task.status ?? '-'}
                                     />
                                     <span className="text-text-secondary">
-                                        // i18n: user-facing
+                                        {/* i18n: user-facing */}
                                         {t('模型', 'model')}: {task.model_name || '-'}
                                     </span>
                                     <span className="text-text-secondary">
-                                        // i18n: user-facing
+                                        {/* i18n: user-facing */}
                                         {t('节点', 'nodes')}:{' '}
                                         {(task.assigned_nodes ?? []).join(', ') || '-'}
                                     </span>
@@ -193,7 +193,7 @@ function TasksSection() {
                                         }
                                         className="rounded-md border border-border px-2 py-0.5 text-text-secondary hover:bg-bg-muted"
                                     >
-                                        // i18n: user-facing
+                                        {/* i18n: user-facing */}
                                         {t('取消', 'Cancel')}
                                     </button>
                                     <input
@@ -218,7 +218,7 @@ function TasksSection() {
                                         }
                                         className="rounded-md border border-border px-2 py-0.5 text-text-secondary hover:bg-bg-muted"
                                     >
-                                        // i18n: user-facing
+                                        {/* i18n: user-facing */}
                                         {t('降级', 'Degrade')}
                                     </button>
                                     <input
@@ -246,7 +246,7 @@ function TasksSection() {
                                         }
                                         className="rounded-md border border-border px-2 py-0.5 text-text-secondary hover:bg-bg-muted"
                                     >
-                                        // i18n: user-facing
+                                        {/* i18n: user-facing */}
                                         {t('迁移', 'Migrate')}
                                     </button>
                                 </div>
@@ -297,11 +297,11 @@ function NodesSection() {
                             label={n.status ?? '-'}
                         />
                         <span className="text-text-secondary">
-                            // i18n: user-facing
+                            {/* i18n: user-facing */}
                             {t('任务', 'tasks')}: {n.active_tasks ?? 0}/{n.max_tasks ?? '-'}
                         </span>
                         <span className="text-text-secondary">
-                            // i18n: user-facing
+                            {/* i18n: user-facing */}
                             {t('评分', 'score')}: {n.score ?? '-'}
                         </span>
                     </div>
@@ -357,7 +357,7 @@ function AutoscalerSection() {
                         onClick={apply}
                         className="mt-2 rounded-md border border-border px-3 py-1 text-text-primary hover:bg-bg-muted"
                     >
-                        // i18n: user-facing
+                        {/* i18n: user-facing */}
                         {t('保存配置', 'Save config')}
                     </button>
                 </div>
@@ -412,7 +412,7 @@ function RoutingSection() {
                             onClick={apply}
                             className="rounded-md border border-border px-3 py-1 text-text-primary hover:bg-bg-muted"
                         >
-                            // i18n: user-facing
+                            {/* i18n: user-facing */}
                             {t('切换策略', 'Switch strategy')}
                         </button>
                     </div>
