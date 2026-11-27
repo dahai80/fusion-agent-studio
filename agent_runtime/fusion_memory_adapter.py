@@ -6,24 +6,25 @@ AgentRuntime.recall_relevant, Compactor.store_summary) so daemon + callers see n
 API change. Storage moves off local SQLite memory.db to fusion-memory's episodic
 commit / semantic retrieve / forgetting-curve consolidation + entity graph.
 
-PRD §10.1 / issue #246。100% offline — HTTP only to 127.0.0.1。
-同步 HTTP (httpx.Client): MemoryDispatcher 调用 mem.store() 是同步的
-(memory.py:32), runtime.recall_relevant 走 asyncio.to_thread — 故用同步客户端。
+PRD §10.1 / issue #246. 100% offline — HTTP only to 127.0.0.1.
+Synchronous HTTP (httpx.Client): MemoryDispatcher calls mem.store() synchronously
+(memory.py:32) and runtime.recall_relevant runs via asyncio.to_thread — hence a
+synchronous client.
 
 env (operator):
-  FUSION_MEMORY_BASE_URL  (默认 http://127.0.0.1:11435)
-  FUSION_MEMORY_API_KEY   (必配, 对齐 fm-server Bearer B5)
+  FUSION_MEMORY_BASE_URL  (default http://127.0.0.1:11435)
+  FUSION_MEMORY_API_KEY   (required, aligned with fm-server Bearer B5)
 
-Handler -> RPC 映射 (见 issue #246 表):
-  store         -> commit      (content 包成单 turn Interaction)
+Handler -> RPC mapping (see issue #246 table):
+  store         -> commit      (content wrapped into a single-turn Interaction)
   recall        -> retrieve    (blocks -> MemoryEntry[])
-  list_recent   -> retrieve    (degraded, recency 近似)
+  list_recent   -> retrieve    (degraded, recency approximation)
   get           -> get         (direct)
   delete        -> delete      (confirm=True, B5)
-  delete_scope  -> (无映射)    (degrade: no-op + log)
-  count         -> retrieve    (近似: len(blocks), fm 无 list-all-ids RPC)
-  recall_relevant -> retrieve  (blocks -> 格式化字符串)
-  auto_forget   -> consolidate (remote 等价, 返回 dropped 数)
+  delete_scope  -> (no mapping) (degrade: no-op + log)
+  count         -> retrieve    (approximate: len(blocks), fm has no list-all-ids RPC)
+  recall_relevant -> retrieve  (blocks -> formatted string)
+  auto_forget   -> consolidate (remote equivalent, returns dropped count)
 """
 
 from __future__ import annotations
@@ -44,8 +45,9 @@ DEFAULT_TIMEOUT = 10.0
 
 
 class FusionMemoryAdapter:
-    """fusion-memory HTTP 代理, 鸭子类型 MemoryEngine 9 方法表面。
-    失败 fail-empty (log + 空返回), 不抛异常中断 daemon 主流程。
+    """fusion-memory HTTP proxy, duck-typed to the MemoryEngine 9-method surface.
+    Fails empty on error (log + empty return); never raises to interrupt the daemon
+    main flow.
     """
 
     def __init__(
@@ -59,7 +61,7 @@ class FusionMemoryAdapter:
         ).rstrip("/")
         self._api_key = api_key or os.environ.get("FUSION_MEMORY_API_KEY")
         if not self._api_key:
-            raise RuntimeError("FUSION_MEMORY_API_KEY 未配置 (fm-server Bearer 鉴权, B5)")
+            raise RuntimeError("FUSION_MEMORY_API_KEY not configured (fm-server Bearer auth, B5)")
         self._timeout = timeout
         self._client = httpx.Client(
             base_url=self._base_url,
@@ -165,16 +167,18 @@ class FusionMemoryAdapter:
         tier: str = "",
         memory_type: str = "",
     ) -> list[MemoryEntry]:
-        # fm 无 recency-only RPC; retrieve 空查询不成立, 用 scope 作查询近似最近条目。
-        # degraded: 按 issue #246, recency 近似。
+        # fm has no recency-only RPC; retrieve with an empty query is not viable, so
+        # use scope as the query to approximate the most recent entries.
+        # degraded: per issue #246, recency approximation.
         query = scope if scope else "*"
         return self._retrieve_to_entries(
             query=query, top_k=limit, scope=scope, memory_type=memory_type
         )
 
     def get(self, entry_id: str) -> MemoryEntry | None:
-        # fm-server 无 POST /v1/memory/get; get 走 GET /v1/memory/{id} 路径参
-        # (http.rs get_memory, 服务端组 JSON-RPC)。客户端发 GET + Bearer, 解 result。
+        # fm-server has no POST /v1/memory/get; get goes through the GET
+        # /v1/memory/{id} path parameter (http.rs get_memory, server-side JSON-RPC
+        # envelope). Client sends GET + Bearer and unwraps result.
         try:
             resp = self._client.get(f"/v1/memory/{entry_id}")
         except httpx.HTTPError as exc:
@@ -215,7 +219,7 @@ class FusionMemoryAdapter:
         return deleted
 
     def delete_scope(self, scope: str) -> int:
-        # fm 无 scope-delete RPC (issue #246: degrade no-op + log)。
+        # fm has no scope-delete RPC (issue #246: degrade to no-op + log).
         logger.warning(
             "fusion-memory delete_scope('%s') no-op — fm has no scope-delete RPC",
             scope,
@@ -223,8 +227,10 @@ class FusionMemoryAdapter:
         return 0
 
     def count(self, scope: str = "", tier: str = "", memory_type: str = "") -> int:
-        # fm 无 list-all-ids RPC, 无法精确 count。近似: retrieve 大 top_k, len(blocks)。
-        # issue #246: count via get-accumulate (fm get 单 id, 无 enumerate, 故 retrieve 近似)。
+        # fm has no list-all-ids RPC, so an exact count is impossible. Approximate:
+        # retrieve with a large top_k and use len(blocks).
+        # issue #246: count via get-accumulate (fm get is single-id, no enumerate,
+        # hence the retrieve approximation).
         query = scope if scope else "*"
         result = self._rpc(
             "retrieve",
@@ -260,7 +266,7 @@ class FusionMemoryAdapter:
         logger.info("fusion-memory auto_forget dropped %d (consolidate)", dropped)
         return dropped
 
-    # ── 辅助: Compat (Compactor.store_summary 调 store, 无独立方法) ──
+    # -- Helper: Compat (Compactor.store_summary calls store; no dedicated method) --
 
     def store_summary(self, summary: str, scope: str, original_count: int) -> str:
         return self.store(
@@ -275,7 +281,7 @@ class FusionMemoryAdapter:
     def close(self) -> None:
         self._client.close()
 
-    # ── 内部映射 ────────────────────────────────────────────────
+    # -- Internal mapping ------------------------------------------------------
 
     def _retrieve_to_entries(
         self,
@@ -314,8 +320,9 @@ class FusionMemoryAdapter:
     def _block_to_entry(self, block: dict[str, Any]) -> MemoryEntry:
         text = block.get("turns_text", "")
         mem_type = block.get("memory_type", "Episodic")
-        # fm memory_type 大写枚举 (Episodic/Semantic/Procedural) -> agent-studio 小写
-        # (user/feedback/project/reference) 近似映射; Semantic->project, 其余->project。
+        # fm memory_type uppercase enum (Episodic/Semantic/Procedural) -> agent-studio
+        # lowercase (user/feedback/project/reference) approximate mapping;
+        # Semantic->project, the rest->project.
         local_type = "project"
         return MemoryEntry(
             id=block.get("interaction_id", ""),
@@ -342,10 +349,10 @@ class FusionMemoryAdapter:
             score = b.get("score", 0.0)
             text = b.get("turns_text", "")
             mem_type = b.get("memory_type", "")
-            parts.append(f"[记忆 (相关度: {score:.0%}, {mem_type})]\n{text}")
+            parts.append(f"[记忆 (相关度: {score:.0%}, {mem_type})]\n{text}")  # i18n: user-facing
         return "\n".join(parts)
 
-    # ── 兼容属性: AgentRuntime/daemon 可能访问 .db_path ──────────
+    # -- Compat property: AgentRuntime/daemon may access .db_path --------------
 
     @property
     def db_path(self) -> str:

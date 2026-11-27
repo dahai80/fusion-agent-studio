@@ -4,7 +4,7 @@ Runners: pytest tests/test_daemon_server.py
 API: DaemonServer start/stop + JSON-RPC dispatch over UDS.
 Data schemas: JSON-RPC 2.0 request/response, temp socket paths.
 
-User instruction: "坚各个产品的边界和原则，fusion-studio的GUI基本定稿了，现在把功能做起来，开始吧"
+User instruction: "Hold each product's boundaries and principles; the fusion-studio GUI is basically finalized - now build out the features. Let's begin."
 """
 
 from __future__ import annotations
@@ -20,9 +20,9 @@ from agent_runtime.daemon_server import DaemonServer
 
 
 def _mlx_reachable() -> bool:
-    # 与 daemon_server._check_mlx_health 探测的 MLX_BASE_URL 对齐:
-    # NetLayer 方案B 后默认经 gateway :11432, 不再直连 :11434.
-    # 否则 gateway 起着但 11434 没起时, _MLX_UP=False 却 mlx.health=True, "not running" 用例误判失败.
+    # Align with the MLX_BASE_URL probed by daemon_server._check_mlx_health:
+    # after NetLayer plan B the default goes through gateway :11432, no longer direct :11434.
+    # Otherwise when the gateway is up but 11434 is not, _MLX_UP=False yet mlx.health=True, and the "not running" case misjudges failure.
     import socket
     from urllib.parse import urlparse
 
@@ -51,7 +51,7 @@ def socket_path():
 
 @pytest.fixture
 def store_db(tmp_path):
-    # #135: 用临时库隔离, 不污染用户真实 ~/.fusion-agent-studio/store.db.
+    # #135: isolate with a temp store so the real user ~/.fusion-agent-studio/store.db is not polluted.
     db = tmp_path / "test_store.db"
     yield str(db)
 
@@ -68,18 +68,18 @@ async def daemon(socket_path, store_db):
 
 @pytest.fixture
 async def daemon_stub(socket_path, store_db):
-    # planner/RAG 测试在 fusion-mlx 运行时会走真实 LLM, 套件并发负载下
-    # 偶发超时 flaky. 清掉 _default_client + _default_model → gateway.route
-    # 返回 None → chat 立即返空 → planner/RAG 走 stub 路径, 确定性.
+    # planner/RAG tests hit the real LLM when fusion-mlx is running and flakily time out under suite concurrency load.
+    # Clearing _default_client + _default_model -> gateway.route returns None -> chat returns empty immediately
+    # -> planner/RAG take the stub path, deterministic.
     d = DaemonServer(
         socket_path=socket_path, ws_port=0, cluster_port=0, http_port=0, store_path=store_db
     )
     await d.start()
     d._gateway._default_client = None
     d._gateway._default_model = ""
-    # 清空 _models: _attach_mlx_client 启动探测到运行中 fusion-mlx 会
-    # register_model, 使 route() 返真实 model 连外部服务 (本地 launchd-MLX
-    # 在跑时偶发连真实 LLM). 清空 → route 返 None → stub 路径确定性.
+    # Clear _models: when _attach_mlx_client's startup probe finds a running fusion-mlx it
+    # calls register_model, making route() return a real model and connect to external services (a local launchd-MLX
+    # running occasionally causes real LLM connections). Clearing -> route returns None -> deterministic stub path.
     d._gateway._models.clear()
     d._planner = None
     d._rag = None
@@ -158,7 +158,7 @@ class TestDaemonGraphCRUD:
 
     @pytest.mark.asyncio
     async def test_graph_agent_id_persisted(self, daemon):
-        # #131: graph 元数据内嵌 agent_id, create→get 往返不丢.
+        # #131: agent_id embedded in graph metadata survives the create->get round-trip.
         create_resp = await _rpc_call(
             daemon.socket_path,
             "graph.create",
@@ -178,7 +178,7 @@ class TestDaemonGraphCRUD:
 
     @pytest.mark.asyncio
     async def test_graph_stop_on_tool_error_persisted(self, daemon):
-        # #202: stop_on_tool_error 经 nodes/edges 分支 create→get→update 往返不丢.
+        # #202: stop_on_tool_error survives the nodes/edges branch create->get->update round-trip.
         create_resp = await _rpc_call(
             daemon.socket_path,
             "graph.create",
@@ -195,14 +195,14 @@ class TestDaemonGraphCRUD:
         graph_id = create_resp["result"]["graph_id"]
         get_resp = await _rpc_call(daemon.socket_path, "graph.get", {"graph_id": graph_id})
         assert get_resp["result"]["stop_on_tool_error"] is True
-        # update 不传 flag 应回退保持原值 (load→save 保留), 返回字段含 flag.
+        # Update without the flag should fall back to keeping the original value (load->save preserves it); the returned field includes the flag.
         upd_resp = await _rpc_call(
             daemon.socket_path,
             "graph.update",
             {"graph_id": graph_id, "name": "StopOnErr2"},
         )
         assert upd_resp["result"]["stop_on_tool_error"] is True
-        # 显式关 flag 后 get 应回 False.
+        # After explicitly disabling the flag, get should return False.
         await _rpc_call(
             daemon.socket_path,
             "graph.update",
@@ -237,8 +237,8 @@ class TestDaemonGraphCRUD:
 
     @pytest.mark.asyncio
     async def test_graph_purge_test_by_names(self, daemon):
-        # #135: graph.purge_test 按 names 精确清理 + dry_run 不实删.
-        # 用唯一前缀隔离, 不依赖 store 是否已被既有残留污染.
+        # #135: graph.purge_test exact cleanup by names + dry_run does not actually delete.
+        # Use a unique prefix for isolation, independent of whether the store is already polluted by leftovers.
         tag = "purgename-"
         for name in [tag + "a", tag + "a", tag + "keep"]:
             await _rpc_call(
@@ -261,7 +261,7 @@ class TestDaemonGraphCRUD:
 
     @pytest.mark.asyncio
     async def test_graph_purge_test_by_prefix(self, daemon):
-        # #135: graph.purge_test 按前缀批量清理 e2e- 残留.
+        # #135: graph.purge_test batch-cleans e2e- leftovers by prefix.
         tag = "purgepre-"
         for name in [tag + "flow", tag + "loop", tag + "keep"]:
             await _rpc_call(
@@ -674,7 +674,7 @@ class TestDaemonMemory:
 
     @pytest.mark.asyncio
     async def test_memory_backend_legacy_sqlite(self, daemon, monkeypatch):
-        # FUSION_MEMORY_API_KEY 未配 -> _get_memory 返 MemoryEngine (sqlite)。
+        # FUSION_MEMORY_API_KEY unset -> _get_memory returns MemoryEngine (sqlite).
         monkeypatch.delenv("FUSION_MEMORY_API_KEY", raising=False)
         resp = await _rpc_call(daemon.socket_path, "memory.backend", {})
         assert resp["result"]["backend"] == "sqlite"
@@ -682,8 +682,8 @@ class TestDaemonMemory:
 
     @pytest.mark.asyncio
     async def test_memory_backend_fusion_memory(self, daemon, monkeypatch):
-        # FUSION_MEMORY_API_KEY 配 -> _get_memory 返 FusionMemoryAdapter。
-        # adapter __init__ 只建 httpx.Client, 不发网络, fm-server 不起也成功。
+        # FUSION_MEMORY_API_KEY set -> _get_memory returns FusionMemoryAdapter.
+        # The adapter __init__ only creates an httpx.Client, no network; succeeds even when fm-server is down.
         monkeypatch.setenv("FUSION_MEMORY_API_KEY", "test-key")
         resp = await _rpc_call(daemon.socket_path, "memory.backend", {})
         assert resp["result"]["backend"] == "fusion_memory"
@@ -1057,21 +1057,21 @@ class TestHarnessEndpoints:
 class TestDaemonCronRuntime:
     @pytest.fixture(autouse=True)
     def _isolated_task_store(self, daemon, tmp_path):
-        # cron 触发经 _get_task_store() 写 ~/.fusion-agent-studio/tasks.db —
-        # 不隔离则同分钟重跑会撞 idempotency_key 去重 (deduped != triggered)。
+        # cron triggering writes ~/.fusion-agent-studio/tasks.db via _get_task_store() —
+        # without isolation, rerunning in the same minute collides on idempotency_key dedup (deduped != triggered).
         from agent_runtime.task_store import TaskStore
 
         daemon._task_store = TaskStore(db_path=str(tmp_path / "tasks.db"))
 
     @pytest.mark.asyncio
     async def test_cron_loop_started_with_daemon(self, daemon):
-        # 断裂点 1 修复: daemon start() 必须启动 cron loop
+        # Break 1 fix: daemon start() must start the cron loop
         cm = daemon._get_cron_manager()
         assert cm._running is True
 
     @pytest.mark.asyncio
     async def test_cron_default_handler_executes_graph(self, daemon):
-        # 断裂点 2 修复: 默认 handler 包装 graph.execute
+        # Break 2 fix: the default handler wraps graph.execute
         create_resp = await _rpc_call(
             daemon.socket_path,
             "graph.create",
@@ -1101,8 +1101,8 @@ class TestDaemonCronRuntime:
         job = cm.get("cron_e2e_test")
         assert job is not None and job.graph_id == graph_id
         result = await daemon._cron_default_handler(job)
-        # M1-5: cron 降为触发器; #604: 非 loop cron 收编到 task executor —
-        # handler 只落任务板, executor 负责执行 (返回 queued, 无 execution_id).
+        # M1-5: cron demoted to trigger; #604: non-loop cron folded into the task executor —
+        # the handler only lands the task board entry, the executor does the work (returns queued, no execution_id).
         assert result["status"] == "queued"
         assert result["task_id"].startswith("task_")
         await cm.aunregister("cron_e2e_test")
@@ -1118,20 +1118,20 @@ class TestDaemonCronRuntime:
 
 
 class TestDaemonStatusFailedPlugins:
-    # issue #164: daemon.status 必须显式暴露 plugin 加载失败, 避免静默缺工具.
+    # issue #164: daemon.status must explicitly expose plugin load failures, avoiding silently missing tools.
 
     @pytest.mark.asyncio
     async def test_status_returns_failed_plugins_key(self, daemon):
         resp = await _rpc_call(daemon.socket_path, "daemon.status")
         assert "result" in resp
         result = resp["result"]
-        # 新增 failed_plugins 字段, 始终存在 (dict[str,str], 空表示无失败).
+        # New failed_plugins field, always present (dict[str,str], empty means no failures).
         assert "failed_plugins" in result
         assert isinstance(result["failed_plugins"], dict)
 
     @pytest.mark.asyncio
     async def test_status_failed_plugins_reflects_registry(self, daemon):
-        # 注入一个模拟失败 plugin, 确认 daemon.status 透传 registry.failed_plugins.
+        # Inject a simulated failed plugin and confirm daemon.status passes through registry.failed_plugins.
         reg = daemon._get_tool_registry()
         reg.failed_plugins = {"fake_broken_plugin": "No module named 'cv2'"}
         resp = await _rpc_call(daemon.socket_path, "daemon.status")
@@ -1140,11 +1140,11 @@ class TestDaemonStatusFailedPlugins:
 
 
 class TestDispatchStrParamsTolerance:
-    # issue #172: 客户端传 str params (如 "{}" 或 json.dumps) 时 _dispatch 须规范化为 dict,
-    # 否则 handler 内 params.get 崩溃 AttributeError.
+    # issue #172: when a client sends str params (e.g. "{}" or json.dumps), _dispatch must normalize to dict,
+    # otherwise params.get inside handlers crashes with AttributeError.
 
     async def _rpc_call_str_params(self, socket_path, method, params_str, msg_id=1):
-        # 绕过 _rpc_call (只接 dict), 直接发 str params.
+        # Bypass _rpc_call (dict-only) and send str params directly.
         reader, writer = await asyncio.open_unix_connection(socket_path, limit=2**20)
         request = {"jsonrpc": "2.0", "id": msg_id, "method": method, "params": params_str}
         writer.write(json.dumps(request).encode() + b"\n")
@@ -1156,38 +1156,38 @@ class TestDispatchStrParamsTolerance:
 
     @pytest.mark.asyncio
     async def test_str_params_empty_dict_string(self, daemon):
-        # params="{}" 应被解析为 {} -> graph.list 不崩, 正常返回.
+        # params="{}" should parse to {} -> graph.list does not crash, returns normally.
         resp = await self._rpc_call_str_params(daemon.socket_path, "graph.list", "{}")
         assert "result" in resp, resp
         assert "graphs" in resp["result"]
 
     @pytest.mark.asyncio
     async def test_str_params_json_object(self, daemon):
-        # params='{"limit":5}' 应被解析为 dict -> daemon.status 不崩.
+        # params='{"limit":5}' should parse to a dict -> daemon.status does not crash.
         resp = await self._rpc_call_str_params(daemon.socket_path, "daemon.status", '{"limit": 5}')
         assert "result" in resp, resp
 
     @pytest.mark.asyncio
     async def test_str_params_invalid_json(self, daemon):
-        # params="not-json" 应兜底为 {} -> 不崩, 返回正常 result (非 error -32603).
+        # params="not-json" should fall back to {} -> no crash, a normal result is returned (not error -32603).
         resp = await self._rpc_call_str_params(daemon.socket_path, "graph.list", "not-json")
         assert "result" in resp, resp
         assert "graphs" in resp["result"]
 
     @pytest.mark.asyncio
     async def test_str_params_empty_string(self, daemon):
-        # params="" 应兜底为 {} -> graph.list 不崩.
+        # params="" should fall back to {} -> graph.list does not crash.
         resp = await self._rpc_call_str_params(daemon.socket_path, "graph.list", "")
         assert "result" in resp, resp
 
 
 class TestP0_12ExecKeyCollision:
-    # 审计 P0-12: id(rt) 进程级单例 fallback, 并发同 graph 无 task_id 的多执行
-    # 互覆同一 exec_key. register_execution 用 id(current_task) 每 task 唯一.
+    # Audit P0-12: id(rt) process-level singleton fallback; concurrent executions of the same graph without task_id
+    # overwrote the same exec_key. register_execution uses id(current_task), unique per task.
 
     @pytest.mark.asyncio
     async def test_register_execution_distinct_keys_per_task(self, daemon):
-        # 两个并发 task 同 scope+空 key_id -> 旧版同键互覆, 新版各拿唯一键.
+        # Two concurrent tasks with the same scope+empty key_id -> the old version clobbered the same key, the new version gives each a unique key.
         keys = []
 
         async def _register():
@@ -1209,7 +1209,7 @@ class TestP0_12ExecKeyCollision:
 
     @pytest.mark.asyncio
     async def test_register_execution_explicit_key_stable(self, daemon):
-        # 有 task_id 时不走 fallback, 同 task_id 多次注册同键 (调用方职责去重).
+        # With a task_id the fallback is skipped; multiple registrations with the same task_id share a key (caller's duty to dedup).
         k1, u1 = daemon.register_execution("graph", "task-7")
         k2, u2 = daemon.register_execution("graph", "task-7")
         assert k1 == k2 == "graph:task-7"

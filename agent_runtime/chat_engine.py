@@ -518,9 +518,10 @@ class ChatEngine:
             return
 
         history = self._build_llm_history(session)
-        # C16: 统一 soul.md 加载 — session 携 agent_id 时注入 soul 为 system 前缀.
+        # C16: unified soul.md loading — when the session carries agent_id, inject
+        # soul as the system prefix.
         history = self._inject_soul(session, history)
-        # 审计 P-2: chat path is a first-class LLM call — it must pass the
+        # Audit P-2: chat path is a first-class LLM call — it must pass the
         # LLMFunnel too (budget -> hooks -> compaction), not dial the gateway.
         funnel = self._llm_funnel()
         ctx = self._funnel_ctx(session)
@@ -555,7 +556,8 @@ class ChatEngine:
                             )
             else:
                 resp = await self.runtime.llm_gateway.chat(messages=history, model="default")
-                # 审计 E-12: gateway finish_reason=="error" 哨兵 content="" 不代表成功.
+                # Audit E-12: the gateway finish_reason=="error" sentinel with
+                # content="" does not mean success.
                 if getattr(resp, "finish_reason", "") == "error":
                     err = (getattr(resp, "usage", None) or {}).get("error", "gateway error")
                     raise RuntimeError(f"LLM gateway error: {err}")
@@ -584,8 +586,9 @@ class ChatEngine:
         if graph_id and self.runtime.store:
             graph = self.runtime.store.load_graph(graph_id)
 
-        # #482: agent/tenant/team 标识在图创建前解析 — 默认图 soul 注入与
-        # ctx.persona 声明解析共用一份, 避免重复 resolve.
+        # #482: resolve agent/tenant/team identities before graph creation — the
+        # default-graph soul injection and ctx.persona declaration resolution share
+        # one resolve pass to avoid duplication.
         agent_id = self._resolve_session_agent_id(session)
         meta = getattr(session, "metadata", None) or {}
 
@@ -593,7 +596,8 @@ class ChatEngine:
             from .graph import AgentGraph, NodeConfig
 
             graph = AgentGraph(name=f"chat-agent-{session.id}")
-            # C16: 统一 soul.md 加载 — agent 模式默认图用 soul 作 system_prompt.
+            # C16: unified soul.md loading — agent mode's default graph uses soul
+            # as the system_prompt.
             from .agent_package import resolve_soul_prompt
 
             soul_prompt = resolve_soul_prompt(
@@ -614,17 +618,18 @@ class ChatEngine:
         try:
             from .context import AgentContext, AgentEventType
 
-            # 预加载会话历史，避免 agent 模式丢失上下文 (bug2/3/4)
-            # send() 已追加新 user 消息 + 空 assistant 消息，排除最后两条，
-            # 否则与 initial_input=message 重复
+            # Preload session history so agent mode does not lose context (bug2/3/4)
+            # send() already appended the new user message + an empty assistant
+            # message; drop the last two entries, otherwise they duplicate
+            # initial_input=message.
             history = self._build_llm_history(session)
             if len(history) >= 2:
                 history = history[:-2]
             else:
                 history = []
             ctx = AgentContext()
-            # #482: agent 模式把 agent/tenant/team 标识挂到 ctx, runtime
-            # _resolve_persona_declarations 集中解析 declarations.
+            # #482: agent mode attaches agent/tenant/team identities onto ctx;
+            # runtime _resolve_persona_declarations resolves declarations in one place.
             if agent_id:
                 ctx.agent_id = agent_id
                 for k in ("tenant_id", "team_id"):
@@ -728,7 +733,7 @@ class ChatEngine:
         return history
 
     def _resolve_session_agent_id(self, session: ChatSession) -> str:
-        # C16: session 可经 metadata.agent_id 或 graph_id 携 agent 标识.
+        # C16: a session can carry the agent identity via metadata.agent_id or graph_id.
         agent_id = ""
         if session.metadata:
             agent_id = session.metadata.get("agent_id", "")
@@ -742,8 +747,9 @@ class ChatEngine:
         return agent_id or ""
 
     def _inject_soul(self, session: ChatSession, history: list[dict]) -> list[dict]:
-        # C16: 统一 soul.md 加载. agent_id 可用时注入 soul 为首条 system 消息,
-        # 避免覆盖已有 system 消息 (仅在无 system 前缀时前置).
+        # C16: unified soul.md loading. When agent_id is available, inject soul as
+        # the first system message; merge instead of overwriting an existing system
+        # message (only prepend when there is no system prefix yet).
         agent_id = self._resolve_session_agent_id(session)
         if not agent_id:
             return history
@@ -761,7 +767,7 @@ class ChatEngine:
             return history
         if not soul:
             return history
-        # 若历史首条已是 system, 合并; 否则前置.
+        # If the first history entry is already a system message, merge; otherwise prepend.
         if history and history[0].get("role") == "system":
             existing = history[0].get("content", "")
             history[0]["content"] = f"{soul}\n\n{existing}" if existing else soul

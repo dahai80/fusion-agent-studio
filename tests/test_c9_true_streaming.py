@@ -91,7 +91,7 @@ def patched_api(tmp_path, monkeypatch):
     monkeypatch.setattr(api_server, "_store", store)
     monkeypatch.setattr(api_server, "_runtime", runtime)
     monkeypatch.setattr(api_server, "_daemon", None)
-    # 审计 P0-2: SSE/WS 现有鉴权门禁 (与 POST 一致). 单元测试本地受信, 关鉴权.
+    # Audit P0-2: SSE/WS share the POST auth gate. Unit tests are locally trusted; disable auth.
     monkeypatch.setattr(api_server, "_auth_configured", lambda: False)
     return {"store": store, "runtime": runtime, "graph": graph}
 
@@ -242,7 +242,7 @@ class TestAgentExecuteStreamRPC:
 
                 return _SM()
 
-            # 审计 P2-5/P2-6/P0-3: agent.execute_stream 依赖的 daemon 访问点.
+            # Audit P2-5/P2-6/P0-3: daemon access points that agent.execute_stream depends on.
             def register_execution(self, scope, key_id):
                 return f"{scope}:{key_id}", lambda: None
 

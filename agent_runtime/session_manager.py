@@ -194,7 +194,8 @@ class SessionManager:
                 start_id = "start"
                 llm_id = "llm"
                 end_id = "end"
-                # C16: 统一 soul.md 加载 — 后台会话 metadata.agent_id 可用时用 soul.
+                # C16: unified soul.md loading — background sessions use soul when
+                # metadata.agent_id is available.
                 bg_agent_id = ""
                 if bg.metadata:
                     bg_agent_id = bg.metadata.get("agent_id", "")

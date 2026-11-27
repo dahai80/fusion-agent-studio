@@ -140,8 +140,8 @@ class TestPeerUidCheck:
 
     @pytest.mark.asyncio
     async def test_getsockopt_failure_fails_closed(self):
-        # 审计 E-8: getsockopt 恒失败 (非支持平台 / 内核不提供 LOCAL_PEERCRED)
-        # 旧码 fail-open 放行所有连接. 现改 fail-closed: 拒连接而非放行.
+        # Audit E-8: getsockopt always fails (unsupported platform / kernel without LOCAL_PEERCRED)
+        # Old code failed open and admitted all connections. Now fail-closed: reject instead of allow.
         class _BrokenSock:
             def getsockopt(self, level, opt, buflen):
                 raise OSError("constant not supported on this platform")

@@ -66,7 +66,7 @@ export function DashboardPage() {
     const ov = data?.overview?.overview ?? data?.overview ?? {};
     // #419: mlx.status returns a flat payload ({running, models, port, pid}),
     // not wrapped in .status — reading the wrapper kept the model section
-    // empty ("暂无模型状态").
+    // empty ("No model status").
     const st = (data?.mlx ?? {}) as MlxStatus;
     const usageRows =
         data?.usage?.usage ?? (data?.usage as unknown as { agents?: AgentUsage[] })?.agents ?? [];
@@ -84,6 +84,7 @@ export function DashboardPage() {
 
     return (
         <div>
+            {/* i18n: user-facing */}
             <PageHeader title={t('仪表盘', 'Dashboard')} />
             <div className="space-y-6 px-4 pt-3 pb-6">
                 {loading && attempt === 0 ? (
@@ -91,6 +92,7 @@ export function DashboardPage() {
                 ) : error ? (
                     <ErrorState
                         message={(error as Error).message}
+                        // i18n: user-facing
                         retryLabel={t('重试', 'Retry')}
                         onRetry={manualRetry}
                         retrying={attempt}
@@ -99,6 +101,7 @@ export function DashboardPage() {
                     <>
                         <section>
                             <h3 className="mb-2 text-sm font-medium text-text-primary">
+                                {/* i18n: user-facing */}
                                 {t('概览', 'Overview')}
                             </h3>
                             {statEntries.length > 0 ? (
@@ -111,11 +114,14 @@ export function DashboardPage() {
                         </section>
                         <section>
                             <h3 className="mb-2 text-sm font-medium text-text-primary">
+                                {/* i18n: user-facing */}
                                 {t('模型', 'Model')}
                             </h3>
                             <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                                {/* i18n: user-facing */}
                                 <MetricTile label={t('模型', 'Model')} value={model ?? '-'} />
                                 <MetricTile
+                                    // i18n: user-facing
                                     label={t('已加载', 'Loaded')}
                                     value={
                                         models.length > 0
@@ -123,11 +129,14 @@ export function DashboardPage() {
                                             : st.loaded === undefined
                                               ? '-'
                                               : st.loaded
-                                                ? t('是', 'Yes')
-                                                : t('否', 'No')
+                                                ? // i18n: user-facing
+                                                  t('是', 'Yes')
+                                                : // i18n: user-facing
+                                                  t('否', 'No')
                                     }
                                 />
                                 <MetricTile
+                                    // i18n: user-facing
                                     label={t('内存', 'Memory')}
                                     value={isNumeric(memory) ? String(memory) : '-'}
                                 />
@@ -137,6 +146,7 @@ export function DashboardPage() {
                                 model === undefined &&
                                 memory === undefined ? (
                                     <p className="text-xs text-text-muted">
+                                        {/* i18n: user-facing */}
                                         {t('暂无模型状态', 'no model status')}
                                     </p>
                                 ) : null}
@@ -145,6 +155,7 @@ export function DashboardPage() {
                         {capabilities.length > 0 ? (
                             <section>
                                 <h3 className="mb-2 text-sm font-medium text-text-primary">
+                                    {/* i18n: user-facing */}
                                     {t('能力开关', 'Capabilities')}
                                 </h3>
                                 <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
@@ -152,6 +163,7 @@ export function DashboardPage() {
                                         <MetricTile
                                             key={k}
                                             label={prettify(k)}
+                                            // i18n: user-facing
                                             value={on ? t('开启', 'On') : t('关闭', 'Off')}
                                         />
                                     ))}
@@ -161,6 +173,7 @@ export function DashboardPage() {
                         {usageRows.length > 0 ? (
                             <section>
                                 <h3 className="mb-2 text-sm font-medium text-text-primary">
+                                    {/* i18n: user-facing */}
                                     {t('Agent 用量', 'Agent usage')}
                                 </h3>
                                 <DataTable<AgentUsage>
@@ -175,6 +188,7 @@ export function DashboardPage() {
                                         },
                                         {
                                             key: 'runs',
+                                            // i18n: user-facing
                                             header: t('运行', 'Runs'),
                                             render: (u) => String(u.runs ?? '-'),
                                         },
@@ -190,6 +204,7 @@ export function DashboardPage() {
                         {auditRows.length > 0 ? (
                             <section>
                                 <h3 className="mb-2 text-sm font-medium text-text-primary">
+                                    {/* i18n: user-facing */}
                                     {t('审计日志', 'Audit log')}
                                 </h3>
                                 <DataTable<AuditEntry>
@@ -201,16 +216,19 @@ export function DashboardPage() {
                                     columns={[
                                         {
                                             key: 'action',
+                                            // i18n: user-facing
                                             header: t('操作', 'Action'),
                                             render: (a) => a.action ?? '-',
                                         },
                                         {
                                             key: 'actor',
+                                            // i18n: user-facing
                                             header: t('操作者', 'Actor'),
                                             render: (a) => a.actor_id ?? '-',
                                         },
                                         {
                                             key: 'time',
+                                            // i18n: user-facing
                                             header: t('时间', 'Time'),
                                             render: (a) => {
                                                 const ts = a.created_at ?? a.timestamp;

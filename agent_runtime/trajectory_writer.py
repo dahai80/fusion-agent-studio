@@ -1,6 +1,6 @@
 # Trajectory writer — persists structured agent execution trajectories.
 #
-# D1 轨迹飞轮. #714 part 3 (K3): the writer now emits ONLY the normative
+# D1 trajectory flywheel. #714 part 3 (K3): the writer now emits ONLY the normative
 # fusion_harness.trajectory schema — one JSONL file per run
 # (<ms>_<trace>.jsonl), one TrajectoryRecord per line, written through the
 # kernel TrajectoryWriter. Studio event types map onto the normative event
@@ -233,9 +233,11 @@ def normalize_any(data: dict):
 
 
 class TrajectoryWriter:
-    # 审计 P-4: _records 上限. 被放弃会话 (SSE 早断, finally 不执行, flush 不调)
-    # 的 TrajectoryRecord 永留至 daemon 生命期 = 静默内存泄漏. 超 cap 淘汰最老
-    # 未 flush 记录并记日志 (不落盘, 因无法判定其状态完整性; 仅防内存无界增长).
+    # Audit P-4: cap on _records. Abandoned sessions (SSE dropped early,
+    # finally never runs, flush never called) keep their TrajectoryRecord for
+    # the whole daemon lifetime = silent memory leak. Above the cap, evict the
+    # oldest unflushed records and log it (not persisted, since their state
+    # integrity cannot be judged; this only bounds memory growth).
     _MAX_RECORDS = 256
 
     def __init__(self, output_dir: Path | str | None = None):
@@ -270,8 +272,10 @@ class TrajectoryWriter:
         return record.trace_id
 
     def _evict_if_needed(self) -> None:
-        # 审计 R-8/P2-17: 超上限淘汰最老未 flush 记录. 原仅日志不落盘 = 静默丢 trace.
-        # 现落盘 (status=evicted_abandoned) 保数据, 仅释放内存.
+        # Audit R-8/P2-17: above the cap, evict the oldest unflushed records.
+        # Previously log-only without persisting = silent trace loss. Now they
+        # are persisted (status=evicted_abandoned) to keep the data; only the
+        # memory is freed.
         if len(self._records) <= self._MAX_RECORDS:
             return
         oldest = sorted(self._records.items(), key=lambda kv: kv[1].started_at)
@@ -383,9 +387,10 @@ class TrajectoryWriter:
                 len(record.tool_calls),
                 final_status,
             )
-            # 审计 P1-13/3M-1: flush 后按文件数轮转. 原每会话写一个 JSON 永不删,
-            # 长跑积累 GB 级轨迹. 超 max (默认 1000, FUSION_TRAJECTORY_MAX_FILES
-            # 调) 删最旧 N 个.
+            # Audit P1-13/3M-1: rotate by file count after flush. Previously one
+            # JSON per session was never deleted, accumulating GB-scale
+            # trajectories on long runs. Above max (default 1000, tune via
+            # FUSION_TRAJECTORY_MAX_FILES) delete the oldest N.
             self._rotate_files()
             return str(fpath)
         except OSError as e:
@@ -399,7 +404,8 @@ class TrajectoryWriter:
         return self._write_record(record, status)
 
     def _rotate_files(self) -> None:
-        # 审计 P1-13/3M-1: 轨迹文件按数轮转, 删最旧 (legacy .json + normative .jsonl).
+        # Audit P1-13/3M-1: rotate trajectory files by count, delete the oldest
+        # (legacy .json + normative .jsonl).
         import os as _os
 
         try:

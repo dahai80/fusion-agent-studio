@@ -59,7 +59,7 @@ class FakeCowork:
             body = json.loads(request.content)
             if not body.get("prompt"):
                 return httpx.Response(
-                    400, json={"detail": {"code": "bad_request", "message": "prompt 必填"}}
+                    400, json={"detail": {"code": "bad_request", "message": "prompt is required"}}
                 )
             return httpx.Response(
                 200,
@@ -241,14 +241,15 @@ async def test_upstream_http_error_surfaces_detail(monkeypatch):
     def handler(request):
         if request.url.path == "/api/runs":
             return httpx.Response(
-                404, json={"detail": {"code": "not_found", "message": "工作流不存在: wf_missing"}}
+                404,
+                json={"detail": {"code": "not_found", "message": "workflow not found: wf_missing"}},
             )
         return httpx.Response(200, json={})
 
     _mock_client(monkeypatch, handler)
     out = json.loads(await _tool().execute(workflow_id="wf_missing"))
     assert "404" in out["error"]
-    assert "工作流不存在" in out["error"]
+    assert "workflow not found" in out["error"]
 
 
 @pytest.mark.asyncio

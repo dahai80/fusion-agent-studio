@@ -119,9 +119,10 @@ class SafetyDispatcher(SubDispatcher):
         return {"added": True, "category": category}
 
     # ── Template handlers ──
-    # 审计 P2/dim1: safety.approve/reject 冷启动. P0-1 后 future 经共享
-    # safety_gateway._pending_approvals 注册 (含并行分支子 runtime, 与父 runtime
-    # 同 gateway). 优先经 runtime (解析 + reap), 失败回退 gateway 直解.
+    # Audit P2/dim1: safety.approve/reject cold start. After P0-1, futures register
+    # via the shared safety_gateway._pending_approvals (including parallel-branch
+    # sub-runtimes, which share the parent's gateway). Prefer resolving via the
+    # runtime (resolve + reap); fall back to direct gateway resolution on failure.
 
     async def _handle_safety_approve(self, params: dict) -> dict:
         action_id = params.get("action_id", "")

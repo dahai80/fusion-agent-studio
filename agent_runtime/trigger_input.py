@@ -94,8 +94,10 @@ class TriggerInput:
 
 
 def parse_trigger_input(input_str: str) -> TriggerInput | None:
-    # #240: 单一解码入口. DAG 节点/cron handler 用此 helper, 不各自 json.loads.
-    # 返回 None -> 调用方回退原始字符串 (向后兼容旧自由格式 input).
+    # #240: single decode entry point. DAG nodes/cron handlers use this helper
+    # instead of calling json.loads themselves.
+    # Returns None -> caller falls back to the raw string (backwards compatible
+    # with legacy free-form input).
     if not input_str:
         return None
     try:

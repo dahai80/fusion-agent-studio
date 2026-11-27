@@ -38,15 +38,15 @@ def _config() -> CompactionConfig:
 
 def test_chinese_retention_buckets():
     msgs = [
-        {"role": "user", "content": "待办：补充接口文档"},
-        {"role": "assistant", "content": "约束：不能改上游代码"},
-        {"role": "assistant", "content": "进行中：迁移画布"},
+        {"role": "user", "content": "待办：补充接口文档"},  # i18n: user-facing
+        {"role": "assistant", "content": "约束：不能改上游代码"},  # i18n: user-facing
+        {"role": "assistant", "content": "进行中：迁移画布"},  # i18n: user-facing
         {"role": "assistant", "content": "async def run_task():"},
     ]
     rl = RetentionList.from_messages(msgs)
-    assert rl.todos and "补充接口文档" in rl.todos[0]
-    assert rl.constraints and "不能改上游代码" in rl.constraints[0]
-    assert rl.active_tasks and "迁移画布" in rl.active_tasks[0]
+    assert rl.todos and "补充接口文档" in rl.todos[0]  # i18n: user-facing
+    assert rl.constraints and "不能改上游代码" in rl.constraints[0]  # i18n: user-facing
+    assert rl.active_tasks and "迁移画布" in rl.active_tasks[0]  # i18n: user-facing
     assert any("run_task" in item for item in rl.interfaces)
 
 

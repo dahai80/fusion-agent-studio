@@ -1,12 +1,12 @@
-"""Issue #168: get_fallback_chain 死循环刷盘修复测试.
+"""Issue #168: get_fallback_chain infinite-loop log-flood fix test.
 
-根因: route() fallback 分支不感知 exclude, 当 _models 空 + _default_model
-非空时, get_fallback_chain 的 while True 永不 break → 无限循环刷
-"No registered models" 日志 (实测 86GB / CPU 100%).
+Root cause: the route() fallback branch is not exclude-aware; when _models is
+empty + _default_model is non-empty, the while True in get_fallback_chain never
+breaks, infinitely flooding "No registered models" logs (measured 86GB / 100% CPU).
 
-触发链: daemon _attach_mlx_client 时 _discover_mlx_model_id 失败 → _models 空
-+ _default_model 残留 → skill.execute → chat() 主调用失败 →
-get_fallback_chain 死循环.
+Trigger chain: daemon _attach_mlx_client's _discover_mlx_model_id fails -> _models
+empty + _default_model stale -> skill.execute -> chat() main call fails ->
+get_fallback_chain loops forever.
 """
 
 import time
@@ -49,7 +49,7 @@ class TestFallbackChainNoInfiniteLoop:
 
 
 class TestSkillExecuteNoFlood:
-    """集成级: skill.execute 走 chat() 失败时不死循环刷盘."""
+    """Integration level: skill.execute via chat() failure must not loop and flood logs."""
 
     @pytest.mark.asyncio
     async def test_chat_failure_returns_error_not_loop(self):

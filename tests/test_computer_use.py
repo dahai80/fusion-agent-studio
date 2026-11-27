@@ -117,18 +117,20 @@ class TestClipboardTool:
 class TestRegistryIntegration:
     @pytest.fixture(autouse=True)
     def _isolate_plugin_dir(self, tmp_path, monkeypatch):
-        # PR #116 起 create_default_registry 会 PluginManager.load_all()
-        # 读 ~/.fusion-agent-studio/plugins. 隔离到空 tmp 目录, 避免本机插件
-        # (如 douyin_*) 污染 registry.count 断言.
+        # Since PR #116 create_default_registry calls PluginManager.load_all()
+        # which reads ~/.fusion-agent-studio/plugins. Isolate into an empty tmp
+        # dir so local plugins (e.g. douyin_*) do not pollute registry.count assertions.
         fake_home = tmp_path / "home"
         monkeypatch.setenv("FUSION_AGENT_STUDIO_HOME", str(fake_home / ".fusion-agent-studio"))
-        # BrowserTool 的 BROWSER_CONFIG_PATH 在模块导入时按真实 home 固化,
-        # monkeypatch Path.home 已晚于该常量求值, 无法使其 skip. 显式指向空
-        # tmp 路径, 强制 browser_available()=False, count 断言稳定为 38
-        # (#402 起 + CoworkWorkflowRunTool 常驻注册).
-        # patch 模块对象 (非字符串 "tools.__init__" — 后者在 py3.12 解析为
-        # method-wrapper 抛 AttributeError), browser_available() 读模块全局
-        # 故只需 patch tools.browser_tools; 同步 patch tools 包级 re-export.
+        # BrowserTool's BROWSER_CONFIG_PATH is baked in at module import time from
+        # the real home; monkeypatching Path.home is already too late for that
+        # constant, so it cannot be skipped that way. Point it at an empty tmp
+        # path explicitly, forcing browser_available()=False so the count
+        # assertion is stable at 38 (since #402 + CoworkWorkflowRunTool resident).
+        # Patch the module object (not the string "tools.__init__" -- the latter
+        # resolves to a method-wrapper on py3.12 and raises AttributeError);
+        # browser_available() reads the module global, so patching
+        # tools.browser_tools suffices; also patch the tools package-level re-export.
         import tools as _tools_pkg
         import tools.browser_tools as _bt
 

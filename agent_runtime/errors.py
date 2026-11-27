@@ -3,7 +3,8 @@
 Aligned with PRD error specification: consistent error body across all endpoints.
 Callers: api_server.py, auth_middleware.py, rate_limiter.py, daemon_server.py.
 Data schema: ErrorResponse with code, type, message, user_message, param.
-User instruction: "对比fusion-agent-studio看还有哪些缺失，尽快补齐"
+User instruction: "Compare against fusion-agent-studio to find what is still
+missing and close the gaps as soon as possible"
 """
 
 from __future__ import annotations
@@ -68,72 +69,72 @@ _ERROR_REGISTRY: dict[str, dict[str, str]] = {
     ErrorCode.API_KEY_MISSING: {
         "type": ErrorType.AUTH_ERROR,
         "message": "Request header missing x-api-key",
-        "user_message": "身份凭证缺失，请填写 API 密钥",
+        "user_message": "身份凭证缺失，请填写 API 密钥",  # i18n: user-facing
     },
     ErrorCode.API_KEY_INVALID: {
         "type": ErrorType.AUTH_ERROR,
         "message": "API Key does not exist or has been revoked",
-        "user_message": "API 密钥无效，请核对或重新创建密钥",
+        "user_message": "API 密钥无效，请核对或重新创建密钥",  # i18n: user-facing
     },
     ErrorCode.API_KEY_IP_FORBIDDEN: {
         "type": ErrorType.AUTH_ERROR,
         "message": "Current IP not in key IP whitelist",
-        "user_message": "访问 IP 受限，请联系管理员配置 IP 白名单",
+        "user_message": "访问 IP 受限，请联系管理员配置 IP 白名单",  # i18n: user-facing
     },
     ErrorCode.API_KEY_AGENT_RESTRICT: {
         "type": ErrorType.AUTH_ERROR,
         "message": "This key is restricted from calling the requested Agent",
-        "user_message": "当前密钥无权限调用此智能体",
+        "user_message": "当前密钥无权限调用此智能体",  # i18n: user-facing
     },
     ErrorCode.TOKEN_EXPIRED: {
         "type": ErrorType.AUTH_ERROR,
         "message": "Login session has expired",
-        "user_message": "登录超时，请重新登录控制台",
+        "user_message": "登录超时，请重新登录控制台",  # i18n: user-facing
     },
     ErrorCode.PARAM_REQUIRED: {
         "type": ErrorType.INVALID_REQUEST_ERROR,
         "message": "Required parameter is missing",
-        "user_message": "参数不能为空",
+        "user_message": "参数不能为空",  # i18n: user-facing
     },
     ErrorCode.PARAM_FORMAT_ERROR: {
         "type": ErrorType.INVALID_REQUEST_ERROR,
         "message": "Parameter format is invalid",
-        "user_message": "参数格式错误，请检查输入内容",
+        "user_message": "参数格式错误，请检查输入内容",  # i18n: user-facing
     },
     ErrorCode.STREAM_CONFLICT: {
         "type": ErrorType.INVALID_REQUEST_ERROR,
         "message": "stream parameter must be true or false",
-        "user_message": "stream 参数仅支持 true/false",
+        "user_message": "stream 参数仅支持 true/false",  # i18n: user-facing
     },
     ErrorCode.MAX_TOKEN_OVER_LIMIT: {
         "type": ErrorType.INVALID_REQUEST_ERROR,
         "message": "Requested max_tokens exceeds platform limit",
-        "user_message": "最大输出 Token 数值超出上限",
+        "user_message": "最大输出 Token 数值超出上限",  # i18n: user-facing
     },
     ErrorCode.ATTACHMENT_INVALID: {
         "type": ErrorType.INVALID_REQUEST_ERROR,
         "message": "Attachment file ID does not exist",
-        "user_message": "上传文件失效，请重新上传",
+        "user_message": "上传文件失效，请重新上传",  # i18n: user-facing
     },
     ErrorCode.MODEL_NOT_SUPPORT: {
         "type": ErrorType.INVALID_REQUEST_ERROR,
         "message": "Selected model version is unavailable",
-        "user_message": "当前所选模型无法使用，请更换模型",
+        "user_message": "当前所选模型无法使用，请更换模型",  # i18n: user-facing
     },
     ErrorCode.AGENT_NOT_FOUND: {
         "type": ErrorType.RESOURCE_NOT_FOUND,
         "message": "Agent does not exist or has been deleted",
-        "user_message": "智能体不存在，可能已被删除",
+        "user_message": "智能体不存在，可能已被删除",  # i18n: user-facing
     },
     ErrorCode.PROJECT_NOT_FOUND: {
         "type": ErrorType.RESOURCE_NOT_FOUND,
         "message": "Project knowledge base does not exist",
-        "user_message": "知识库项目不存在",
+        "user_message": "知识库项目不存在",  # i18n: user-facing
     },
     ErrorCode.CONNECTOR_NOT_FOUND: {
         "type": ErrorType.RESOURCE_NOT_FOUND,
         "message": "Connector does not exist",
-        "user_message": "连接器配置已被移除",
+        "user_message": "连接器配置已被移除",  # i18n: user-facing
     },
     ErrorCode.ARTIFACT_NOT_FOUND: {
         "type": ErrorType.RESOURCE_NOT_FOUND,
@@ -143,7 +144,7 @@ _ERROR_REGISTRY: dict[str, dict[str, str]] = {
     ErrorCode.SESSION_NOT_FOUND: {
         "type": ErrorType.RESOURCE_NOT_FOUND,
         "message": "Session does not exist",
-        "user_message": "会话上下文已失效，请发起新对话",
+        "user_message": "会话上下文已失效，请发起新对话",  # i18n: user-facing
     },
     # #543: a run session id passed to a chat-session endpoint is a type
     # mismatch, not a missing agent — surface expected/actual so callers
@@ -151,87 +152,87 @@ _ERROR_REGISTRY: dict[str, dict[str, str]] = {
     ErrorCode.SESSION_TYPE_MISMATCH: {
         "type": ErrorType.INVALID_REQUEST_ERROR,
         "message": "Resource id belongs to a different session type",
-        "user_message": "该 ID 属于运行会话，不是聊天会话，请改用对应的运行接口",
+        "user_message": "该 ID 属于运行会话，不是聊天会话，请改用对应的运行接口",  # i18n: user-facing
     },
     ErrorCode.KNOWLEDGE_BASE_NOT_FOUND: {
         "type": ErrorType.RESOURCE_NOT_FOUND,
         "message": "Knowledge base does not exist",
-        "user_message": "知识库不存在",
+        "user_message": "知识库不存在",  # i18n: user-facing
     },
     ErrorCode.RESOURCE_PRIVATE: {
         "type": ErrorType.PERMISSION_ERROR,
         "message": "Resource is private, no access permission",
-        "user_message": "无权访问该智能体 / 知识库",
+        "user_message": "无权访问该智能体 / 知识库",  # i18n: user-facing
     },
     ErrorCode.AGENT_NOT_PUBLISHED: {
         "type": ErrorType.PERMISSION_ERROR,
         "message": "Agent is in draft status, API calls not allowed",
-        "user_message": "智能体尚未发布，无法通过接口调用",
+        "user_message": "智能体尚未发布，无法通过接口调用",  # i18n: user-facing
     },
     ErrorCode.OPERATION_FORBIDDEN: {
         "type": ErrorType.PERMISSION_ERROR,
         "message": "Current role lacks permission for this operation",
-        "user_message": "账号权限不足，请联系组织管理员",
+        "user_message": "账号权限不足，请联系组织管理员",  # i18n: user-facing
     },
     ErrorCode.RATE_LIMIT_REACHED: {
         "type": ErrorType.RATE_LIMIT_ERROR,
         "message": "API call QPS has reached the rate limit threshold",
-        "user_message": "请求过于频繁，请稍后重试",
+        "user_message": "请求过于频繁，请稍后重试",  # i18n: user-facing
     },
     ErrorCode.MONTHLY_QUOTA_EXHAUSTED: {
         "type": ErrorType.QUOTA_EXCEEDED,
         "message": "Monthly token quota exhausted",
-        "user_message": "Token 额度已用尽，请升级套餐或等待次月重置",
+        "user_message": "Token 额度已用尽，请升级套餐或等待次月重置",  # i18n: user-facing
     },
     ErrorCode.DAILY_QUOTA_EXHAUSTED: {
         "type": ErrorType.QUOTA_EXCEEDED,
         "message": "Daily call quota exhausted",
-        "user_message": "今日调用额度已用完，请明日继续使用",
+        "user_message": "今日调用额度已用完，请明日继续使用",  # i18n: user-facing
     },
     ErrorCode.MODEL_TIMEOUT: {
         "type": ErrorType.MODEL_ERROR,
         "message": "Model service response timeout",
-        "user_message": "AI 响应超时，请精简问题重试",
+        "user_message": "AI 响应超时，请精简问题重试",  # i18n: user-facing
     },
     ErrorCode.MODEL_CONTENT_POLICY: {
         "type": ErrorType.MODEL_ERROR,
         "message": "Content triggered safety policy restriction",
-        "user_message": "输入内容不符合安全规范，请调整提问内容",
+        "user_message": "输入内容不符合安全规范，请调整提问内容",  # i18n: user-facing
     },
     ErrorCode.CONTEXT_OVERFLOW: {
         "type": ErrorType.MODEL_ERROR,
         "message": "Total context length exceeds model window limit",
-        "user_message": "对话内容过长，请新建会话重试",
+        "user_message": "对话内容过长，请新建会话重试",  # i18n: user-facing
     },
     ErrorCode.SEARCH_FAILED: {
         "type": ErrorType.TOOL_EXECUTION_ERROR,
         "message": "Web search tool call failed",
-        "user_message": "联网检索暂时不可用",
+        "user_message": "联网检索暂时不可用",  # i18n: user-facing
     },
     ErrorCode.DEEP_RESEARCH_FAIL: {
         "type": ErrorType.TOOL_EXECUTION_ERROR,
         "message": "Deep research task execution error",
-        "user_message": "深度调研任务执行失败，请简化需求重试",
+        "user_message": "深度调研任务执行失败，请简化需求重试",  # i18n: user-facing
     },
     ErrorCode.CONNECTOR_AUTH_EXPIRED: {
         "type": ErrorType.TOOL_EXECUTION_ERROR,
         "message": "Connector authorization has expired",
-        "user_message": "第三方连接器授权失效，请重新授权",
+        "user_message": "第三方连接器授权失效，请重新授权",  # i18n: user-facing
     },
     ErrorCode.FILE_PARSE_FAILED: {
         "type": ErrorType.TOOL_EXECUTION_ERROR,
         "message": "File parse failed, file corrupted or unsupported format",
-        "user_message": "文件解析失败，请确认文件格式并重传",
+        "user_message": "文件解析失败，请确认文件格式并重传",  # i18n: user-facing
     },
     ErrorCode.INTERNAL_ERROR: {
         "type": ErrorType.INTERNAL_SERVER_ERROR,
         "message": "Internal server error",
-        "user_message": "系统临时故障，请稍后重试",
+        "user_message": "系统临时故障，请稍后重试",  # i18n: user-facing
     },
     ErrorCode.INJECTION_DETECTED: {
         "type": ErrorType.PERMISSION_ERROR,
         "message": "Potential prompt injection detected in input",
-        "user_message": "输入内容触发安全检测，请调整提问方式",
+        "user_message": "输入内容触发安全检测，请调整提问方式",  # i18n: user-facing
     },
 }
 
@@ -262,7 +263,7 @@ class ErrorResponse:
             code=code.value,
             type=entry.get("type", ErrorType.INTERNAL_SERVER_ERROR.value),
             message=entry.get("message", "Unknown error"),
-            user_message=entry.get("user_message", "未知错误"),
+            user_message=entry.get("user_message", "未知错误"),  # i18n: user-facing
             param=param,
         )
 

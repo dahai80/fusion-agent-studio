@@ -1,8 +1,8 @@
-"""Wire-contract tests for FusionMemoryAdapter — httpx.MockTransport, 100% offline。
+"""Wire-contract tests for FusionMemoryAdapter — httpx.MockTransport, 100% offline.
 
-验证 9 个 MemoryEngine-surface 方法映射到 fm-server JSON-RPC 2.0 协议:
-envelope {jsonrpc,method,params,id} -> {result|error,id}, Bearer 鉴权。
-失败 fail-empty (log + 空返回), 不抛。
+Verifies that the 9 MemoryEngine-surface methods map onto the fm-server JSON-RPC
+2.0 protocol: envelope {jsonrpc,method,params,id} -> {result|error,id}, Bearer
+auth. Fails empty on error (log + empty return); never raises.
 """
 
 from __future__ import annotations
@@ -78,7 +78,7 @@ def parse_body(req: httpx.Request) -> dict[str, Any]:
     return json.loads(req.content)
 
 
-# ── 构造 / env ──────────────────────────────────────────────
+# -- Construct / env -------------------------------------------------------
 
 
 class TestConstruct:
@@ -198,8 +198,9 @@ class TestRecall:
 
 class TestGetDelete:
     def test_get_returns_entry(self, env_snap):
-        # fm-server get 走 GET /v1/memory/{id} 路径参 (http.rs get_memory),
-        # 非 POST JSON-RPC body。断言 method=GET + path=/v1/memory/m-9。
+        # fm-server get goes through the GET /v1/memory/{id} path parameter
+        # (http.rs get_memory), not a POST JSON-RPC body. Assert method=GET +
+        # path=/v1/memory/m-9.
         item = {
             "id": "m-9",
             "content": "fact",
@@ -233,7 +234,7 @@ class TestGetDelete:
             adapter.close()
 
     def test_get_http_404_returns_none(self, env_snap):
-        # 无 POST /v1/memory/get 路由 -> 活服务 404; fail-empty 不抛。
+        # No POST /v1/memory/get route -> live server 404; fail-empty, no raise.
         adapter, _ = make_adapter(lambda r: http_err(404))
         try:
             assert adapter.get("m-9") is None
@@ -286,7 +287,7 @@ class TestCountScopeForget:
         adapter, captured = make_adapter(lambda r: rpc_ok("x"))
         try:
             assert adapter.delete_scope("sess-A") == 0
-            # 不应发任何请求
+            # No request should have been sent
             assert captured == []
         finally:
             adapter.close()
@@ -346,7 +347,7 @@ class TestRecallRelevant:
             adapter.close()
 
 
-# ── store_summary (Compactor 兼容) ──────────────────────────
+# -- store_summary (Compactor compat) --------------------------------------
 
 
 class TestStoreSummary:

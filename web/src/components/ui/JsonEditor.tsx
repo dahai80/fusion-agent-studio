@@ -39,6 +39,7 @@ export function JsonEditor(props: {
                 onClick={validate}
                 className="self-start text-xs text-text-secondary hover:text-text-primary"
             >
+                {/* i18n: user-facing */}
                 校验 JSON
             </button>
         </div>

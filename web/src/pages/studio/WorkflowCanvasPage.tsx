@@ -492,6 +492,7 @@ function CanvasInner() {
             .then((res) => {
                 setGraphs(res.data.map((g) => ({ graph_id: g.graph_id, name: g.name })));
             })
+            // i18n: user-facing
             .catch(() => showToast(t('加载画布列表失败', 'Failed to load graphs')));
         rpc<{ tools?: Array<{ name: string }> }>('tool.list', {})
             .then((res) => setToolNames((res.tools || []).map((x) => x.name)))
@@ -534,6 +535,7 @@ function CanvasInner() {
                 }
                 void refreshGovernance();
             } catch (e) {
+                // i18n: user-facing
                 showToast(`${t('加载工作流失败', 'Failed to load workflow')}: ${String(e)}`);
             }
         },
@@ -589,6 +591,7 @@ function CanvasInner() {
             const serverEdges = edges.map((e) => ({ source_id: e.source, target_id: e.target }));
             const check = canConnect(graph, c.source || '', c.target || '', serverEdges);
             if (!check.ok) {
+                // i18n: user-facing
                 showToast(`${t('连接被拒绝', 'Connection rejected')}: ${check.reason}`);
                 return;
             }
@@ -649,6 +652,7 @@ function CanvasInner() {
                     );
                 } else {
                     showToast(
+                        // i18n: user-facing
                         `${t('节点已添加但未连线', 'Node added without edge')}: ${check.reason}`
                     );
                 }
@@ -761,6 +765,7 @@ function CanvasInner() {
             (n) => selectedIds.includes(n.id) && (n.data as FusionNodeData).nodeType !== 'group'
         );
         if (members.length < 1) {
+            // i18n: user-facing
             showToast(t('先框选要分组的节点', 'Select nodes to group first'));
             return;
         }
@@ -828,10 +833,13 @@ function CanvasInner() {
                 setSaveIssues(serverIssues);
                 showToast(
                     serverIssues.length > 0
+                        // i18n: user-facing
                         ? `${t('已保存', 'Saved')} · ${t('条校验提示', 'validation notes')}: ${serverIssues.length}`
+                        // i18n: user-facing
                         : t('已保存', 'Saved')
                 );
             } catch (e) {
+                // i18n: user-facing
                 showToast(`${t('保存失败', 'Save failed')}: ${String(e)}`);
             } finally {
                 setSaving(false);
@@ -852,6 +860,7 @@ function CanvasInner() {
         if (hard.length > 0) {
             setSaveIssues(local);
             locateIssue(hard[0]);
+            // i18n: user-facing
             showToast(`${t('保存被拦截', 'Save blocked')}: ${hard[0].message}`);
             return;
         }
@@ -908,8 +917,10 @@ function CanvasInner() {
                     setGraphId(newId);
                     void loadGraph(newId);
                 }
+                // i18n: user-facing
                 showToast(t('图已导入', 'Graph imported'));
             } catch (e) {
+                // i18n: user-facing
                 showToast(`${t('导入失败', 'Import failed')}: ${String(e)}`);
             }
         },
@@ -922,6 +933,7 @@ function CanvasInner() {
         async (name: string) => {
             try {
                 const res = await rpc<{ graph_id?: string }>('graph.create', {
+                    // i18n: user-facing
                     name: name || t('未命名工作流', 'Untitled workflow'),
                     description: '',
                     graph_data: {},
@@ -932,8 +944,10 @@ function CanvasInner() {
                 setGraphs(refreshed.data.map((g) => ({ graph_id: g.graph_id, name: g.name })));
                 setGraphId(newId);
                 void loadGraph(newId);
+                // i18n: user-facing
                 showToast(t('工作流已创建', 'Workflow created'));
             } catch (e) {
+                // i18n: user-facing
                 showToast(`${t('创建失败', 'Create failed')}: ${String(e)}`);
             }
         },
@@ -954,6 +968,7 @@ function CanvasInner() {
                 try {
                     void importGraph(JSON.parse(String(reader.result)) as GraphJson);
                 } catch {
+                    // i18n: user-facing
                     showToast(t('JSON 解析失败', 'Invalid JSON'));
                 }
             };
@@ -972,6 +987,7 @@ function CanvasInner() {
             }>('graph.version_list', { graph_id: graphId });
             setVersions(res.versions || []);
         } catch (e) {
+            // i18n: user-facing
             showToast(`${t('版本历史加载失败', 'Version history load failed')}: ${String(e)}`);
         }
     }, [graphId, showToast, t]);
@@ -981,10 +997,12 @@ function CanvasInner() {
             if (!graphId) return;
             try {
                 await rpc('graph.version_restore', { graph_id: graphId, version });
+                // i18n: user-facing
                 showToast(t('已回滚版本', 'Version restored'));
                 await loadGraph(graphId);
                 await loadVersions();
             } catch (e) {
+                // i18n: user-facing
                 showToast(`${t('回滚失败', 'Restore failed')}: ${String(e)}`);
             }
         },
@@ -1235,9 +1253,11 @@ function CanvasInner() {
         async (actionId: string, approve: boolean) => {
             try {
                 await rpc(approve ? 'safety.approve' : 'safety.reject', { action_id: actionId });
+                // i18n: user-facing
                 showToast(approve ? t('已批准', 'Approved') : t('已拒绝', 'Rejected'));
                 void refreshGovernance();
             } catch (e) {
+                // i18n: user-facing
                 showToast(`${t('审批失败', 'Approval failed')}: ${String(e)}`);
             }
         },
@@ -1256,8 +1276,10 @@ function CanvasInner() {
                 });
                 setHumanInputs((prev) => prev.filter((h) => h.input_id !== inputId));
                 setHumanInputValue('');
+                // i18n: user-facing
                 showToast(approve ? t('已批准', 'Approved') : t('已拒绝', 'Rejected'));
             } catch (e) {
+                // i18n: user-facing
                 showToast(`${t('审批失败', 'Approval failed')}: ${String(e)}`);
             }
         },
@@ -1279,6 +1301,7 @@ function CanvasInner() {
             setGallery(res.templates || []);
             setGalleryOpen(true);
         } catch (e) {
+            // i18n: user-facing
             showToast(`${t('模板加载失败', 'Template load failed')}: ${String(e)}`);
         }
     }, [showToast, t]);
@@ -1299,8 +1322,10 @@ function CanvasInner() {
                     await loadGraph(created.graph_id);
                 }
                 setGalleryOpen(false);
+                // i18n: user-facing
                 showToast(t('模板已实例化', 'Template instantiated'));
             } catch (e) {
+                // i18n: user-facing
                 showToast(`${t('实例化失败', 'Instantiate failed')}: ${String(e)}`);
             }
         },
@@ -1309,6 +1334,7 @@ function CanvasInner() {
 
     const saveAsTemplate = useCallback(async () => {
         if (!templateName.trim()) {
+            // i18n: user-facing
             showToast(t('请输入模板名称', 'Template name required'));
             return;
         }
@@ -1322,8 +1348,10 @@ function CanvasInner() {
             });
             setTemplateName('');
             setTemplateNameOpen(false);
+            // i18n: user-facing
             showToast(t('已存为模板', 'Saved as template'));
         } catch (e) {
+            // i18n: user-facing
             showToast(`${t('模板保存失败', 'Template save failed')}: ${String(e)}`);
         }
     }, [edges, graph, nodes, showToast, t, templateName]);
@@ -1342,6 +1370,7 @@ function CanvasInner() {
             setDiffPicks([]);
             setRunDiff(null);
         } catch (e) {
+            // i18n: user-facing
             showToast(`${t('运行历史加载失败', 'Run history load failed')}: ${String(e)}`);
         }
     }, [graphId, showToast, t]);
@@ -1388,8 +1417,10 @@ function CanvasInner() {
                         Object.entries(run.node_status || {}).map(([n, s]) => [n, s])
                     )
                 );
+                // i18n: user-facing
                 showToast(t('已回放历史运行', 'Run replayed'));
             } catch (e) {
+                // i18n: user-facing
                 showToast(`${t('回放失败', 'Replay failed')}: ${String(e)}`);
             }
         },
@@ -1413,6 +1444,7 @@ function CanvasInner() {
             }>('run.diff', { run_a: diffPicks[0], run_b: diffPicks[1] });
             setRunDiff(res.diff || null);
         } catch (e) {
+            // i18n: user-facing
             showToast(`${t('Diff 失败', 'Diff failed')}: ${String(e)}`);
         }
     }, [diffPicks, showToast, t]);
@@ -1430,7 +1462,9 @@ function CanvasInner() {
                 const desc = ops
                     .map((o) =>
                         o.op === 'remove_node'
+                            // i18n: user-facing
                             ? `${t('删除节点', 'Delete node')} ${String(o.id)}`
+                            // i18n: user-facing
                             : t('清空画布', 'Clear graph')
                     )
                     .filter((v, i, a) => a.indexOf(v) === i)
@@ -1544,6 +1578,7 @@ function CanvasInner() {
                 const ops = res.ops || [];
                 setNlMessages((m) => [
                     ...m,
+                    // i18n: user-facing
                     { role: 'assistant', text: res.reply || t('已应用变更', 'Applied changes') },
                 ]);
                 if (ops.length > 0) applyNlOps(ops);
@@ -1687,6 +1722,7 @@ function CanvasInner() {
                                 setFieldValue(field.key, parsed);
                                 commitField();
                             } catch {
+                                // i18n: user-facing
                                 showToast(t('JSON 解析失败', 'Invalid JSON'));
                             }
                         }}
@@ -1725,7 +1761,9 @@ function CanvasInner() {
                         className="w-full rounded border border-border bg-bg px-2 py-1"
                         placeholder={
                             held
+                                // i18n: user-facing
                                 ? t('已持有（仅本次会话）', 'held (session only)')
+                                // i18n: user-facing
                                 : t('仅本次会话保存', 'session only')
                         }
                         value={getSecret(selectedNode.id, field.key)}
@@ -1757,6 +1795,7 @@ function CanvasInner() {
     return (
         <div className="flex h-full">
             <div className="w-56 border-r border-border p-3 space-y-2 overflow-y-auto">
+                {/* i18n: user-facing */}
                 <div className="text-sm font-medium">{t('工作流画布', 'Workflow Canvas')}</div>
                 <select
                     className="w-full rounded border border-border bg-bg px-2 py-1 text-xs"
@@ -1771,12 +1810,14 @@ function CanvasInner() {
                         void loadGraph(e.target.value);
                     }}
                 >
+                    {/* i18n: user-facing */}
                     <option value="">{t('选择工作流…', 'Select workflow…')}</option>
                     {graphs.map((g) => (
                         <option key={g.graph_id} value={g.graph_id}>
                             {g.name}
                         </option>
                     ))}
+                    {/* i18n: user-facing */}
                     <option value="__new__">+ {t('新建工作流…', 'New workflow…')}</option>
                 </select>
                 {newGraphOpen ? (
@@ -1784,6 +1825,7 @@ function CanvasInner() {
                         <input
                             type="text"
                             className="flex-1 rounded border border-border bg-bg px-1 py-0.5 text-[10px]"
+                            // i18n: user-facing
                             placeholder={t('工作流名称', 'Workflow name')}
                             value={newGraphName}
                             autoFocus
@@ -1804,6 +1846,7 @@ function CanvasInner() {
                                 void createGraph(newGraphName.trim());
                             }}
                         >
+                            {/* i18n: user-facing */}
                             {t('创建', 'Create')}
                         </button>
                     </div>
@@ -1836,10 +1879,12 @@ function CanvasInner() {
                                     title={
                                         entry.planned
                                             ? t(
+                                                  // i18n: user-facing
                                                   '规划中（尚无服务端执行类型）',
                                                   'Planned (no server executor yet)'
                                               )
                                             : t(
+                                                  // i18n: user-facing
                                                   '点击添加，或拖到画布任意位置',
                                                   'Click to add, or drag onto the canvas'
                                               )
@@ -1858,6 +1903,7 @@ function CanvasInner() {
                     disabled={selectedIds.length === 0}
                     onClick={groupSelected}
                 >
+                    {/* i18n: user-facing */}
                     🗂 {t('分组选中节点', 'Group selected nodes')}
                 </button>
                 <button
@@ -1866,6 +1912,7 @@ function CanvasInner() {
                     disabled={!graphId || saving}
                     onClick={() => void save()}
                 >
+                    {/* i18n: user-facing */}
                     {saving ? t('保存中…', 'Saving…') : t('保存', 'Save')}
                 </button>
                 <label className="flex items-center gap-1 text-[10px]">
@@ -1874,6 +1921,7 @@ function CanvasInner() {
                         checked={strictSave}
                         onChange={(e) => setStrictSave(e.target.checked)}
                     />
+                    {/* i18n: user-facing */}
                     {t('严格校验 (错误阻止保存)', 'Strict validate (errors block save)')}
                 </label>
                 <button
@@ -1882,6 +1930,7 @@ function CanvasInner() {
                     disabled={!graphId || running}
                     onClick={() => void runWithStream()}
                 >
+                    {/* i18n: user-facing */}
                     {running ? t('运行中…', 'Running…') : t('运行并监视', 'Run & watch')}
                 </button>
                 {running ? (
@@ -1890,6 +1939,7 @@ function CanvasInner() {
                         className="w-full rounded border border-red-400/60 px-2 py-1 text-xs text-red-500"
                         onClick={() => void cancelRun()}
                     >
+                        {/* i18n: user-facing */}
                         {t('取消运行', 'Cancel run')}
                     </button>
                 ) : null}
@@ -1902,19 +1952,23 @@ function CanvasInner() {
                         // first non-start node the run reaches.
                         const first = nodes.find((n) => n.type !== 'start' && n.id !== 'start');
                         if (!first) {
+                            // i18n: user-facing
                             setToast(t('没有可步进的节点', 'No node to step into'));
                             return;
                         }
                         void runWithStream({ onlyNode: first.id });
                     }}
                 >
+                    {/* i18n: user-facing */}
                     {t('单步执行', 'Step')}
                 </button>
                 {runTotals.nodes > 0 ? (
                     <div className="rounded border border-border bg-bg-elevated px-2 py-1 text-[10px] text-text-secondary">
+                        {/* i18n: user-facing */}
                         {t('本次运行', 'This run')}:{' '}
                         <span className="tabular-nums text-brand">{runTotals.tokens}</span> tok ·{' '}
                         <span className="tabular-nums">{runTotals.toolCalls}</span>{' '}
+                        {/* i18n: user-facing */}
                         {t('工具调用', 'tool calls')} · {runTotals.nodes} {t('节点', 'nodes')}
                     </div>
                 ) : null}
@@ -1925,9 +1979,11 @@ function CanvasInner() {
                         disabled={!graphId}
                         onClick={() => void exportGraph()}
                     >
+                        {/* i18n: user-facing */}
                         ⬇ {t('导出', 'Export')}
                     </button>
                     <label className="flex-1 rounded border border-border px-1 py-0.5 text-[10px] text-center cursor-pointer hover:border-brand">
+                        {/* i18n: user-facing */}
                         ⬆ {t('导入', 'Import')}
                         <input
                             type="file"
@@ -1942,6 +1998,7 @@ function CanvasInner() {
                     className="w-full rounded border border-border px-2 py-1 text-[10px] hover:border-brand"
                     onClick={() => void openGallery()}
                 >
+                    {/* i18n: user-facing */}
                     ▦ {t('模板库', 'Templates')}
                 </button>
                 <button
@@ -1950,6 +2007,7 @@ function CanvasInner() {
                     disabled={!graphId || saving}
                     onClick={() => setTemplateNameOpen((v) => !v)}
                 >
+                    {/* i18n: user-facing */}
                     ⇗ {t('存为模板', 'Save as template')}
                 </button>
                 {templateNameOpen ? (
@@ -1957,6 +2015,7 @@ function CanvasInner() {
                         <input
                             type="text"
                             className="flex-1 rounded border border-border bg-bg px-1 py-0.5 text-[10px]"
+                            // i18n: user-facing
                             placeholder={t('模板名称', 'Template name')}
                             value={templateName}
                             onChange={(e) => setTemplateName(e.target.value)}
@@ -1967,6 +2026,7 @@ function CanvasInner() {
                             disabled={!graphId || saving}
                             onClick={() => void saveAsTemplate()}
                         >
+                            {/* i18n: user-facing */}
                             {t('存为模板', 'Save')}
                         </button>
                     </div>
@@ -1974,6 +2034,7 @@ function CanvasInner() {
                 {TEMPLATES.length > 0 ? (
                     <div>
                         <div className="text-xs text-text-secondary pt-1">
+                            {/* i18n: user-facing */}
                             {t('模板', 'Templates')}
                         </div>
                         <div className="space-y-0.5">
@@ -1998,6 +2059,7 @@ function CanvasInner() {
                         onClick={undo}
                         title="Cmd/Ctrl+Z"
                     >
+                        {/* i18n: user-facing */}
                         ↶ {t('撤销', 'Undo')}
                     </button>
                     <button
@@ -2007,6 +2069,7 @@ function CanvasInner() {
                         onClick={redo}
                         title="Cmd/Ctrl+Shift+Z"
                     >
+                        {/* i18n: user-facing */}
                         ↷ {t('重做', 'Redo')}
                     </button>
                 </div>
@@ -2017,13 +2080,16 @@ function CanvasInner() {
                     onClick={() => setHistoryOpen((v) => !v)}
                 >
                     {historyOpen
+                        // i18n: user-facing
                         ? t('▾ 版本历史', '▾ Version history')
+                        // i18n: user-facing
                         : t('▸ 版本历史', '▸ Version history')}
                 </button>
                 {historyOpen ? (
                     <div className="space-y-0.5">
                         {versions.length === 0 ? (
                             <div className="text-[10px] text-text-secondary">
+                                {/* i18n: user-facing */}
                                 {t('暂无版本记录', 'No versions recorded')}
                             </div>
                         ) : (
@@ -2044,6 +2110,7 @@ function CanvasInner() {
                                         disabled={running || saving}
                                         onClick={() => void restoreVersion(v.version)}
                                     >
+                                        {/* i18n: user-facing */}
                                         {t('回滚', 'Restore')}
                                     </button>
                                 </div>
@@ -2059,13 +2126,16 @@ function CanvasInner() {
                     onClick={() => setRunHistoryOpen((v) => !v)}
                 >
                     {runHistoryOpen
+                        // i18n: user-facing
                         ? t('▾ 运行历史', '▾ Run history')
+                        // i18n: user-facing
                         : t('▸ 运行历史', '▸ Run history')}
                 </button>
                 {runHistoryOpen ? (
                     <div className="space-y-0.5">
                         {runHistory.length === 0 ? (
                             <div className="text-[10px] text-text-secondary">
+                                {/* i18n: user-facing */}
                                 {t('暂无历史运行', 'No archived runs')}
                             </div>
                         ) : (
@@ -2079,6 +2149,7 @@ function CanvasInner() {
                                             type="checkbox"
                                             checked={diffPicks.includes(r.run_id)}
                                             onChange={() => toggleDiffPick(r.run_id)}
+                                            // i18n: user-facing
                                             title={t('选两次做 Diff', 'Pick two to diff')}
                                         />
                                         <span
@@ -2100,6 +2171,7 @@ function CanvasInner() {
                                             className="rounded border border-border px-1 hover:border-brand"
                                             onClick={() => void replayRun(r.run_id)}
                                         >
+                                            {/* i18n: user-facing */}
                                             {t('回放', 'Replay')}
                                         </button>
                                     </div>
@@ -2117,12 +2189,14 @@ function CanvasInner() {
                                 className="w-full rounded border border-brand px-2 py-1 text-[10px] text-brand"
                                 onClick={() => void diffSelectedRuns()}
                             >
+                                {/* i18n: user-facing */}
                                 {t('Diff 选中运行', 'Diff selected runs')}
                             </button>
                         ) : null}
                         {runDiff ? (
                             <div className="rounded border border-border px-1 py-0.5 text-[10px]">
                                 <div className="text-text-secondary">
+                                    {/* i18n: user-facing */}
                                     {t('变更节点', 'Changed nodes')}: {runDiff.changed_count}
                                 </div>
                                 {runDiff.nodes.map((row) => (
@@ -2145,6 +2219,7 @@ function CanvasInner() {
                     className="w-full rounded border border-border px-2 py-1 text-[10px] disabled:opacity-40"
                     onClick={() => setNlOpen((v) => !v)}
                 >
+                    {/* i18n: user-facing */}
                     {nlOpen ? t('▾ AI 搭建', '▾ AI Builder') : t('▸ AI 搭建', '▸ AI Builder')}
                 </button>
                 {nlOpen ? (
@@ -2153,6 +2228,7 @@ function CanvasInner() {
                             {nlMessages.length === 0 ? (
                                 <div className="text-[10px] text-text-secondary">
                                     {t(
+                                        // i18n: user-facing
                                         '描述你要的流程，例如：代码仓有变更就跑 agent 审查，结果留证据，需我审批后提 PR',
                                         'Describe the flow you want, e.g. run a review agent on repo changes, keep evidence, require my approval before PR'
                                     )}
@@ -2177,6 +2253,7 @@ function CanvasInner() {
                                 type="text"
                                 className="flex-1 rounded border border-border bg-bg px-1 py-0.5 text-[10px]"
                                 placeholder={t(
+                                    // i18n: user-facing
                                     '用一句话描述流程…',
                                     'Describe the flow in one line…'
                                 )}
@@ -2195,6 +2272,7 @@ function CanvasInner() {
                                 disabled={nlBusy || !nlInput.trim()}
                                 onClick={() => void sendNlPrompt()}
                             >
+                                {/* i18n: user-facing */}
                                 {nlBusy ? t('生成中…', 'Planning…') : t('生成', 'Plan')}
                             </button>
                         </div>
@@ -2247,6 +2325,7 @@ function CanvasInner() {
                         <input
                             autoFocus
                             className="mb-1 w-full rounded border border-border bg-bg px-1 py-0.5 text-xs"
+                            // i18n: user-facing
                             placeholder={t('搜索节点类型…', 'Search node type…')}
                             value={connectMenu.query}
                             onChange={(e) =>
@@ -2272,21 +2351,25 @@ function CanvasInner() {
                             className="mt-1 w-full rounded border border-border px-1 py-0.5 text-[10px]"
                             onClick={() => setConnectMenu(null)}
                         >
+                            {/* i18n: user-facing */}
                             {t('取消', 'Cancel')}
                         </button>
                     </div>
                 )}
             </div>
             <div className="w-72 border-l border-border p-3 space-y-3 overflow-y-auto">
+                {/* i18n: user-facing */}
                 <div className="text-sm font-medium">{t('节点检查器', 'Node Inspector')}</div>
                 {selectedEdge ? (
                     <div className="space-y-2 text-xs">
                         <div className="text-text-secondary">
+                            {/* i18n: user-facing */}
                             {t('边', 'Edge')} {selectedEdge.source} → {selectedEdge.target}
                         </div>
                         <div>
                             <div className="text-text-secondary">
                                 {t(
+                                    // i18n: user-facing
                                     '分支标签 (condition 分支名)',
                                     'Branch label (condition branch)'
                                 )}
@@ -2313,12 +2396,14 @@ function CanvasInner() {
                             className="rounded border border-error px-2 py-1 text-error"
                             onClick={deleteSelectedEdge}
                         >
+                            {/* i18n: user-facing */}
                             {t('删除边', 'Delete edge')}
                         </button>
                     </div>
                 ) : selectedNode ? (
                     <div className="space-y-2 text-xs">
                         <div>
+                            {/* i18n: user-facing */}
                             <div className="text-text-secondary">{t('名称', 'Label')}</div>
                             <input
                                 className="w-full rounded border border-border bg-bg px-2 py-1"
@@ -2327,6 +2412,7 @@ function CanvasInner() {
                             />
                         </div>
                         <div>
+                            {/* i18n: user-facing */}
                             <div className="text-text-secondary">{t('类型', 'Type')}</div>
                             <select
                                 className="w-full rounded border border-border bg-bg px-2 py-1"
@@ -2356,6 +2442,7 @@ function CanvasInner() {
                                     className="text-[10px] text-brand"
                                     onClick={() => setAdvancedOpen((v) => !v)}
                                 >
+                                    {/* i18n: user-facing */}
                                     {advancedOpen ? '▾' : '▸'} {t('高级参数', 'Advanced')}
                                 </button>
                                 {advancedOpen ? (
@@ -2371,6 +2458,7 @@ function CanvasInner() {
                                 className="text-[10px] text-brand"
                                 onClick={() => setRawJsonOpen((v) => !v)}
                             >
+                                {/* i18n: user-facing */}
                                 {rawJsonOpen ? '▾' : '▸'} {t('原始 JSON', 'Raw JSON')}
                             </button>
                             {rawJsonOpen ? (
@@ -2382,6 +2470,7 @@ function CanvasInner() {
                                             const cfg = JSON.parse(e.target.value) as ServerNode;
                                             updateSelectedConfig({ config: cfg });
                                         } catch {
+                                            // i18n: user-facing
                                             showToast(t('JSON 解析失败', 'Invalid JSON'));
                                         }
                                     }}
@@ -2394,6 +2483,7 @@ function CanvasInner() {
                                 checked={Boolean(selectedNode.data.pinned)}
                                 onChange={(e) => updateSelectedConfig({ pinned: e.target.checked })}
                             />
+                            {/* i18n: user-facing */}
                             {t('固定数据 (pin)', 'Pin data')}
                         </label>
                         <label className="flex items-center gap-1">
@@ -2404,11 +2494,13 @@ function CanvasInner() {
                                     updateSelectedConfig({ breakpoint: e.target.checked })
                                 }
                             />
+                            {/* i18n: user-facing */}
                             {t('断点 (运行到此暂停)', 'Breakpoint (pause here)')}
                         </label>
                         {pins[selectedNode.id] ? (
                             <div className="rounded border border-border bg-bg p-1">
                                 <div className="text-text-secondary">
+                                    {/* i18n: user-facing */}
                                     {t('已固定输出', 'Pinned output')}
                                 </div>
                                 <pre className="max-h-24 overflow-auto whitespace-pre-wrap text-[9px]">
@@ -2422,6 +2514,7 @@ function CanvasInner() {
                             disabled={running || !graphId}
                             onClick={() => void runWithStream({ fromNode: selectedNode.id })}
                         >
+                            {/* i18n: user-facing */}
                             {t('从此节点重跑下游', 'Rerun downstream from here')}
                         </button>
                         <button
@@ -2430,6 +2523,7 @@ function CanvasInner() {
                             disabled={running || !graphId}
                             onClick={() => void runWithStream({ onlyNode: selectedNode.id })}
                         >
+                            {/* i18n: user-facing */}
                             {t('仅试跑此节点', 'Run this node only')}
                         </button>
                         <button
@@ -2437,11 +2531,13 @@ function CanvasInner() {
                             className="rounded border border-error px-2 py-1 text-error"
                             onClick={removeSelected}
                         >
+                            {/* i18n: user-facing */}
                             {t('删除节点', 'Delete node')}
                         </button>
                     </div>
                 ) : (
                     <div className="text-xs text-text-secondary">
+                        {/* i18n: user-facing */}
                         {t('点击节点或边以编辑', 'Click a node or edge to inspect')}
                     </div>
                 )}
@@ -2452,12 +2548,15 @@ function CanvasInner() {
                     onClick={() => setTestOpen((v) => !v)}
                 >
                     {testOpen
+                        // i18n: user-facing
                         ? t('▾ 测试侧栏', '▾ Test sidebar')
+                        // i18n: user-facing
                         : t('▸ 测试侧栏', '▸ Test sidebar')}
                 </button>
                 {testOpen ? (
                     <div className="space-y-1 rounded border border-border bg-bg-elevated p-2 text-xs">
                         <div className="text-text-secondary">
+                            {/* i18n: user-facing */}
                             {t('固定输入 (canned input)', 'Canned input')}
                         </div>
                         <textarea
@@ -2473,12 +2572,14 @@ function CanvasInner() {
                                 title={
                                     selectedId
                                         ? selectedId
+                                        // i18n: user-facing
                                         : t('先选中一个节点', 'Select a node first')
                                 }
                                 onClick={() =>
                                     void runWithStream({ onlyNode: selectedId, input: testInput })
                                 }
                             >
+                                {/* i18n: user-facing */}
                                 {t('仅试跑选中节点', 'Run selected node only')}
                             </button>
                             <button
@@ -2489,6 +2590,7 @@ function CanvasInner() {
                                     void runWithStream({ fromNode: selectedId, input: testInput })
                                 }
                             >
+                                {/* i18n: user-facing */}
                                 {t('跑选中节点下游', 'Run downstream')}
                             </button>
                         </div>
@@ -2498,11 +2600,13 @@ function CanvasInner() {
                             disabled={running || !graphId}
                             onClick={() => void runWithStream({ input: testInput })}
                         >
+                            {/* i18n: user-facing */}
                             {t('整图试跑', 'Run whole graph')}
                         </button>
                         {testOutput ? (
                             <div>
                                 <div className="text-text-secondary">
+                                    {/* i18n: user-facing */}
                                     {t('最近节点输出', 'Last node output')} · {testOutput.nodeId}
                                 </div>
                                 <pre className="max-h-40 overflow-auto whitespace-pre-wrap rounded border border-border bg-bg p-1 text-[10px]">
@@ -2515,6 +2619,7 @@ function CanvasInner() {
                 {saveIssues.length > 0 ? (
                     <div className="rounded border border-warning/40 bg-bg-elevated p-1 text-[10px]">
                         <div className="text-text-secondary">
+                            {/* i18n: user-facing */}
                             {t('校验提示', 'Validation notes')} ({saveIssues.length})
                         </div>
                         {saveIssues.map((iss, i) => (
@@ -2530,15 +2635,18 @@ function CanvasInner() {
                     </div>
                 ) : null}
                 <div className="text-sm font-medium pt-2">
+                    {/* i18n: user-facing */}
                     {t('治理事件流', 'Governance events')}
                 </div>
                 {budget ? (
                     <div className="rounded border border-border bg-bg-elevated px-2 py-1 text-[10px] text-text-secondary">
+                        {/* i18n: user-facing */}
                         {t('预算余量', 'Budget remaining')}:{' '}
                         <span className="text-brand">{String(budget.remaining ?? '∞')}</span> /{' '}
                         {String(budget.max_tokens ?? '∞')}
                     </div>
                 ) : null}
+                {/* i18n: user-facing */}
                 <div className="text-sm font-medium pt-2">{t('变量', 'Variables')}</div>
                 {Object.keys(flowVars).length > 0 ? (
                     <div className="space-y-0.5">
@@ -2556,12 +2664,14 @@ function CanvasInner() {
                     </div>
                 ) : (
                     <div className="text-[10px] text-text-secondary">
+                        {/* i18n: user-facing */}
                         {t('运行期间显示 FlowState 快照', 'FlowState snapshots appear on run')}
                     </div>
                 )}
                 {pending.length > 0 ? (
                     <div className="space-y-1">
                         <div className="text-[10px] text-text-secondary">
+                            {/* i18n: user-facing */}
                             {t('待审批', 'Pending approvals')} ({pending.length})
                         </div>
                         {pending.map((action, i) => {
@@ -2582,6 +2692,7 @@ function CanvasInner() {
                                             className="rounded bg-brand px-1.5 py-0.5 text-white"
                                             onClick={() => void decide(actionId, true)}
                                         >
+                                            {/* i18n: user-facing */}
                                             {t('批准', 'Approve')}
                                         </button>
                                         <button
@@ -2589,6 +2700,7 @@ function CanvasInner() {
                                             className="rounded border border-error px-1.5 py-0.5 text-error"
                                             onClick={() => void decide(actionId, false)}
                                         >
+                                            {/* i18n: user-facing */}
                                             {t('拒绝', 'Deny')}
                                         </button>
                                     </div>
@@ -2600,6 +2712,7 @@ function CanvasInner() {
                 {humanInputs.length > 0 ? (
                     <div className="space-y-1">
                         <div className="text-[10px] text-text-secondary">
+                            {/* i18n: user-facing */}
                             {t('等待人工输入', 'Awaiting human input')} ({humanInputs.length})
                         </div>
                         {humanInputs.map((h) => (
@@ -2612,6 +2725,7 @@ function CanvasInner() {
                                     type="text"
                                     className="mt-1 w-full rounded border border-border bg-bg px-1 py-0.5"
                                     placeholder={t(
+                                        // i18n: user-facing
                                         '输入内容（拒绝时作为原因）',
                                         'Value (reason when rejecting)'
                                     )}
@@ -2624,6 +2738,7 @@ function CanvasInner() {
                                         className="rounded bg-brand px-1.5 py-0.5 text-white"
                                         onClick={() => void respondHumanInput(h.input_id, true)}
                                     >
+                                        {/* i18n: user-facing */}
                                         {t('批准', 'Approve')}
                                     </button>
                                     <button
@@ -2631,6 +2746,7 @@ function CanvasInner() {
                                         className="rounded border border-error px-1.5 py-0.5 text-error"
                                         onClick={() => void respondHumanInput(h.input_id, false)}
                                     >
+                                        {/* i18n: user-facing */}
                                         {t('拒绝', 'Reject')}
                                     </button>
                                 </div>
@@ -2655,6 +2771,7 @@ function CanvasInner() {
                     {govEvents.length === 0 && (
                         <div className="text-text-secondary">
                             {t(
+                                // i18n: user-facing
                                 '运行后显示 hook/权限/预算事件',
                                 'Hook/permission/budget events appear on run'
                             )}
@@ -2675,20 +2792,25 @@ function CanvasInner() {
             </div>
             <ConfirmDialog
                 open={pendingSave !== null}
+                // i18n: user-facing
                 title={t('保存前确认改动', 'Confirm canvas changes')}
                 description={
                     pendingSave
                         ? [
                               pendingSave.added.length
+                                  // i18n: user-facing
                                   ? `${t('新增节点', 'Added nodes')}: ${pendingSave.added.join(', ')}`
                                   : '',
                               pendingSave.removed.length
+                                  // i18n: user-facing
                                   ? `${t('删除节点', 'Removed nodes')}: ${pendingSave.removed.join(', ')}`
                                   : '',
                               pendingSave.changed.length
+                                  // i18n: user-facing
                                   ? `${t('修改节点', 'Changed nodes')}: ${pendingSave.changed.join(', ')}`
                                   : '',
                               pendingSave.edgesAdded || pendingSave.edgesRemoved
+                                  // i18n: user-facing
                                   ? `${t('连线', 'Edges')}: +${pendingSave.edgesAdded} / -${pendingSave.edgesRemoved}`
                                   : '',
                           ]
@@ -2696,7 +2818,9 @@ function CanvasInner() {
                               .join(' · ')
                         : ''
                 }
+                // i18n: user-facing
                 confirmLabel={t('确认保存', 'Save changes')}
+                // i18n: user-facing
                 cancelLabel={t('返回编辑', 'Back to edit')}
                 onConfirm={() => {
                     const next = pendingSave?.next;
@@ -2707,6 +2831,7 @@ function CanvasInner() {
             />
             <ConfirmDialog
                 open={pendingNl !== null}
+                // i18n: user-facing
                 title={t('确认破坏性修改', 'Confirm destructive change')}
                 description={pendingNl?.description}
                 danger
@@ -2728,6 +2853,7 @@ function CanvasInner() {
                     >
                         <div className="mb-2 flex items-center justify-between">
                             <div className="text-sm text-text-primary">
+                                {/* i18n: user-facing */}
                                 {t('模板库', 'Template gallery')}
                             </div>
                             <button
@@ -2741,6 +2867,7 @@ function CanvasInner() {
                         <div className="grid grid-cols-2 gap-2">
                             {gallery.length === 0 ? (
                                 <div className="col-span-2 py-6 text-center text-xs text-text-secondary">
+                                    {/* i18n: user-facing */}
                                     {t('暂无模板', 'No templates available')}
                                 </div>
                             ) : null}
@@ -2768,7 +2895,9 @@ function CanvasInner() {
                                             }`}
                                         >
                                             {tpl.source === 'builtin'
+                                                // i18n: user-facing
                                                 ? t('内置', 'builtin')
+                                                // i18n: user-facing
                                                 : t('自定义', 'custom')}
                                         </span>
                                     </div>

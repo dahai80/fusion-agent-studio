@@ -165,8 +165,8 @@ class TestKbQuery:
 
     @pytest.mark.asyncio
     async def test_kb_query_with_kb_id(self, daemon):
-        # 审计 P2/dim1: kb.query 现路由真实 mgr.search (async), 非 list_files 假相关.
-        # mock 须 AsyncMock 可 await, 返回 search 结果格式.
+        # Audit P2/dim1: kb.query now routes to the real mgr.search (async), not fake list_files.
+        # The mock must be an awaitable AsyncMock returning the search result shape.
         mock_mgr = MagicMock()
         mock_mgr.search = AsyncMock(
             return_value={"results": [{"file_id": "f1", "score": 0.9}], "count": 1}

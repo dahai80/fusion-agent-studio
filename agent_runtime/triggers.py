@@ -70,8 +70,9 @@ def _extract_loop_tokens(result) -> int:
 
 
 def _detect_local_tz():
-    # #270: 解析系统本地时区, 不硬编码 UTC. 优先 datetime.now().astimezone()
-    # 拿到的 tzinfo (含 IANA 名); 退化用 time.localtime().tm_gmtoff 构造固定偏移.
+    # #270: resolve the system local timezone, do not hardcode UTC. Prefer the
+    # tzinfo from datetime.now().astimezone() (includes IANA name); fall back to
+    # building a fixed offset from time.localtime().tm_gmtoff.
     try:
         local = datetime.now().astimezone()
         tzinfo = local.tzinfo
@@ -94,8 +95,9 @@ def _tz_name(tzinfo):
 
 
 def _cron_tz():
-    # #270: FUSION_CRON_TZ 未设时默认系统本地时区 (非 UTC), 对齐 systemd/launchd/cron
-    # 通行预期. 显式设 "UTC" 仍用 UTC. 检测到系统非 UTC 且未设 env 时 warn 一次.
+    # #270: when FUSION_CRON_TZ is unset default to the system local timezone
+    # (not UTC), matching systemd/launchd/cron conventions. An explicit "UTC" still
+    # uses UTC. Warn once if the system is non-UTC and the env is unset.
     raw = os.environ.get("FUSION_CRON_TZ")
     if raw is not None:
         tz_name = raw.strip()
@@ -163,7 +165,7 @@ class CronJob:
     input_data: str = ""
     max_retries: int = 0
     retry_count: int = 0
-    one_shot: bool = False  # #141 priority-3: 一次性定时任务 (run_at), 触发后自动注销
+    one_shot: bool = False  # #141 priority-3: one-shot run_at, auto-unregistered after firing
     # #477: loop modes. cron = expression-driven (existing semantics);
     # continuous = back-to-back; interval = fixed interval_seconds;
     # event_driven = armed only by CronManager.trigger_event().
@@ -493,13 +495,16 @@ class CronManager:
         self._task: asyncio.Task | None = None
         self._db_path = db_path
         self._conn = None
-        # 审计 A-6/R-7/3M-3: cron _save_job/_save_execution/_delete_job 跨线程(to_thread)+事件循环线程
-        # 共享单连接无锁无 WAL. RLock 串行化所有 DB 操作; WAL 让读不堵写; busy_timeout 等锁.
+        # Audit A-6/R-7/3M-3: cron _save_job/_save_execution/_delete_job run across
+        # threads (to_thread) plus the event-loop thread sharing one connection with
+        # no lock and no WAL. RLock serializes all DB ops; WAL keeps reads from
+        # blocking writes; busy_timeout waits on locks.
         import threading
 
         self._write_lock = threading.RLock()
         self._default_handler: Callable | None = default_handler
-        # #501: 失败告警回调 — 执行超时/异常时以 (job, execution) 调用, 回调自身保证不抛.
+        # #501: failure alert callback - invoked with (job, execution) on timeout or
+        # exception; the callback itself must not raise.
         self._failure_callback: Callable | None = failure_callback
         if db_path:
             self._init_db(db_path)
@@ -551,7 +556,7 @@ class CronManager:
             "CREATE INDEX IF NOT EXISTS idx_cron_exec_job ON cron_executions(job_id)"
         )
         self._conn.commit()
-        # 审计 3M-6: schema 版本管理. PRAGMA user_version 门禁有序迁移.
+        # Audit 3M-6: schema version management. PRAGMA user_version gates ordered migrations.
         self._run_schema_migrations(self._conn)
         logger.info("CronManager DB initialized: %s", db_path)
 
@@ -571,8 +576,9 @@ class CronManager:
             current = idx
 
     def _migration_v1_one_shot(self, conn) -> None:
-        # #141 priority-3: 老库无 one_shot 列, ALTER 兜底迁移 (CREATE IF NOT EXISTS 不会加列).
-        # 幂等: 探列存在再 ALTER.
+        # #141 priority-3: older DBs lack the one_shot column; ALTER as a fallback
+        # migration (CREATE IF NOT EXISTS does not add columns).
+        # Idempotent: probe for the column before ALTER.
         cols = {row[1] for row in conn.execute("PRAGMA table_info(cron_jobs)").fetchall()}
         if "one_shot" not in cols:
             conn.execute("ALTER TABLE cron_jobs ADD COLUMN one_shot INTEGER DEFAULT 0")
@@ -763,8 +769,9 @@ class CronManager:
         name: str,
         handler: Callable | None,
     ) -> CronJob:
-        # 审计 P2-13: 抽出构造逻辑, register_once/aregister_once 各自只存一次
-        # (原 aregister_once 调 register_once 同步存 + 再 async 存 = 双写).
+        # Audit P2-13: extract the construction logic so register_once/aregister_once
+        # each persist exactly once (the old aregister_once called register_once,
+        # saving synchronously and then again async = double write).
         if not job_id:
             job_id = f"once_{int(time.time() * 1000)}_{id(self) % 100000}"
         job = CronJob(
@@ -791,8 +798,9 @@ class CronManager:
         name: str = "",
         handler: Callable | None = None,
     ) -> CronJob:
-        # #141 priority-3: 一次性定时任务 (run_at). 不走 cron 表达式, next_run=run_at,
-        # one_shot=True 触发后 _run_loop 自动注销. run_at 已过期则立即排队下一 tick 触发.
+        # #141 priority-3: one-shot timer (run_at). No cron expression; next_run=run_at,
+        # one_shot=True auto-unregisters in _run_loop after firing. If run_at already
+        # elapsed, it queues immediately on the next tick.
         job = self._build_once_job(run_at, graph_id, input_data, job_id, name, handler)
         self._save_job(job)
         logger.info("One-shot cron job registered: %s run_at=%.0f", job.id, job.next_run)
@@ -807,7 +815,8 @@ class CronManager:
         name: str = "",
         handler: Callable | None = None,
     ) -> CronJob:
-        # 审计 P2-13: 单次异步持久化 (不再委托 register_once 同步存).
+        # Audit P2-13: single async persist (no longer delegates to register_once
+        # for a synchronous save).
         job = self._build_once_job(run_at, graph_id, input_data, job_id, name, handler)
         await asyncio.to_thread(self._save_job, job)
         logger.info("One-shot cron job registered (async): %s run_at=%.0f", job.id, job.next_run)
@@ -990,7 +999,8 @@ class CronManager:
             )
 
     def _notify_failure(self, job: CronJob, exe: CronExecution) -> None:
-        # #501: 失败告警 — 单回调, 同步上下文内调用, 回调异常只记日志不外抛.
+        # #501: failure alert - single callback, invoked in sync context; callback
+        # exceptions are logged only, never propagated.
         cb = self._failure_callback
         if cb is None:
             return

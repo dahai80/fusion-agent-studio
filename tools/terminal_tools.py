@@ -11,38 +11,43 @@ from .base import BaseTool
 
 logger = logging.getLogger(__name__)
 
-# 审计 A-3/E-1: 终端 sink 灾难性命令黑名单. terminal 工具本就是任意 shell 执行
-# (其用途即此), 不做白名单 (会破坏向后兼容 + 用例), 但挡掉不可逆的破坏性
-# 模式: rm -rf (根/家目录/环境变量展开)、mkfs (格式化)、dd 到块设备 (含裸盘
-# rdisk)、shutdown/reboot/halt/poweroff/init 0/kill init、裸写盘 (> >> tee).
-# env FUSION_TERMINAL_UNRESTRICTED=1 可完全放开 (如受控 CI 场景). 默认即灾难
-# 防线, 每条命令留日志.
-# E-1: 原黑名单子串正则漏 `rm -rf ~`/`rm -rf $HOME`/`rm -rf /Users/*`/
-# `dd of=/dev/rdisk0`/`init 0`/`kill -9 1`/`osascript shut down`/`tee /dev/sda`.
-# 补全这些已知绕过路径.
+# Audit A-3/E-1: catastrophic command blocklist for the terminal sink. The
+# terminal tool is arbitrary shell execution by design (that is its purpose),
+# so no allowlist (it would break backward compat + use cases), but block the
+# irreversible destructive patterns: rm -rf (root/home/env-expanded targets),
+# mkfs (formatting), dd to block devices (incl. raw disk rdisk),
+# shutdown/reboot/halt/poweroff/init 0/kill init, raw disk writes (> >> tee).
+# env FUSION_TERMINAL_UNRESTRICTED=1 can fully opt out (e.g. controlled CI).
+# This is the catastrophe defense line by default; every command is logged.
+# E-1: the original substring-regex blocklist missed `rm -rf ~`/
+# `rm -rf $HOME`/`rm -rf /Users/*`/`dd of=/dev/rdisk0`/`init 0`/
+# `kill -9 1`/`osascript shut down`/`tee /dev/sda`. Added these known bypasses.
 _CATASTROPHIC_PATTERNS = [
-    # rm 带 -r (递归) 标志 + 目标是根树 (以 / 开头: / /usr /opt /var ...)
-    # 或家目录展开 (~ / $HOME / $USERPROFILE) / /Users/*. 这些是递归删系统树
-    # 或用户家, 不可逆. 注: 仅挡递归 rm, 单文件 rm 不挡 (rm file.txt 正常).
+    # rm with -r (recursive) flag + target being a root tree (starts with /:
+    # / /usr /opt /var ...) or a home-dir expansion (~ / $HOME / $USERPROFILE)
+    # / /Users/*. These recursively delete system trees or user homes,
+    # irreversible. Note: only recursive rm is blocked; single-file rm is not
+    # (rm file.txt works normally).
     re.compile(
         r"\brm\s+(-[a-zA-Z]*r[a-zA-Z]*\s+)+(/[^\s]*|~[^\s]*|\\?\$HOME|\\?\$USERPROFILE)",
         re.IGNORECASE,
     ),
     re.compile(r"\bmkfs\b"),
-    # dd 写块设备: 含裸盘 rdisk + 相对穿越.
+    # dd writing to block devices: includes raw disk rdisk + relative traversal.
     re.compile(r"\bdd\b.*\bof=/dev/(r?)(sd|nvme|disk|hd)"),
-    # 裸写盘: > >> tee.
+    # Raw disk writes: > >> tee.
     re.compile(r"(>>?)\s*/dev/(r?)(sd|nvme|disk|hd)"),
     re.compile(r"\btee\s+/dev/(r?)(sd|nvme|disk|hd)"),
-    # 停机: shutdown/reboot/halt/poweroff/init 0/kill init/osascript shut down.
+    # Shutdown: shutdown/reboot/halt/poweroff/init 0/kill init/osascript shut down.
     re.compile(r"\b(shutdown|reboot|halt|poweroff)\b"),
     re.compile(r"\binit\s+0\b"),
     re.compile(r"\bkill\s+(-9\s+)?1\b"),
     re.compile(r"osascript.*shut\s*down"),
-    # 审计 P1-23: 递归 chmod/chown 系统树 (不可逆权限/属主改写, 同 rm -r 根树).
+    # Audit P1-23: recursive chmod/chown on system trees (irreversible
+    # permission/ownership rewrite, same class as rm -r on a root tree).
     re.compile(r"\bchmod\s+(-[a-zA-Z]*R[a-zA-Z]*\s+)+(/[^\s]*|~[^\s]*|\\?\$HOME)", re.IGNORECASE),
     re.compile(r"\bchown\s+(-[a-zA-Z]*R[a-zA-Z]*\s+)+(/[^\s]*|~[^\s]*|\\?\$HOME)", re.IGNORECASE),
-    # fork 炸弹: :(){:|:&};: 典型形式.
+    # Fork bomb: canonical :(){:|:&};: form.
     re.compile(r":\(\)\s*\{\s*:\s*\|\s*:\s*&\s*\}\s*;\s*:"),
 ]
 
@@ -100,7 +105,8 @@ class TerminalTool(BaseTool):
 
         logger.info("terminal exec workdir=%s cmd=%s", workdir or "(cwd)", command[:300])
 
-        # 审计 A-3: 灾难性命令黑名单 (secure-by-default). 放开需显式 env.
+        # Audit A-3: catastrophic command blocklist (secure-by-default).
+        # Opting out requires an explicit env flag.
         unrestricted = os.environ.get("FUSION_TERMINAL_UNRESTRICTED", "").strip().lower() in (
             "1",
             "true",
@@ -189,10 +195,12 @@ class TerminalTool(BaseTool):
             result = "".join(output_parts).strip()
 
             if proc.returncode != 0:
-                # 审计 P1-5/NEW-1: 非零退出加 "Error: " 前缀, 对齐 runtime 工具
-                # 错误检测 (result.startswith("Error:") → is_tool_error). 原返回
-                # "Command exited with code N" 不匹配 → stop_on_tool_error 对失败
-                # shell 永不触发, 错误被当正常结果继续级联.
+                # Audit P1-5/NEW-1: prefix non-zero exits with "Error: " to
+                # align with runtime tool error detection
+                # (result.startswith("Error:") -> is_tool_error). The previous
+                # "Command exited with code N" did not match -> stop_on_tool_error
+                # never fired for failing shells, so errors cascaded as normal
+                # results.
                 prefix = f"Error: Command exited with code {proc.returncode}"
                 if result:
                     return f"{prefix}:\n{result}"

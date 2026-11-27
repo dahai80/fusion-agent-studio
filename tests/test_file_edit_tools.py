@@ -1,6 +1,7 @@
 """Tests for C15 file tools: FileEditTool, FileDeleteTool, FileGrepTool, FileGlobTool.
 
-Issue #178: Claude标志性编辑原语 (原地Edit, 递归Grep/Glob, 文件删除) + CodeSandbox agent tool.
+Issue #178: Claude-style editing primitives (in-place Edit, recursive Grep/Glob,
+file deletion) + CodeSandbox agent tool.
 All tests use tempfile + cleanup; no process data left behind.
 """
 

@@ -1,12 +1,14 @@
-"""Tests for issue #128 — 经 fusion-gateway 部署时 daemon 用 gateway client key 鉴权.
+"""Tests for issue #128 — daemon authenticates with the gateway client key when
+deployed behind fusion-gateway.
 
 Runners: pytest tests/test_issue_128_gateway_auth.py
 API: DaemonServer._is_gateway_path / _read_gateway_api_key / _attach_mlx_api_key
-Data schemas: fusion_core.config gateway_admin_key 单点解析
+Data schemas: fusion_core.config gateway_admin_key single-source resolution
 (FUSION_GATEWAY_API_KEY > ~/.fusion-mlx/settings.json shell.gateway_admin_key),
 env vars.
 
-User instruction: "处理issue和pr，提交代码到代码仓，合并所有分支到主干，确保ci和lint全绿，发布补丁版本"
+User instruction: "Handle issues and PRs, commit code to the repo, merge all
+branches to main, keep CI and lint green, release a patch version"
 """
 
 from __future__ import annotations

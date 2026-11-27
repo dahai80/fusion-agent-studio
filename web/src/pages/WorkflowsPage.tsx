@@ -59,6 +59,7 @@ export function WorkflowsPage() {
 
     const submitEditor = async () => {
         if (!wfName.trim()) {
+            // i18n: user-facing
             setWfError(t('请输入名称', 'name required'));
             return;
         }
@@ -72,6 +73,7 @@ export function WorkflowsPage() {
             });
             sdk.toast.show({
                 level: 'success',
+                // i18n: user-facing
                 message: t('工作流已创建，正在打开画布', 'workflow created, opening canvas'),
             });
             setEditorOpen(false);
@@ -87,6 +89,7 @@ export function WorkflowsPage() {
     const deleteGraph = async (g: GraphItem) => {
         const ok = window.confirm(
             t(
+                // i18n: user-facing
                 `确认删除工作流「${g.name || g.graph_id}」？`,
                 `Delete workflow "${g.name || g.graph_id}"?`
             )
@@ -96,6 +99,7 @@ export function WorkflowsPage() {
             await rpc('graph.delete', { graph_id: g.graph_id });
             sdk.toast.show({
                 level: 'success',
+                // i18n: user-facing
                 message: t('工作流已删除', 'workflow deleted'),
             });
             if (selected?.graph_id === g.graph_id) setSelected(null);
@@ -103,6 +107,7 @@ export function WorkflowsPage() {
         } catch (e) {
             sdk.toast.show({
                 level: 'error',
+                // i18n: user-facing
                 message: `${t('删除失败', 'delete failed')}: ${(e as Error).message}`,
             });
         }
@@ -111,6 +116,7 @@ export function WorkflowsPage() {
     const submitRun = async () => {
         if (!selected) return;
         if (!goal.trim()) {
+            // i18n: user-facing
             setGoalError(t('请输入目标', 'goal required'));
             return;
         }
@@ -119,12 +125,14 @@ export function WorkflowsPage() {
             const res = await api.submitRun({ goal: goal.trim(), graph_id: selected.graph_id });
             sdk.toast.show({
                 level: 'success',
+                // i18n: user-facing
                 message: t(`已提交 ${res.run_id}`, `submitted ${res.run_id}`),
             });
             window.location.hash = `#/runs/${encodeURIComponent(res.run_id)}`;
         } catch (e) {
             sdk.toast.show({
                 level: 'error',
+                // i18n: user-facing
                 message: `${t('提交失败', 'submit failed')}: ${(e as Error).message}`,
             });
         }
@@ -135,8 +143,10 @@ export function WorkflowsPage() {
     return (
         <div>
             <PageHeader
+                // i18n: user-facing
                 title={t('工作流', 'Workflows')}
                 subtitle={t(
+                    // i18n: user-facing
                     `${rows.length} 个 agent 图`,
                     `${rows.length} agent graph${rows.length === 1 ? '' : 's'}`
                 )}
@@ -146,6 +156,7 @@ export function WorkflowsPage() {
                         onClick={() => void openCreate()}
                         className="rounded-md border border-border px-4 py-2 text-sm text-text-primary hover:bg-bg-muted"
                     >
+                        {/* i18n: user-facing */}
                         {t('新建工作流', 'New workflow')}
                     </button>
                 }
@@ -155,15 +166,19 @@ export function WorkflowsPage() {
                     <SkeletonLines rows={4} />
                 ) : error ? (
                     <ErrorState
+                        // i18n: user-facing
                         message={t('加载工作流失败', 'failed to load workflows')}
+                        // i18n: user-facing
                         retryLabel={t('重试', 'Retry')}
                         onRetry={manualRetry}
                         retrying={attempt}
                     />
                 ) : rows.length === 0 ? (
                     <EmptyState
+                        // i18n: user-facing
                         title={t('暂无工作流', 'no workflows yet')}
                         description={t(
+                            // i18n: user-facing
                             '通过 daemon RPC graph.create 或 SDK 创建第一个 agent 图',
                             'create your first agent graph via the graph.create RPC or SDK'
                         )}
@@ -175,6 +190,7 @@ export function WorkflowsPage() {
                         columns={[
                             {
                                 key: 'name',
+                                // i18n: user-facing
                                 header: t('名称', 'Name'),
                                 sortable: true,
                                 render: (g) => (
@@ -193,12 +209,14 @@ export function WorkflowsPage() {
                             },
                             {
                                 key: 'nodes',
+                                // i18n: user-facing
                                 header: t('节点', 'Nodes'),
                                 sortable: true,
                                 render: (g) => Object.keys(g.graph_data.nodes ?? {}).length,
                             },
                             {
                                 key: 'description',
+                                // i18n: user-facing
                                 header: t('描述', 'Description'),
                                 render: (g) => (
                                     <span className="text-text-secondary">
@@ -208,6 +226,7 @@ export function WorkflowsPage() {
                             },
                             {
                                 key: 'actions',
+                                // i18n: user-facing
                                 header: t('操作', 'Actions'),
                                 render: (g) => (
                                     <div className="flex items-center gap-2">
@@ -216,6 +235,7 @@ export function WorkflowsPage() {
                                             className="text-brand hover:underline"
                                             onClick={() => openCanvas(g.graph_id)}
                                         >
+                                            {/* i18n: user-facing */}
                                             {t('在画布中编辑', 'Edit on canvas')}
                                         </button>
                                         <button
@@ -223,6 +243,7 @@ export function WorkflowsPage() {
                                             className="text-error hover:underline"
                                             onClick={() => void deleteGraph(g)}
                                         >
+                                            {/* i18n: user-facing */}
                                             {t('删除', 'Delete')}
                                         </button>
                                     </div>
@@ -242,12 +263,14 @@ export function WorkflowsPage() {
                             {streaming ? (
                                 <StatusBadge
                                     status="running"
+                                    // i18n: user-facing
                                     label={t('流式运行中', 'streaming')}
                                 />
                             ) : null}
                         </div>
                         <div className="mt-3 flex flex-col gap-2">
                             <FormField
+                                // i18n: user-facing
                                 label={t('运行目标', 'Goal')}
                                 error={goalError}
                                 required
@@ -258,6 +281,7 @@ export function WorkflowsPage() {
                                     value={goal}
                                     onChange={setGoal}
                                     placeholder={t(
+                                        // i18n: user-facing
                                         '例如：总结今天的新闻并写入摘要文件',
                                         'e.g. summarize today’s news into a digest file'
                                     )}
@@ -265,7 +289,9 @@ export function WorkflowsPage() {
                             </FormField>
                             <div className="flex flex-wrap items-center gap-2">
                                 <SubmitButton
+                                    // i18n: user-facing
                                     label={t('提交运行', 'Submit run')}
+                                    // i18n: user-facing
                                     busyLabel={t('提交中…', 'submitting…')}
                                     disabled={streaming}
                                     onAction={submitRun}
@@ -276,7 +302,9 @@ export function WorkflowsPage() {
                                     className="rounded-md border border-border px-4 py-2 text-sm text-text-primary hover:bg-bg-muted"
                                 >
                                     {streaming
+                                        // i18n: user-facing
                                         ? t('关闭流式试运行', 'close live test')
+                                        // i18n: user-facing
                                         : t('流式试运行', 'live test (stream)')}
                                 </button>
                             </div>
@@ -291,6 +319,7 @@ export function WorkflowsPage() {
                                     active
                                         ? {
                                               name: `${selected.name || selected.graph_id} ${t(
+                                                  // i18n: user-facing
                                                   '流式试运行',
                                                   'live test'
                                               )}`,
@@ -304,6 +333,7 @@ export function WorkflowsPage() {
             ) : null}
             <Modal
                 open={editorOpen}
+                // i18n: user-facing
                 title={t('新建工作流', 'New workflow')}
                 onClose={() => setEditorOpen(false)}
                 footer={
@@ -313,10 +343,13 @@ export function WorkflowsPage() {
                             onClick={() => setEditorOpen(false)}
                             className="rounded-md border border-border px-4 py-2 text-sm text-text-primary hover:bg-bg-muted"
                         >
+                            {/* i18n: user-facing */}
                             {t('取消', 'Cancel')}
                         </button>
                         <SubmitButton
+                            // i18n: user-facing
                             label={t('创建并打开画布', 'Create & open canvas')}
+                            // i18n: user-facing
                             busyLabel={t('保存中…', 'saving…')}
                             disabled={saving}
                             onAction={submitEditor}
@@ -324,25 +357,30 @@ export function WorkflowsPage() {
                     </div>
                 }
             >
+                {/* i18n: user-facing */}
                 <FormField label={t('名称', 'Name')} required htmlFor="wf-name">
                     <TextInput
                         id="wf-name"
                         value={wfName}
                         onChange={setWfName}
+                        // i18n: user-facing
                         placeholder={t('例如：新闻摘要工作流', 'e.g. news digest workflow')}
                     />
                 </FormField>
+                {/* i18n: user-facing */}
                 <FormField label={t('描述', 'Description')} htmlFor="wf-desc">
                     <TextInput
                         id="wf-desc"
                         value={wfDesc}
                         onChange={setWfDesc}
+                        // i18n: user-facing
                         placeholder={t('可选', 'optional')}
                     />
                 </FormField>
                 {wfError ? <div className="text-xs text-error">{wfError}</div> : null}
                 <div className="text-xs text-text-secondary">
                     {t(
+                        // i18n: user-facing
                         '创建后在画布上添加节点与连线（拓扑只在画布编辑）',
                         'Add nodes and edges on the canvas after creation (topology is canvas-only)'
                     )}
@@ -445,6 +483,7 @@ function OrchestrationsSection() {
 
     const createWorkflow = async () => {
         if (!wfName.trim()) {
+            // i18n: user-facing
             setError(t('请输入编排名称', 'orchestration name required'));
             return;
         }
@@ -460,6 +499,7 @@ function OrchestrationsSection() {
             });
             sdk.toast.show({
                 level: 'success',
+                // i18n: user-facing
                 message: t('编排已创建', 'orchestration created'),
             });
             setCreating(false);
@@ -484,6 +524,7 @@ function OrchestrationsSection() {
             sdk.toast.show({
                 level: 'success',
                 message: t(
+                    // i18n: user-facing
                     `编排运行已启动 ${res.run_id || ''}`,
                     `orchestration run started ${res.run_id || ''}`
                 ),
@@ -491,6 +532,7 @@ function OrchestrationsSection() {
         } catch (e) {
             sdk.toast.show({
                 level: 'error',
+                // i18n: user-facing
                 message: `${t('启动失败', 'start failed')}: ${(e as Error).message}`,
             });
         } finally {
@@ -501,10 +543,12 @@ function OrchestrationsSection() {
     const cancelRun = async (runId: string) => {
         try {
             await rpc('workflow.cancel', { run_id: runId });
+            // i18n: user-facing
             sdk.toast.show({ level: 'success', message: t('已请求取消', 'cancel requested') });
         } catch (e) {
             sdk.toast.show({
                 level: 'error',
+                // i18n: user-facing
                 message: `${t('取消失败', 'cancel failed')}: ${(e as Error).message}`,
             });
         }
@@ -512,6 +556,7 @@ function OrchestrationsSection() {
 
     const deleteWorkflow = async (wf: WfConfigItem) => {
         if (
+            // i18n: user-facing
             !window.confirm(t(`确认删除编排「${wf.name}」？`, `Delete orchestration "${wf.name}"?`))
         ) {
             return;
@@ -523,6 +568,7 @@ function OrchestrationsSection() {
         } catch (e) {
             sdk.toast.show({
                 level: 'error',
+                // i18n: user-facing
                 message: `${t('删除失败', 'delete failed')}: ${(e as Error).message}`,
             });
         }
@@ -531,8 +577,10 @@ function OrchestrationsSection() {
     return (
         <div className="mt-6 px-4 pb-6">
             <PageHeader
+                // i18n: user-facing
                 title={t('编排', 'Orchestrations')}
                 subtitle={t(
+                    // i18n: user-facing
                     `${workflows.length} 个多智能体编排（6 种模式）`,
                     `${workflows.length} multi-agent orchestrations (6 patterns)`
                 )}
@@ -542,6 +590,7 @@ function OrchestrationsSection() {
                         onClick={() => setCreating(true)}
                         className="rounded-md border border-border px-4 py-2 text-sm text-text-primary hover:bg-bg-muted"
                     >
+                        {/* i18n: user-facing */}
                         {t('新建编排', 'New orchestration')}
                     </button>
                 }
@@ -550,6 +599,7 @@ function OrchestrationsSection() {
             {workflows.length === 0 ? (
                 <div className="text-xs text-text-secondary">
                     {t(
+                        // i18n: user-facing
                         '暂无编排。编排 = 多阶段多智能体模式（pipeline / parallel_barrier / loop / adversarial_verify / judge_panel）。',
                         'No orchestrations yet. An orchestration = multi-phase multi-agent patterns (pipeline / parallel_barrier / loop / adversarial_verify / judge_panel).'
                     )}
@@ -574,6 +624,7 @@ function OrchestrationsSection() {
                                     className="text-error hover:underline"
                                     onClick={() => void deleteWorkflow(wf)}
                                 >
+                                    {/* i18n: user-facing */}
                                     {t('删除', 'Delete')}
                                 </button>
                             </div>
@@ -589,6 +640,7 @@ function OrchestrationsSection() {
                                 <div className="mt-2 space-y-2 border-t border-border pt-2">
                                     <textarea
                                         className="h-16 w-full rounded border border-border bg-bg px-2 py-1"
+                                        // i18n: user-facing
                                         placeholder={t('编排输入', 'orchestration input')}
                                         value={execInput}
                                         onChange={(e) => setExecInput(e.target.value)}
@@ -600,12 +652,15 @@ function OrchestrationsSection() {
                                         className="rounded bg-brand px-3 py-1 text-white disabled:opacity-50"
                                     >
                                         {busy
+                                            // i18n: user-facing
                                             ? t('启动中…', 'starting…')
+                                            // i18n: user-facing
                                             : t('执行编排', 'Execute')}
                                     </button>
                                     {runs.length > 0 ? (
                                         <div className="space-y-1">
                                             <div className="text-text-secondary">
+                                                {/* i18n: user-facing */}
                                                 {t('运行记录', 'Runs')}
                                             </div>
                                             {runs.map((r) => (
@@ -643,6 +698,7 @@ function OrchestrationsSection() {
                                                             className="ml-auto text-error hover:underline"
                                                             onClick={() => void cancelRun(r.id)}
                                                         >
+                                                            {/* i18n: user-facing */}
                                                             {t('取消', 'Cancel')}
                                                         </button>
                                                     ) : null}
@@ -658,6 +714,7 @@ function OrchestrationsSection() {
             )}
             <Modal
                 open={creating}
+                // i18n: user-facing
                 title={t('新建编排', 'New orchestration')}
                 onClose={() => setCreating(false)}
                 footer={
@@ -667,10 +724,13 @@ function OrchestrationsSection() {
                             onClick={() => setCreating(false)}
                             className="rounded-md border border-border px-4 py-2 text-sm text-text-primary hover:bg-bg-muted"
                         >
+                            {/* i18n: user-facing */}
                             {t('取消', 'Cancel')}
                         </button>
                         <SubmitButton
+                            // i18n: user-facing
                             label={t('创建编排', 'Create orchestration')}
+                            // i18n: user-facing
                             busyLabel={t('保存中…', 'saving…')}
                             disabled={saving}
                             onAction={createWorkflow}
@@ -678,12 +738,14 @@ function OrchestrationsSection() {
                     </div>
                 }
             >
+                {/* i18n: user-facing */}
                 <FormField label={t('名称', 'Name')} required htmlFor="orch-name">
                     <TextInput
                         id="orch-name"
                         value={wfName}
                         onChange={setWfName}
                         placeholder={t(
+                            // i18n: user-facing
                             '例如：研究→写作→审校流水线',
                             'e.g. research → write → review pipeline'
                         )}
@@ -700,6 +762,7 @@ function OrchestrationsSection() {
                                             ps.map((p, i) => (i === idx ? { ...p, name: v } : p))
                                         )
                                     }
+                                    // i18n: user-facing
                                     placeholder={t('阶段名', 'phase name')}
                                 />
                                 <select
@@ -733,6 +796,7 @@ function OrchestrationsSection() {
                             <div className="mt-1 flex flex-wrap gap-2">
                                 {agents.length === 0 ? (
                                     <span className="text-text-secondary">
+                                        {/* i18n: user-facing */}
                                         {t('暂无可选 agent', 'no agents available')}
                                     </span>
                                 ) : (
@@ -779,6 +843,7 @@ function OrchestrationsSection() {
                             ])
                         }
                     >
+                        // i18n: user-facing
                         + {t('添加阶段', 'Add phase')}
                     </button>
                 </div>

@@ -168,7 +168,7 @@ class SwarmRouter:
         )
 
     def _load_from_store(self) -> None:
-        # 启动: 从 SQLite 加载 agents + delegations 进内存缓存.
+        # Startup: load agents + delegations from SQLite into the in-memory cache.
         if self._store is None:
             return
         try:

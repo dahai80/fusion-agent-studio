@@ -146,8 +146,8 @@ def test_hook_max_ms_env_and_override(monkeypatch):
 
 
 async def test_hook_raise_fail_open():
-    # 审计 P-3: 安全门事件 (PRE_TOOL_USE 等) 回调异常必须 fail-closed —
-    # 第一个坏 hook 直接 block, 后续 hook 不再跑。
+    # Audit P-3: callback exceptions on safety-gate events (PRE_TOOL_USE etc.) must fail closed —
+    # the first bad hook blocks directly and later hooks no longer run.
     eng = HookEngine(auto_register_decorators=False)
     seen = []
 
@@ -165,7 +165,7 @@ async def test_hook_raise_fail_open():
     assert "fail-closed" in res.reason
     assert seen == []
 
-    # 非安全门事件保持 fail-open: 坏 hook 跳过, 好 hook 照常裁决
+    # Non-safety-gate events stay fail-open: bad hook skipped, good hook still decides
     eng2 = HookEngine(auto_register_decorators=False)
     seen2 = []
 
