@@ -16,6 +16,8 @@ import pytest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from agent_runtime.task_store import (
+    DEP_GATE_APPROVED,
+    REVIEW_STATE_APPROVED,
     TASK_STATUS_COMPLETED,
     TASK_STATUS_FAILED,
     TASK_STATUS_PENDING,
@@ -131,6 +133,172 @@ class TestDequeueGating:
             os.unlink(path)
 
 
+class TestDepGate:
+    # Stage gate (blocked-until-verdict): dep_gate="approved" requires each
+    # dependency to be completed AND review_state=approved (fail-closed).
+    def test_default_completed(self):
+        t = Task()
+        assert t.dep_gate == "completed"
+
+    def test_completed_gate_ignores_review_state(self):
+        store, path = _temp_store()
+        try:
+            d0 = store.submit(Task(title="d0"))
+            store.update_status(d0.task_id, TASK_STATUS_COMPLETED)
+            t = store.submit(Task(title="child", depends_on=[d0.task_id]))
+            assert store.deps_met(t.task_id) is True
+        finally:
+            os.unlink(path)
+
+    def test_approved_gate_blocks_unreviewed_dep(self):
+        store, path = _temp_store()
+        try:
+            d0 = store.submit(Task(title="d0"))
+            store.update_status(d0.task_id, TASK_STATUS_COMPLETED)
+            t = store.submit(
+                Task(title="child", depends_on=[d0.task_id], dep_gate=DEP_GATE_APPROVED)
+            )
+            # dep completed but never reviewed -> fail-closed block
+            assert store.deps_met(t.task_id) is False
+        finally:
+            os.unlink(path)
+
+    def test_approved_gate_passes_on_approved_dep(self):
+        store, path = _temp_store()
+        try:
+            d0 = store.submit(Task(title="d0"))
+            store.update_status(d0.task_id, TASK_STATUS_COMPLETED)
+            store.move_task(
+                d0.task_id,
+                "",
+                REVIEW_STATE_APPROVED,
+                actor="reviewer",
+                reason="stage pass",
+            )
+            t = store.submit(
+                Task(title="child", depends_on=[d0.task_id], dep_gate=DEP_GATE_APPROVED)
+            )
+            assert store.deps_met(t.task_id) is True
+        finally:
+            os.unlink(path)
+
+    def test_approved_gate_blocks_incomplete_dep_even_if_approved(self):
+        store, path = _temp_store()
+        try:
+            d0 = store.submit(Task(title="d0"))
+            store.move_task(
+                d0.task_id,
+                "",
+                REVIEW_STATE_APPROVED,
+                actor="reviewer",
+                reason="early approval",
+            )
+            t = store.submit(
+                Task(title="child", depends_on=[d0.task_id], dep_gate=DEP_GATE_APPROVED)
+            )
+            assert store.deps_met(t.task_id) is False
+        finally:
+            os.unlink(path)
+
+    def test_invalid_dep_gate_fallback(self):
+        store, path = _temp_store()
+        try:
+            t = store.submit(Task(title="bad", dep_gate="yolo"))
+            assert store.get(t.task_id).dep_gate == "completed"
+        finally:
+            os.unlink(path)
+
+    def test_dep_gate_persistence(self):
+        store, path = _temp_store()
+        try:
+            t = store.submit(Task(title="gated", dep_gate=DEP_GATE_APPROVED))
+            assert store.get(t.task_id).dep_gate == DEP_GATE_APPROVED
+        finally:
+            os.unlink(path)
+
+    def test_dequeue_gates_on_approved(self):
+        store, path = _temp_store()
+        try:
+            d0 = store.submit(Task(title="d0", team="default"))
+            child = store.submit(
+                Task(
+                    title="child",
+                    depends_on=[d0.task_id],
+                    dep_gate=DEP_GATE_APPROVED,
+                    team="default",
+                )
+            )
+            store.update_status(d0.task_id, TASK_STATUS_COMPLETED)
+            # dep completed but unreviewed -> dequeue must not hand out child
+            assert store.dequeue("default", "worker1") is None
+            store.move_task(
+                d0.task_id,
+                "",
+                REVIEW_STATE_APPROVED,
+                actor="reviewer",
+                reason="stage pass",
+            )
+            result = store.dequeue("default", "worker1")
+            assert result is not None
+            assert result.task_id == child.task_id
+        finally:
+            os.unlink(path)
+
+
+class TestMigrationV6:
+    def test_fresh_db_has_dep_gate(self):
+        store, path = _temp_store()
+        try:
+            import sqlite3
+
+            conn = sqlite3.connect(path)
+            cols = {row[1] for row in conn.execute("PRAGMA table_info(tasks)").fetchall()}
+            conn.close()
+            assert "dep_gate" in cols
+            version = store._conn.execute("PRAGMA user_version").fetchone()[0]
+            assert version >= 6
+        finally:
+            os.unlink(path)
+
+    def test_old_db_migrates_to_v6(self):
+        fd, path = tempfile.mkstemp(suffix=".db")
+        os.close(fd)
+        import sqlite3
+
+        conn = sqlite3.connect(path)
+        conn.execute("PRAGMA user_version = 5")
+        conn.execute(
+            """CREATE TABLE tasks (
+                task_id TEXT PRIMARY KEY, title TEXT DEFAULT '',
+                description TEXT DEFAULT '', agent_id TEXT DEFAULT '',
+                graph_id TEXT DEFAULT '', trigger TEXT DEFAULT 'immediate',
+                cron_expression TEXT DEFAULT '', run_at REAL DEFAULT 0,
+                cron_job_id TEXT DEFAULT '', input TEXT DEFAULT '',
+                status TEXT DEFAULT 'pending', priority INTEGER DEFAULT 0,
+                project_id TEXT DEFAULT '', artifact_ids TEXT DEFAULT '[]',
+                last_result TEXT DEFAULT '{}', last_error TEXT DEFAULT '',
+                retry_count INTEGER DEFAULT 0, max_retries INTEGER DEFAULT 0,
+                created_at REAL DEFAULT 0, updated_at REAL DEFAULT 0,
+                last_run_at REAL DEFAULT 0, idempotency_key TEXT DEFAULT '',
+                review_state TEXT DEFAULT 'none', attempt_token TEXT DEFAULT '',
+                owner_role TEXT DEFAULT '', owner_agent TEXT DEFAULT '',
+                resource_lease_id TEXT DEFAULT '', evidence_ref TEXT DEFAULT '',
+                team TEXT DEFAULT 'default', depends_on TEXT DEFAULT '[]',
+                sandbox TEXT DEFAULT 'local'
+            )"""
+        )
+        conn.commit()
+        conn.close()
+        store = TaskStore(db_path=path)
+        try:
+            cols = {row[1] for row in store._conn.execute("PRAGMA table_info(tasks)").fetchall()}
+            assert "dep_gate" in cols
+            version = store._conn.execute("PRAGMA user_version").fetchone()[0]
+            assert version == 6
+        finally:
+            os.unlink(path)
+
+
 class TestMigrationV4:
     def test_fresh_db_has_depends_on(self):
         store, path = _temp_store()
@@ -180,7 +348,7 @@ class TestMigrationV4:
             cols = {row[1] for row in store._conn.execute("PRAGMA table_info(tasks)").fetchall()}
             assert "depends_on" in cols
             version = store._conn.execute("PRAGMA user_version").fetchone()[0]
-            assert version == 5
+            assert version == 6
         finally:
             os.unlink(path)
 
