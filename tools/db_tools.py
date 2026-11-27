@@ -9,12 +9,15 @@ from .base import BaseTool
 
 logger = logging.getLogger(__name__)
 
-# 审计 A-3/E-2: 仅读 SQL 关键字. secure-by-default: 默认只允许读, 写操作
-# (INSERT/UPDATE/DELETE/DROP/ALTER/CREATE/ATTACH/PRAGMA write) 需 env
-# FUSION_DB_ALLOW_WRITE=1 显式 opt-in, 否则拒绝 — 避免 LLM 经此工具
-# 落盘任意文件 (ATTACH/CREATE) 或破坏库 (DROP/DELETE).
-# E-2: PRAGMA 归只读时, `PRAGMA journal_mode=OFF`/`writable_schema=1` 等破坏性
-# PRAGMA 绕过写门. 用 _WRITE_PRAGMAS 显式列破坏性 PRAGMA, 走写门校验.
+# Audit A-3/E-2: read-only SQL keywords. secure-by-default: reads only by
+# default; write operations (INSERT/UPDATE/DELETE/DROP/ALTER/CREATE/ATTACH/
+# PRAGMA write) require explicit opt-in via env FUSION_DB_ALLOW_WRITE=1,
+# otherwise rejected — prevents the LLM from writing arbitrary files to disk
+# (ATTACH/CREATE) or destroying the database (DROP/DELETE) via this tool.
+# E-2: when PRAGMA was classified read-only, destructive PRAGMAs like
+# `PRAGMA journal_mode=OFF`/`writable_schema=1` bypassed the write gate.
+# _WRITE_PRAGMAS explicitly lists destructive PRAGMAs and routes them through
+# the write-gate check.
 _READ_ONLY_PREFIXES = ("SELECT", "PRAGMA", "EXPLAIN", "WITH")
 _WRITE_PREFIXES = (
     "INSERT",
@@ -30,8 +33,9 @@ _WRITE_PREFIXES = (
     "REINDEX",
     "VACUUM",
 )
-# 破坏性 PRAGMA: 改持久状态 (journal/sync/schema/foreign_keys/wal), 崩溃致腐或
-# 开 schema 表重写攻击路径. 形如 `PRAGMA journal_mode=OFF` / `PRAGMA writable_schema=1`.
+# Destructive PRAGMAs: change persistent state (journal/sync/schema/
+# foreign_keys/wal), can corrupt the DB on crash or open schema-table rewrite
+# attack paths. Forms like `PRAGMA journal_mode=OFF` / `PRAGMA writable_schema=1`.
 _WRITE_PRAGMAS = (
     "JOURNAL_MODE",
     "SYNCHRONOUS",
@@ -78,12 +82,15 @@ class SqliteQueryTool(BaseTool):
         if not query:
             return "Error: query is required"
         query_upper = query.strip().upper()
-        # ATTACH 'file:' 可越权读任意文件, 一律挡 (即使开了 write 也不放行 ATTACH).
+        # ATTACH 'file:' can read arbitrary files with elevated access; always
+        # blocked (ATTACH is rejected even when write mode is enabled).
         if query_upper.startswith("ATTACH"):
             logger.warning("sqlite_query blocked ATTACH (file exfil vector) db=%s", db_path)
             return "Error: ATTACH is blocked (file exfiltration vector)"
-        # E-2: PRAGMA 写检测. `PRAGMA journal_mode=OFF` 形如 name=value 是写;
-        # 名在 _WRITE_PRAGMAS (改持久状态) 也是写, 即使无 `=` (如 PRAGMA WAL_CHECKPOINT).
+        # E-2: PRAGMA write detection. `PRAGMA journal_mode=OFF` with a
+        # name=value form is a write; a name in _WRITE_PRAGMAS (changes
+        # persistent state) is also a write, even without `=`
+        # (e.g. PRAGMA WAL_CHECKPOINT).
         is_pragma_write = False
         if query_upper.startswith("PRAGMA"):
             pragma_body = query_upper[len("PRAGMA") :].strip()

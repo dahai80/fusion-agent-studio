@@ -4,7 +4,8 @@ Runner: pytest tests/test_issue_240_trigger_input.py
 Schema: frozen JSON-encoded `input` string (trigger_id/event/context/rule_name/node_id).
 Helper: parse_trigger_input -> TriggerInput | None (None = backward-compat fallback).
 
-User instruction: "处理issue和pr，提交代码到代码仓，合并所有分支到主干，确保ci和lint全绿，发布补丁版本"
+User instruction: "Handle issues and PRs, commit code to the repo, merge all branches to
+main, keep CI and lint green, release a patch version"
 """
 
 from __future__ import annotations
@@ -137,7 +138,7 @@ async def test_cron_handler_parses_trigger_input(tmp_path, monkeypatch):
     monkeypatch.setattr(d, "_handle_graph_execute_async", fake_execute_async)
 
     result = await d._cron_default_handler(_FakeJob())
-    # M1-5: cron 降为触发器 → triggered (不再返回 execute 结果)
+    # M1-5: cron downgraded to a trigger -> triggered (no longer returns execute result)
     assert result["status"] == "triggered"
     assert result["execution_id"] == "exec_fake_1"
     vars_ = captured["variables"]

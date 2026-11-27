@@ -188,7 +188,7 @@ class TestCronTzDefault:
         local_offset = datetime.now().astimezone().utcoffset()
         assert tz.utcoffset(None) == local_offset
 
-    # ── #141 priority-3: register_once (一次性定时 run_at) ──
+    # -- #141 priority-3: register_once (one-shot scheduled run_at) --
 
     def test_register_once_creates_one_shot_job(self):
         cm = CronManager()
@@ -204,7 +204,7 @@ class TestCronTzDefault:
 
     @pytest.mark.asyncio
     async def test_register_once_auto_unregisters_after_fire(self, tmp_path):
-        # one-shot 触发后 _run_loop 应自动注销 (不排下次).
+        # After one-shot fires, _run_loop should auto-unregister (no next scheduling).
         fired = {"count": 0}
 
         async def handler(job):
@@ -220,7 +220,7 @@ class TestCronTzDefault:
         except asyncio.TimeoutError:
             pass
         cm.stop()
-        # 触发后自动注销: 内存与 DB 都不应再有该 job.
+        # Auto-unregister after firing: neither memory nor DB should still have the job.
         assert fired["count"] == 1
         assert job.id not in cm._jobs
         assert cm.get(job.id) is None
@@ -231,7 +231,7 @@ class TestCronTzDefault:
         cm = CronManager(db_path=db)
         cm.register_once(run_at=1.0, graph_id="g9", job_id="once_persist", name="p")
         cm.close()
-        # 重启加载, one_shot 应还原.
+        # Loaded after restart, one_shot should be restored.
         cm2 = CronManager(db_path=db)
         loaded = cm2.get("once_persist")
         assert loaded is not None
@@ -265,7 +265,7 @@ class TestI18n:
 
     def test_chinese(self):
         i18n = I18n("zh")
-        assert i18n.t("canvas.title") == "Agent 画布"
+        assert i18n.t("canvas.title") == "Agent 画布"  # i18n: user-facing
 
     def test_fallback_to_key(self):
         i18n = I18n()
@@ -274,7 +274,7 @@ class TestI18n:
     def test_set_language(self):
         i18n = I18n("en")
         i18n.set_language("zh")
-        assert i18n.t("canvas.title") == "Agent 画布"
+        assert i18n.t("canvas.title") == "Agent 画布"  # i18n: user-facing
 
     def test_invalid_language_falls_back(self):
         i18n = I18n("invalid")
@@ -326,8 +326,9 @@ class TestSqliteQueryTool:
 
     @pytest.mark.asyncio
     async def test_create_table(self, monkeypatch):
-        # 审计 A-3: db 工具默认只读挡写. 此测工具写入路径, 需显式开 FUSION_DB_ALLOW_WRITE.
-        # 安全门 (默认挡写/挡 ATTACH) 由 test_audit_0825_fixes 覆盖.
+        # Audit A-3: db tools default to read-only, blocking writes. This test exercises
+        # the write path, so FUSION_DB_ALLOW_WRITE must be explicitly enabled.
+        # The safety gate (default write/ATTACH blocking) is covered by test_audit_0825_fixes.
         monkeypatch.setenv("FUSION_DB_ALLOW_WRITE", "1")
         tool = SqliteQueryTool()
         result = await tool.execute(

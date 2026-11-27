@@ -58,6 +58,7 @@ export function ConnectorsPage() {
                 type: ctype,
                 auth_config: parsed.data,
             });
+            // i18n: user-facing
             sdk.toast.show({ level: 'success', message: t('已创建', 'created') });
             setShowCreate(false);
             setName('');
@@ -86,7 +87,9 @@ export function ConnectorsPage() {
     return (
         <div>
             <PageHeader
+                // i18n: user-facing
                 title={t('连接器', 'Connectors')}
+                // i18n: user-facing
                 subtitle={t(`${rows.length} 个连接器`, `${rows.length} connectors`)}
                 actions={
                     <button
@@ -94,6 +97,7 @@ export function ConnectorsPage() {
                         onClick={() => setShowCreate(true)}
                         className="rounded-md border border-border px-3 py-1.5 text-xs text-text-primary hover:bg-bg-muted"
                     >
+                        // i18n: user-facing
                         {t('新增', 'Add')}
                     </button>
                 }
@@ -104,13 +108,16 @@ export function ConnectorsPage() {
                 ) : error ? (
                     <ErrorState
                         message={(error as Error).message}
+                        // i18n: user-facing
                         retryLabel={t('重试', 'Retry')}
                         onRetry={manualRetry}
                         retrying={attempt}
                     />
                 ) : rows.length === 0 ? (
                     <EmptyState
+                        // i18n: user-facing
                         title={t('暂无连接器', 'no connectors')}
+                        // i18n: user-facing
                         description={t('添加第一个连接器', 'add your first connector')}
                     />
                 ) : (
@@ -119,10 +126,13 @@ export function ConnectorsPage() {
                         rowKey={(c) => c.id}
                         pageSize={15}
                         columns={[
+                            // i18n: user-facing
                             { key: 'name', header: t('名称', 'Name'), render: (c) => c.name },
+                            // i18n: user-facing
                             { key: 'type', header: t('类型', 'Type'), render: (c) => c.type },
                             {
                                 key: 'status',
+                                // i18n: user-facing
                                 header: t('状态', 'Status'),
                                 render: (c) => (
                                     <StatusBadge
@@ -139,10 +149,12 @@ export function ConnectorsPage() {
                                         <button
                                             type="button"
                                             onClick={() =>
+                                                // i18n: user-facing
                                                 act(c.id, 'test', t('测试通过', 'test ok'))
                                             }
                                             className="text-text-secondary hover:underline"
                                         >
+                                            // i18n: user-facing
                                             {t('测试', 'Test')}
                                         </button>
                                         {c.status === 'connected' ? (
@@ -152,31 +164,37 @@ export function ConnectorsPage() {
                                                     act(
                                                         c.id,
                                                         'disconnect',
+                                                        // i18n: user-facing
                                                         t('已断开', 'disconnected')
                                                     )
                                                 }
                                                 className="text-warning hover:underline"
                                             >
+                                                // i18n: user-facing
                                                 {t('断开', 'Disconnect')}
                                             </button>
                                         ) : (
                                             <button
                                                 type="button"
                                                 onClick={() =>
+                                                    // i18n: user-facing
                                                     act(c.id, 'connect', t('已连接', 'connected'))
                                                 }
                                                 className="text-success hover:underline"
                                             >
+                                                // i18n: user-facing
                                                 {t('连接', 'Connect')}
                                             </button>
                                         )}
                                         <button
                                             type="button"
                                             onClick={() =>
+                                                // i18n: user-facing
                                                 act(c.id, 'delete', t('已删除', 'deleted'))
                                             }
                                             className="text-error hover:underline"
                                         >
+                                            // i18n: user-facing
                                             {t('删除', 'Delete')}
                                         </button>
                                     </div>
@@ -188,16 +206,21 @@ export function ConnectorsPage() {
             </div>
             <Modal
                 open={showCreate}
+                // i18n: user-facing
                 title={t('新增连接器', 'Add connector')}
                 onClose={() => setShowCreate(false)}
+                // i18n: user-facing
                 footer={<SubmitButton label={t('创建', 'Create')} onAction={create} />}
             >
+                // i18n: user-facing
                 <FormField label={t('名称', 'Name')} required>
                     <TextInput value={name} onChange={setName} />
                 </FormField>
+                // i18n: user-facing
                 <FormField label={t('类型', 'Type')}>
                     <SelectInput value={ctype} onChange={setCtype} options={typeOptions} />
                 </FormField>
+                // i18n: user-facing
                 <FormField label={t('鉴权配置 (JSON)', 'Auth config (JSON)')}>
                     <JsonEditor value={authJson} onChange={setAuthJson} rows={4} />
                 </FormField>

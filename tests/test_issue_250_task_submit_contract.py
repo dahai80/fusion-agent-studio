@@ -58,8 +58,8 @@ async def daemon(socket_path, tmp_path):
 
 
 def _frozen_input() -> str:
-    # #250 冻结契约: input 是 JSON-encoded string (非嵌套对象),
-    # fusion-event 序列化后发。schema 见 trigger_input.py。
+    # #250 frozen contract: input is a JSON-encoded string (not a nested object),
+    # sent serialized by fusion-event. Schema see trigger_input.py.
     return json.dumps(
         {
             "trigger_id": "trig-uuid-1",
@@ -78,12 +78,12 @@ def _frozen_input() -> str:
     )
 
 
-# ── E2E: 冻结请求形状往返 ────────────────────────────────────
+# -- E2E: frozen request shape round-trip ------------------------------------------
 
 
 @pytest.mark.asyncio
 async def test_task_submit_accepts_frozen_contract(daemon, socket_path):
-    # 逐字段对齐 #250 契约请求 params。
+    # Field-by-field alignment with the #250 contract request params.
     params = {
         "title": "event:swift-watch",
         "description": "fileModified @ /Users/x/proj/a.swift",
@@ -95,7 +95,7 @@ async def test_task_submit_accepts_frozen_contract(daemon, socket_path):
         "idempotency_key": "sha256-node-scoped-key-1",
     }
     r = await _rpc_call(socket_path, "task.submit", params)
-    # #250 期望: result.task.task_id (string), error=null/absent。
+    # #250 expects: result.task.task_id (string), error=null/absent.
     assert r["jsonrpc"] == "2.0"
     assert "error" not in r or r["error"] is None
     assert r["result"]["status"] == "ok"
@@ -111,7 +111,7 @@ async def test_task_submit_accepts_frozen_contract(daemon, socket_path):
 
 @pytest.mark.asyncio
 async def test_task_submit_response_path_result_task_task_id(daemon, socket_path):
-    # #250 Q3: 确认响应路径 result.task.task_id (非扁平 task_id)。
+    # #250 Q3: confirm the response path result.task.task_id (not a flat task_id).
     r = await _rpc_call(
         socket_path,
         "task.submit",
@@ -129,8 +129,8 @@ async def test_task_submit_response_path_result_task_task_id(daemon, socket_path
 
 @pytest.mark.asyncio
 async def test_task_submit_input_json_string_decodes(daemon, socket_path):
-    # #250 Q2: input 是 JSON string, agent-studio 存原串, DAG 节点经
-    # parse_trigger_input 解码。验证存原串 + 可解冻结构。
+    # #250 Q2: input is a JSON string; agent-studio stores the raw string, DAG nodes decode it via
+    # parse_trigger_input. Verify raw-string storage + structure can be unfrozen.
     raw = _frozen_input()
     r = await _rpc_call(
         socket_path,
@@ -152,7 +152,7 @@ async def test_task_submit_input_json_string_decodes(daemon, socket_path):
 
 @pytest.mark.asyncio
 async def test_task_submit_idempotency_key_dedup(daemon, socket_path):
-    # #250 Q4: 同 idempotency_key 去重, 返同一 task_id + deduped=True。
+    # #250 Q4: same idempotency_key dedupes, returns the same task_id + deduped=True.
     params = {
         "title": "event:swift-watch",
         "agent_id": "fusion-code",
@@ -171,7 +171,7 @@ async def test_task_submit_idempotency_key_dedup(daemon, socket_path):
 
 @pytest.mark.asyncio
 async def test_task_submit_empty_graph_id_accepted(daemon, socket_path):
-    # #250 契约: graph_id 可为空串 (fusion-event 发空)。
+    # #250 contract: graph_id may be an empty string (fusion-event sends empty).
     r = await _rpc_call(
         socket_path,
         "task.submit",

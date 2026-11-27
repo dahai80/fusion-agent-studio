@@ -106,33 +106,33 @@ AGENT_TEMPLATES: List[Dict[str, Any]] = [
 STARTER_TEMPLATES: List[Dict[str, Any]] = [
     {
         "key": "reconcile",
-        "name": "对账",
-        "description": "核对流水与账面差异，输出差异清单",
-        "ask": "帮我构建一个对账智能体：核对每日流水与账面记录，输出差异清单并给出原因初判。",
+        "name": "对账",  # i18n: user-facing
+        "description": "核对流水与账面差异，输出差异清单",  # i18n: user-facing
+        "ask": "帮我构建一个对账智能体：核对每日流水与账面记录，输出差异清单并给出原因初判。",  # i18n: user-facing
         "tools": ["agent.list"],
     },
     {
         "key": "weekly-report",
-        "name": "周报",
-        "description": "汇总一周运行数据，产出结构化周报",
-        "ask": "帮我构建一个周报智能体：每周汇总运行数据与异常事件，"
-        "产出结构化周报（数据、异常、下周关注）。",
+        "name": "周报",  # i18n: user-facing
+        "description": "汇总一周运行数据，产出结构化周报",  # i18n: user-facing
+        "ask": "帮我构建一个周报智能体：每周汇总运行数据与异常事件，"  # i18n: user-facing
+        "产出结构化周报（数据、异常、下周关注）。",  # i18n: user-facing
         "tools": ["agent.list"],
     },
     {
         "key": "support",
-        "name": "客服",
-        "description": "一线问答与工单初判，超权转人工",
-        "ask": "帮我构建一个客服智能体：回答常见问题、初判工单类别，"
-        "遇到超出权限或情绪激烈的用户必须转人工。",
+        "name": "客服",  # i18n: user-facing
+        "description": "一线问答与工单初判，超权转人工",  # i18n: user-facing
+        "ask": "帮我构建一个客服智能体：回答常见问题、初判工单类别，"  # i18n: user-facing
+        "遇到超出权限或情绪激烈的用户必须转人工。",  # i18n: user-facing
         "tools": ["agent.list"],
     },
     {
         "key": "researcher",
-        "name": "研究员",
-        "description": "多步检索与引用综合，产出研究报告",
-        "ask": "帮我构建一个研究员智能体：对给定主题做多步检索与交叉"
-        "验证，产出带引用的研究报告并标注信心与盲区。",
+        "name": "研究员",  # i18n: user-facing
+        "description": "多步检索与引用综合，产出研究报告",  # i18n: user-facing
+        "ask": "帮我构建一个研究员智能体：对给定主题做多步检索与交叉"  # i18n: user-facing
+        "验证，产出带引用的研究报告并标注信心与盲区。",  # i18n: user-facing
         "tools": ["agent.list"],
     },
 ]

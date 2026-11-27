@@ -6,7 +6,8 @@ AC1: a stock AgentSkills SKILL.md (OpenHands repo) loads and triggers without
 AC2: allowed-tools restriction enforced by the permission engine (role-scoped
      allow rules; non-allowed tools escalate to "ask" once armed).
 
-User instruction: "修复fusion-agent-studio所有issue和pr，提交代码到代码仓，合并所有分支到主干，发布补丁版本"
+User instruction: "Fix all fusion-agent-studio issues and PRs, commit code to the
+repo, merge all branches to main, release a patch version"
 """
 
 from __future__ import annotations

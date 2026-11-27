@@ -80,6 +80,7 @@ export function ApikeysPage() {
     const revoke = async (keyId: string) => {
         try {
             await rpc('apikey.revoke', { key_id: keyId });
+            // i18n: user-facing
             sdk.toast.show({ level: 'success', message: t('已吊销', 'revoked') });
             manualRetry();
         } catch (e) {
@@ -92,7 +93,9 @@ export function ApikeysPage() {
     return (
         <div>
             <PageHeader
+                // i18n: user-facing
                 title={t('API 密钥', 'API Keys')}
+                // i18n: user-facing
                 subtitle={t(`${rows.length} 个密钥`, `${rows.length} keys`)}
                 actions={
                     <button
@@ -100,6 +103,7 @@ export function ApikeysPage() {
                         onClick={() => setShowCreate(true)}
                         className="rounded-md border border-border px-3 py-1.5 text-xs text-text-primary hover:bg-bg-muted"
                     >
+                        // i18n: user-facing
                         {t('新建密钥', 'Create key')}
                     </button>
                 }
@@ -110,10 +114,12 @@ export function ApikeysPage() {
                     className="mx-4 mt-2 rounded-md border border-border bg-bg-card px-3 py-2 text-xs"
                 >
                     <div className="text-text-primary">
+                        // i18n: user-facing
                         {t('本机直连访问密钥', 'Standalone access key')}
                     </div>
                     <div className="mt-1 text-text-secondary">
                         {t(
+                            // i18n: user-facing
                             '独立模式（daemon 静态托管）下，写操作需要访问密钥。粘贴管理员密钥（来自 fusion-agent apikeys recover 或 daemon 首次启动日志），保存后本浏览器所有请求自动携带。',
                             'Standalone mode (daemon static host) enforces auth on writes. Paste an admin key (from fusion-agent apikeys recover or the daemon bootstrap log); after saving, every request from this browser carries it.'
                         )}
@@ -123,6 +129,7 @@ export function ApikeysPage() {
                             data-testid="standalone-key-input"
                             type="password"
                             value={accessKey}
+                            // i18n: user-facing
                             placeholder={t('粘贴访问密钥', 'paste access key')}
                             onChange={(e) => setAccessKey(e.target.value)}
                             className="w-72 rounded-md border border-border bg-bg-elevated px-2 py-1 font-mono text-xs text-text-primary"
@@ -136,6 +143,7 @@ export function ApikeysPage() {
                                 sdk.toast.show({
                                     level: 'success',
                                     message: t(
+                                        // i18n: user-facing
                                         '访问密钥已保存到本浏览器',
                                         'access key saved to this browser'
                                     ),
@@ -143,6 +151,7 @@ export function ApikeysPage() {
                             }}
                             className="rounded-md border border-border px-3 py-1 text-xs text-text-primary hover:bg-bg-muted"
                         >
+                            // i18n: user-facing
                             {t('保存', 'Save')}
                         </button>
                         <button
@@ -153,16 +162,20 @@ export function ApikeysPage() {
                                 setAccessKey('');
                                 sdk.toast.show({
                                     level: 'success',
+                                    // i18n: user-facing
                                     message: t('访问密钥已清除', 'access key cleared'),
                                 });
                             }}
                             className="rounded-md border border-border px-3 py-1 text-xs text-text-secondary hover:bg-bg-muted"
                         >
+                            // i18n: user-facing
                             {t('清除', 'Clear')}
                         </button>
                         <span data-testid="standalone-key-state" className="text-text-muted">
                             {standaloneApiKey()
+                                // i18n: user-facing
                                 ? t('已配置', 'configured')
+                                // i18n: user-facing
                                 : t('未配置', 'not configured')}
                         </span>
                     </div>
@@ -176,29 +189,34 @@ export function ApikeysPage() {
                 className="mx-4 mt-2 rounded-md border border-border bg-bg-card px-3 py-2 text-xs text-text-secondary"
             >
                 <div className="text-text-primary">
+                    // i18n: user-facing
                     {t('如何拿到可用密钥', 'How to get a working key')}
                 </div>
                 <ol className="mt-1 list-decimal space-y-0.5 pl-4">
                     <li>
                         {t(
+                            // i18n: user-facing
                             '点右上角「新建密钥」签发 —— 完整密钥只在创建/轮换时显示一次，请立即保存。',
                             'Create a key above — the full secret is shown once at create/rotate time; save it immediately.'
                         )}
                     </li>
                     <li>
                         {t(
+                            // i18n: user-facing
                             '列表里只显示前缀与 ID，用于辨认密钥；丢失的密钥无法找回，只能轮换或重建。',
                             'The list only shows the prefix and id for identification; a lost secret cannot be recovered — rotate or recreate instead.'
                         )}
                     </li>
                     <li>
                         {t(
+                            // i18n: user-facing
                             '轮换会立即签发新密钥并吊销旧密钥；吊销前的调用不受影响。',
                             'Rotating issues a new secret and revokes the old one immediately; calls made before the rotation are unaffected.'
                         )}
                     </li>
                     <li>
                         {t(
+                            // i18n: user-facing
                             '密钥通过 Authorization: Bearer 调用已发布的 Agent（见下方创建后的调用示例）。',
                             'Call published agents with Authorization: Bearer (see the usage example shown after creation).'
                         )}
@@ -208,12 +226,14 @@ export function ApikeysPage() {
             {created ? (
                 <div className="mx-4 mt-2 rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-xs">
                     <div className="text-text-primary">
+                        // i18n: user-facing
                         {t('新密钥（仅显示一次）', 'new key (shown once)')}:
                     </div>
                     <code className="break-all font-mono text-text-secondary">{created}</code>
                     {/* #530: Claude-console-parity usage example — the key
                         authorizes external calls against deployed agents. */}
                     <div className="mt-2 text-text-secondary">
+                        // i18n: user-facing
                         {t('外部调用示例', 'external call example')}:
                     </div>
                     <pre className="mt-1 overflow-x-auto rounded bg-bg-muted p-2 font-mono text-[10px] text-text-secondary">
@@ -224,6 +244,7 @@ export function ApikeysPage() {
                     </pre>
                     <div className="mt-1 text-text-muted">
                         {t(
+                            // i18n: user-facing
                             '轮换后旧密钥立即失效。',
                             'rotating a key invalidates the old secret immediately.'
                         )}
@@ -236,13 +257,16 @@ export function ApikeysPage() {
                 ) : error ? (
                     <ErrorState
                         message={(error as Error).message}
+                        // i18n: user-facing
                         retryLabel={t('重试', 'Retry')}
                         onRetry={manualRetry}
                         retrying={attempt}
                     />
                 ) : rows.length === 0 ? (
                     <EmptyState
+                        // i18n: user-facing
                         title={t('暂无密钥', 'no keys')}
+                        // i18n: user-facing
                         description={t('创建第一个 API 密钥', 'create your first API key')}
                     />
                 ) : (
@@ -251,6 +275,7 @@ export function ApikeysPage() {
                         rowKey={(k) => k.id ?? k.key_id ?? ''}
                         pageSize={15}
                         columns={[
+                            // i18n: user-facing
                             { key: 'name', header: t('名称', 'Name'), render: (k) => k.name },
                             {
                                 key: 'key_id',
@@ -263,6 +288,7 @@ export function ApikeysPage() {
                             },
                             {
                                 key: 'status',
+                                // i18n: user-facing
                                 header: t('状态', 'Status'),
                                 render: (k) => (
                                     <StatusBadge
@@ -273,6 +299,7 @@ export function ApikeysPage() {
                             },
                             {
                                 key: 'created_at',
+                                // i18n: user-facing
                                 header: t('创建时间', 'Created'),
                                 render: (k) =>
                                     k.created_at ? formatRelativeTime(k.created_at * 1000) : '-',
@@ -287,6 +314,7 @@ export function ApikeysPage() {
                                             onClick={() => rotate(k.id ?? k.key_id ?? '')}
                                             className="text-text-secondary hover:underline"
                                         >
+                                            // i18n: user-facing
                                             {t('轮换', 'Rotate')}
                                         </button>
                                         <button
@@ -294,6 +322,7 @@ export function ApikeysPage() {
                                             onClick={() => revoke(k.id ?? k.key_id ?? '')}
                                             className="text-error hover:underline"
                                         >
+                                            // i18n: user-facing
                                             {t('吊销', 'Revoke')}
                                         </button>
                                     </div>
@@ -305,10 +334,13 @@ export function ApikeysPage() {
             </div>
             <Modal
                 open={showCreate}
+                // i18n: user-facing
                 title={t('新建密钥', 'Create API key')}
                 onClose={() => setShowCreate(false)}
+                // i18n: user-facing
                 footer={<SubmitButton label={t('创建', 'Create')} onAction={create} />}
             >
+                // i18n: user-facing
                 <FormField label={t('名称', 'Name')} required>
                     <TextInput value={name} onChange={setName} />
                 </FormField>

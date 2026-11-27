@@ -38,10 +38,15 @@ const ACTIVE_STATUSES = new Set(['pending', 'submitted', 'running']);
 type DetailTab = 'summary' | 'events' | 'tools' | 'threads' | 'resources';
 
 const DETAIL_TABS: Array<{ key: DetailTab; label: string; labelEn: string }> = [
+    // i18n: user-facing
     { key: 'summary', label: '概览', labelEn: 'Summary' },
+    // i18n: user-facing
     { key: 'events', label: '事件', labelEn: 'Events' },
+    // i18n: user-facing
     { key: 'tools', label: '工具', labelEn: 'Tools' },
+    // i18n: user-facing
     { key: 'threads', label: '线程', labelEn: 'Threads' },
+    // i18n: user-facing
     { key: 'resources', label: '资源', labelEn: 'Resources' },
 ];
 
@@ -127,11 +132,13 @@ export function RunDetailPage({ runId }: { runId: string }) {
     const doCancel = async () => {
         try {
             await api.cancelRun(runId);
+            // i18n: user-facing
             sdk.toast.show({ level: 'info', message: t('已请求取消', 'cancel requested') });
             await refresh();
         } catch (e) {
             sdk.toast.show({
                 level: 'error',
+                // i18n: user-facing
                 message: `${t('取消失败', 'cancel failed')}: ${(e as Error).message}`,
             });
         } finally {
@@ -142,10 +149,13 @@ export function RunDetailPage({ runId }: { runId: string }) {
     if (loadError && !run) {
         return (
             <div>
+                // i18n: user-facing
                 <PageHeader title={t('运行详情', 'Run detail')} subtitle={runId} />
                 <div className="px-4 pt-3">
                     <ErrorState
+                        // i18n: user-facing
                         message={`${t('加载失败', 'load failed')}: ${loadError}`}
+                        // i18n: user-facing
                         retryLabel={t('重试', 'Retry')}
                         onRetry={() => void refresh()}
                     />
@@ -157,6 +167,7 @@ export function RunDetailPage({ runId }: { runId: string }) {
     if (!run) {
         return (
             <div>
+                // i18n: user-facing
                 <PageHeader title={t('运行详情', 'Run detail')} subtitle={runId} />
                 <div className="px-4 pt-3">
                     <SkeletonLines rows={6} />
@@ -168,11 +179,17 @@ export function RunDetailPage({ runId }: { runId: string }) {
     const active = ACTIVE_STATUSES.has(run.status);
     const events = run.progress?.events ?? 0;
     const statusLabelMap: Record<string, [string, string]> = {
+        // i18n: user-facing
         pending: ['等待中', 'pending'],
+        // i18n: user-facing
         submitted: ['已提交', 'submitted'],
+        // i18n: user-facing
         running: ['运行中', 'running'],
+        // i18n: user-facing
         completed: ['已完成', 'completed'],
+        // i18n: user-facing
         failed: ['失败', 'failed'],
+        // i18n: user-facing
         canceled: ['已取消', 'canceled'],
     };
     const pair = statusLabelMap[run.status] ?? [run.status, run.status];
@@ -181,6 +198,7 @@ export function RunDetailPage({ runId }: { runId: string }) {
     return (
         <div className="flex flex-col gap-3">
             <PageHeader
+                // i18n: user-facing
                 title={t('运行详情', 'Run detail')}
                 subtitle={runId}
                 actions={
@@ -192,6 +210,7 @@ export function RunDetailPage({ runId }: { runId: string }) {
                                 onClick={() => setCancelOpen(true)}
                                 className="rounded-md border border-error/60 px-3 py-1.5 text-xs text-error hover:bg-error/10"
                             >
+                                // i18n: user-facing
                                 {t('取消运行', 'Cancel run')}
                             </button>
                         ) : null}
@@ -229,6 +248,7 @@ export function RunDetailPage({ runId }: { runId: string }) {
                             errorLog={run.error || undefined}
                         />
                         <KVPanel
+                            // i18n: user-facing
                             title={t('运行信息', 'Run info')}
                             object={{
                                 run_id: run.run_id,
@@ -247,6 +267,7 @@ export function RunDetailPage({ runId }: { runId: string }) {
                         />
                         {result ? (
                             <KVPanel
+                                // i18n: user-facing
                                 title={t('结果', 'Result')}
                                 object={{
                                     status: result.status,
@@ -305,9 +326,11 @@ export function RunDetailPage({ runId }: { runId: string }) {
                     <div className="flex flex-col gap-2">
                         <div className="flex items-center justify-between gap-2">
                             <span className="text-sm text-text-primary">
+                                // i18n: user-facing
                                 {t('流式重放', 'Live replay')}
                                 {rerunNode ? (
                                     <span className="ml-2 font-mono text-xs text-warning">
+                                        // i18n: user-facing
                                         {t('单节点重跑', 'rerun')}: {rerunNode}
                                     </span>
                                 ) : null}
@@ -319,6 +342,7 @@ export function RunDetailPage({ runId }: { runId: string }) {
                                         onClick={() => setRerunNode('')}
                                         className="rounded-md border border-border px-3 py-1.5 text-xs text-text-secondary hover:bg-bg-muted"
                                     >
+                                        // i18n: user-facing
                                         {t('改为整图重放', 'Full graph replay')}
                                     </button>
                                 ) : null}
@@ -328,7 +352,9 @@ export function RunDetailPage({ runId }: { runId: string }) {
                                     className="rounded-md border border-border px-4 py-2 text-sm text-text-primary hover:bg-bg-muted"
                                 >
                                     {streaming
+                                        // i18n: user-facing
                                         ? t('关闭', 'Close')
+                                        // i18n: user-facing
                                         : t('开始流式重放', 'start live replay')}
                                 </button>
                             </div>
@@ -339,6 +365,7 @@ export function RunDetailPage({ runId }: { runId: string }) {
                                     value={replayInput}
                                     onChange={setReplayInput}
                                     placeholder={t(
+                                        // i18n: user-facing
                                         '重放输入（默认复用运行目标）',
                                         'replay input (defaults to run goal)'
                                     )}
@@ -356,12 +383,16 @@ export function RunDetailPage({ runId }: { runId: string }) {
             </div>
             <ConfirmDialog
                 open={cancelOpen}
+                // i18n: user-facing
                 title={t('取消运行', 'Cancel run')}
                 description={t(
+                    // i18n: user-facing
                     `确定取消 ${runId} 吗？该操作不可撤销。`,
                     `Cancel run ${runId}? This cannot be undone.`
                 )}
+                // i18n: user-facing
                 confirmLabel={t('取消运行', 'Cancel run')}
+                // i18n: user-facing
                 cancelLabel={t('返回', 'Back')}
                 danger
                 onConfirm={doCancel}
@@ -383,6 +414,7 @@ function EventsTab({
     const t = useT();
     const nodes = spans?.nodes ?? [];
     if (!nodes.length) {
+        // i18n: user-facing
         return <div className="text-xs text-text-secondary">{t('暂无事件', 'no events yet')}</div>;
     }
     return (
@@ -390,10 +422,14 @@ function EventsTab({
             <table className="w-full text-left text-xs">
                 <thead className="text-text-secondary">
                     <tr>
+                        // i18n: user-facing
                         <th className="py-1.5 pr-3">{t('节点', 'Node')}</th>
+                        // i18n: user-facing
                         <th className="py-1.5 pr-3">{t('状态', 'Status')}</th>
+                        // i18n: user-facing
                         <th className="py-1.5 pr-3">{t('工具调用', 'Tool calls')}</th>
                         <th className="py-1.5 pr-3">{t('Token', 'Tokens')}</th>
+                        // i18n: user-facing
                         <th className="py-1.5 pr-3">{t('错误', 'Error')}</th>
                         <th className="py-1.5" />
                     </tr>
@@ -415,6 +451,7 @@ function EventsTab({
                                         onClick={() => onRerunNode(n.node_id)}
                                         className="rounded-md border border-border px-2 py-0.5 text-text-secondary hover:bg-bg-muted"
                                     >
+                                        // i18n: user-facing
                                         {t('重跑', 'rerun')}
                                     </button>
                                 ) : null}
@@ -464,6 +501,7 @@ function ToolsTab({
     if (!stats.length) {
         return (
             <div className="text-xs text-text-secondary">
+                // i18n: user-facing
                 {t('该运行没有工具调用', 'no tool calls in this run')}
             </div>
         );
@@ -473,10 +511,15 @@ function ToolsTab({
             <table className="w-full text-left text-xs">
                 <thead className="text-text-secondary">
                     <tr>
+                        // i18n: user-facing
                         <th className="py-1.5 pr-3">{t('工具', 'Tool')}</th>
+                        // i18n: user-facing
                         <th className="py-1.5 pr-3">{t('调用', 'Calls')}</th>
+                        // i18n: user-facing
                         <th className="py-1.5 pr-3">{t('失败', 'Failures')}</th>
+                        // i18n: user-facing
                         <th className="py-1.5 pr-3">{t('失败率', 'Failure rate')}</th>
+                        // i18n: user-facing
                         <th className="py-1.5 pr-3">{t('中位时长', 'Median')}</th>
                         <th className="py-1.5">{t('P95', 'P95')}</th>
                     </tr>
@@ -547,6 +590,7 @@ function ThreadsTab({
     if (!lanes.length) {
         return (
             <div className="text-xs text-text-secondary">
+                // i18n: user-facing
                 {t('该运行没有事件线程', 'no event threads in this run')}
             </div>
         );
@@ -563,6 +607,7 @@ function ThreadsTab({
                         <div className="flex items-center justify-between text-xs">
                             <span className="font-mono text-text-primary">{lane.label}</span>
                             <span className="text-text-secondary">
+                                // i18n: user-facing
                                 {lane.event_count} {t('事件', 'events')} · {t('深度', 'depth')}{' '}
                                 {lane.max_depth}
                             </span>
@@ -616,6 +661,7 @@ function ResourcesTab({ run, result }: { run: RunDetail; result: RunResult | nul
     return (
         <div data-testid="resources-tab" className="flex flex-col gap-2 text-xs">
             <KVPanel
+                // i18n: user-facing
                 title={t('产物', 'Artifacts')}
                 object={{
                     count: artifactIds.length,
@@ -624,11 +670,13 @@ function ResourcesTab({ run, result }: { run: RunDetail; result: RunResult | nul
             />
             {result?.artifacts?.length ? (
                 <KVPanel
+                    // i18n: user-facing
                     title={t('结果产物', 'Result artifacts')}
                     object={{ ids: result.artifacts.join(', ') }}
                 />
             ) : null}
             {result?.last_result && Object.keys(result.last_result).length ? (
+                // i18n: user-facing
                 <KVPanel title={t('最终输出', 'Final output')} object={result.last_result} />
             ) : null}
         </div>
@@ -650,6 +698,7 @@ function SessionOps({ sessionId }: { sessionId: string }) {
             );
             sdk.toast.show({
                 level: 'success',
+                // i18n: user-facing
                 message: `${t('已分支', 'forked')}: ${res.session_id ?? res.id ?? '-'}`,
             });
         } catch (e) {
@@ -664,6 +713,7 @@ function SessionOps({ sessionId }: { sessionId: string }) {
                 input: injectText.trim(),
             });
             setInjectText('');
+            // i18n: user-facing
             sdk.toast.show({ level: 'success', message: t('已注入下一轮', 'injected') });
         } catch (e) {
             sdk.toast.show({ level: 'error', message: (e as Error).message });
@@ -673,6 +723,7 @@ function SessionOps({ sessionId }: { sessionId: string }) {
     return (
         <div data-testid="session-ops" className="mt-3 text-xs">
             <div className="text-text-primary">
+                // i18n: user-facing
                 {t('会话操作', 'Session ops')}{' '}
                 <span className="font-mono text-text-secondary">{sessionId}</span>
             </div>
@@ -683,11 +734,13 @@ function SessionOps({ sessionId }: { sessionId: string }) {
                     onClick={fork}
                     className="rounded-md border border-border px-3 py-1 text-text-primary hover:bg-bg-muted"
                 >
+                    // i18n: user-facing
                     {t('分支会话', 'Fork session')}
                 </button>
                 <input
                     type="text"
                     value={injectText}
+                    // i18n: user-facing
                     placeholder={t('注入下一轮的输入', 'input to inject for the next turn')}
                     onChange={(e) => setInjectText(e.target.value)}
                     className="w-64 rounded-md border border-border bg-bg-elevated px-2 py-1 text-text-primary"
@@ -698,6 +751,7 @@ function SessionOps({ sessionId }: { sessionId: string }) {
                     onClick={inject}
                     className="rounded-md border border-border px-3 py-1 text-text-primary hover:bg-bg-muted"
                 >
+                    // i18n: user-facing
                     {t('注入', 'Inject')}
                 </button>
             </div>

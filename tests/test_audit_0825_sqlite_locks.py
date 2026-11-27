@@ -1,11 +1,14 @@
-"""审计 A-6/R-7/3M-3 回归: 5 个 SQLite 库统一加 threading.RLock + WAL + busy_timeout.
+"""Audit A-6/R-7/3M-3 regression: 5 SQLite stores unified threading.RLock + WAL
++ busy_timeout.
 
-memory_engine 已有 (#174), 其余 4 库 (persistence/task_store/triggers/metrics/knowledge)
-在 v0.3.45 (47d9e4c) 无锁无 WAL, 跨线程 asyncio.to_thread 共享单连接写竞态.
-本测试验证:
-  1. 各库连接开启 WAL + busy_timeout PRAGMA
-  2. 各库实例持有 _write_lock (threading.RLock)
-  3. 并发 asyncio.to_thread 写不抛 OperationalError/ProgrammingError 且结果完整
+memory_engine already had it (#174); the other 4 stores (persistence/task_store/
+triggers/metrics/knowledge) were lockless and WAL-less in v0.3.45 (47d9e4c), with
+cross-thread asyncio.to_thread write races on a shared single connection.
+This test verifies:
+  1. Each store's connection enables WAL + busy_timeout PRAGMA
+  2. Each store instance holds _write_lock (threading.RLock)
+  3. Concurrent asyncio.to_thread writes raise no
+     OperationalError/ProgrammingError and results stay complete
 """
 
 import asyncio
@@ -69,7 +72,9 @@ async def test_task_store_concurrent_submit_is_atomic(tmp_path):
 
     ids = await asyncio.gather(*(_one(i) for i in range(16)))
     assert len(ids) == 16
-    assert len({t.task_id for t in ids}) == 16, "并发提交 id 必须唯一 (原子自增)"
+    assert len({t.task_id for t in ids}) == 16, (
+        "concurrent submit ids must be unique (atomic increment)"
+    )
     assert ts.list(limit=100) and len(ts.list(limit=100)) == 16
     ts.close()
 

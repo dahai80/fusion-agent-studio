@@ -4,7 +4,7 @@ Memory Auto-Compression, Planner, LlamaIndex Readers, AgentPackage workspace.
 Callers: pytest test runner. API: all new classes from plaza, safety, rag_pipeline,
 memory_engine, planner, data_ingestion, agent_package, llm_gateway, graph, runtime.
 Schemas: GatewayResponse, PlazaMessage, ExecutionPlan, PlanStep, RAGResult, MemoryTier,
-SafetyPolicy, DiffPreviewRequest, Document. User instruction: "把所有P0，P1和P2全部落地"
+SafetyPolicy, DiffPreviewRequest, Document. User instruction: "Land all P0, P1 and P2 items"
 """
 
 import shutil

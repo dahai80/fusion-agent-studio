@@ -210,7 +210,8 @@ class VerificationEngine:
             )
 
             content = ""
-            # 审计 E-12: gateway finish_reason=="error" 哨兵 content="" 不代表成功, 抛错走重试.
+            # Audit E-12: gateway finish_reason=="error" sentinel with content="" is not
+            # success; raise so the retry path kicks in.
             if hasattr(response, "finish_reason") and response.finish_reason == "error":
                 err = (getattr(response, "usage", None) or {}).get("error", "gateway error")
                 raise RuntimeError(f"LLM gateway error: {err}")

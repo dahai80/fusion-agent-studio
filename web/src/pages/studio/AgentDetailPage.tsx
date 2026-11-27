@@ -58,7 +58,9 @@ export function AgentDetailPage({ agentId }: { agentId: string }) {
                 level: 'success',
                 message:
                     status === 'published'
+                        // i18n: user-facing
                         ? t('已取消发布', 'unpublished')
+                        // i18n: user-facing
                         : t('已发布', 'published'),
             });
             manualRetry();
@@ -70,6 +72,7 @@ export function AgentDetailPage({ agentId }: { agentId: string }) {
     return (
         <div>
             <PageHeader
+                // i18n: user-facing
                 title={a.name ?? t('加载中…', 'Loading…')}
                 subtitle={agentId}
                 actions={
@@ -81,6 +84,7 @@ export function AgentDetailPage({ agentId }: { agentId: string }) {
                             }}
                             className="rounded-md border border-border px-3 py-1.5 text-xs text-text-primary hover:bg-bg-muted"
                         >
+                            // i18n: user-facing
                             {t('返回', 'Back')}
                         </button>
                         <button
@@ -89,7 +93,9 @@ export function AgentDetailPage({ agentId }: { agentId: string }) {
                             className="rounded-md border border-border px-3 py-1.5 text-xs text-text-primary hover:bg-bg-muted"
                         >
                             {status === 'published'
+                                // i18n: user-facing
                                 ? t('取消发布', 'Unpublish')
+                                // i18n: user-facing
                                 : t('发布', 'Publish')}
                         </button>
                     </div>
@@ -103,6 +109,7 @@ export function AgentDetailPage({ agentId }: { agentId: string }) {
                 <div className="px-4 pt-3">
                     <ErrorState
                         message={error.message}
+                        // i18n: user-facing
                         retryLabel={t('重试', 'Retry')}
                         onRetry={manualRetry}
                         retrying={attempt}
@@ -115,13 +122,18 @@ export function AgentDetailPage({ agentId }: { agentId: string }) {
                             key: k,
                             label:
                                 k === 'soul'
+                                    // i18n: user-facing
                                     ? t('灵魂', 'Soul')
                                     : k === 'skills'
+                                      // i18n: user-facing
                                       ? t('技能', 'Skills')
                                       : k === 'versions'
+                                        // i18n: user-facing
                                         ? t('版本', 'Versions')
                                         : k === 'persona'
+                                          // i18n: user-facing
                                           ? t('人设', 'Persona')
+                                          // i18n: user-facing
                                           : t('测试', 'Test'),
                         }))}
                         active={tab}
@@ -153,6 +165,7 @@ function SoulSection({ agentId }: { agentId: string }) {
     const save = async () => {
         try {
             await rpc('agent.update_soul', { agent_id: agentId, soul: value });
+            // i18n: user-facing
             sdk.toast.show({ level: 'success', message: t('已保存', 'saved') });
             setSoul(null);
             manualRetry();
@@ -173,6 +186,7 @@ function SoulSection({ agentId }: { agentId: string }) {
             <div className="px-4">
                 <ErrorState
                     message={error.message}
+                    // i18n: user-facing
                     retryLabel={t('重试', 'Retry')}
                     onRetry={manualRetry}
                     retrying={attempt}
@@ -182,10 +196,12 @@ function SoulSection({ agentId }: { agentId: string }) {
     }
     return (
         <div className="flex flex-col gap-3 px-4">
+            // i18n: user-facing
             <FormField label={t('灵魂 (Markdown)', 'Soul (Markdown)')}>
                 <Textarea value={value} onChange={setSoul} rows={14} mono />
             </FormField>
             <div>
+                // i18n: user-facing
                 <SubmitButton label={t('保存灵魂', 'Save soul')} onAction={save} />
             </div>
         </div>
@@ -207,6 +223,7 @@ function SkillsSection({ agentId }: { agentId: string }) {
         if (!name.trim()) return;
         try {
             await rpc('agent.add_skill', { agent_id: agentId, name: name.trim(), content });
+            // i18n: user-facing
             sdk.toast.show({ level: 'success', message: t('技能已添加', 'skill added') });
             setShowAdd(false);
             setName('');
@@ -220,6 +237,7 @@ function SkillsSection({ agentId }: { agentId: string }) {
     const del = async (skillName: string) => {
         try {
             await rpc('agent.delete_skill', { agent_id: agentId, skill_name: skillName });
+            // i18n: user-facing
             sdk.toast.show({ level: 'success', message: t('已删除', 'deleted') });
             manualRetry();
         } catch (e) {
@@ -235,6 +253,7 @@ function SkillsSection({ agentId }: { agentId: string }) {
                     onClick={() => setShowAdd(true)}
                     className="rounded-md border border-border px-3 py-1.5 text-xs text-text-primary hover:bg-bg-muted"
                 >
+                    // i18n: user-facing
                     {t('新增技能', 'Add skill')}
                 </button>
             </div>
@@ -243,13 +262,16 @@ function SkillsSection({ agentId }: { agentId: string }) {
             ) : error ? (
                 <ErrorState
                     message={error.message}
+                    // i18n: user-facing
                     retryLabel={t('重试', 'Retry')}
                     onRetry={manualRetry}
                     retrying={attempt}
                 />
             ) : rows.length === 0 ? (
                 <EmptyState
+                    // i18n: user-facing
                     title={t('暂无技能', 'no skills')}
+                    // i18n: user-facing
                     description={t('添加第一个技能', 'add your first skill')}
                 />
             ) : (
@@ -260,6 +282,7 @@ function SkillsSection({ agentId }: { agentId: string }) {
                     columns={[
                         {
                             key: 'name',
+                            // i18n: user-facing
                             header: t('名称', 'Name'),
                             render: (s) => (
                                 <span className="font-mono text-xs">{s.name ?? '-'}</span>
@@ -267,6 +290,7 @@ function SkillsSection({ agentId }: { agentId: string }) {
                         },
                         {
                             key: 'description',
+                            // i18n: user-facing
                             header: t('描述', 'Description'),
                             render: (s) => (
                                 <span className="line-clamp-2 text-sm">{s.description ?? '-'}</span>
@@ -282,6 +306,7 @@ function SkillsSection({ agentId }: { agentId: string }) {
                                         onClick={() => del(s.name as string)}
                                         className="text-xs text-error hover:underline"
                                     >
+                                        // i18n: user-facing
                                         {t('删除', 'Delete')}
                                     </button>
                                 ) : null,
@@ -291,13 +316,17 @@ function SkillsSection({ agentId }: { agentId: string }) {
             )}
             <Modal
                 open={showAdd}
+                // i18n: user-facing
                 title={t('新增技能', 'Add skill')}
                 onClose={() => setShowAdd(false)}
+                // i18n: user-facing
                 footer={<SubmitButton label={t('添加', 'Add')} onAction={add} />}
             >
+                // i18n: user-facing
                 <FormField label={t('名称', 'Name')} required>
                     <TextInput value={name} onChange={setName} />
                 </FormField>
+                // i18n: user-facing
                 <FormField label={t('内容', 'Content')}>
                     <Textarea value={content} onChange={setContent} rows={8} mono />
                 </FormField>
@@ -325,6 +354,7 @@ function VersionsSection({ agentId }: { agentId: string }) {
             <div className="px-4">
                 <ErrorState
                     message={error.message}
+                    // i18n: user-facing
                     retryLabel={t('重试', 'Retry')}
                     onRetry={manualRetry}
                     retrying={attempt}
@@ -335,6 +365,7 @@ function VersionsSection({ agentId }: { agentId: string }) {
     if (rows.length === 0) {
         return (
             <div className="px-4">
+                // i18n: user-facing
                 <EmptyState title={t('暂无版本', 'no versions')} />
             </div>
         );
@@ -348,6 +379,7 @@ function VersionsSection({ agentId }: { agentId: string }) {
                 columns={[
                     {
                         key: 'version',
+                        // i18n: user-facing
                         header: t('版本', 'Version'),
                         render: (v) => (
                             <span className="font-mono text-xs">{v.version ?? '-'}</span>
@@ -355,12 +387,14 @@ function VersionsSection({ agentId }: { agentId: string }) {
                     },
                     {
                         key: 'created_at',
+                        // i18n: user-facing
                         header: t('创建时间', 'Created'),
                         render: (v) =>
                             v.created_at ? new Date(v.created_at * 1000).toLocaleString() : '-',
                     },
                     {
                         key: 'note',
+                        // i18n: user-facing
                         header: t('备注', 'Note'),
                         render: (v) => (
                             <span className="line-clamp-2 text-sm">{v.note ?? '-'}</span>
@@ -396,10 +430,12 @@ function TestSection({ agentId }: { agentId: string }) {
 
     return (
         <div className="flex flex-col gap-3 px-4">
+            // i18n: user-facing
             <FormField label={t('输入', 'Input')}>
                 <Textarea value={input} onChange={setInput} rows={6} />
             </FormField>
             <div>
+                // i18n: user-facing
                 <SubmitButton label={t('运行测试', 'Run test')} onAction={run} disabled={busy} />
             </div>
             {result !== null ? (
@@ -466,6 +502,7 @@ function PersonaSection({ agentId }: { agentId: string }) {
         setSaving(true);
         try {
             await rpc('agent.set_persona_file', { layer, name, path: selected, content });
+            // i18n: user-facing
             sdk.toast.show({ level: 'success', message: t('已保存', 'saved') });
         } catch (e) {
             sdk.toast.show({ level: 'error', message: (e as Error).message });
@@ -494,6 +531,7 @@ function PersonaSection({ agentId }: { agentId: string }) {
             <div className="px-4">
                 <ErrorState
                     message={error.message}
+                    // i18n: user-facing
                     retryLabel={t('重试', 'Retry')}
                     onRetry={manualRetry}
                     retrying={attempt}
@@ -507,23 +545,29 @@ function PersonaSection({ agentId }: { agentId: string }) {
         <div className="flex flex-col gap-4 px-4 pb-4">
             <div className="rounded-card border border-border bg-bg-elevated p-4">
                 <div className="text-sm font-medium text-text-primary">
+                    // i18n: user-facing
                     {t('生效人设', 'Effective persona')}
                 </div>
                 <div className="mt-1 text-xs text-text-muted">
+                    // i18n: user-facing
                     {t('应用层', 'Layers')}: {(data?.layers_applied ?? []).join(' → ') || '-'}
                 </div>
                 <div className="mt-2 text-xs text-text-muted">
+                    // i18n: user-facing
                     {t('规则', 'Rules')}: {decls.rules.length ? decls.rules.join('; ') : '-'}
                 </div>
                 <div className="mt-1 text-xs text-text-muted">
+                    // i18n: user-facing
                     {t('记忆范围', 'Memory scope')}: {decls.memory_scope || '-'}
                 </div>
                 <div className="mt-1 text-xs text-text-muted">
+                    // i18n: user-facing
                     {t('技能', 'Skills')}: {decls.skills.length ? decls.skills.join('; ') : '-'}
                 </div>
                 <div className="mt-2">
                     {conflicts.length === 0 ? (
                         <span className="text-xs text-text-muted">
+                            // i18n: user-facing
                             {t('无冲突', 'No conflicts')}
                         </span>
                     ) : (
@@ -540,6 +584,7 @@ function PersonaSection({ agentId }: { agentId: string }) {
 
             <div className="rounded-card border border-border bg-bg-elevated p-4">
                 <div className="text-sm font-medium text-text-primary">
+                    // i18n: user-facing
                     {t('层级文件', 'Layer files')}
                 </div>
                 <div className="mt-2 flex flex-wrap items-center gap-2">
@@ -563,6 +608,7 @@ function PersonaSection({ agentId }: { agentId: string }) {
                     <input
                         value={name}
                         onChange={(e) => setName(e.target.value)}
+                        // i18n: user-facing
                         placeholder={t('租户/团队名', 'tenant/team name')}
                         className="w-40 rounded-md border border-border bg-bg px-2 py-1.5 text-xs text-text-primary focus:outline-none"
                     />
@@ -571,6 +617,7 @@ function PersonaSection({ agentId }: { agentId: string }) {
                         onClick={() => loadFiles(layer, name)}
                         className="rounded-md border border-border px-3 py-1.5 text-xs text-text-primary hover:bg-bg-muted"
                     >
+                        // i18n: user-facing
                         {t('加载', 'Load')}
                     </button>
                 </div>
@@ -599,6 +646,7 @@ function PersonaSection({ agentId }: { agentId: string }) {
                         value={newPath}
                         onChange={(e) => setNewPath(e.target.value)}
                         placeholder={t(
+                            // i18n: user-facing
                             '新文件路径 (persona/tone.md)',
                             'new file path (persona/tone.md)'
                         )}
@@ -609,6 +657,7 @@ function PersonaSection({ agentId }: { agentId: string }) {
                         onClick={createFile}
                         className="rounded-md border border-border px-3 py-1.5 text-xs text-text-primary hover:bg-bg-muted"
                     >
+                        // i18n: user-facing
                         {t('新建', 'Create')}
                     </button>
                 </div>
@@ -619,6 +668,7 @@ function PersonaSection({ agentId }: { agentId: string }) {
                         </FormField>
                         <div className="mt-2">
                             <SubmitButton
+                                // i18n: user-facing
                                 label={t('保存文件', 'Save file')}
                                 onAction={save}
                                 disabled={saving}

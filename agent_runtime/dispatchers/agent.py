@@ -473,9 +473,10 @@ class AgentDispatcher(SubDispatcher):
             manifest.capabilities = config["capabilities"]
         if "safety_level" in config:
             manifest.safety_level = config["safety_level"]
-        # C12: SDK 程序化配置扩展字段. context_window 入 manifest;
-        # 审计 P1-18: max_iterations 入 manifest 持久化 (原注释说 runtime 层读但
-        # 从未持久化也从未读, dead config). agent.execute 执行时透传到 execute_graph.
+        # C12: SDK programmatic config extension fields. context_window goes into
+        # the manifest; Audit P1-18: max_iterations persisted in the manifest (the
+        # old comment claimed the runtime layer read it, but it was never persisted
+        # nor read - dead config). agent.execute passes it through to execute_graph.
         if "context_window" in config:
             manifest.context_window = int(config["context_window"])
         if "max_iterations" in config:
@@ -568,10 +569,11 @@ class AgentDispatcher(SubDispatcher):
         except Exception:
             logger.exception("capability tool sync failed agent=%s", agent_id)
 
-        # 审计 P1-18: 透传 per-agent max_iterations (manifest 持久化值).
-        # 0=用 runtime 默认 (25), 正数覆盖.
+        # Audit P1-18: pass through per-agent max_iterations (manifest-persisted value).
+        # 0=use runtime default (25), positive overrides.
         agent_max_iter = manifest.max_iterations if manifest.max_iterations else None
-        # 审计 P2-5/P2-6/P0-3: agent.execute 直调 rt 绕过注册/节流/预算, 同 WS/SSE 补.
+        # Audit P2-5/P2-6/P0-3: agent.execute calls rt directly, bypassing
+        # registration/throttle/budget - mirror WS/SSE handling here.
         _unreg = None
         try:
             _, _unreg = self._daemon.register_execution("agent", agent_id)
@@ -580,9 +582,11 @@ class AgentDispatcher(SubDispatcher):
         sem = self._daemon.graph_semaphore
         budget = self._daemon.token_budget_ref
 
-        # 审计 P2-18/E-17: 构建 per-exec ctx (同 graph.execute RPC), 传 context= 让
-        # checkpoint/resume 链对齐真实 session_id. 旧版不传 ctx + 返回伪造
-        # sess-{timestamp} -> checkpoint 存的 session_id 与返回值不符, resume 断裂.
+        # Audit P2-18/E-17: build a per-exec ctx (same as the graph.execute RPC),
+        # passing context= so the checkpoint/resume chain aligns with the real
+        # session_id. The old version passed no ctx and returned a fabricated
+        # sess-{timestamp} -> the checkpoint's session_id mismatched the return
+        # value and resume broke.
         from ..context import AgentContext
 
         session_id = f"agent-{agent_id}-{int(time.time() * 1000)}"
@@ -1186,7 +1190,7 @@ class AgentDispatcher(SubDispatcher):
             "error": None,
             "created_at": __import__("time").time(),
         }
-        self._daemon._reap_code_tasks()  # E-13: 提交前清理过期/超容
+        self._daemon._reap_code_tasks()  # E-13: reap expired/over-capacity before submit
         self._daemon._code_tasks[task_id] = task
         logger.info("agent.submit_code_task: task=%s agent=%s", task_id, agent_id)
 
@@ -1283,7 +1287,7 @@ class AgentDispatcher(SubDispatcher):
     async def _handle_agent_tasks(self, params: dict) -> dict:
         agent_id = params.get("agent_id")
         status_filter = params.get("status")
-        self._daemon._reap_code_tasks()  # E-13: 读时清理过期/超容
+        self._daemon._reap_code_tasks()  # E-13: reap expired/over-capacity on read
         tasks = list(self._daemon._code_tasks.values())
         if agent_id:
             tasks = [t for t in tasks if t["agent_id"] == agent_id]
@@ -1485,9 +1489,10 @@ class AgentDispatcher(SubDispatcher):
         except Exception:
             logger.exception("capability tool sync failed agent=%s", agent_id)
 
-        # 审计 P1-18: 透传 per-agent max_iterations (与 agent.execute 一致).
+        # Audit P1-18: pass through per-agent max_iterations (same as agent.execute).
         agent_max_iter = manifest.max_iterations if manifest.max_iterations else None
-        # 审计 P2-5/P2-6/P0-3: agent.execute_stream 同补注册/节流/预算.
+        # Audit P2-5/P2-6/P0-3: agent.execute_stream also needs
+        # registration/throttle/budget.
         _unreg = None
         try:
             _, _unreg = self._daemon.register_execution("agent_stream", agent_id)
@@ -1550,8 +1555,9 @@ class AgentDispatcher(SubDispatcher):
             len(events),
             len(tool_calls_log),
         )
-        # 审计 P2-3: JSON-RPC 单响应无法真流式 (须 WS 通道). 保留批量返回作回退,
-        # 显式标注 streaming=false + 引导真流式调用方走 WS /ws/execute/{id}.
+        # Audit P2-3: a single JSON-RPC response cannot truly stream (needs a WS
+        # channel). Keep the batch return as fallback, explicitly mark
+        # streaming=false, and point true-streaming callers at WS /ws/execute/{id}.
         return {
             "execution_id": execution_id,
             "agent_id": agent_id,

@@ -44,6 +44,7 @@ export function ObservabilityPage() {
             a.download = 'cluster-logs.txt';
             a.click();
             URL.revokeObjectURL(url);
+            // i18n: user-facing
             sdk.toast.show({ level: 'success', message: t('已导出', 'exported') });
         } catch (e) {
             sdk.toast.show({ level: 'error', message: (e as Error).message });
@@ -53,8 +54,10 @@ export function ObservabilityPage() {
     return (
         <div>
             <PageHeader
+                // i18n: user-facing
                 title={t('可观测', 'Observability')}
                 subtitle={t(
+                    // i18n: user-facing
                     '集群告警 / 建议 / 日志导出',
                     'cluster alerts / suggestions / log export'
                 )}
@@ -65,15 +68,18 @@ export function ObservabilityPage() {
                         onClick={exportLogs}
                         className="rounded-md border border-border px-3 py-1.5 text-xs text-text-primary hover:bg-bg-muted"
                     >
+                        // i18n: user-facing
                         {t('导出日志', 'Export logs')}
                     </button>
                 }
             />
             <div className="mx-4 mt-3 text-xs">
+                // i18n: user-facing
                 <div className="text-text-primary">{t('告警', 'Alerts')}</div>
                 <AlertsList state={alerts} t={t} />
             </div>
             <div className="mx-4 mt-3 text-xs">
+                // i18n: user-facing
                 <div className="text-text-primary">{t('建议', 'Suggestions')}</div>
                 <SuggestionsList state={suggestions} t={t} />
             </div>
@@ -99,6 +105,7 @@ function AlertsList(props: {
     if (loading && attempt === 0) return <SkeletonLines rows={2} />;
     const rows = data?.alerts ?? [];
     if (rows.length === 0) {
+        // i18n: user-facing
         return <div className="mt-1 text-text-muted">{t('暂无告警', 'no alerts')}</div>;
     }
     return (
@@ -138,6 +145,7 @@ function SuggestionsList(props: {
     if (loading && attempt === 0) return <SkeletonLines rows={2} />;
     const rows = data?.suggestions ?? [];
     if (rows.length === 0) {
+        // i18n: user-facing
         return <div className="mt-1 text-text-muted">{t('暂无建议', 'no suggestions')}</div>;
     }
     return (

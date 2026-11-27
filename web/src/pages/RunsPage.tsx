@@ -61,11 +61,17 @@ export function RunsPage() {
 
     const statusLabel = (s: string): string => {
         const map: Record<string, [string, string]> = {
+            // i18n: user-facing
             pending: ['等待中', 'pending'],
+            // i18n: user-facing
             submitted: ['已提交', 'submitted'],
+            // i18n: user-facing
             running: ['运行中', 'running'],
+            // i18n: user-facing
             completed: ['已完成', 'completed'],
+            // i18n: user-facing
             failed: ['失败', 'failed'],
+            // i18n: user-facing
             canceled: ['已取消', 'canceled'],
         };
         const pair = map[s];
@@ -75,7 +81,9 @@ export function RunsPage() {
     return (
         <div>
             <PageHeader
+                // i18n: user-facing
                 title={t('运行', 'Runs')}
+                // i18n: user-facing
                 subtitle={t(`共 ${total} 条`, `${total} total`)}
                 actions={
                     <div className="flex items-center gap-2">
@@ -84,6 +92,7 @@ export function RunsPage() {
                             onClick={() => setRefreshTick((v) => v + 1)}
                             className="rounded-md border border-border px-3 py-1.5 text-xs text-text-secondary hover:bg-bg-muted"
                         >
+                            // i18n: user-facing
                             {t('刷新', 'Refresh')}
                         </button>
                         <div className="w-32">
@@ -93,6 +102,7 @@ export function RunsPage() {
                                 options={STATUS_FILTERS.map((s) => ({
                                     value: s,
                                     label:
+                                        // i18n: user-facing
                                         s === '' ? t('全部状态', 'all statuses') : statusLabel(s),
                                 }))}
                             />
@@ -102,13 +112,16 @@ export function RunsPage() {
             />
             {pollError ? (
                 <div className="mx-4 mt-2 rounded-md bg-warning/10 px-3 py-2 text-xs text-warning">
+                    // i18n: user-facing
                     {t('轮询失败', 'poll failed')}: {pollError}
                 </div>
             ) : null}
             {dashError ? (
                 <div className="px-4 pt-3">
                     <ErrorState
+                        // i18n: user-facing
                         message={t('加载面板失败', 'failed to load dashboard')}
+                        // i18n: user-facing
                         retryLabel={t('重试', 'Retry')}
                         onRetry={dashRetry}
                         retrying={dashAttempt}
@@ -117,18 +130,22 @@ export function RunsPage() {
             ) : (
                 <div className="grid grid-cols-2 gap-2 px-4 pt-3 md:grid-cols-4">
                     <MetricTile
+                        // i18n: user-facing
                         label={t('今日请求', 'today requests')}
                         value={dashboard?.today_requests ?? 0}
                     />
                     <MetricTile
+                        // i18n: user-facing
                         label={t('活跃 agent', 'active agents')}
                         value={dashboard?.active_agents ?? 0}
                     />
                     <MetricTile
+                        // i18n: user-facing
                         label={t('今日错误', 'today errors')}
                         value={dashboard?.error_count ?? 0}
                     />
                     <MetricTile
+                        // i18n: user-facing
                         label={t('累计 token', 'total tokens')}
                         value={formatTokenCount(dashboard?.total_token_consumption ?? 0)}
                     />
@@ -139,8 +156,10 @@ export function RunsPage() {
                     <SkeletonLines rows={4} />
                 ) : runs.length === 0 && pollError === '' ? (
                     <EmptyState
+                        // i18n: user-facing
                         title={t('暂无运行', 'no runs yet')}
                         description={t(
+                            // i18n: user-facing
                             '在“工作流”页提交一次运行',
                             'submit a run from the Workflows page'
                         )}
@@ -153,6 +172,7 @@ export function RunsPage() {
                         columns={[
                             {
                                 key: 'title',
+                                // i18n: user-facing
                                 header: t('标题', 'Title'),
                                 render: (r) => (
                                     <a
@@ -165,6 +185,7 @@ export function RunsPage() {
                             },
                             {
                                 key: 'status',
+                                // i18n: user-facing
                                 header: t('状态', 'Status'),
                                 sortable: true,
                                 render: (r) => (
@@ -176,11 +197,13 @@ export function RunsPage() {
                             },
                             {
                                 key: 'graph_id',
+                                // i18n: user-facing
                                 header: t('工作流', 'Graph'),
                                 render: (r) => r.graph_id || '-',
                             },
                             {
                                 key: 'created_at',
+                                // i18n: user-facing
                                 header: t('创建时间', 'Created'),
                                 sortable: true,
                                 render: (r) =>

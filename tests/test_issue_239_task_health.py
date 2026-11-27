@@ -4,7 +4,8 @@ Runner: pytest tests/test_issue_239_task_health.py
 API: task.health over UDS JSON-RPC -> {ok, pending_tasks, running_tasks, total_tasks, max_concurrency}.
 TaskStore: count_by_status/total_count helpers; FUSION_TASK_CONCURRENCY env.
 
-User instruction: "处理issue和pr，提交代码到代码仓，合并所有分支到主干，确保ci和lint全绿，发布补丁版本"
+User instruction: "Handle issues and PRs, commit code to the repo, merge all
+branches to main, keep CI and lint green, release a patch version"
 """
 
 from __future__ import annotations

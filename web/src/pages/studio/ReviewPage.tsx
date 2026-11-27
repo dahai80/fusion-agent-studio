@@ -90,6 +90,7 @@ export function ReviewPage() {
 
     return (
         <div>
+            // i18n: user-facing
             <PageHeader title={t('评审包', 'Reviewer Packs')} />
             <div className="pt-3 space-y-3">
                 {loadError ? (
@@ -99,6 +100,7 @@ export function ReviewPage() {
                 ) : (
                     <div className="rounded-xl border border-zinc-200/80 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
                         <div className="text-sm font-medium mb-2">
+                            // i18n: user-facing
                             {t('选择评审包', 'Select reviewer packs')}
                         </div>
                         <div className="grid gap-2 sm:grid-cols-2" data-testid="pack-list">
@@ -132,6 +134,7 @@ export function ReviewPage() {
                                 checked={blind}
                                 onChange={(e) => setBlind(e.target.checked)}
                             />
+                            // i18n: user-facing
                             {t('盲审模式（排除作者说明）', 'Blind review (exclude author notes)')}
                         </label>
                     </div>
@@ -143,6 +146,7 @@ export function ReviewPage() {
                             value={request}
                             onChange={(v) => setRequest(v)}
                             placeholder={t(
+                                // i18n: user-facing
                                 '原始请求（评审对象的目标）',
                                 'Original request (goal of the artifact)'
                             )}
@@ -153,6 +157,7 @@ export function ReviewPage() {
                             value={artifact}
                             onChange={(v) => setArtifact(v)}
                             placeholder={t(
+                                // i18n: user-facing
                                 '粘贴待评审产物（文档/设计/代码）',
                                 'Paste the artifact to review (doc/design/code)'
                             )}
@@ -164,6 +169,7 @@ export function ReviewPage() {
                                 value={authorNotes}
                                 onChange={(v) => setAuthorNotes(v)}
                                 placeholder={t(
+                                    // i18n: user-facing
                                     '作者说明（仅非盲审模式使用）',
                                     'Author notes (non-blind mode only)'
                                 )}
@@ -174,7 +180,9 @@ export function ReviewPage() {
                         <SubmitButton
                             onAction={run}
                             disabled={!artifact.trim() || selected.size === 0}
+                            // i18n: user-facing
                             label={t('并行运行选中的评审包', 'Run selected packs in parallel')}
+                            // i18n: user-facing
                             busyLabel={t('评审中…', 'Reviewing…')}
                         />
                         {runError && <ErrorState message={runError} />}
@@ -187,12 +195,15 @@ export function ReviewPage() {
                         data-testid="review-result"
                     >
                         <div className="text-sm font-medium mb-2">
+                            // i18n: user-facing
                             {t('发现', 'Findings')} · {result.total}
                         </div>
                         {result.total === 0 ? (
                             <EmptyState
+                                // i18n: user-facing
                                 title={t('无发现', 'No findings')}
                                 description={t(
+                                    // i18n: user-facing
                                     '所有选中的评审包均未报告问题。',
                                     'All selected packs reported no issues.'
                                 )}
@@ -220,6 +231,7 @@ export function ReviewPage() {
                                         </div>
                                         <div className="mt-1 text-sm">{f.rationale}</div>
                                         <div className="mt-1 text-sm text-zinc-600 dark:text-zinc-300">
+                                            // i18n: user-facing
                                             {t('建议', 'Recommendation')}: {f.recommendation}
                                         </div>
                                     </div>

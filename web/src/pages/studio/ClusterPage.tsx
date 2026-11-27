@@ -57,16 +57,22 @@ export function ClusterPage() {
     );
     const [tab, setTab] = useState<'tasks' | 'nodes' | 'autoscaler' | 'routing'>('tasks');
     const tabs: Array<{ key: typeof tab; label: string; labelEn: string }> = [
+        // i18n: user-facing
         { key: 'tasks', label: '任务', labelEn: 'Tasks' },
+        // i18n: user-facing
         { key: 'nodes', label: '节点', labelEn: 'Nodes' },
+        // i18n: user-facing
         { key: 'autoscaler', label: '弹性', labelEn: 'Autoscaler' },
+        // i18n: user-facing
         { key: 'routing', label: '路由', labelEn: 'Routing' },
     ];
     return (
         <div>
             <PageHeader
+                // i18n: user-facing
                 title={t('集群', 'Cluster')}
                 subtitle={t(
+                    // i18n: user-facing
                     `${data?.cluster?.online_nodes ?? '?'}/${data?.cluster?.total_nodes ?? '?'} 节点 · ${data?.cluster?.active_tasks ?? '?'} 运行中任务`,
                     `${data?.cluster?.online_nodes ?? '?'}/${data?.cluster?.total_nodes ?? '?'} nodes · ${data?.cluster?.active_tasks ?? '?'} running tasks`
                 )}
@@ -91,6 +97,7 @@ export function ClusterPage() {
                 {error ? (
                     <ErrorState
                         message={(error as Error).message}
+                        // i18n: user-facing
                         retryLabel={t('重试', 'Retry')}
                         onRetry={manualRetry}
                         retrying={attempt}
@@ -145,6 +152,7 @@ function TasksSection() {
             ) : loading && attempt === 0 ? (
                 <SkeletonLines rows={3} />
             ) : rows.length === 0 ? (
+                // i18n: user-facing
                 <EmptyState title={t('暂无集群任务', 'no cluster tasks')} />
             ) : (
                 <div className="space-y-2">
@@ -163,9 +171,11 @@ function TasksSection() {
                                         label={task.status ?? '-'}
                                     />
                                     <span className="text-text-secondary">
+                                        // i18n: user-facing
                                         {t('模型', 'model')}: {task.model_name || '-'}
                                     </span>
                                     <span className="text-text-secondary">
+                                        // i18n: user-facing
                                         {t('节点', 'nodes')}:{' '}
                                         {(task.assigned_nodes ?? []).join(', ') || '-'}
                                     </span>
@@ -177,16 +187,19 @@ function TasksSection() {
                                             act(
                                                 `/v1/cluster-ops/tasks/${id}/cancel`,
                                                 {},
+                                                // i18n: user-facing
                                                 t('已取消', 'cancelled')
                                             )
                                         }
                                         className="rounded-md border border-border px-2 py-0.5 text-text-secondary hover:bg-bg-muted"
                                     >
+                                        // i18n: user-facing
                                         {t('取消', 'Cancel')}
                                     </button>
                                     <input
                                         type="text"
                                         value={degradeModel[id] ?? ''}
+                                        // i18n: user-facing
                                         placeholder={t('目标模型', 'target model')}
                                         onChange={(e) =>
                                             setDegradeModel((m) => ({ ...m, [id]: e.target.value }))
@@ -199,16 +212,19 @@ function TasksSection() {
                                             act(
                                                 `/v1/cluster-ops/tasks/${id}/degrade`,
                                                 { target_model: degradeModel[id] || undefined },
+                                                // i18n: user-facing
                                                 t('已降级', 'degraded')
                                             )
                                         }
                                         className="rounded-md border border-border px-2 py-0.5 text-text-secondary hover:bg-bg-muted"
                                     >
+                                        // i18n: user-facing
                                         {t('降级', 'Degrade')}
                                     </button>
                                     <input
                                         type="text"
                                         value={migrateTarget[id] ?? ''}
+                                        // i18n: user-facing
                                         placeholder={t('目标节点', 'target node')}
                                         onChange={(e) =>
                                             setMigrateTarget((m) => ({
@@ -224,11 +240,13 @@ function TasksSection() {
                                             act(
                                                 `/v1/cluster-ops/tasks/${id}/migrate`,
                                                 { target_node_id: migrateTarget[id] || '' },
+                                                // i18n: user-facing
                                                 t('已迁移', 'migrated')
                                             )
                                         }
                                         className="rounded-md border border-border px-2 py-0.5 text-text-secondary hover:bg-bg-muted"
                                     >
+                                        // i18n: user-facing
                                         {t('迁移', 'Migrate')}
                                     </button>
                                 </div>
@@ -259,6 +277,7 @@ function NodesSection() {
             ) : loading && attempt === 0 ? (
                 <SkeletonLines rows={3} />
             ) : rows.length === 0 ? (
+                // i18n: user-facing
                 <EmptyState title={t('暂无节点', 'no nodes')} />
             ) : (
                 rows.map((n) => (
@@ -278,9 +297,11 @@ function NodesSection() {
                             label={n.status ?? '-'}
                         />
                         <span className="text-text-secondary">
+                            // i18n: user-facing
                             {t('任务', 'tasks')}: {n.active_tasks ?? 0}/{n.max_tasks ?? '-'}
                         </span>
                         <span className="text-text-secondary">
+                            // i18n: user-facing
                             {t('评分', 'score')}: {n.score ?? '-'}
                         </span>
                     </div>
@@ -301,6 +322,7 @@ function AutoscalerSection() {
         try {
             const parsed = JSON.parse(cfg) as Record<string, unknown>;
             await apiPut('/v1/cluster-ops/autoscaler/config', parsed);
+            // i18n: user-facing
             sdk.toast.show({ level: 'success', message: t('已保存', 'saved') });
             manualRetry();
         } catch (e) {
@@ -324,6 +346,7 @@ function AutoscalerSection() {
                     </pre>
                     <textarea
                         value={cfg}
+                        // i18n: user-facing
                         placeholder={t('以 JSON 覆盖配置字段', 'override config fields as JSON')}
                         onChange={(e) => setCfg(e.target.value)}
                         rows={4}
@@ -334,6 +357,7 @@ function AutoscalerSection() {
                         onClick={apply}
                         className="mt-2 rounded-md border border-border px-3 py-1 text-text-primary hover:bg-bg-muted"
                     >
+                        // i18n: user-facing
                         {t('保存配置', 'Save config')}
                     </button>
                 </div>
@@ -352,6 +376,7 @@ function RoutingSection() {
     const apply = async () => {
         try {
             await apiPost('/v1/cluster-ops/routing/strategy', { strategy: strategy.trim() });
+            // i18n: user-facing
             sdk.toast.show({ level: 'success', message: t('已切换', 'switched') });
             manualRetry();
         } catch (e) {
@@ -377,6 +402,7 @@ function RoutingSection() {
                         <input
                             type="text"
                             value={strategy}
+                            // i18n: user-facing
                             placeholder={t('路由策略', 'routing strategy')}
                             onChange={(e) => setStrategy(e.target.value)}
                             className="w-48 rounded-md border border-border bg-bg-elevated px-2 py-1 text-xs"
@@ -386,6 +412,7 @@ function RoutingSection() {
                             onClick={apply}
                             className="rounded-md border border-border px-3 py-1 text-text-primary hover:bg-bg-muted"
                         >
+                            // i18n: user-facing
                             {t('切换策略', 'Switch strategy')}
                         </button>
                     </div>

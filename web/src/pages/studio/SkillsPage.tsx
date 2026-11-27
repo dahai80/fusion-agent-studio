@@ -27,6 +27,7 @@ export function SkillsPage() {
     const t = useT();
     return (
         <div>
+            // i18n: user-facing
             <PageHeader title={t('技能', 'Skills')} />
             <div className="pt-3">
                 <SkillSection />
@@ -58,6 +59,7 @@ function SkillSection() {
     const options =
         agentOptions.length > 0
             ? agentOptions
+            // i18n: user-facing
             : [{ value: '', label: t('暂无 Agent', 'no agents') }];
 
     const run = async () => {
@@ -70,6 +72,7 @@ function SkillSection() {
                 input: input,
             });
             setResult(JSON.stringify(res.result ?? res, null, 2));
+            // i18n: user-facing
             sdk.toast.show({ level: 'success', message: t('执行完成', 'done') });
         } catch (e) {
             sdk.toast.show({ level: 'error', message: (e as Error).message });
@@ -86,24 +89,29 @@ function SkillSection() {
                 ) : error ? (
                     <ErrorState
                         message={(error as Error).message}
+                        // i18n: user-facing
                         retryLabel={t('重试', 'Retry')}
                         onRetry={manualRetry}
                         retrying={attempt}
                     />
                 ) : agents.length === 0 ? (
+                    // i18n: user-facing
                     <EmptyState title={t('暂无 Agent', 'no agents')} />
                 ) : null}
                 <div className="mt-3 flex flex-col gap-3">
                     <FormField label={t('Agent', 'Agent')} required>
                         <SelectInput value={agentId} onChange={setAgentId} options={options} />
                     </FormField>
+                    // i18n: user-facing
                     <FormField label={t('技能名称', 'Skill name')} required>
                         <TextInput value={skillName} onChange={setSkillName} />
                     </FormField>
+                    // i18n: user-facing
                     <FormField label={t('输入', 'Input')}>
                         <Textarea value={input} onChange={setInput} rows={4} />
                     </FormField>
                     <div>
+                        // i18n: user-facing
                         <SubmitButton label={t('执行', 'Execute')} onAction={run} disabled={busy} />
                     </div>
                 </div>
@@ -131,6 +139,7 @@ function ResearchSection() {
                 question: question.trim(),
             });
             setResult(JSON.stringify(res.result ?? res, null, 2));
+            // i18n: user-facing
             sdk.toast.show({ level: 'success', message: t('执行完成', 'done') });
         } catch (e) {
             sdk.toast.show({ level: 'error', message: (e as Error).message });
@@ -142,11 +151,14 @@ function ResearchSection() {
     return (
         <div>
             <div className="max-w-lg flex flex-col gap-3 px-4">
+                // i18n: user-facing
                 <div className="text-sm font-medium">{t('自适应研究', 'Adaptive research')}</div>
+                // i18n: user-facing
                 <FormField label={t('问题', 'Question')} required>
                     <Textarea value={question} onChange={setQuestion} rows={3} />
                 </FormField>
                 <div>
+                    // i18n: user-facing
                     <SubmitButton label={t('执行', 'Execute')} onAction={run} disabled={busy} />
                 </div>
             </div>

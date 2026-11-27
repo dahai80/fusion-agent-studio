@@ -64,53 +64,53 @@ EN_LOCALE: dict[str, str] = {
 
 # Chinese locale
 ZH_LOCALE: dict[str, str] = {
-    "canvas.title": "Agent 画布",
-    "canvas.new": "+ 新建",
-    "canvas.save": "💾 保存",
-    "canvas.load": "📂 加载",
-    "canvas.export": "📤 导出",
-    "canvas.run": "▶ 运行",
-    "canvas.node_types": "节点类型",
-    "canvas.properties": "属性",
-    "canvas.select_node": "选择一个节点以编辑其属性",
-    "canvas.no_graph": "从调色板拖拽节点开始构建你的 Agent 流程图",
-    "canvas.clear_confirm": "清空当前流程图？",
-    "node.start": "开始",
-    "node.llm": "LLM 思考",
-    "node.tool": "工具调用",
-    "node.condition": "条件判断",
-    "node.loop": "循环",
-    "node.end": "结束",
-    "node.error_handler": "错误处理",
-    "prop.label": "标签",
-    "prop.type": "类型",
-    "prop.model": "模型",
-    "prop.temperature": "温度",
-    "prop.max_tokens": "最大 Token",
-    "prop.system_prompt": "系统提示词",
-    "prop.tool_name": "工具名称",
-    "prop.condition": "条件表达式",
-    "prop.max_iterations": "最大循环次数",
-    "prop.max_retries": "最大重试次数",
-    "prop.retry_delay": "重试延迟 (秒)",
-    "action.saved": "流程图已保存",
-    "action.updated": "流程图已更新",
-    "action.deleted": "流程图已删除",
-    "action.failed": "操作失败",
-    "action.confirm": "确认",
-    "action.cancel": "取消",
-    "agent.running": "运行中...",
-    "agent.completed": "已完成",
-    "agent.failed": "失败",
-    "agent.paused": "已暂停",
-    "agent.thinking": "思考中...",
-    "agent.executing_tool": "执行工具...",
-    "error.no_graph": "没有保存的流程图",
-    "error.graph_empty": "流程图为空",
-    "error.graph_not_found": "流程图未找到",
-    "error.save_failed": "保存流程图失败",
-    "error.load_failed": "加载流程图失败",
-    "error.run_failed": "运行流程图失败",
+    "canvas.title": "Agent 画布",  # i18n: user-facing
+    "canvas.new": "+ 新建",  # i18n: user-facing
+    "canvas.save": "💾 保存",  # i18n: user-facing
+    "canvas.load": "📂 加载",  # i18n: user-facing
+    "canvas.export": "📤 导出",  # i18n: user-facing
+    "canvas.run": "▶ 运行",  # i18n: user-facing
+    "canvas.node_types": "节点类型",  # i18n: user-facing
+    "canvas.properties": "属性",  # i18n: user-facing
+    "canvas.select_node": "选择一个节点以编辑其属性",  # i18n: user-facing
+    "canvas.no_graph": "从调色板拖拽节点开始构建你的 Agent 流程图",  # i18n: user-facing
+    "canvas.clear_confirm": "清空当前流程图？",  # i18n: user-facing
+    "node.start": "开始",  # i18n: user-facing
+    "node.llm": "LLM 思考",  # i18n: user-facing
+    "node.tool": "工具调用",  # i18n: user-facing
+    "node.condition": "条件判断",  # i18n: user-facing
+    "node.loop": "循环",  # i18n: user-facing
+    "node.end": "结束",  # i18n: user-facing
+    "node.error_handler": "错误处理",  # i18n: user-facing
+    "prop.label": "标签",  # i18n: user-facing
+    "prop.type": "类型",  # i18n: user-facing
+    "prop.model": "模型",  # i18n: user-facing
+    "prop.temperature": "温度",  # i18n: user-facing
+    "prop.max_tokens": "最大 Token",  # i18n: user-facing
+    "prop.system_prompt": "系统提示词",  # i18n: user-facing
+    "prop.tool_name": "工具名称",  # i18n: user-facing
+    "prop.condition": "条件表达式",  # i18n: user-facing
+    "prop.max_iterations": "最大循环次数",  # i18n: user-facing
+    "prop.max_retries": "最大重试次数",  # i18n: user-facing
+    "prop.retry_delay": "重试延迟 (秒)",  # i18n: user-facing
+    "action.saved": "流程图已保存",  # i18n: user-facing
+    "action.updated": "流程图已更新",  # i18n: user-facing
+    "action.deleted": "流程图已删除",  # i18n: user-facing
+    "action.failed": "操作失败",  # i18n: user-facing
+    "action.confirm": "确认",  # i18n: user-facing
+    "action.cancel": "取消",  # i18n: user-facing
+    "agent.running": "运行中...",  # i18n: user-facing
+    "agent.completed": "已完成",  # i18n: user-facing
+    "agent.failed": "失败",  # i18n: user-facing
+    "agent.paused": "已暂停",  # i18n: user-facing
+    "agent.thinking": "思考中...",  # i18n: user-facing
+    "agent.executing_tool": "执行工具...",  # i18n: user-facing
+    "error.no_graph": "没有保存的流程图",  # i18n: user-facing
+    "error.graph_empty": "流程图为空",  # i18n: user-facing
+    "error.graph_not_found": "流程图未找到",  # i18n: user-facing
+    "error.save_failed": "保存流程图失败",  # i18n: user-facing
+    "error.load_failed": "加载流程图失败",  # i18n: user-facing
+    "error.run_failed": "运行流程图失败",  # i18n: user-facing
 }
 
 
@@ -119,7 +119,7 @@ class I18n:
 
     Usage:
         i18n = I18n("zh")
-        label = i18n.t("canvas.title")  # "Agent 画布"
+        label = i18n.t("canvas.title")  # "Agent canvas"
     """
 
     _locales: dict[str, dict[str, str]] = {

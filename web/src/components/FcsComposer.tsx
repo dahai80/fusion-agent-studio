@@ -82,7 +82,9 @@ export function FcsComposer(props: {
         }
     };
 
+    // i18n: user-facing
     const sendLabel = t('发送', 'Send');
+    // i18n: user-facing
     const stopLabel = t('停止', 'Stop');
 
     return (
@@ -103,6 +105,7 @@ export function FcsComposer(props: {
                                 {a.name}
                                 <button
                                     type="button"
+                                    // i18n: user-facing
                                     aria-label={t('移除附件', 'remove attachment')}
                                     onClick={() => onRemoveAttachment(a.id)}
                                     className="text-text-muted hover:text-text-primary"
@@ -127,6 +130,7 @@ export function FcsComposer(props: {
                 <div className="flex items-center gap-1 px-3 pb-1">
                     <button
                         type="button"
+                        // i18n: user-facing
                         aria-label={t('附件', 'Attach')}
                         onClick={() => fileRef.current?.click()}
                         className="flex h-8 w-8 items-center justify-center rounded-lg text-text-secondary hover:bg-bg-muted"
@@ -146,6 +150,7 @@ export function FcsComposer(props: {
                     />
                     <button
                         type="button"
+                        // i18n: user-facing
                         aria-label={t('引用', 'Reference')}
                         onClick={insertAt}
                         className="flex h-8 w-8 items-center justify-center rounded-lg text-text-secondary hover:bg-bg-muted"
@@ -157,6 +162,7 @@ export function FcsComposer(props: {
                         <div className="relative">
                             <button
                                 type="button"
+                                // i18n: user-facing
                                 aria-label={t('高级参数', 'Advanced parameters')}
                                 onClick={() => setParamsOpen((v) => !v)}
                                 className="flex h-8 w-8 items-center justify-center rounded-lg text-text-secondary hover:bg-bg-muted"
@@ -167,6 +173,7 @@ export function FcsComposer(props: {
                                 <>
                                     <button
                                         type="button"
+                                        // i18n: user-facing
                                         aria-label={t('关闭参数', 'close parameters')}
                                         className="fixed inset-0 z-10 cursor-default"
                                         onClick={() => setParamsOpen(false)}
@@ -189,7 +196,9 @@ export function FcsComposer(props: {
                     </button>
                 </div>
                 <div className="px-4 pb-2 text-[11px] text-text-muted">
+                    // i18n: user-facing
                     {t('Enter 发送 · Shift+Enter 换行', 'Enter to send · Shift+Enter for newline')}
+                    // i18n: user-facing
                     {streaming ? ` · ${t('Esc 停止', 'Esc to stop')}` : ''}
                 </div>
             </div>

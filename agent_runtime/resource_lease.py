@@ -1,8 +1,9 @@
-"""ResourceLease — 独占资源租约协议 (M1-4, §5.3).
+"""ResourceLease — exclusive resource lease protocol (M1-4, §5.3).
 
-F1 结构性解法: 独占资源 (playwright browser / gpu / disk) 必须显式租约.
-lease_apply → granted 或 queued(排队, 不 kill). ttl 到期 → expired + 证据 + team 告警.
-消灭"按进程年龄猜锁主" → 先查事实(证据)再动资源.
+F1 structural fix: exclusive resources (playwright browser / gpu / disk) require
+an explicit lease. lease_apply -> granted or queued (wait in line, never kill).
+TTL expiry -> expired + evidence + team alert. Eliminates "guess the lock owner
+by process age" -> check facts (evidence) first, then touch the resource.
 """
 
 from __future__ import annotations
@@ -30,7 +31,8 @@ DEFAULT_TTL = 1800.0
 
 
 class ResourceLease:
-    """资源租约管理器. daemon 单写者, agent/GUI 只读 + RPC 提议."""
+    """Resource lease manager. Daemon is the single writer; agents/GUI are
+    read-only + propose via RPC."""
 
     def __init__(self, store: AgentStore | None = None):
         self._store = store
@@ -44,7 +46,7 @@ class ResourceLease:
         )
 
     def seed_default_resources(self) -> None:
-        # §5.3 默认资源注册表. 幂等 (register_resource upsert).
+        # §5.3 default resource registry. Idempotent (register_resource upsert).
         if self._store is None or self._seeded:
             return
         defaults = [
@@ -67,7 +69,8 @@ class ResourceLease:
         ttl: float = DEFAULT_TTL,
         team: str = "default",
     ) -> dict[str, Any]:
-        # 申请租约. exclusive/shared_slot: 槽位满 → queued(排队). advisory: 永远 granted.
+        # Apply for a lease. exclusive/shared_slot: full slots -> queued (wait).
+        # advisory: always granted.
         if self._store is None:
             return {"status": "granted", "lease_id": "", "reason": "no_store"}
         resource = self._store.get_resource(resource_id)
@@ -164,7 +167,8 @@ class ResourceLease:
         return {"status": "queued", "lease_id": lease_id, "position": position}
 
     def lease_release(self, lease_id: str, reason: str = "") -> dict[str, Any]:
-        # 显式释放. queued 也释放 (取消排队). 释放后 promote 排队中下一个.
+        # Explicit release. queued leases are also released (cancel the wait).
+        # After release, promote the next queued lease.
         if self._store is None:
             return {"status": "released", "reason": "no_store"}
         lease = self._store.get_lease(lease_id)
@@ -194,7 +198,8 @@ class ResourceLease:
         return {"status": "released", "lease_id": lease_id, "promoted_lease": promoted_id}
 
     def _promote_queued(self, resource_id: str, team: str) -> dict | None:
-        # 释放后把排队第一个 promote 为 granted (按 position 升序).
+        # After release, promote the first queued lease to granted (ascending
+        # by position).
         # #319: return promoted lease so caller can broadcast resource.lease_granted.
         queued = self._store.list_leases(resource_id=resource_id, status=LEASE_QUEUED, team=team)
         if not queued:
@@ -219,7 +224,8 @@ class ResourceLease:
         return nxt
 
     def expiry_sweep(self, now: float | None = None) -> list[dict]:
-        # ttl 到期未释放 → expired + 返回清单 (daemon 写证据 + team 告警).
+        # TTL elapsed without release -> expired + return the list (daemon
+        # writes evidence + team alert).
         # #319: each expired dict carries "promoted_lease" so daemon broadcasts
         # both resource.lease_expired and resource.lease_granted (promoted successor).
         if self._store is None:

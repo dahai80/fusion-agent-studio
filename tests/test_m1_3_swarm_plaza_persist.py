@@ -48,7 +48,7 @@ class TestPlazaPersistence:
         plaza = Plaza(store=store)
         plaza.create_channel("ch1", ["alice", "bob"])
         msg = plaza.broadcast("ch1", "alice", "hello world")
-        # 回读验证: 消息落盘可查
+        # Read-back verification: persisted messages are queryable
         msgs = store.load_all_plaza_messages()
         assert len(msgs) == 1
         assert msgs[0]["message_id"] == msg.id
@@ -56,7 +56,7 @@ class TestPlazaPersistence:
         assert msgs[0]["sender"] == "alice"
 
     def test_dedup_same_hash_skipped(self, store):
-        # 同 channel+sender+content+round 的消息 hash 相同, 第二次写被跳过
+        # Same channel+sender+content+round messages hash identical, second write is skipped
         h = _message_hash("ch1", "alice", "hello", 1)
         assert store.save_plaza_message("id1", "ch1", "alice", 1.0, {}, h) is True
         assert store.save_plaza_message("id2", "ch1", "alice", 1.0, {}, h) is False
@@ -65,7 +65,7 @@ class TestPlazaPersistence:
     def test_channel_persisted_across_reload(self, store):
         plaza = Plaza(store=store)
         plaza.create_channel("ch1", ["alice", "bob"])
-        # 新 Plaza 实例从 store 加载
+        # New Plaza instance loads from the store
         plaza2 = Plaza(store=store)
         channels = plaza2.list_channels()
         assert len(channels) == 1
@@ -77,7 +77,7 @@ class TestPlazaPersistence:
         plaza.create_channel("ch1", ["alice", "bob"])
         plaza.broadcast("ch1", "alice", "msg1")
         plaza.broadcast("ch1", "bob", "msg2")
-        # 重载
+        # Reload
         plaza2 = Plaza(store=store)
         msgs = plaza2.get_messages("ch1")
         assert len(msgs) == 2
@@ -89,12 +89,12 @@ class TestPlazaPersistence:
         plaza.create_channel("ch1", ["alice", "bob"])
         plaza.broadcast("ch1", "alice", "hello")
         assert plaza.delete_channel("ch1") is True
-        # 重载后频道应消失
+        # After reload the channel should be gone
         plaza2 = Plaza(store=store)
         assert len(plaza2.list_channels()) == 0
 
     def test_store_none_backwards_compat(self):
-        # store=None: 纯内存, 不崩溃, 行为同原 Plaza
+        # store=None: pure in-memory, no crash, behavior matches the original Plaza
         plaza = Plaza()
         plaza.create_channel("ch1", ["alice", "bob"])
         msg = plaza.broadcast("ch1", "alice", "hello")
@@ -131,7 +131,7 @@ class TestSwarmPersistence:
         sw = SwarmRouter(store=store)
         sw.register_agent(SwarmAgent(id="a1", name="alice", capabilities=["cap1"]))
         sw.register_agent(SwarmAgent(id="a2", name="bob", capabilities=["cap2"]))
-        # 重载
+        # Reload
         sw2 = SwarmRouter(store=store)
         assert len(sw2.list_agents()) == 2
 
@@ -163,7 +163,7 @@ class TestSwarmPersistence:
         sw.register_agent(SwarmAgent(id="a2", name="bob", capabilities=["cap2"]))
         delegation = sw.delegate("a1", "do thing", capability="cap2")
         sw.evaluate(delegation.id, {"ok": True})
-        # 重载后状态应为 completed
+        # After reload the status should be completed
         sw2 = SwarmRouter(store=store)
         d = sw2.get_delegation(delegation.id)
         assert d.status == "completed"
@@ -181,7 +181,7 @@ class TestSwarmPersistence:
         assert len(sw2.list_delegations()) == 2
 
     def test_store_none_backwards_compat(self):
-        # store=None: 纯内存, 不崩溃
+        # store=None: pure in-memory, no crash
         sw = SwarmRouter()
         sw.register_agent(SwarmAgent(id="a1", name="alice"))
         assert sw.get_agent("a1") is not None
@@ -215,7 +215,7 @@ class TestTeamLaunchPhases:
         assert len(store.get_team_launch_phases("finished")) == 1
 
     def test_reconcile_active_to_reconciled(self, store):
-        # 模拟崩溃: 3 团队残留 active
+        # Simulate crash: 3 teams left active
         store.set_team_launch_phase("teamA", "active")
         store.set_team_launch_phase("teamB", "active")
         store.set_team_launch_phase("teamC", "finished")
@@ -239,17 +239,19 @@ class TestTeamLaunchPhases:
 
 class TestMigrationSafety:
     def test_migration_idempotent(self, store):
-        # 迁移已跑 (fixture 创建时). 再创建新 store 同库不应崩.
+        # Migration already ran (at fixture creation). Creating a new store on the same
+        # DB must not crash.
         db_path = store.db_path
         store.close()
         s2 = AgentStore(str(db_path))
-        # 表仍在
+        # Tables still present
         s2.set_team_launch_phase("teamX", "active")
         assert len(s2.get_team_launch_phases("active")) == 1
         s2.close()
 
     def test_old_db_without_v2_upgrades(self, tmp_path):
-        # 模拟老库 (v1): 先建 v1 库, 再开新 AgentStore 应自动迁移 v2
+        # Simulate old DB (v1): build a v1 DB first, then opening a new AgentStore should
+        # auto-migrate to v2
         db_path = tmp_path / "old.db"
         import sqlite3
 
@@ -261,7 +263,7 @@ class TestMigrationSafety:
         )
         conn.commit()
         conn.close()
-        # 新 AgentStore 应迁移 v2
+        # The new AgentStore should migrate to v2
         s = AgentStore(str(db_path))
         s.set_team_launch_phase("teamOld", "active")
         assert len(s.get_team_launch_phases("active")) == 1

@@ -1,5 +1,5 @@
 // #528: AI Agent Dashboard — sections render from agent.list + usage +
-// /v1/runs, published agents show [使用]/[编辑], drafts strip only for
+// /v1/runs, published agents show [Use]/[Edit], drafts strip only for
 // non-published, runs strip links to the run detail.
 import { render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -60,11 +60,11 @@ describe('AgentHomePage (#528)', () => {
         expect(screen.getByText('WIP')).toBeInTheDocument();
         expect(screen.getByText('nightly')).toBeInTheDocument();
         expect(screen.getByText('7 runs')).toBeInTheDocument();
-        // [使用] deep-links to the composer with the agent preselected
+        // [Use] deep-links to the composer with the agent preselected
         expect(screen.getByRole('link', { name: /Use/i }).getAttribute('href')).toBe(
             '#/aiagent?agent=ag-ready'
         );
-        // drafts strip [继续构建] opens the console editor on the same config
+        // drafts strip [Continue building] opens the console editor on the same config
         expect(screen.getByRole('link', { name: /Continue building/i }).getAttribute('href')).toBe(
             '/console/agents.html?agent=ag-draft'
         );

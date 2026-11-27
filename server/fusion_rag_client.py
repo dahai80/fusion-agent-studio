@@ -10,7 +10,8 @@ API: FusionRAGClient with health/status/list_bases/create_base/get_base/
   watch_directory/unwatch_directory/watch_status/map_project/get_project_kb/unmap_project
 Schemas: SearchResult(content,score,source,metadata,chunk_id),
   AskResult(answer,sources,confidence), DocumentInfo(doc_id,filename,status,chunks,metadata)
-User instruction: "fusion-rag 已经完成issue和pr，可以开展相关的工作落地"
+User instruction: "fusion-rag has completed its issues and PRs; related
+  implementation work can now proceed."
 """
 
 from __future__ import annotations

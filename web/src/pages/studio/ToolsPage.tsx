@@ -53,6 +53,7 @@ export function ToolsPage() {
                 parameters: parsed.data,
                 category,
             });
+            // i18n: user-facing
             sdk.toast.show({ level: 'success', message: t('已注册', 'registered') });
             setShowRegister(false);
             setName('');
@@ -65,6 +66,7 @@ export function ToolsPage() {
     const unregister = async (toolName: string) => {
         try {
             await rpc('tool.dynamic_unregister', { name: toolName });
+            // i18n: user-facing
             sdk.toast.show({ level: 'success', message: t('已注销', 'unregistered') });
             manualRetry();
         } catch (e) {
@@ -81,7 +83,9 @@ export function ToolsPage() {
     return (
         <div>
             <PageHeader
+                // i18n: user-facing
                 title={t('工具', 'Tools')}
+                // i18n: user-facing
                 subtitle={t(`${rows.length} 个工具`, `${rows.length} tools`)}
                 actions={
                     <button
@@ -89,6 +93,7 @@ export function ToolsPage() {
                         onClick={() => setShowRegister(true)}
                         className="rounded-md border border-border px-3 py-1.5 text-xs text-text-primary hover:bg-bg-muted"
                     >
+                        // i18n: user-facing
                         {t('注册工具', 'Register tool')}
                     </button>
                 }
@@ -99,13 +104,16 @@ export function ToolsPage() {
                 ) : error ? (
                     <ErrorState
                         message={(error as Error).message}
+                        // i18n: user-facing
                         retryLabel={t('重试', 'Retry')}
                         onRetry={manualRetry}
                         retrying={attempt}
                     />
                 ) : rows.length === 0 ? (
                     <EmptyState
+                        // i18n: user-facing
                         title={t('暂无工具', 'no tools')}
+                        // i18n: user-facing
                         description={t('注册第一个工具', 'register your first tool')}
                     />
                 ) : (
@@ -114,9 +122,11 @@ export function ToolsPage() {
                         rowKey={(tool) => tool.name}
                         pageSize={15}
                         columns={[
+                            // i18n: user-facing
                             { key: 'name', header: t('名称', 'Name'), render: (tool) => tool.name },
                             {
                                 key: 'description',
+                                // i18n: user-facing
                                 header: t('描述', 'Description'),
                                 render: (tool) => (
                                     <span className="line-clamp-2">{tool.description ?? '-'}</span>
@@ -124,11 +134,13 @@ export function ToolsPage() {
                             },
                             {
                                 key: 'category',
+                                // i18n: user-facing
                                 header: t('分类', 'Category'),
                                 render: (tool) => tool.category ?? '-',
                             },
                             {
                                 key: 'enabled',
+                                // i18n: user-facing
                                 header: t('启用', 'Enabled'),
                                 render: (tool) => (tool.enabled ? '✓' : '✗'),
                             },
@@ -142,6 +154,7 @@ export function ToolsPage() {
                                             onClick={() => unregister(tool.name)}
                                             className="text-error hover:underline"
                                         >
+                                            // i18n: user-facing
                                             {t('注销', 'Unregister')}
                                         </button>
                                     </div>
@@ -153,16 +166,21 @@ export function ToolsPage() {
             </div>
             <Modal
                 open={showRegister}
+                // i18n: user-facing
                 title={t('注册工具', 'Register tool')}
                 onClose={() => setShowRegister(false)}
+                // i18n: user-facing
                 footer={<SubmitButton label={t('注册', 'Register')} onAction={register} />}
             >
+                // i18n: user-facing
                 <FormField label={t('名称', 'Name')} required>
                     <TextInput value={name} onChange={setName} />
                 </FormField>
+                // i18n: user-facing
                 <FormField label={t('描述', 'Description')}>
                     <TextInput value={description} onChange={setDescription} />
                 </FormField>
+                // i18n: user-facing
                 <FormField label={t('分类', 'Category')}>
                     <SelectInput
                         value={category}
@@ -170,6 +188,7 @@ export function ToolsPage() {
                         options={categoryOptions}
                     />
                 </FormField>
+                // i18n: user-facing
                 <FormField label={t('参数模式 (JSON)', 'Parameters schema (JSON)')}>
                     <JsonEditor value={schemaJson} onChange={setSchemaJson} rows={6} />
                 </FormField>

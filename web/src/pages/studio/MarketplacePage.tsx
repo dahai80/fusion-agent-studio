@@ -80,6 +80,7 @@ export function MarketplacePage() {
             await rpc(`marketplace.${verb}`, { entry_id: entryId });
             sdk.toast.show({
                 level: 'success',
+                // i18n: user-facing
                 message: verb === 'install' ? t('已安装', 'installed') : t('已卸载', 'uninstalled'),
             });
             setBusyName('');
@@ -92,6 +93,7 @@ export function MarketplacePage() {
 
     const rows = search.data?.entries ?? [];
     const categoryOptions = [
+        // i18n: user-facing
         { value: '', label: t('全部', 'All') },
         ...(cats.data?.categories ?? []).map((c) => ({ value: c, label: c })),
     ];
@@ -99,13 +101,16 @@ export function MarketplacePage() {
     return (
         <div>
             <PageHeader
+                // i18n: user-facing
                 title={t('市场', 'Marketplace')}
+                // i18n: user-facing
                 subtitle={t(`${rows.length} 个条目`, `${rows.length} entries`)}
             />
             <div className="flex gap-2 px-4 pt-3">
                 <TextInput
                     value={query}
                     onChange={setQuery}
+                    // i18n: user-facing
                     placeholder={t('搜索市场…', 'search marketplace…')}
                 />
                 <div className="w-44">
@@ -122,6 +127,7 @@ export function MarketplacePage() {
                     className="flex items-center gap-1.5 whitespace-nowrap rounded-md border border-border px-4 py-2 text-sm text-text-primary hover:bg-bg-muted disabled:opacity-50"
                 >
                     <Search className="h-3.5 w-3.5" />
+                    // i18n: user-facing
                     {t('搜索', 'Search')}
                 </button>
             </div>
@@ -131,13 +137,16 @@ export function MarketplacePage() {
                 ) : search.error ? (
                     <ErrorState
                         message={(search.error as Error).message}
+                        // i18n: user-facing
                         retryLabel={t('重试', 'Retry')}
                         onRetry={search.manualRetry}
                         retrying={search.attempt}
                     />
                 ) : rows.length === 0 ? (
                     <EmptyState
+                        // i18n: user-facing
                         title={t('暂无市场条目', 'no marketplace entries')}
+                        // i18n: user-facing
                         description={t('调整搜索条件后重试', 'adjust the search and try again')}
                     />
                 ) : (
@@ -190,6 +199,7 @@ export function MarketplacePage() {
                                         {e.installed ? (
                                             <span className="flex items-center gap-1 text-[11px] text-success">
                                                 <Package className="h-3 w-3" />
+                                                // i18n: user-facing
                                                 {t('已安装', 'installed')}
                                             </span>
                                         ) : (
@@ -202,6 +212,7 @@ export function MarketplacePage() {
                                                 onClick={() => act(e, 'uninstall')}
                                                 className="rounded-md border border-border px-2.5 py-1 text-xs text-warning hover:bg-bg-muted disabled:opacity-50"
                                             >
+                                                // i18n: user-facing
                                                 {t('卸载', 'Uninstall')}
                                             </button>
                                         ) : (
@@ -211,6 +222,7 @@ export function MarketplacePage() {
                                                 onClick={() => act(e, 'install')}
                                                 className="rounded-md bg-brand px-2.5 py-1 text-xs text-white hover:opacity-90 disabled:opacity-50"
                                             >
+                                                // i18n: user-facing
                                                 {t('安装', 'Install')}
                                             </button>
                                         )}

@@ -52,15 +52,19 @@ export function TeamPage() {
 
     return (
         <div>
+            // i18n: user-facing
             <PageHeader title={t('团队', 'Team')} />
             <Tabs
                 tabs={TABS.map((k) => ({
                     key: k,
                     label:
                         k === 'swarm'
+                            // i18n: user-facing
                             ? t('蜂群', 'Swarm')
                             : k === 'plaza'
+                              // i18n: user-facing
                               ? t('广场', 'Plaza')
+                              // i18n: user-facing
                               : t('编排', 'Orchestrate'),
                 }))}
                 active={tab}
@@ -91,14 +95,17 @@ function SwarmSection() {
             ) : error ? (
                 <ErrorState
                     message={(error as Error).message}
+                    // i18n: user-facing
                     retryLabel={t('重试', 'Retry')}
                     onRetry={manualRetry}
                     retrying={attempt}
                 />
             ) : rows.length === 0 ? (
                 <EmptyState
+                    // i18n: user-facing
                     title={t('暂无蜂群 Agent', 'no swarm agents')}
                     description={t(
+                        // i18n: user-facing
                         '创建带 team 角色的 agent 后展示',
                         'create agents with team roles'
                     )}
@@ -111,20 +118,24 @@ function SwarmSection() {
                     columns={[
                         {
                             key: 'name',
+                            // i18n: user-facing
                             header: t('名称', 'Name'),
                             render: (a) => a.name || a.agent_id || '-',
                         },
                         { key: 'agent_id', header: 'Agent ID', render: (a) => a.agent_id ?? '-' },
                         {
                             key: 'graph_id',
+                            // i18n: user-facing
                             header: t('图', 'Graph'),
                             render: (a) => (
                                 <span className="font-mono text-xs">{a.graph_id ?? '-'}</span>
                             ),
                         },
+                        // i18n: user-facing
                         { key: 'role', header: t('角色', 'Role'), render: (a) => a.role ?? '-' },
                         {
                             key: 'status',
+                            // i18n: user-facing
                             header: t('状态', 'Status'),
                             render: (a) => a.status ?? '-',
                         },
@@ -203,10 +214,12 @@ function PlazaSection() {
     return (
         <div className="flex flex-col gap-3 px-4">
             {error ? (
+                // i18n: user-facing
                 <ErrorState message={error} retryLabel={t('重试', 'Retry')} onRetry={refresh} />
             ) : !loaded ? (
                 <SkeletonLines rows={3} />
             ) : channels.length === 0 ? (
+                // i18n: user-facing
                 <EmptyState title={t('暂无频道', 'no channels')} />
             ) : (
                 <>
@@ -229,6 +242,7 @@ function PlazaSection() {
                     <div className="flex max-h-96 flex-col gap-2 overflow-y-auto rounded-card border border-border bg-bg-elevated p-4">
                         {messages.length === 0 ? (
                             <span className="text-sm text-text-secondary">
+                                // i18n: user-facing
                                 {t('暂无消息', 'no messages')}
                             </span>
                         ) : (
@@ -245,9 +259,11 @@ function PlazaSection() {
                         <TextInput
                             value={draft}
                             onChange={setDraft}
+                            // i18n: user-facing
                             placeholder={t('输入消息…', 'type a message…')}
                         />
                         <SubmitButton
+                            // i18n: user-facing
                             label={t('发送', 'Send')}
                             onAction={send}
                             disabled={!activeChannel || !draft.trim()}
@@ -289,17 +305,21 @@ function OrchestrateSection() {
 
     return (
         <div className="flex flex-col gap-3 px-4">
+            // i18n: user-facing
             <FormField label={t('目标', 'Objective')} required>
                 <Textarea value={objective} onChange={setObjective} rows={4} />
             </FormField>
+            // i18n: user-facing
             <FormField label={t('模式', 'Pattern')}>
                 <SelectInput value={pattern} onChange={setPattern} options={patternOptions} />
             </FormField>
+            // i18n: user-facing
             <FormField label={t('最大轮数', 'Max rounds')}>
                 <TextInput value={maxRounds} onChange={setMaxRounds} type="number" />
             </FormField>
             <div>
                 <SubmitButton
+                    // i18n: user-facing
                     label={t('编排', 'Orchestrate')}
                     onAction={run}
                     disabled={busy || !objective.trim()}
@@ -308,6 +328,7 @@ function OrchestrateSection() {
             {result ? (
                 <div className="rounded-card border border-border bg-bg-elevated p-4 text-sm">
                     <div className="flex items-center gap-2">
+                        // i18n: user-facing
                         <span className="text-text-secondary">{t('耗时', 'Duration')}:</span>
                         <span className="font-medium">
                             {result.total_duration != null ? `${result.total_duration}s` : '-'}

@@ -1,8 +1,10 @@
 """Task board column derivation + isTaskOpen contract predicate (M1-1).
 
-看板列由 status + review_state 两正交维度推导 (非独立存储), 杜绝双写不一致.
-is_task_open 是单一契约谓词, 被"看板完成通知 Lead"与"防重述守卫"两处消费.
-修改须同步, 配契约测试.
+Board columns are derived from two orthogonal dimensions, status + review_state (not stored
+independently), preventing double-write inconsistency.
+is_task_open is the single contract predicate, consumed by both "board completion notify Lead"
+and the "anti-restatement guard".
+Changes must be kept in sync, backed by contract tests.
 """
 
 from __future__ import annotations
@@ -30,8 +32,8 @@ COLUMN_ARCHIVED = "archived"
 
 
 def derive_column(task) -> str:
-    # 推导式列 (源方案 §5.1): 避免 status/列双写不一致.
-    # task = Task 实例或 dict (含 status/review_state/owner_agent).
+    # Derived column (source plan §5.1): avoids status/column double-write inconsistency.
+    # task = Task instance or dict (with status/review_state/owner_agent).
     status = task.get("status") if isinstance(task, dict) else getattr(task, "status", "")
     review_state = (
         task.get("review_state")
@@ -58,7 +60,8 @@ def derive_column(task) -> str:
 
 
 def is_task_open(task) -> bool:
-    # 契约谓词 (源方案 §5.1): 看板完成通知 Lead 与防重述守卫共享此判定.
-    # 修改须同步, 配契约测试. pending/in_progress = open (需 Lead 关注).
+    # Contract predicate (source plan §5.1): shared by board completion notify Lead
+    # and the anti-restatement guard. Changes must be kept in sync, backed by contract
+    # tests. pending/in_progress = open (needs Lead attention).
     status = task.get("status") if isinstance(task, dict) else getattr(task, "status", "")
     return status in (TASK_STATUS_PENDING, TASK_STATUS_RUNNING)

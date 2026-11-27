@@ -57,6 +57,7 @@ export function CronPage() {
                 graph_id: graphId.trim(),
                 enabled: true,
             });
+            // i18n: user-facing
             sdk.toast.show({ level: 'success', message: t('已注册', 'registered') });
             setShowCreate(false);
             manualRetry();
@@ -68,6 +69,7 @@ export function CronPage() {
     const unregister = async (jobId: string) => {
         try {
             await rpc('cron.unregister', { id: jobId });
+            // i18n: user-facing
             sdk.toast.show({ level: 'success', message: t('已注销', 'unregistered') });
             manualRetry();
         } catch (e) {
@@ -93,7 +95,9 @@ export function CronPage() {
     return (
         <div>
             <PageHeader
+                // i18n: user-facing
                 title={t('定时任务', 'Cron')}
+                // i18n: user-facing
                 subtitle={t(`${rows.length} 个任务`, `${rows.length} jobs`)}
                 actions={
                     <button
@@ -101,6 +105,7 @@ export function CronPage() {
                         onClick={() => setShowCreate(true)}
                         className="rounded-md border border-border px-3 py-1.5 text-xs text-text-primary hover:bg-bg-muted"
                     >
+                        // i18n: user-facing
                         {t('新建', 'New')}
                     </button>
                 }
@@ -111,13 +116,16 @@ export function CronPage() {
                 ) : error ? (
                     <ErrorState
                         message={(error as Error).message}
+                        // i18n: user-facing
                         retryLabel={t('重试', 'Retry')}
                         onRetry={manualRetry}
                         retrying={attempt}
                     />
                 ) : rows.length === 0 ? (
                     <EmptyState
+                        // i18n: user-facing
                         title={t('暂无定时任务', 'no cron jobs')}
+                        // i18n: user-facing
                         description={t('注册第一个定时任务', 'register your first cron job')}
                     />
                 ) : (
@@ -128,11 +136,13 @@ export function CronPage() {
                         columns={[
                             {
                                 key: 'name',
+                                // i18n: user-facing
                                 header: t('名称', 'Name'),
                                 render: (j) => j.name || j.id,
                             },
                             {
                                 key: 'expression',
+                                // i18n: user-facing
                                 header: t('表达式', 'Expression'),
                                 render: (j) => (
                                     <span className="font-mono text-xs">{j.expression}</span>
@@ -140,11 +150,13 @@ export function CronPage() {
                             },
                             {
                                 key: 'graph_id',
+                                // i18n: user-facing
                                 header: t('工作流', 'Graph'),
                                 render: (j) => j.graph_id || '-',
                             },
                             {
                                 key: 'enabled',
+                                // i18n: user-facing
                                 header: t('启用', 'Enabled'),
                                 render: (j) => (j.enabled ? '✓' : '✗'),
                             },
@@ -158,6 +170,7 @@ export function CronPage() {
                                             onClick={() => showExecs(j.id)}
                                             className="text-text-secondary hover:underline"
                                         >
+                                            // i18n: user-facing
                                             {t('执行历史', 'Executions')}
                                         </button>
                                         <button
@@ -165,6 +178,7 @@ export function CronPage() {
                                             onClick={() => unregister(j.id)}
                                             className="text-error hover:underline"
                                         >
+                                            // i18n: user-facing
                                             {t('注销', 'Unregister')}
                                         </button>
                                     </div>
@@ -178,6 +192,7 @@ export function CronPage() {
                 <div className="mx-4 mt-2 rounded-card border border-border bg-bg-elevated p-4">
                     <div className="flex items-center justify-between">
                         <span className="text-sm font-medium">
+                            // i18n: user-facing
                             {t('执行历史', 'Executions')}: {execsFor}
                         </span>
                         <button
@@ -195,6 +210,7 @@ export function CronPage() {
                         {execs === null ? (
                             <SkeletonLines rows={2} />
                         ) : execs.length === 0 ? (
+                            // i18n: user-facing
                             <EmptyState title={t('暂无执行记录', 'no executions')} />
                         ) : (
                             <DataTable<CronExecution>
@@ -204,11 +220,13 @@ export function CronPage() {
                                 columns={[
                                     {
                                         key: 'status',
+                                        // i18n: user-facing
                                         header: t('状态', 'Status'),
                                         render: (e) => e.status ?? '-',
                                     },
                                     {
                                         key: 'started_at',
+                                        // i18n: user-facing
                                         header: t('开始', 'Started'),
                                         render: (e) =>
                                             e.started_at
@@ -217,6 +235,7 @@ export function CronPage() {
                                     },
                                     {
                                         key: 'error',
+                                        // i18n: user-facing
                                         header: t('错误', 'Error'),
                                         render: (e) => (
                                             <span className="line-clamp-1 text-xs text-error">
@@ -232,16 +251,21 @@ export function CronPage() {
             ) : null}
             <Modal
                 open={showCreate}
+                // i18n: user-facing
                 title={t('新建定时任务', 'New cron job')}
                 onClose={() => setShowCreate(false)}
+                // i18n: user-facing
                 footer={<SubmitButton label={t('注册', 'Register')} onAction={register} />}
             >
+                // i18n: user-facing
                 <FormField label={t('名称', 'Name')}>
                     <TextInput value={name} onChange={setName} />
                 </FormField>
+                // i18n: user-facing
                 <FormField label={t('Cron 表达式', 'Cron expression')} required>
                     <TextInput value={expression} onChange={setExpression} />
                 </FormField>
+                // i18n: user-facing
                 <FormField label={t('工作流 ID', 'Graph ID')}>
                     <TextInput value={graphId} onChange={setGraphId} />
                 </FormField>

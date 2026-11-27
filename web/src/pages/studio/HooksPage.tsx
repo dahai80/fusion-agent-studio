@@ -52,6 +52,7 @@ export function HooksPage() {
                 command: command.trim(),
                 timeout: Number(timeout) || 30,
             });
+            // i18n: user-facing
             sdk.toast.show({ level: 'success', message: t('已注册', 'registered') });
             setShowCreate(false);
             setCommand('');
@@ -89,7 +90,9 @@ export function HooksPage() {
     return (
         <div>
             <PageHeader
+                // i18n: user-facing
                 title={t('钩子', 'Hooks')}
+                // i18n: user-facing
                 subtitle={t(`${rows.length} 个钩子`, `${rows.length} hooks`)}
                 actions={
                     <button
@@ -97,6 +100,7 @@ export function HooksPage() {
                         onClick={() => setShowCreate(true)}
                         className="rounded-md border border-border px-3 py-1.5 text-xs text-text-primary hover:bg-bg-muted"
                     >
+                        // i18n: user-facing
                         {t('注册钩子', 'Register hook')}
                     </button>
                 }
@@ -107,13 +111,16 @@ export function HooksPage() {
                 ) : error ? (
                     <ErrorState
                         message={(error as Error).message}
+                        // i18n: user-facing
                         retryLabel={t('重试', 'Retry')}
                         onRetry={manualRetry}
                         retrying={attempt}
                     />
                 ) : rows.length === 0 ? (
                     <EmptyState
+                        // i18n: user-facing
                         title={t('暂无钩子', 'no hooks')}
+                        // i18n: user-facing
                         description={t('注册第一个钩子', 'register your first hook')}
                     />
                 ) : (
@@ -122,19 +129,23 @@ export function HooksPage() {
                         rowKey={(h) => `${h.event}-${h.matcher ?? ''}`}
                         pageSize={15}
                         columns={[
+                            // i18n: user-facing
                             { key: 'event', header: t('事件', 'Event'), render: (h) => h.event },
                             {
                                 key: 'matcher',
+                                // i18n: user-facing
                                 header: t('匹配器', 'Matcher'),
                                 render: (h) => h.matcher || '-',
                             },
                             {
                                 key: 'type',
+                                // i18n: user-facing
                                 header: t('类型', 'Type'),
                                 render: (h) => h.type || '-',
                             },
                             {
                                 key: 'command',
+                                // i18n: user-facing
                                 header: t('命令', 'Command'),
                                 render: (h) => (
                                     <span className="line-clamp-1 font-mono text-xs">
@@ -154,6 +165,7 @@ export function HooksPage() {
                                         }}
                                         className="text-xs text-text-secondary hover:underline"
                                     >
+                                        // i18n: user-facing
                                         {t('测试', 'Test')}
                                     </button>
                                 ),
@@ -164,19 +176,23 @@ export function HooksPage() {
             </div>
             <Modal
                 open={testing !== null}
+                // i18n: user-facing
                 title={t('测试钩子', 'Test hook')}
                 onClose={() => setTesting(null)}
                 footer={
                     <SubmitButton
+                        // i18n: user-facing
                         label={t('执行测试', 'Run test')}
                         onAction={runTest}
                         disabled={testBusy}
                     />
                 }
             >
+                // i18n: user-facing
                 <FormField label={t('事件', 'Event')}>
                     <TextInput value={testing?.event ?? ''} onChange={() => undefined} />
                 </FormField>
+                // i18n: user-facing
                 <FormField label={t('负载 (JSON)', 'Payload (JSON)')}>
                     <Textarea value={testPayload} onChange={setTestPayload} rows={4} mono />
                 </FormField>
@@ -188,19 +204,25 @@ export function HooksPage() {
             </Modal>
             <Modal
                 open={showCreate}
+                // i18n: user-facing
                 title={t('注册钩子', 'Register hook')}
                 onClose={() => setShowCreate(false)}
+                // i18n: user-facing
                 footer={<SubmitButton label={t('注册', 'Register')} onAction={register} />}
             >
+                // i18n: user-facing
                 <FormField label={t('事件', 'Event')} required>
                     <TextInput value={event} onChange={setEvent} />
                 </FormField>
+                // i18n: user-facing
                 <FormField label={t('匹配器', 'Matcher')}>
                     <TextInput value={matcher} onChange={setMatcher} />
                 </FormField>
+                // i18n: user-facing
                 <FormField label={t('命令', 'Command')} required>
                     <TextInput value={command} onChange={setCommand} />
                 </FormField>
+                // i18n: user-facing
                 <FormField label={t('超时 (秒)', 'Timeout (s)')}>
                     <TextInput value={timeout} onChange={setTimeout_} type="number" />
                 </FormField>

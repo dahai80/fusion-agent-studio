@@ -234,6 +234,6 @@ class TestVerifyNodeInRuntime:
         async for _ in runtime.execute_graph(graph, context=ctx):
             pass
 
-        # 审计 A-1: verify 结果写 ctx.variables (per-exec), 不回流 singleton.
+        # Audit A-1: verify writes results to ctx.variables (per-exec), not back to the singleton.
         assert ctx.variables.get("verify_passed") is False
         assert ctx.variables.get("verify_score") == 0.4

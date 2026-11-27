@@ -54,15 +54,19 @@ export function SafetyPage() {
 
     return (
         <div>
+            // i18n: user-facing
             <PageHeader title={t('安全', 'Safety')} />
             <Tabs
                 tabs={TABS.map((k) => ({
                     key: k,
                     label:
                         k === 'check'
+                            // i18n: user-facing
                             ? t('检查', 'Check')
                             : k === 'pending'
+                              // i18n: user-facing
                               ? t('待审动作', 'Pending')
+                              // i18n: user-facing
                               : t('策略', 'Policy'),
                 }))}
                 active={tab}
@@ -103,18 +107,22 @@ function CheckSection() {
 
     return (
         <div className="flex flex-col gap-3 px-4">
+            // i18n: user-facing
             <FormField label={t('内容', 'Content')} required>
                 <Textarea value={content} onChange={setContent} rows={4} />
             </FormField>
+            // i18n: user-facing
             <FormField label={t('上下文', 'Context')}>
                 <Textarea value={context} onChange={setContext} rows={2} />
             </FormField>
             <div>
+                // i18n: user-facing
                 <SubmitButton label={t('安全检查', 'Run check')} onAction={run} disabled={busy} />
             </div>
             {verdict ? (
                 <div className="rounded-card border border-border bg-bg-elevated p-4 text-sm">
                     <div className="flex items-center gap-2">
+                        // i18n: user-facing
                         <span className="text-text-secondary">{t('级别', 'Level')}:</span>
                         <span className="font-medium">{verdict.level ?? '-'}</span>
                         <span
@@ -122,6 +130,7 @@ function CheckSection() {
                                 verdict.approved ? 'text-success' : 'text-error'
                             }`}
                         >
+                            // i18n: user-facing
                             {verdict.approved ? t('通过', 'approved') : t('未通过', 'blocked')}
                         </span>
                     </div>
@@ -168,6 +177,7 @@ function PendingSection() {
             });
             sdk.toast.show({
                 level: 'success',
+                // i18n: user-facing
                 message: approve ? t('已批准', 'approved') : t('已拒绝', 'rejected'),
             });
             refresh();
@@ -196,6 +206,7 @@ function PendingSection() {
                             : 'border-border text-text-secondary'
                     }`}
                 >
+                    // i18n: user-facing
                     {t('全部', 'All')} ({actions.length})
                 </button>
                 {CARD_ORDER.map((key) => (
@@ -214,10 +225,12 @@ function PendingSection() {
                 ))}
             </div>
             {pollError ? (
+                // i18n: user-facing
                 <ErrorState message={pollError} retryLabel={t('重试', 'Retry')} onRetry={refresh} />
             ) : !loaded ? (
                 <SkeletonLines rows={3} />
             ) : visible.length === 0 ? (
+                // i18n: user-facing
                 <EmptyState title={t('无待审动作', 'no pending actions')} />
             ) : (
                 <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
@@ -241,6 +254,7 @@ function PendingSection() {
                                     </span>
                                 </div>
                                 <div className="text-xs text-text-secondary">
+                                    // i18n: user-facing
                                     {t('类别', 'Category')}:{' '}
                                     <span className="font-mono">{a.category ?? '-'}</span>
                                 </div>
@@ -253,6 +267,7 @@ function PendingSection() {
                                 {diff ? (
                                     <details>
                                         <summary className="cursor-pointer text-xs text-text-secondary">
+                                            // i18n: user-facing
                                             {t('查看差异', 'View diff')}
                                         </summary>
                                         <pre className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap rounded bg-bg p-2 font-mono text-[11px] text-text-secondary">
@@ -266,6 +281,7 @@ function PendingSection() {
                                         onClick={() => act(a.action_id, true)}
                                         className="rounded border border-success/40 px-2.5 py-1 text-xs text-success hover:bg-success/10"
                                     >
+                                        // i18n: user-facing
                                         {t('批准', 'Approve')}
                                     </button>
                                     <button
@@ -273,6 +289,7 @@ function PendingSection() {
                                         onClick={() => act(a.action_id, false)}
                                         className="rounded border border-error/40 px-2.5 py-1 text-xs text-error hover:bg-error/10"
                                     >
+                                        // i18n: user-facing
                                         {t('拒绝', 'Reject')}
                                     </button>
                                 </div>
@@ -299,6 +316,7 @@ function PolicySection() {
                 description: description.trim(),
                 level,
             });
+            // i18n: user-facing
             sdk.toast.show({ level: 'success', message: t('策略已添加', 'policy added') });
             setCategory('');
             setDescription('');
@@ -309,12 +327,15 @@ function PolicySection() {
 
     return (
         <div className="flex max-w-md flex-col gap-3 px-4">
+            // i18n: user-facing
             <FormField label={t('类别', 'Category')} required>
                 <TextInput value={category} onChange={setCategory} />
             </FormField>
+            // i18n: user-facing
             <FormField label={t('描述', 'Description')}>
                 <TextInput value={description} onChange={setDescription} />
             </FormField>
+            // i18n: user-facing
             <FormField label={t('级别', 'Level')}>
                 <div className="flex gap-2">
                     {['L1', 'L2', 'L3'].map((l) => (
@@ -333,6 +354,7 @@ function PolicySection() {
                     ))}
                 </div>
             </FormField>
+            // i18n: user-facing
             <SubmitButton label={t('添加策略', 'Add policy')} onAction={add} />
         </div>
     );

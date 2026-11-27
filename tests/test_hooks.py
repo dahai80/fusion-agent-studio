@@ -76,11 +76,11 @@ async def test_matcher_filters():
 
 
 async def test_command_hook_approves(monkeypatch):
-    # 审计 P2-9: command hook 默认关, 显式开 FUSION_HOOKS_ALLOW_COMMAND=1 才执行.
+    # Audit P2-9: command hooks default off; only run with FUSION_HOOKS_ALLOW_COMMAND=1.
     monkeypatch.setenv("FUSION_HOOKS_ALLOW_COMMAND", "1")
     eng = HookEngine()
-    # 审计 D-7: POST_TOOL_USE 现 fail-closed, hook 输出必须是合法 JSON.
-    # 单引号包双引号 JSON, shlex.split 保留内层引号 -> echo 输出合法 JSON.
+    # Audit D-7: POST_TOOL_USE is now fail-closed; hook output must be valid JSON.
+    # Single-quoted shell arg preserves the inner double quotes so echo emits valid JSON.
     cmd = 'echo \'{"decision":"approve"}\''
     eng.register(HookConfig(event="POST_TOOL_USE", type="command", command=cmd, timeout=5.0))
     res = await eng.fire("POST_TOOL_USE", {"tool_name": "x"}, tool_name="x")
@@ -88,9 +88,9 @@ async def test_command_hook_approves(monkeypatch):
 
 
 async def test_command_hook_fail_closed_on_non_json(monkeypatch):
-    # 审计 P2-9: command hook 默认关, 显式开才执行.
+    # Audit P2-9: command hooks default off; only run when enabled explicitly.
     monkeypatch.setenv("FUSION_HOOKS_ALLOW_COMMAND", "1")
-    # 审计 D-7: 安全门 hook 输出畸形应 fail-closed (block), 非静默放行.
+    # Audit D-7: malformed safety-gate hook output must fail closed (block), not pass silently.
     eng = HookEngine()
     cmd = "echo not-json"
     eng.register(HookConfig(event="PRE_TOOL_USE", type="command", command=cmd, timeout=5.0))
@@ -100,7 +100,7 @@ async def test_command_hook_fail_closed_on_non_json(monkeypatch):
 
 
 async def test_command_hook_fail_open_non_safety_event():
-    # 审计 D-7: 非安全门事件 (SESSION_*) 维持 fail-open approve.
+    # Audit D-7: non-safety-gate events (SESSION_*) keep fail-open approve.
     eng = HookEngine()
     cmd = "echo not-json"
     eng.register(HookConfig(event="SESSION_START", type="command", command=cmd, timeout=5.0))

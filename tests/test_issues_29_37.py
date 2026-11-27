@@ -4,7 +4,7 @@ artifact_tools.
 Importers: pytest test runner.
 Affected API: AgentDefinition, AgentStatusTracker, CoworkManager, ArtifactManager.
 Data schemas: all dataclasses from the 5 modules under test.
-User instruction: "后续功能也要马上启动落地实施".
+User instruction: "Follow-up features must also start landing immediately".
 """
 
 from __future__ import annotations

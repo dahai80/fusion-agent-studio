@@ -42,7 +42,7 @@ class TestDeriveColumn:
         assert derive_column(_make_task(TASK_STATUS_PENDING, REVIEW_STATE_NONE, "")) == COLUMN_TODO
 
     def test_pending_with_owner_todo(self):
-        # pending 有 owner 仍未开始 -> todo (边界: 认领前)
+        # pending with owner but not started -> todo (edge: before claim)
         assert (
             derive_column(_make_task(TASK_STATUS_PENDING, REVIEW_STATE_NONE, "agent1"))
             == COLUMN_TODO
@@ -73,7 +73,7 @@ class TestDeriveColumn:
         )
 
     def test_completed_none_falls_back_todo(self):
-        # completed + review=none: 推导不出列 (未进评审态) -> todo 兜底
+        # completed + review=none: cannot derive a column (not in review) -> todo fallback
         assert (
             derive_column(_make_task(TASK_STATUS_COMPLETED, REVIEW_STATE_NONE, "")) == COLUMN_TODO
         )
@@ -85,7 +85,7 @@ class TestDeriveColumn:
         )
 
     def test_failed_archived(self):
-        # failed 不入看板 (归档)
+        # failed is not shown on the board (archived)
         assert derive_column(_make_task(TASK_STATUS_FAILED, REVIEW_STATE_NONE, "")) == COLUMN_TODO
 
     def test_dict_input(self):
@@ -97,7 +97,7 @@ class TestDeriveColumn:
         assert derive_column(task_dict) == COLUMN_IN_PROGRESS
 
     def test_all_combinations_covered(self):
-        # 契约: status×review 全组合都有确定列, 无 None 返回
+        # contract: every status x review combination maps to a definite column, never None
         for status in [
             TASK_STATUS_PENDING,
             TASK_STATUS_RUNNING,
@@ -193,7 +193,7 @@ class TestDequeue:
         store.submit(t2)
         claimed = store.dequeue("ops", "agent1")
         assert claimed is not None
-        # priority DESC -> t2 (priority=5) 先领
+        # priority DESC -> t2 (priority=5) claimed first
         assert claimed.title == "t2"
         assert claimed.owner_agent == "agent1"
         assert claimed.status == TASK_STATUS_RUNNING
@@ -214,7 +214,7 @@ class TestDequeue:
         claimed = store.dequeue("finance", "agent1")
         assert claimed.title == "fin_task"
         assert store.dequeue("finance", "agent1") is None
-        # ops 任务仍 pending
+        # ops task is still pending
         ops = store.dequeue("ops", "agent2")
         assert ops.title == "ops_task"
         store.close()
@@ -326,6 +326,6 @@ class TestListByColumn:
         assert len(cols["todo"]) == 2
         assert len(cols["approved"]) == 1
         assert cols["approved"][0]["title"] == "done1"
-        # canceled 归档不入板
+        # canceled is archived, not shown on the board
         assert "archived" not in cols or len(cols.get("archived", [])) == 0
         store.close()

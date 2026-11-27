@@ -167,11 +167,13 @@ function BudgetTab() {
     const setBudget = async () => {
         const n = Number(maxTokens);
         if (!Number.isFinite(n) || n < 0) {
+            // i18n: user-facing
             sdk.toast.show({ level: 'error', message: t('无效预算', 'Invalid budget') });
             return;
         }
         try {
             await rpc('budget.set', { max_tokens: Math.floor(n) });
+            // i18n: user-facing
             sdk.toast.show({ level: 'success', message: t('预算已设置', 'Budget set') });
             setMaxTokens('');
             manualRetry();
@@ -183,6 +185,7 @@ function BudgetTab() {
     if (loading) return <SkeletonLines />;
     if (error)
         return <ErrorState message={String(error)} retrying={attempt} onRetry={manualRetry} />;
+    // i18n: user-facing
     if (!data) return <EmptyState title={t('无预算数据', 'No budget data')} />;
 
     const pct =
@@ -195,6 +198,7 @@ function BudgetTab() {
             <div className="rounded border border-border bg-bg-elevated p-4 space-y-2">
                 <div className="flex items-baseline justify-between">
                     <span className="text-sm text-text-secondary">
+                        // i18n: user-facing
                         {t('Token 预算使用', 'Token budget usage')}
                     </span>
                     <span className="text-sm font-mono">
@@ -208,15 +212,18 @@ function BudgetTab() {
                     />
                 </div>
                 {data.exceeded && (
+                    // i18n: user-facing
                     <div className="text-xs text-error">{t('预算已超限', 'Budget exceeded')}</div>
                 )}
             </div>
             <div className="flex items-end gap-2">
                 <div className="w-64">
+                    // i18n: user-facing
                     <FormField label={t('最大 Token 数', 'Max tokens')}>
                         <TextInput value={maxTokens} onChange={setMaxTokens} placeholder="0" />
                     </FormField>
                 </div>
+                // i18n: user-facing
                 <SubmitButton label={t('设置预算', 'Set budget')} onAction={() => setBudget()} />
             </div>
         </div>
@@ -249,6 +256,7 @@ function PermissionsTab() {
                     tool,
                     level: denied ? 'allow' : 'deny',
                 });
+                // i18n: user-facing
                 sdk.toast.show({ level: 'success', message: t('已更新', 'Updated') });
                 perms.manualRetry();
             } catch (e) {
@@ -274,6 +282,7 @@ function PermissionsTab() {
     return (
         <div className="space-y-3">
             <div className="w-72">
+                // i18n: user-facing
                 <FormField label={t('选择 Agent', 'Select agent')}>
                     <select
                         className="w-full rounded border border-border bg-bg px-2 py-1.5 text-sm"
@@ -289,6 +298,7 @@ function PermissionsTab() {
                 </FormField>
             </div>
             {tools.length === 0 ? (
+                // i18n: user-facing
                 <EmptyState title={t('该 Agent 无工具清单', 'No tool manifest for this agent')} />
             ) : (
                 <DataTable<string>
@@ -298,25 +308,30 @@ function PermissionsTab() {
                     columns={[
                         {
                             key: 'tool',
+                            // i18n: user-facing
                             header: t('工具', 'Tool'),
                             render: (tool) => <span className="font-mono text-xs">{tool}</span>,
                         },
                         {
                             key: 'state',
+                            // i18n: user-facing
                             header: t('状态', 'State'),
                             render: (tool) =>
                                 denied.includes(tool) ? (
                                     <span className="rounded bg-error/10 text-error px-1.5 text-xs">
+                                        // i18n: user-facing
                                         {t('拒绝', 'deny')}
                                     </span>
                                 ) : (
                                     <span className="rounded bg-brand/10 text-brand px-1.5 text-xs">
+                                        // i18n: user-facing
                                         {t('允许', 'allow')}
                                     </span>
                                 ),
                         },
                         {
                             key: 'action',
+                            // i18n: user-facing
                             header: t('操作', 'Action'),
                             render: (tool) => (
                                 <button
@@ -324,6 +339,7 @@ function PermissionsTab() {
                                     className="rounded border border-border px-2 py-0.5 text-xs hover:border-brand"
                                     onClick={() => void toggle(tool, denied.includes(tool))}
                                 >
+                                    // i18n: user-facing
                                     {denied.includes(tool) ? t('允许', 'Allow') : t('拒绝', 'Deny')}
                                 </button>
                             ),
@@ -358,20 +374,26 @@ function EventsTab() {
             <div className="grid grid-cols-2 gap-3">
                 {[
                     {
+                        // i18n: user-facing
                         label: t('完成会话', 'Sessions completed'),
                         value: s?.sessions_completed ?? 0,
                     },
+                    // i18n: user-facing
                     { label: t('压缩次数', 'Compactions'), value: s?.compactions_total ?? 0 },
+                    // i18n: user-facing
                     { label: t('审批次数', 'Approvals'), value: s?.approvals_total ?? 0 },
                     {
+                        // i18n: user-facing
                         label: t('P99 审批延迟', 'P99 approval latency'),
                         value: `${Math.round(s?.p99_approval_latency_ms ?? 0)} ms`,
                     },
                     {
+                        // i18n: user-facing
                         label: t('平均会话时长', 'Avg session duration'),
                         value: `${Math.round(s?.avg_session_duration_ms ?? 0)} ms`,
                     },
                     {
+                        // i18n: user-facing
                         label: t('P99 会话时长', 'P99 session duration'),
                         value: `${Math.round(s?.p99_session_duration_ms ?? 0)} ms`,
                     },
@@ -386,6 +408,7 @@ function EventsTab() {
                 ))}
             </div>
             <div className="rounded border border-border bg-bg-elevated p-3">
+                // i18n: user-facing
                 <div className="text-sm font-medium mb-2">{t('引擎计数器', 'Engine counters')}</div>
                 <div className="flex flex-wrap gap-2">
                     {Object.entries(counters).map(([k, v]) => (
@@ -433,6 +456,7 @@ function ArtifactsTab() {
             />
         );
     const artifacts = list.data?.artifacts ?? [];
+    // i18n: user-facing
     if (artifacts.length === 0) return <EmptyState title={t('暂无运行产物', 'no run artifacts')} />;
 
     return (
@@ -444,16 +468,19 @@ function ArtifactsTab() {
                 columns={[
                     {
                         key: 'name',
+                        // i18n: user-facing
                         header: t('图 / 名称', 'Graph / name'),
                         render: (a) => <span className="text-sm">{a.name}</span>,
                     },
                     {
                         key: 'version',
+                        // i18n: user-facing
                         header: t('版本', 'Version'),
                         render: (a) => <span className="font-mono text-xs">v{a.version}</span>,
                     },
                     {
                         key: 'shape',
+                        // i18n: user-facing
                         header: t('图规模', 'Graph shape'),
                         render: (a) => (
                             <span className="text-xs text-text-secondary">
@@ -463,11 +490,13 @@ function ArtifactsTab() {
                     },
                     {
                         key: 'messages',
+                        // i18n: user-facing
                         header: t('对话条数', 'Messages'),
                         render: (a) => <span className="font-mono text-xs">{a.message_count}</span>,
                     },
                     {
                         key: 'created',
+                        // i18n: user-facing
                         header: t('时间', 'Created'),
                         render: (a) => (
                             <span className="text-xs text-text-secondary">
@@ -486,6 +515,7 @@ function ArtifactsTab() {
                                 className="text-xs text-brand hover:underline"
                                 onClick={() => void open(a.artifact_id)}
                             >
+                                // i18n: user-facing
                                 {t('查看三元组', 'Open triple')}
                             </button>
                         ),
@@ -504,14 +534,18 @@ function ArtifactsTab() {
                             className="text-xs text-text-secondary hover:text-text-primary"
                             onClick={() => setSelected(null)}
                         >
+                            // i18n: user-facing
                             {t('关闭', 'Close')}
                         </button>
                     </div>
                     <div className="grid gap-2 md:grid-cols-3">
                         {(
                             [
+                                // i18n: user-facing
                                 ['graph', t('图定义', 'Graph definition')],
+                                // i18n: user-facing
                                 ['environment', t('环境快照', 'Environment snapshot')],
+                                // i18n: user-facing
                                 ['conversation', t('对话留档', 'Conversation archive')],
                             ] as const
                         ).map(([key, label]) => (
@@ -591,6 +625,7 @@ function ApprovalsTab() {
             // #596: no approver selected — refuse visibly, never unattributed.
             sdk.toast.show({
                 level: 'error',
+                // i18n: user-facing
                 message: t('请先选择审批人', 'select an approver first'),
             });
             return;
@@ -605,6 +640,7 @@ function ApprovalsTab() {
             );
             sdk.toast.show({
                 level: 'success',
+                // i18n: user-facing
                 message: approve ? t('已批准', 'Approved') : t('已拒绝', 'Rejected'),
             });
             setReason('');
@@ -620,6 +656,7 @@ function ApprovalsTab() {
         <div className="space-y-3">
             <div className="flex flex-wrap items-end gap-2">
                 <div className="w-56">
+                    // i18n: user-facing
                     <FormField label={t('当前审批人', 'Current principal')}>
                         {/* #596: selection, not free text — decided_by in the
                             ledger stores the chosen identity verbatim. */}
@@ -631,7 +668,9 @@ function ApprovalsTab() {
                         >
                             <option value="">
                                 {approvers.length
+                                    // i18n: user-facing
                                     ? t('请选择审批人', 'select an approver')
+                                    // i18n: user-facing
                                     : t('无可用审批人', 'no approvers configured')}
                             </option>
                             {approvers.map((a) => (
@@ -643,34 +682,43 @@ function ApprovalsTab() {
                     </FormField>
                 </div>
                 <div className="w-40">
+                    // i18n: user-facing
                     <FormField label={t('状态', 'Status')}>
                         <select
                             className="w-full rounded border border-border bg-bg px-2 py-1.5 text-sm"
                             value={status}
                             onChange={(e) => setStatus(e.target.value)}
                         >
+                            // i18n: user-facing
                             <option value="pending">{t('待审', 'pending')}</option>
+                            // i18n: user-facing
                             <option value="approved">{t('已批准', 'approved')}</option>
+                            // i18n: user-facing
                             <option value="rejected">{t('已拒绝', 'rejected')}</option>
+                            // i18n: user-facing
                             <option value="">{t('全部', 'all')}</option>
                         </select>
                     </FormField>
                 </div>
                 <div className="w-64">
+                    // i18n: user-facing
                     <FormField label={t('拒绝理由', 'Rejection reason')}>
                         <TextInput
                             value={reason}
                             onChange={setReason}
+                            // i18n: user-facing
                             placeholder={t('拒绝时必填', 'required on reject')}
                         />
                     </FormField>
                 </div>
+                // i18n: user-facing
                 <SubmitButton label={t('刷新', 'Refresh')} onAction={() => void refresh()} />
             </div>
             {error ? <ErrorState message={error} /> : null}
             {loading && rows.length === 0 ? (
                 <SkeletonLines />
             ) : rows.length === 0 ? (
+                // i18n: user-facing
                 <EmptyState title={t('暂无审批任务', 'No approval tasks')} />
             ) : (
                 <DataTable<ExternalApproval>
@@ -680,6 +728,7 @@ function ApprovalsTab() {
                     columns={[
                         {
                             key: 'title',
+                            // i18n: user-facing
                             header: t('标题', 'Title'),
                             render: (r) => {
                                 const badge = gateBadge(r.title, r.agent_id || '');
@@ -701,6 +750,7 @@ function ApprovalsTab() {
                                         </div>
                                         {issue ? (
                                             <div className="text-xs text-text-secondary">
+                                                // i18n: user-facing
                                                 {t('关联 Issue', 'Issue')}: {issue}
                                             </div>
                                         ) : null}
@@ -714,18 +764,21 @@ function ApprovalsTab() {
                                                             rel="noreferrer"
                                                             className="text-brand hover:underline"
                                                         >
+                                                            // i18n: user-facing
                                                             {t('关联 PR', 'PR')}
                                                         </a>
                                                     </div>
                                                 ) : null}
                                                 {arts.length ? (
                                                     <div className="text-xs text-text-secondary">
+                                                        // i18n: user-facing
                                                         {t('产物预览', 'Artifacts')}:{' '}
                                                         {arts.join(', ')}
                                                     </div>
                                                 ) : null}
                                                 {verdicts ? (
                                                     <div className="text-xs text-text-secondary">
+                                                        // i18n: user-facing
                                                         {t('评审结论', 'Reviews')}: {verdicts}
                                                     </div>
                                                 ) : null}
@@ -737,16 +790,19 @@ function ApprovalsTab() {
                         },
                         {
                             key: 'people',
+                            // i18n: user-facing
                             header: t('申请人 / 审批人', 'Requester / reviewer'),
                             render: (r) => (
                                 <span className="text-xs text-text-secondary">
                                     {r.requester || '-'} →{' '}
+                                    // i18n: user-facing
                                     {r.assigned_to || t('未指派', 'unassigned')}
                                 </span>
                             ),
                         },
                         {
                             key: 'payload',
+                            // i18n: user-facing
                             header: t('载荷', 'Payload'),
                             render: (r) => (
                                 <pre className="max-h-20 max-w-xs overflow-auto whitespace-pre-wrap font-mono text-[11px] text-text-secondary">
@@ -756,14 +812,18 @@ function ApprovalsTab() {
                         },
                         {
                             key: 'status',
+                            // i18n: user-facing
                             header: t('状态', 'State'),
                             render: (r) => (
                                 <span className="text-xs">
                                     {r.status === 'pending'
+                                        // i18n: user-facing
                                         ? t('待审', 'pending')
                                         : r.status === 'approved'
+                                          // i18n: user-facing
                                           ? t('已批准', 'approved')
                                           : r.status === 'rejected'
+                                            // i18n: user-facing
                                             ? t('已拒绝', 'rejected')
                                             : r.status}
                                 </span>
@@ -771,6 +831,7 @@ function ApprovalsTab() {
                         },
                         {
                             key: 'action',
+                            // i18n: user-facing
                             header: t('操作', 'Action'),
                             render: (r) => {
                                 const ok = canDecide(r);
@@ -782,6 +843,7 @@ function ApprovalsTab() {
                                             className="rounded border border-border px-2 py-0.5 text-xs enabled:hover:border-brand disabled:opacity-40"
                                             onClick={() => void decide(r, true)}
                                         >
+                                            // i18n: user-facing
                                             {t('批准', 'Approve')}
                                         </button>
                                         <button
@@ -790,6 +852,7 @@ function ApprovalsTab() {
                                             className="rounded border border-border px-2 py-0.5 text-xs enabled:hover:border-error disabled:opacity-40"
                                             onClick={() => void decide(r, false)}
                                         >
+                                            // i18n: user-facing
                                             {t('拒绝', 'Reject')}
                                         </button>
                                     </div>
@@ -839,6 +902,7 @@ function WebhooksTab() {
                 secret: secret.trim(),
                 ...(ev.length ? { events: ev } : {}),
             });
+            // i18n: user-facing
             sdk.toast.show({ level: 'success', message: t('已注册', 'Registered') });
             setUrl('');
             setSecret('');
@@ -852,6 +916,7 @@ function WebhooksTab() {
     const remove = async (id: string) => {
         try {
             await apiDelete(`/v1/agent-platform/webhooks/${encodeURIComponent(id)}`);
+            // i18n: user-facing
             sdk.toast.show({ level: 'success', message: t('已删除', 'Deleted') });
             await refresh();
         } catch (e) {
@@ -863,10 +928,12 @@ function WebhooksTab() {
         <div className="space-y-3">
             <div className="rounded border border-border bg-bg-elevated p-3 space-y-2">
                 <div className="text-sm font-medium">
+                    // i18n: user-facing
                     {t('注册决策 Webhook', 'Register decision webhook')}
                 </div>
                 <div className="flex flex-wrap items-end gap-2">
                     <div className="w-72">
+                        // i18n: user-facing
                         <FormField label={t('回调 URL', 'Callback URL')}>
                             <TextInput
                                 value={url}
@@ -876,11 +943,13 @@ function WebhooksTab() {
                         </FormField>
                     </div>
                     <div className="w-56">
+                        // i18n: user-facing
                         <FormField label={t('签名密钥 (≥16 字符)', 'Signing secret (≥16 chars)')}>
                             <TextInput value={secret} onChange={setSecret} placeholder="********" />
                         </FormField>
                     </div>
                     <div className="w-56">
+                        // i18n: user-facing
                         <FormField label={t('事件 (逗号分隔)', 'Events (comma separated)')}>
                             <TextInput
                                 value={events}
@@ -889,6 +958,7 @@ function WebhooksTab() {
                             />
                         </FormField>
                     </div>
+                    // i18n: user-facing
                     <SubmitButton label={t('注册', 'Register')} onAction={() => register()} />
                 </div>
             </div>
@@ -896,6 +966,7 @@ function WebhooksTab() {
             {loading && rows.length === 0 ? (
                 <SkeletonLines />
             ) : rows.length === 0 ? (
+                // i18n: user-facing
                 <EmptyState title={t('未注册 Webhook', 'No webhooks registered')} />
             ) : (
                 <DataTable<WebhookRow>
@@ -910,6 +981,7 @@ function WebhooksTab() {
                         },
                         {
                             key: 'events',
+                            // i18n: user-facing
                             header: t('事件', 'Events'),
                             render: (r) => (
                                 <span className="text-xs text-text-secondary">
@@ -919,6 +991,7 @@ function WebhooksTab() {
                         },
                         {
                             key: 'deliveries',
+                            // i18n: user-facing
                             header: t('投递', 'Deliveries'),
                             render: (r) => (
                                 <span className="font-mono text-xs">
@@ -928,6 +1001,7 @@ function WebhooksTab() {
                         },
                         {
                             key: 'action',
+                            // i18n: user-facing
                             header: t('操作', 'Action'),
                             render: (r) => (
                                 <button
@@ -935,6 +1009,7 @@ function WebhooksTab() {
                                     className="rounded border border-border px-2 py-0.5 text-xs hover:border-error"
                                     onClick={() => void remove(r.id)}
                                 >
+                                    // i18n: user-facing
                                     {t('删除', 'Delete')}
                                 </button>
                             ),
@@ -952,19 +1027,27 @@ export function GovernancePage() {
     return (
         <div className="pb-8">
             <PageHeader
+                // i18n: user-facing
                 title={t('治理', 'Governance')}
                 subtitle={t(
+                    // i18n: user-facing
                     '预算 / 权限 / 事件 / 产物 / 审批 / Webhook',
                     'Budget / permissions / events / artifacts / approvals / webhooks'
                 )}
             />
             <Tabs
                 tabs={[
+                    // i18n: user-facing
                     { key: 'budget', label: t('预算', 'Budget') },
+                    // i18n: user-facing
                     { key: 'permissions', label: t('权限', 'Permissions') },
+                    // i18n: user-facing
                     { key: 'events', label: t('事件', 'Events') },
+                    // i18n: user-facing
                     { key: 'artifacts', label: t('产物', 'Artifacts') },
+                    // i18n: user-facing
                     { key: 'approvals', label: t('审批收件箱', 'Approvals') },
+                    // i18n: user-facing
                     { key: 'webhooks', label: t('决策 Webhook', 'Webhooks') },
                 ]}
                 active={tab}

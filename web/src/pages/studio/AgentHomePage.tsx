@@ -7,8 +7,8 @@ import { useT } from '../../i18n';
 import { type AgentModel, modelLabel } from '../../lib/agentModel';
 
 // #528 (DC-2): AI Agent Dashboard — the module entry. Top-right
-// [＋构建智能体] (conversational builder) + [🔑获取API密钥]; below:
-// ready-to-use agents ([使用] opens a working conversation, [编辑] the
+// [+ Build Agent] (conversational builder) + [Get API Key]; below:
+// ready-to-use agents ([Use] opens a working conversation, [Edit] the
 // form editor on the same config), a drafts strip, and recent runs.
 // Reorganization only — data comes from the existing agent.list /
 // analytics.agent_usage / /v1/runs surfaces, nothing new server-side.
@@ -65,6 +65,7 @@ export function AgentHomePage() {
             <PageHeader
                 title={t('AI Agent', 'AI Agent')}
                 subtitle={t(
+                    // i18n: user-facing
                     `${ready.length} 个可直接使用 · ${drafts.length} 个草稿`,
                     `${ready.length} ready-to-use · ${drafts.length} drafts`
                 )}
@@ -74,13 +75,13 @@ export function AgentHomePage() {
                             href="#/apikeys"
                             className="rounded-md border border-border px-3 py-1.5 text-xs text-text-primary hover:bg-bg-muted"
                         >
-                            🔑 {t('获取 API 密钥', 'Get API key')}
+                            // i18n: user-facing 🔑 {t('获取 API 密钥', 'Get API key')}
                         </a>
                         <a
                             href="#/builder"
                             className="rounded-md bg-brand px-3 py-1.5 text-xs text-white hover:opacity-90"
                         >
-                            ＋ {t('构建智能体', 'Build agent')}
+                            // i18n: user-facing ＋ {t('构建智能体', 'Build agent')}
                         </a>
                     </div>
                 }
@@ -91,6 +92,7 @@ export function AgentHomePage() {
                 ) : error ? (
                     <ErrorState
                         message={(error as Error).message}
+                        // i18n: user-facing
                         retryLabel={t('重试', 'Retry')}
                         onRetry={manualRetry}
                         retrying={attempt}
@@ -99,11 +101,13 @@ export function AgentHomePage() {
                     <>
                         <section>
                             <h3 className="mb-2 text-sm font-medium text-text-primary">
+                                // i18n: user-facing
                                 {t('可直接使用的智能体', 'Ready-to-use agents')}
                             </h3>
                             {ready.length === 0 ? (
                                 <p className="text-xs text-text-muted">
                                     {t(
+                                        // i18n: user-facing
                                         '暂无已部署智能体 — 点击右上「构建智能体」开始',
                                         'none yet — click "Build agent" to start'
                                     )}
@@ -125,6 +129,7 @@ export function AgentHomePage() {
                                                     <StatusBadge status="success" label="ready" />
                                                 </div>
                                                 <div className="line-clamp-2 min-h-8 text-xs text-text-secondary">
+                                                    // i18n: user-facing
                                                     {a.description || t('无描述', 'No description')}
                                                 </div>
                                                 <div className="flex flex-wrap items-center gap-1 text-[10px]">
@@ -133,6 +138,7 @@ export function AgentHomePage() {
                                                     </span>
                                                     <span className="rounded bg-bg-muted px-1 font-mono text-text-secondary">
                                                         {t(
+                                                            // i18n: user-facing
                                                             `${a.tools?.length ?? 0} 工具`,
                                                             `${a.tools?.length ?? 0} tools`
                                                         )}
@@ -140,6 +146,7 @@ export function AgentHomePage() {
                                                     {u?.runs ? (
                                                         <span className="rounded bg-bg-muted px-1 font-mono text-text-secondary">
                                                             {t(
+                                                                // i18n: user-facing
                                                                 `${u.runs} 次运行`,
                                                                 `${u.runs} runs`
                                                             )}
@@ -151,12 +158,14 @@ export function AgentHomePage() {
                                                         href={`#/aiagent?agent=${encodeURIComponent(id)}`}
                                                         className="rounded-md bg-brand/10 px-2 py-1 text-brand hover:bg-brand/20"
                                                     >
+                                                        // i18n: user-facing
                                                         {t('使用', 'Use')}
                                                     </a>
                                                     <a
                                                         href={editorHref(id)}
                                                         className="rounded-md border border-border px-2 py-1 text-text-secondary hover:text-text-primary"
                                                     >
+                                                        // i18n: user-facing
                                                         {t('编辑', 'Edit')}
                                                     </a>
                                                 </div>
@@ -169,6 +178,7 @@ export function AgentHomePage() {
                         {drafts.length > 0 ? (
                             <section>
                                 <h3 className="mb-2 text-sm font-medium text-text-primary">
+                                    // i18n: user-facing
                                     {t('构建中的草稿', 'Drafts')}
                                 </h3>
                                 <div className="flex gap-3 overflow-x-auto pb-1">
@@ -185,6 +195,7 @@ export function AgentHomePage() {
                                                 <span className="line-clamp-2 text-xs text-text-secondary">
                                                     {a.description ||
                                                         t(
+                                                            // i18n: user-facing
                                                             '未测试，构建进行中',
                                                             'untested, in progress'
                                                         )}
@@ -193,6 +204,7 @@ export function AgentHomePage() {
                                                     href={editorHref(id)}
                                                     className="mt-auto self-start text-xs text-brand hover:underline"
                                                 >
+                                                    // i18n: user-facing
                                                     {t('继续构建 →', 'Continue building →')}
                                                 </a>
                                             </div>
@@ -204,19 +216,23 @@ export function AgentHomePage() {
                         <section>
                             <div className="mb-2 flex items-center justify-between">
                                 <h3 className="text-sm font-medium text-text-primary">
+                                    // i18n: user-facing
                                     {t('最近运行', 'Recent runs')}
                                 </h3>
                                 <div className="flex gap-3 text-xs text-brand">
                                     <a href="#/dashboard" className="hover:underline">
+                                        // i18n: user-facing
                                         {t('用量与评测', 'Usage & evals')}
                                     </a>
                                     <a href="#/runs" className="hover:underline">
+                                        // i18n: user-facing
                                         {t('全部 →', 'All →')}
                                     </a>
                                 </div>
                             </div>
                             {(data?.runs ?? []).length === 0 ? (
                                 <p className="text-xs text-text-muted">
+                                    // i18n: user-facing
                                     {t('暂无运行', 'no runs yet')}
                                 </p>
                             ) : (

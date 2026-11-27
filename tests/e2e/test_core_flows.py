@@ -49,7 +49,7 @@ class TestPages:
         # hash router: studio tabs are flat segments (#/dashboard, #/safety) —
         # parseHash falls back to workflows for anything else
         page.goto(f"{daemon_base}/#/dashboard")
-        page.wait_for_selector("text=仪表盘", timeout=20000)
+        page.wait_for_selector("text=仪表盘", timeout=20000)  # i18n: user-facing
         assert page.title() != ""
 
     def test_workflows_page_lists_created_graph(self, page, daemon_base):
@@ -182,15 +182,15 @@ class TestHitlApproval:
 
             # approve through the real Safety page UI (flat hash segment)
             page.goto(f"{daemon_base}/#/safety")
-            page.wait_for_selector("text=待审动作", timeout=20000)
-            page.click("text=待审动作")
+            page.wait_for_selector("text=待审动作", timeout=20000)  # i18n: user-facing
+            page.click("text=待审动作")  # i18n: user-facing
             page.wait_for_selector(f"text={action_id}", timeout=20000)
             page.locator("div", has_text=action_id).filter(
-                has=page.get_by_role("button", name="批准")
-            ).first.get_by_role("button", name="批准").click()
+                has=page.get_by_role("button", name="批准")  # i18n: user-facing
+            ).first.get_by_role("button", name="批准").click()  # i18n: user-facing
             # standalone host renders no toast; the empty state is the visible
             # proof that the approve RPC landed and the queue drained
-            page.wait_for_selector("text=无待审动作", timeout=20000)
+            page.wait_for_selector("text=无待审动作", timeout=20000)  # i18n: user-facing
 
             worker.join(timeout=60)
             assert "result" in outcome, f"execute did not finish: {outcome.get('error')}"

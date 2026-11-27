@@ -5,7 +5,7 @@ WebSocket for real-time event streaming during graph execution.
 Callers: fusion-studio GUI, external API clients, SDK clients.
 Affected API: /v1/* REST endpoints, WebSocket /ws/execute/*
 Data schemas: AgentStatusTracker, ArtifactManager, KnowledgeBaseManager, AuditLogger, etc.
-User instruction: "对比fusion-agent-studio看还有哪些缺失，尽快补齐"
+User instruction: "Compare against fusion-agent-studio to find remaining gaps and close them ASAP"
 """
 
 from __future__ import annotations
@@ -57,8 +57,9 @@ async def lifespan(application: FastAPI):
 
 
 def _resolve_cors_origins() -> list[str]:
-    # 审计 D-6: 默认仅 localhost origin, 防 CSWSH/CSRF 从浏览器跨源打 daemon.
-    # env FUSION_API_CORS_ORIGINS=a,b 显式扩展.
+    # Audit D-6: default to localhost origins only, preventing CSWSH/CSRF
+    # cross-origin browser attacks against the daemon.
+    # Set FUSION_API_CORS_ORIGINS=a,b to extend explicitly.
     env_origins = os.environ.get("FUSION_API_CORS_ORIGINS", "").strip()
     if env_origins:
         return [o.strip() for o in env_origins.split(",") if o.strip()]
@@ -74,10 +75,12 @@ app = FastAPI(title="Fusion Agent Studio API", version="0.3.27", lifespan=lifesp
 
 app.add_middleware(
     CORSMiddleware,
-    # 审计 D-6: CORS 收紧. 原 allow_origins=["*"]+allow_credentials=True 是
-    # 反模式, 任意网页 JS 可向 127.0.0.1:11442 发简单请求触发图执行 (RCE).
-    # 默认仅允许 localhost origin; FUSION_API_CORS_ORIGINS 可配多源 (逗号分隔).
-    # 不再 allow_credentials=True (本地 daemon 无需凭据跨源).
+    # Audit D-6: CORS tightening. The old allow_origins=["*"]+
+    # allow_credentials=True was an anti-pattern — any web page's JS could send
+    # simple requests to 127.0.0.1:11442 and trigger graph execution (RCE).
+    # Only localhost origins allowed by default; FUSION_API_CORS_ORIGINS
+    # configures extra origins (comma-separated).
+    # No longer allow_credentials=True (local daemon needs no cross-origin credentials).
     allow_origins=_resolve_cors_origins(),
     allow_credentials=False,
     allow_methods=["GET", "POST", "PATCH", "DELETE", "PUT", "OPTIONS"],
@@ -188,8 +191,9 @@ def set_daemon(daemon: Any) -> None:
 def _get_store() -> AgentStore:
     global _store
     if _store is None:
-        # #500: daemon 模式必须复用 daemon.store —— --store-path 测试隔离对
-        # REST/SSE 图端点同样生效; 此前这里懒建默认用户库, 隔离形同虚设.
+        # #500: daemon mode must reuse daemon.store — --store-path test
+        # isolation applies to REST/SSE graph endpoints too; previously this
+        # lazily built a default user store, making isolation a no-op.
         daemon_store = getattr(_daemon, "store", None)
         _store = daemon_store if daemon_store is not None else AgentStore()
         logger.info(
@@ -200,10 +204,11 @@ def _get_store() -> AgentStore:
 
 
 def _get_runtime() -> AgentRuntime:
-    # #327: REST/WS/SSE 直调路径曾各自懒建裸 runtime (llm_gateway=empty),
-    # 真实 LLM 节点落到 "No available model" 且静默空输出 (仅 start/think ""
-    # /done, 无 token 事件). daemon 模式下复用 daemon 已接线 runtime
-    # (gateway+safety+memory+telemetry), 与 graph.execute_async 同源.
+    # #327: REST/WS/SSE direct-call paths used to lazily build a bare runtime
+    # (llm_gateway=empty); real LLM nodes then fell into "No available model"
+    # with silent empty output (only start/think "" /done, no token events).
+    # In daemon mode reuse the daemon's fully wired runtime
+    # (gateway+safety+memory+telemetry), same source as graph.execute_async.
     daemon_rt = getattr(_daemon, "_get_runtime", None)
     if daemon_rt is not None:
         try:
@@ -442,10 +447,12 @@ async def _require_auth(request: Request) -> dict:
 
 
 def _auth_configured() -> bool:
-    # 审计 D-6: 若已配置任意 api-key, 则所有变更端点强制鉴权 (生产模式).
-    # 未配置任何 key 时为本地受信模式, 放行 (向后兼容下游 fusion-studio/cli).
-    # #327: FUSION_AGENT_STUDIO_API_KEY (gateway 静态模块 key) 单独配置即视为
-    # 已配置 — 否则 gateway 部署只带静态 key 时端点仍全开放.
+    # Audit D-6: if any api-key is configured, all mutating endpoints require
+    # auth (production mode). With no keys configured this is local trusted
+    # mode and requests pass (backwards compatible for downstream fusion-studio/cli).
+    # #327: FUSION_AGENT_STUDIO_API_KEY (gateway static module key) configured
+    # on its own counts as configured — otherwise a gateway deployment carrying
+    # only the static key would leave endpoints fully open.
     if _static_env_key():
         return True
     from agent_runtime.apikey_manager import ApiKeyManager
@@ -455,25 +462,27 @@ def _auth_configured() -> bool:
 
 
 async def _require_auth_if_configured(request: Request) -> dict | None:
-    # 审计 D-6: 配置了 api-key 则变更端点必须鉴权; 否则本地受信放行.
+    # Audit D-6: with an api-key configured, mutating endpoints require auth;
+    # otherwise local trusted mode lets them pass.
     if not _auth_configured():
         return None
     return await _require_auth(request)
 
 
 def _validate_api_key_str(api_key: str) -> dict | None:
-    # 审计 P0-2: query-string 鉴权校验. WS/SSE 浏览器 EventSource 不能设自定义 header,
-    # 故走 ?api_key= query param. 复用 ApiKeyManager.validate.
-    # 返回 validate result dict (含 valid) 或 None (空 key).
+    # Audit P0-2: query-string auth validation. Browser EventSource for
+    # WS/SSE cannot set custom headers, so use the ?api_key= query param.
+    # Reuses ApiKeyManager.validate.
+    # Returns the validate result dict (with valid) or None (empty key).
     if not api_key:
         return None
     return _validate_key_result(api_key)
 
 
 def _require_auth_qs_or_raise(request: Request, api_key: str = Query("")) -> dict | None:
-    # 审计 P0-2: SSE (GET) 用 FastAPI Depends, 校验 query-string api_key.
-    # #327: gateway /shell 代理注入 Bearer 头 (EventSource 无法带 query key 的
-    # 嵌入路径), Bearer 与 query 二选一.
+    # Audit P0-2: SSE (GET) uses FastAPI Depends to validate query-string api_key.
+    # #327: gateway /shell proxy injects a Bearer header (for embedded paths
+    # where EventSource cannot carry a query key); Bearer and query are alternatives.
     if not _auth_configured():
         return None
     if not api_key:
@@ -487,8 +496,10 @@ def _require_auth_qs_or_raise(request: Request, api_key: str = Query("")) -> dic
 
 
 def _ws_auth_ok(api_key: str) -> tuple[bool, str]:
-    # 审计 P0-2: WS 握手前校验 query-string api_key (accept 后无法干净抛 HTTP).
-    # 返回 (ok, reason). 配置了 key 则必须有效; 否则本地受信放行.
+    # Audit P0-2: validate query-string api_key before the WS handshake
+    # (cannot raise a clean HTTP error after accept).
+    # Returns (ok, reason). With a key configured it must be valid;
+    # otherwise local trusted mode passes.
     if not _auth_configured():
         return True, ""
     if not api_key:
@@ -501,8 +512,10 @@ def _ws_auth_ok(api_key: str) -> tuple[bool, str]:
 
 @app.get("/health")
 async def health():
-    # 审计 P1-26: 原静态 {"status":"ok"} 是健康谎报 — 不探 MLX 可达性, MLX 宕
-    # 时仍报 ok 致负载均衡/监控误路由. 现探 daemon 网关 MLX 可达性, 不可达降级.
+    # Audit P1-26: the old static {"status":"ok"} was a health lie — no MLX
+    # reachability probe, so ok was still reported while MLX was down, causing
+    # load balancer/monitoring misrouting. Now probes the daemon gateway MLX
+    # reachability and degrades when unreachable.
     mlx_reachable = False
     if _daemon is not None and hasattr(_daemon, "_check_mlx_health"):
         try:
@@ -519,9 +532,11 @@ async def health():
 
 @app.get("/metrics")
 async def prometheus_metrics():
-    # 审计 P2-21: Prometheus 拉取端点. 暴露 telemetry counters/latencies +
-    # daemon active executions/queue, 文本 exposition 格式, 接 Grafana/Prometheus.
-    # 无密钥 (metrics 不含 secret), 但生产部署应在反代层限源 IP.
+    # Audit P2-21: Prometheus pull endpoint. Exposes telemetry
+    # counters/latencies + daemon active executions/queue in text exposition
+    # format for Grafana/Prometheus.
+    # No key required (metrics contain no secrets), but production deployments
+    # should restrict source IPs at the reverse proxy.
     lines: list[str] = []
     tele = _get_telemetry()
     m = tele.metrics() if tele else {}
@@ -1999,7 +2014,8 @@ async def v1_search(q: str = "", limit: int = 20):
             title = str(t.get("title") or t.get("task_id") or "")
             tid = str(t.get("task_id") or "")
             if tid and (query in title.lower() or query in tid.lower()):
-                items.append({"title": f"运行: {title}", "route": f"/runs/{tid}", "kind": "run"})
+                run_label = f"运行: {title}"  # i18n: user-facing
+                items.append({"title": run_label, "route": f"/runs/{tid}", "kind": "run"})
             if len(items) >= limit * 2:
                 break
     except Exception:
@@ -2024,10 +2040,11 @@ async def v1_notifications_runs(limit: int = 32):
             tid = str(t.get("task_id") or "")
             if not tid:
                 continue
+            done_label = f"运行结束: {t.get('title') or tid} ({status})"  # i18n: user-facing
             items.append(
                 {
                     "id": tid,
-                    "title": f"运行结束: {t.get('title') or tid} ({status})",
+                    "title": done_label,
                     "route": f"/runs/{tid}",
                     "level": "error" if status in {"failed", "cancelled", "canceled"} else "info",
                     "ts": float(t.get("updated_at") or 0),
@@ -2209,7 +2226,7 @@ async def v1_unbind_agent_kb(agent_id: str, request: Request):
 # Data schemas: search {query,top_k,threshold,hybrid,hybrid_alpha,hybrid_method,rerank,
 #   folder_prefix,filter,rewrite_mode}; ask {question,model,max_tokens,temperature,hybrid,
 #   rerank,folder_prefix}; scan {path,recursive,file_patterns}
-# User instruction: "fusion-rag 已经完成issue和pr，可以开展相关的工作落地"
+# User instruction: "fusion-rag has finished its issues and PRs; start landing the related work"
 
 
 @app.post("/v1/knowledge-bases/{kb_id}/search", dependencies=[Depends(_require_auth_if_configured)])
@@ -2510,8 +2527,9 @@ async def execute_graph(graph_id: str, req: GraphExecuteRequest):
 
 @app.websocket("/ws/execute/{graph_id}")
 async def ws_execute(websocket: WebSocket, graph_id: str):
-    # 审计 P0-2: WS 握手前鉴权 (accept 后无法干净抛 HTTP 401).
-    # 浏览器不能设自定义 header, 故读 query-string ?api_key=.
+    # Audit P0-2: authenticate before the WS handshake (cannot raise a clean
+    # HTTP 401 after accept). Browsers cannot set custom headers, so read
+    # the query-string ?api_key=.
     ok, reason = _ws_auth_ok(websocket.query_params.get("api_key", ""))
     if not ok:
         await websocket.accept()
@@ -2526,8 +2544,9 @@ async def ws_execute(websocket: WebSocket, graph_id: str):
         await websocket.close()
         return
     rt = _get_runtime()
-    # 审计 P2-5/P2-6/P0-3: WS 直调 rt 绕过 daemon 注册/节流/预算.
-    # 经 daemon 统一注册活跃执行 + 并发节流 + 透传 token_budget.
+    # Audit P2-5/P2-6/P0-3: WS direct rt calls bypassed daemon
+    # registration/throttling/budget. Route through the daemon for unified
+    # active-execution registration + concurrency throttling + token_budget passthrough.
     daemon = _daemon
     _unreg = None
     _sem_ctx = None
@@ -2634,7 +2653,8 @@ async def v1_execute_graph_stream(
         stop_after = only_node
         logger.info("SSE single-node run graph=%s node=%s", graph_id, only_node)
     rt = _get_runtime()
-    # 审计 P2-5/P2-6/P0-3: SSE 直调 rt 绕过 daemon 注册/节流/预算, 与 WS 同补.
+    # Audit P2-5/P2-6/P0-3: SSE direct rt calls bypassed daemon
+    # registration/throttling/budget, fixed the same way as WS.
     daemon = _daemon
     budget = daemon.token_budget_ref if daemon is not None else None
     sem = daemon.graph_semaphore if daemon is not None else None
