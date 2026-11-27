@@ -81,6 +81,11 @@ async def daemon_stub(socket_path, store_db):
     # calls register_model, making route() return a real model and connect to external services (a local launchd-MLX
     # running occasionally causes real LLM connections). Clearing -> route returns None -> deterministic stub path.
     d._gateway._models.clear()
+    # issue #814: _dispatch re-runs _ensure_mlx_attached before every RPC; with a live
+    # fusion-mlx it would re-attach the real client right after the eviction above and
+    # the planner/RAG calls would hit the real model nondeterministically. Disable lazy
+    # attach so the stub path stays stubbed.
+    d._mlx_attach_enabled = False
     d._planner = None
     d._rag = None
     yield d

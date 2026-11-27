@@ -52,6 +52,8 @@ async def daemon_stub(socket_path, store_db):
     d._gateway._default_client = None
     d._gateway._default_model = ""
     d._gateway._models.clear()
+    # issue #814: keep lazy attach from re-attaching a live MLX client on first RPC.
+    d._mlx_attach_enabled = False
     d._planner = None
     d._rag = None
     yield d

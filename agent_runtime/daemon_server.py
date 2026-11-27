@@ -299,6 +299,11 @@ class DaemonServer:
         # fusion-mlx is down, the gateway stays without a default client and
         # every LLM call returns "No available model" until a manual restart.
         self._mlx_reattach_task: asyncio.Task | None = None
+        # Test opt-out: when False, _ensure_mlx_attached never re-attaches, so a
+        # fixture that clears the gateway (daemon_stub) keeps the stub path even
+        # while a real fusion-mlx is reachable (issue #814: lazy attach defeated
+        # the stub eviction and planner tests hit the live model nondeterministically).
+        self._mlx_attach_enabled = True
         self._active_executions: dict[str, asyncio.Task] = {}
         self._active_chains: dict[str, asyncio.Task] = {}
         self._code_tasks: dict[str, dict] = {}
@@ -4632,6 +4637,8 @@ class DaemonServer:
         # client/model, probe once and attach if mlx is reachable; otherwise
         # make sure the background retry worker is running. Cheap early-out
         # on the normal (attached) path.
+        if not self._mlx_attach_enabled:
+            return False
         if self._gateway_attached():
             return True
         if await self._check_mlx_health():
@@ -4644,6 +4651,8 @@ class DaemonServer:
     def _schedule_mlx_reattach(self, reason: str) -> None:
         # #694: idempotent worker spawn — one background task retries the
         # health check + attach with backoff until the gateway is attached.
+        if not self._mlx_attach_enabled:
+            return
         task = self._mlx_reattach_task
         if task is not None and not task.done():
             return
@@ -4654,7 +4663,7 @@ class DaemonServer:
         delay = 5.0
         rounds = 0
         while True:
-            if self._gateway_attached():
+            if self._gateway_attached() or not self._mlx_attach_enabled:
                 return
             rounds += 1
             if await self._check_mlx_health():

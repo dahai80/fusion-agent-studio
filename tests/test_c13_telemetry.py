@@ -264,6 +264,8 @@ class TestTelemetryExportRPC:
         await d.start()
         d._gateway._default_client = None
         d._gateway._default_model = ""
+        # issue #814: keep lazy attach from re-attaching a live MLX client on first RPC.
+        d._mlx_attach_enabled = False
         yield d
         await d.stop()
         if os.path.exists(sock):

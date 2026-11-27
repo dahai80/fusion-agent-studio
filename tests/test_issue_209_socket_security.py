@@ -61,6 +61,8 @@ def daemon(socket_path, store_db):
     # gate LLM/RAG behind no-client so startup does not hit fusion-mlx
     d._gateway._default_client = None
     d._gateway._default_model = ""
+    # issue #814: keep lazy attach from re-attaching a live MLX client on first RPC.
+    d._mlx_attach_enabled = False
     return d
 
 
