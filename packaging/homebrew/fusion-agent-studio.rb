@@ -1,13 +1,13 @@
 # Fusion-MLX Agent Studio — local agent development platform for Apple Silicon.
-# Generated from PyPI 0.19.0 dependency resolution by gen_formula.py;
+# Generated from PyPI 0.19.1 dependency resolution by gen_formula.py;
 # regenerate on version bumps (see packaging/homebrew/README.md).
 class FusionAgentStudio < Formula
   include Language::Python::Virtualenv
 
   desc "Local-first AI agent orchestration platform (daemon RPC + REST + CLI)"
   homepage "https://github.com/dahai80/fusion-agent-studio"
-  url "https://files.pythonhosted.org/packages/3d/fd/e30365c0f69fcf8188523875c4d0a0f8232d1daae9d2aad78edd96e57510/fusion_agent_studio-0.19.0.tar.gz"
-  sha256 "06d1ca42d1b3edbbf490ae5c2d625eea8963549b71573261ff7a68874bdd3d74"
+  url "https://files.pythonhosted.org/packages/39/c5/b90311fb50c997b9f91a9f42f06a5f87f9be4e9ac41e8f66a54f84e3ebfc/fusion_agent_studio-0.19.1.tar.gz"
+  sha256 "c8607a356776e1429d2c3efddbb23593e06cd9527bdb67bea959383210802679"
   license "Apache-2.0"
 
   depends_on "python@3.12"
@@ -69,8 +69,8 @@ class FusionAgentStudio < Formula
     sha256 "1bc481ee218b009aaacde8c7dda57a40e33050efc84acf6cf9df0ba07c9bb33f"
   end
   resource "fusion-harness" do
-    url "https://files.pythonhosted.org/packages/a9/54/7ff17b49e28d8445e663ab17c4ac482aa6dbc707f0423150d80a0485ad02/fusion_harness-0.31.1-py3-none-any.whl"
-    sha256 "bcd2c34dcfd6069ca4d0abf3d4da1260ed1f3b18b7ec9d38302666588b7ff664"
+    url "https://files.pythonhosted.org/packages/72/47/2d06af11b1a4486b8b3ef61095671674937d239f49791a653bafefd154a0/fusion_harness-0.32.0-py3-none-any.whl"
+    sha256 "545e2f12fed89293384b9794caea9bc37e78b96d97752984518e2dd088fdc9c9"
   end
   resource "h11" do
     url "https://files.pythonhosted.org/packages/04/4b/29cac41a4d98d144bf5f6d33995617b185d14b22401f75ca86f384e87ff1/h11-0.16.0-py3-none-any.whl"
