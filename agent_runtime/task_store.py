@@ -1205,6 +1205,68 @@ class TaskStore:
         logger.info("Task %s review_state=%s", task_id, state)
         return True
 
+    def reject_task(
+        self, task_id: str, reason: str = "", reopen_task_id: str = ""
+    ) -> dict:
+        # #810 request #2: reject path — mark the task needs_fix and re-open
+        # the previous (or a named) task with the reject reason attached to
+        # its description. Re-open resets the target's review_state so an
+        # approved gate re-blocks downstream tasks (fail-closed, same as #811).
+        task = self._get_task(task_id)
+        if not task:
+            return {"status": "error", "message": f"Task not found: {task_id}"}
+
+        task.review_state = REVIEW_STATE_NEEDS_FIX
+        if reason:
+            task.last_error = reason
+        task.updated_at = time.time()
+        self._save_task(task)
+        logger.info("Task %s rejected (reason=%d chars)", task_id, len(reason))
+
+        target_id = reopen_task_id or (task.depends_on[0] if task.depends_on else "")
+        if not target_id:
+            return {
+                "task_id": task_id,
+                "review_state": task.review_state,
+                "reopened_task_id": "",
+                "reopened": False,
+                "message": "no reopen target (no reopen_task_id, no depends_on)",
+            }
+        target = self._get_task(target_id)
+        if not target:
+            return {
+                "task_id": task_id,
+                "review_state": task.review_state,
+                "reopened_task_id": target_id,
+                "reopened": False,
+                "message": f"reopen target not found: {target_id}",
+            }
+
+        reopened_now = False
+        if target.status == TASK_STATUS_COMPLETED:
+            target.status = TASK_STATUS_PENDING
+            reopened_now = True
+        if reason and "[reject]" not in target.description:
+            suffix = f"\n[reject] {reason}" if target.description else f"[reject] {reason}"
+            target.description += suffix
+        target.review_state = REVIEW_STATE_NONE
+        target.updated_at = time.time()
+        self._save_task(target)
+        logger.info(
+            "Task %s reopened from rejection of %s (status=%s, reopened_now=%s)",
+            target_id,
+            task_id,
+            target.status,
+            reopened_now,
+        )
+        return {
+            "task_id": task_id,
+            "review_state": task.review_state,
+            "reopened_task_id": target_id,
+            "reopened": reopened_now,
+            "description": target.description,
+        }
+
     def claim_lease(self, task_id: str, lease_id: str) -> bool:
         # M1-1: associate a resource lease (M1-4 ResourceLease writes resource_lease_id).
         task = self._get_task(task_id)

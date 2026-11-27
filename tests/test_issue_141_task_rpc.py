@@ -515,3 +515,40 @@ class TestProjectRpc:
     async def test_project_tasks_requires_project_id(self, daemon):
         resp = await _rpc_call(daemon.socket_path, "project.tasks", {})
         assert resp["result"]["status"] == "error"
+
+
+class TestTaskRejectRpc:
+    @pytest.mark.asyncio
+    async def test_task_reject_reopens_dependency(self, daemon):
+        # #810 request #2: reject path over RPC — the rejected task goes
+        # needs_fix and its (previous) dependency re-opens with the reason.
+        prev = await _rpc_call(daemon.socket_path, "task.submit", {"title": "prev"})
+        prev_id = prev["result"]["task"]["task_id"]
+        await _rpc_call(daemon.socket_path, "task.status", {"task_id": prev_id, "status": "completed"})
+        nxt = await _rpc_call(
+            daemon.socket_path,
+            "task.submit",
+            {"title": "next", "depends_on": [prev_id]},
+        )
+        nxt_id = nxt["result"]["task"]["task_id"]
+
+        resp = await _rpc_call(
+            daemon.socket_path,
+            "task.reject",
+            {"task_id": nxt_id, "reason": "verdict: reject"},
+        )
+        result = resp["result"]
+        assert result["task_id"] == nxt_id
+        assert result["review_state"] == "needs_fix"
+        assert result["reopened_task_id"] == prev_id
+        assert result["reopened"] is True
+
+        prev_resp = await _rpc_call(daemon.socket_path, "task.get", {"task_id": prev_id})
+        prev_task = prev_resp["result"]["task"]
+        assert prev_task["status"] == TASK_STATUS_PENDING
+        assert "[reject] verdict: reject" in prev_task["description"]
+
+    @pytest.mark.asyncio
+    async def test_task_reject_requires_task_id(self, daemon):
+        resp = await _rpc_call(daemon.socket_path, "task.reject", {})
+        assert resp["result"]["status"] == "error"

@@ -61,6 +61,7 @@ class InfraDispatcher(SubDispatcher):
             "task.add_artifacts": self._handle_task_add_artifacts,
             "task.health": self._handle_task_health,
             "task.set_review_state": self._handle_task_set_review_state,
+            "task.reject": self._handle_task_reject,
             "task.run_chain": self._handle_task_run_chain,
             "evidence.list": self._handle_evidence_list,
             "evidence.failure": self._handle_evidence_failure,
@@ -572,6 +573,43 @@ class InfraDispatcher(SubDispatcher):
             "review_state": review_state,
             "updated_at": updated_at,
         }
+
+    async def _handle_task_reject(self, params: dict) -> dict:
+        # #810 request #2: reject path — task.reject marks the task needs_fix
+        # and re-opens the previous (or a named) task with the reason attached.
+        store = self._daemon._get_task_store()
+        task_id = params.get("task_id", "")
+        if not task_id:
+            return {"status": "error", "message": "task_id is required"}
+        reason = str(params.get("reason", "") or "")
+        reopen_task_id = str(params.get("reopen_task_id", "") or "")
+        result = store.reject_task(task_id, reason=reason, reopen_task_id=reopen_task_id)
+        if result.get("status") == "error":
+            return result
+        team = ""
+        task = store.get(task_id)
+        if task:
+            team = task.team
+        try:
+            await self._daemon._broadcast_event(
+                "task.reopened",
+                {
+                    "task_id": task_id,
+                    "reopened_task_id": result.get("reopened_task_id", ""),
+                    "reopened": result.get("reopened", False),
+                    "team": team or "default",
+                },
+                team=team or "default",
+            )
+        except Exception as exc:
+            logger.warning("task.reopened broadcast failed: %s", exc)
+        logger.info(
+            "task.reject: task_id=%s reopened=%s reason=%d chars",
+            task_id,
+            result.get("reopened_task_id", ""),
+            len(reason),
+        )
+        return result
 
     async def _handle_task_run_chain(self, params: dict) -> dict:
         # M3-2 issue#324: orchestrator-driven task chain. Creates N dependent
