@@ -62,6 +62,8 @@ async def daemon_stub(socket_path, store_db):
     # (stream tests hang waiting for chunks while local launchd-MLX runs). Clearing
     # _models makes route() return None; the stub errors immediately, identical locally and in CI.
     d._gateway._models.clear()
+    # issue #814: keep lazy attach from re-attaching a live MLX client on first RPC.
+    d._mlx_attach_enabled = False
     yield d
     await d.stop()
 

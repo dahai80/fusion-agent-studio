@@ -289,6 +289,8 @@ class TestDaemonWiring:
             d._gateway._default_client = None
             d._gateway._default_model = ""
             d._gateway._models.clear()
+            # issue #814: keep lazy attach from re-attaching a live MLX client on first RPC.
+            d._mlx_attach_enabled = False
             yield d
             await d.stop()
         finally:
