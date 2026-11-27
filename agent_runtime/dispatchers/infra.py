@@ -367,6 +367,7 @@ class InfraDispatcher(SubDispatcher):
             team=params.get("team", "default"),
             depends_on=params.get("depends_on", []) or [],
             sandbox=str(params.get("sandbox", "local") or "local"),
+            dep_gate=str(params.get("dep_gate", "completed") or "completed"),
             owner_agent=str(params.get("owner_agent", "") or ""),
         )
         task = store.submit(task)

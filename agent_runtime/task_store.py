@@ -69,6 +69,15 @@ _VALID_STATUSES = {
 }
 _VALID_TRIGGERS = {TRIGGER_IMMEDIATE, TRIGGER_CRON, TRIGGER_RUN_AT}
 
+# Stage gate (blocked-until-verdict): how strong the dependency check is in
+# deps_met. "completed" = existing semantics (status only). "approved" = the
+# dependency must ALSO carry review_state=approved; a dependency with no
+# verdict yet (review_state none/review/needs_fix) keeps this task blocked
+# (fail-closed, same philosophy as the external-approval flow).
+DEP_GATE_COMPLETED = "completed"
+DEP_GATE_APPROVED = "approved"
+_VALID_DEP_GATES = {DEP_GATE_COMPLETED, DEP_GATE_APPROVED}
+
 # 评审态 (正交维度 2, M1-1): none/review/needs_fix/approved
 REVIEW_STATE_NONE = "none"
 REVIEW_STATE_REVIEW = "review"
@@ -116,6 +125,8 @@ _TASK_COLUMNS = [
     "depends_on",
     # #432: 运行沙箱 (local / multi-node:<node_id>).
     "sandbox",
+    # Stage gate: what a dependency must satisfy before this task unblocks.
+    "dep_gate",
 ]
 
 
@@ -170,6 +181,9 @@ class Task:
     # #432: 运行沙箱选择 — "local" (daemon 本地执行) 或 "multi-node:<node_id>"
     # (委派给 fusion-multi-node 集群路由执行).
     sandbox: str = "local"
+    # Stage gate for depends_on: "completed" (status only) or "approved"
+    # (dependency must be completed AND review_state=approved).
+    dep_gate: str = DEP_GATE_COMPLETED
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -203,6 +217,7 @@ class Task:
             "evidence_ref": self.evidence_ref,
             "team": self.team,
             "depends_on": list(self.depends_on),
+            "dep_gate": self.dep_gate,
             "sandbox": self.sandbox,
         }
 
@@ -262,6 +277,7 @@ class Task:
             team=row[28] if len(row) > 28 and row[28] else "default",
             depends_on=_parse_depends_on(row[29] if len(row) > 29 and row[29] else "[]"),
             sandbox=row[30] if len(row) > 30 and row[30] else "local",
+            dep_gate=row[31] if len(row) > 31 and row[31] else DEP_GATE_COMPLETED,
         )
 
 
@@ -339,6 +355,7 @@ class TaskStore:
             self._migration_v3_team_state,
             self._migration_v4_depends_on,
             self._migration_v5_sandbox,
+            self._migration_v6_dep_gate,
         ]
         current = conn.execute("PRAGMA user_version").fetchone()[0]
         for idx, migrate in enumerate(migrations, start=1):
@@ -444,6 +461,14 @@ class TaskStore:
             conn.execute("ALTER TABLE tasks ADD COLUMN sandbox TEXT DEFAULT 'local'")
             logger.info("Migrated tasks table: added sandbox column")
 
+    def _migration_v6_dep_gate(self, conn) -> None:
+        # Stage gate (blocked-until-verdict): per-task dependency gate strength.
+        # Idempotent: probe column before ALTER.
+        cols = {row[1] for row in conn.execute("PRAGMA table_info(tasks)").fetchall()}
+        if "dep_gate" not in cols:
+            conn.execute("ALTER TABLE tasks ADD COLUMN dep_gate TEXT DEFAULT 'completed'")
+            logger.info("Migrated tasks table: added dep_gate column")
+
     def _load_tasks(self) -> None:
         if not self._conn:
             return
@@ -488,8 +513,8 @@ class TaskStore:
                     project_id, artifact_ids, last_result, last_error, retry_count, max_retries,
                     created_at, updated_at, last_run_at, idempotency_key,
                     review_state, attempt_token, owner_role, owner_agent,
-                    resource_lease_id, evidence_ref, team, depends_on, sandbox)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    resource_lease_id, evidence_ref, team, depends_on, sandbox, dep_gate)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     task.task_id,
                     task.title,
@@ -522,6 +547,7 @@ class TaskStore:
                     task.team,
                     json.dumps(task.depends_on, ensure_ascii=False),
                     task.sandbox or "local",
+                    task.dep_gate or DEP_GATE_COMPLETED,
                 ),
             )
             self._conn.commit()
@@ -572,6 +598,9 @@ class TaskStore:
             task.trigger = TRIGGER_IMMEDIATE
         if task.status not in _VALID_STATUSES:
             task.status = TASK_STATUS_PENDING
+        if task.dep_gate not in _VALID_DEP_GATES:
+            logger.warning("invalid dep_gate=%s, fallback completed", task.dep_gate)
+            task.dep_gate = DEP_GATE_COMPLETED
         # 审计 P0: _id_seq 自增 + dict 写 + _save_task 必须原子, 否则并发提交撞 id 覆盖.
         self.reap_expired()
         with self._write_lock:
@@ -957,9 +986,13 @@ class TaskStore:
 
     def deps_met(self, task_id: str) -> bool:
         # M3-2 issue#324: 检查 task 的 depends_on 全部 completed. 无依赖 -> True.
+        # Stage gate: dep_gate="approved" additionally requires each dependency
+        # to carry review_state=approved (blocked-until-verdict, fail-closed:
+        # an unreviewed dependency counts as not passed).
         task = self._get_task(task_id)
         if not task or not task.depends_on:
             return True
+        gate_approved = task.dep_gate == DEP_GATE_APPROVED
         for dep_id in task.depends_on:
             dep = self._get_task(dep_id)
             if dep is None or dep.status != TASK_STATUS_COMPLETED:
@@ -968,6 +1001,14 @@ class TaskStore:
                     task_id,
                     dep_id,
                     dep.status if dep else "missing",
+                )
+                return False
+            if gate_approved and dep.review_state != REVIEW_STATE_APPROVED:
+                logger.info(
+                    "task %s blocked by dep %s (gate=approved, review_state=%s)",
+                    task_id,
+                    dep_id,
+                    dep.review_state,
                 )
                 return False
         return True
