@@ -1,3 +1,19 @@
+---
+doc_id: fusion-agent-studio/changelog/claims-registry
+product: fusion-agent-studio
+class: core
+entry: developer
+doc_type: changelog
+title: {zh: 行为声明登记表（eval#25 C-2 发布注记证据链）, en: Behavior Claims Registry (eval#25 C-2 release-notes evidence chain)}
+audience: maintainer
+status: stable
+version: 1.0.0
+updated: 2026-11-27
+owner: @dahai80
+source_of_truth:
+  - insight/claims-registry.md
+---
+
 # Claims registry
 
 Evidence-chain registry for release-note behavior claims (eval#25 C-2, spec
