@@ -348,6 +348,11 @@ def make_studio_agent_fn(runtime):
             permission_mode=str(spec.permission_mode or ""),
             max_turns=int(spec.max_turns or 8),
             budget_tokens=int(spec.budget_tokens or 0),
+            # Kernel-carried routing hints: explicit model override and the
+            # privacy constraint (biz pipeline). Empty metadata keys = no
+            # hint; _resolve_model/_enforce_privacy own the decision.
+            model=str((spec.metadata or {}).get("model", "") or ""),
+            privacy=str((spec.metadata or {}).get("privacy", "") or ""),
         )
         report = await runner.run(sspec)
         text = str(getattr(report, "report", "") or "")

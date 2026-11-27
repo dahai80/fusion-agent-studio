@@ -37,12 +37,20 @@ _CONTROL_FLOW_TOOL_NAMES = ("register_tool", "unregister_tool")
 # #389: explicit nesting limit. A subagent may not spawn another subagent.
 MAX_SUBAGENT_DEPTH = 1
 
+# Privacy routing constraint (carried from kernel spec metadata via
+# kernel_wiring). "local-only" = model traffic pinned to the local endpoint.
+PRIVACY_LOCAL_ONLY = "local-only"
+
 
 @dataclass
 class SubAgentSpec:
     name: str
     task: str
     model: str = ""
+    # Privacy routing constraint (biz pipeline): "local-only" pins the member's
+    # model traffic to the local fusion-gateway/MLX endpoint. Carried from the
+    # kernel spec metadata; enforced in _resolve_model (fail-closed).
+    privacy: str = ""
     tools: list[str] = field(default_factory=list)
     system_prompt: str = ""
     max_turns: int = 8
@@ -67,6 +75,7 @@ class SubAgentSpec:
             "name": self.name,
             "task": self.task,
             "model": self.model,
+            "privacy": self.privacy,
             "tools": list(self.tools),
             "system_prompt": self.system_prompt,
             "max_turns": self.max_turns,
@@ -223,21 +232,78 @@ class SubAgentRunner:
         return self.task_manager().spawn(spec, parent_ctx)
 
     def _resolve_model(self, spec: SubAgentSpec) -> str:
+        resolved = ""
         if spec.model:
-            return spec.model
+            resolved = spec.model
+        else:
+            gw = getattr(self.parent_runtime, "llm_gateway", None)
+            if gw is not None:
+                for attr in ("default_model", "_default_model"):
+                    v = getattr(gw, attr, "")
+                    if v:
+                        resolved = str(v)
+                        break
+                if not resolved:
+                    try:
+                        cfg = gw.route()
+                        if cfg is not None and cfg.name:
+                            resolved = str(cfg.name)
+                    except Exception as e:
+                        logger.warning("subagent model route fallback failed: %s", e)
+            if not resolved:
+                resolved = "default"
+        return self._enforce_privacy(spec, resolved)
+
+    def _enforce_privacy(self, spec: SubAgentSpec, model: str) -> str:
+        # Privacy routing (biz pipeline): privacy="local-only" pins model
+        # traffic to the local fusion-gateway/MLX endpoint. A resolved model
+        # on a non-local endpoint falls back to the gateway default (single
+        # local endpoint since #470); if even that is not local -> fail
+        # closed (dispatch error), never silently egress.
+        if (spec.privacy or "") != PRIVACY_LOCAL_ONLY:
+            return model
+        from server.fusion_mlx_client import default_base_url
+
+        local = default_base_url().rstrip("/")
         gw = getattr(self.parent_runtime, "llm_gateway", None)
+        cfg = None
         if gw is not None:
-            for attr in ("default_model", "_default_model"):
-                v = getattr(gw, attr, "")
-                if v:
-                    return str(v)
-            try:
-                cfg = gw.route()
-                if cfg is not None and cfg.name:
-                    return str(cfg.name)
-            except Exception as e:
-                logger.warning("subagent model route fallback failed: %s", e)
-        return "default"
+            if model and model != "default":
+                cfg = gw.get_model(model)
+            if cfg is None:
+                try:
+                    cfg = gw.route()
+                except Exception as e:
+                    logger.warning("privacy route probe failed: %s", e)
+                    cfg = None
+        base = str(cfg.base_url or "") if cfg is not None else ""
+        if not base:
+            dc = getattr(gw, "_default_client", None) if gw is not None else None
+            base = str(getattr(dc, "base_url", "") or "")
+        if base.rstrip("/") == local:
+            return model
+        logger.warning(
+            "privacy local-only: model=%s base=%s is not the local endpoint, falling back",
+            model,
+            base or "unknown",
+        )
+        if gw is not None:
+            fallback = str(
+                getattr(gw, "default_model", "") or getattr(gw, "_default_model", "") or ""
+            )
+            dc = getattr(gw, "_default_client", None)
+            fbase = str(getattr(dc, "base_url", "") or "") if dc is not None else ""
+            if fallback and fbase.rstrip("/") == local:
+                logger.info(
+                    "privacy local-only: pinned subagent %s to local default %s",
+                    spec.name,
+                    fallback,
+                )
+                return fallback
+        raise ValueError(
+            "privacy local-only: no local model available for subagent %s (resolved model=%s base=%s)"
+            % (spec.name, model, base or "unknown")
+        )
 
     def _build_registry(self, spec: SubAgentSpec) -> tuple[Any, list[str]]:
         from tools.registry import ToolRegistry
