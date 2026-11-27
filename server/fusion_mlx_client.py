@@ -217,9 +217,11 @@ class FusionMLXClient:
         if not base_url.rstrip("/").endswith("/v1"):
             base_url = base_url.rstrip("/") + "/v1"
         self.base_url = base_url.rstrip("/")
-        # #509: key 解析单点收敛到 fusion_core.config client_key()
-        # (FUSION_CLIENT_KEY > 弃用别名告警 > dev 匿名回退 "local", prod fail-fast)。
-        # 显式传 "" 视为匿名 (不触发解析); None/缺省才走单点解析。
+        # #509: key resolution is consolidated into fusion_core.config client_key()
+        # (FUSION_CLIENT_KEY > deprecated alias warning > dev anonymous fallback
+        # "local", prod fail-fast).
+        # Explicit "" means anonymous (skips resolution); only None/missing goes
+        # through the single resolution path.
         if api_key is None:
             api_key = client_key() or "local"
         self.api_key = api_key

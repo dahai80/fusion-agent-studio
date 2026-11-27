@@ -75,7 +75,7 @@ def test_compaction_config_token_counter_on(monkeypatch):
     monkeypatch.setenv("FUSION_TOKEN_COUNTER", "1")
     cfg = build_compaction_config()
     assert cfg is not None and cfg.token_counter is not None
-    assert cfg.token_counter.count_text("你好世界 test") > 0
+    assert cfg.token_counter.count_text("你好世界 test") > 0  # i18n: user-facing
 
 
 def test_compaction_config_disabled(monkeypatch):

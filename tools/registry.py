@@ -17,7 +17,7 @@ class ToolRegistry:
         self._tools: dict[str, BaseTool] = {}
         self.failed_plugins: dict[
             str, str
-        ] = {}  # plugin_name -> error, 显式化加载失败 (issue #164)
+        ] = {}  # plugin_name -> error, surfaced load failures (issue #164)
         # N17 #390: tool names sourced from user plugins, so the protocol
         # plane can enforce governance for the plugin layer only.
         self.plugin_tools: set[str] = set()

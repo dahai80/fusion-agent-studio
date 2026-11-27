@@ -1,7 +1,8 @@
 """God-object split verification — audit 0826 tech-debt #2 (P2-4).
 
 runtime.py was 3604 LOC, AgentRuntime ~48 methods. Audit flagged the
-"5 bundle 全加法修复从未提取模块" god-object as tracked tech-debt. The
+"5 bundles of additive fixes never extracted into modules" god-object as tracked
+tech-debt. The
 fix extracts method groups into 4 mixin modules while preserving the
 public AgentRuntime(...) interface verbatim:
 

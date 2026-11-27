@@ -32,11 +32,14 @@ class CodeExecuteTool(BaseTool):
         timeout = int(kwargs.get("timeout", 10))
         if not code:
             return "Error: code is required"
-        # 审计 A-3: 原实现裸 exec() 子进程有完整 FS/net/proc 访问 = 未沙箱.
-        # 统一走 CodeSandbox (macOS sandbox-exec profile + Python AST 安全
-        # 检查), 与 CodeSandboxTool 同一隔离层, 消除"危险的那套被默认用".
-        # use_sandbox 默认 True; 非 macOS 自动降级但仍过 AST 检查.
-        # #495: workspace 参数可选容器后端 (Docker 缺席回退 sandbox-exec).
+        # Audit A-3: the original implementation spawned a bare exec()
+        # subprocess with full FS/net/proc access = no sandbox. Unify on
+        # CodeSandbox (macOS sandbox-exec profile + Python AST safety checks),
+        # the same isolation layer as CodeSandboxTool, removing the "dangerous
+        # path used by default" gap. use_sandbox defaults to True; non-macOS
+        # degrades automatically but still passes AST checks.
+        # #495: workspace parameter selects an optional container backend
+        # (falls back to sandbox-exec when Docker is absent).
         try:
             from agent_runtime.code_sandbox import CodeSandbox
 
@@ -127,10 +130,13 @@ class CodeSandboxTool(BaseTool):
         code = kwargs.get("code", "")
         language = kwargs.get("language", "python")
         timeout = int(kwargs.get("timeout", 30))
-        # 审计 E-10/P0-6: `use_sandbox` 原 kwargs.get 透传 -> LLM 可传
-        # use_sandbox=False 绕 sandbox-exec, 退回裸 bash/python 全 FS+网络访问
-        # 无 AST 检查 (非 Python 本就无 AST). 服务端强制 True, 忽略 LLM 参数.
-        # FUSION_CODE_NOSANDBOX=1 仅受控环境 opt-out (与 A-3 灾难黑名单同模式).
+        # Audit E-10/P0-6: `use_sandbox` was passed through via kwargs.get ->
+        # the LLM could send use_sandbox=False to bypass sandbox-exec and fall
+        # back to bare bash/python with full FS+network access and no AST
+        # checks (non-Python has no AST anyway). Server forces True and ignores
+        # the LLM parameter.
+        # FUSION_CODE_NOSANDBOX=1 is the opt-out for controlled environments
+        # only (same pattern as the A-3 catastrophic blocklist).
         requested = kwargs.get("use_sandbox", True)
         if requested is False:
             logger.warning(

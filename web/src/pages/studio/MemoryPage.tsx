@@ -76,6 +76,7 @@ export function MemoryPage() {
                 tags,
                 importance: Number(importance) || 5,
             });
+            // i18n: user-facing
             sdk.toast.show({ level: 'success', message: t('已存入记忆', 'memory stored') });
             setShowStore(false);
             setContent('');
@@ -88,6 +89,7 @@ export function MemoryPage() {
     const remove = async (id: string) => {
         try {
             await rpc('memory.delete', { entry_id: id });
+            // i18n: user-facing
             sdk.toast.show({ level: 'success', message: t('已删除', 'deleted') });
             manualRetry();
         } catch (e) {
@@ -97,15 +99,19 @@ export function MemoryPage() {
 
     const entries = results ?? data?.entries ?? [];
     const tierOptions = [
+        // i18n: user-facing
         { value: 'short_term', label: t('短期', 'short-term') },
+        // i18n: user-facing
         { value: 'long_term', label: t('长期', 'long-term') },
     ];
 
     return (
         <div>
             <PageHeader
+                // i18n: user-facing
                 title={t('记忆', 'Memory')}
                 subtitle={t(
+                    // i18n: user-facing
                     `${entries.length} 条记忆 (最近)`,
                     `${entries.length} entries (recent)`
                 )}
@@ -116,6 +122,7 @@ export function MemoryPage() {
                             onClick={() => setShowStore(true)}
                             className="rounded-md border border-border px-3 py-1.5 text-xs text-text-primary hover:bg-bg-muted"
                         >
+                            {/* i18n: user-facing */}
                             {t('存入记忆', 'Store')}
                         </button>
                     </div>
@@ -125,6 +132,7 @@ export function MemoryPage() {
                 <TextInput
                     value={query}
                     onChange={setQuery}
+                    // i18n: user-facing
                     placeholder={t('搜索记忆…', 'search memory…')}
                 />
                 <button
@@ -133,6 +141,7 @@ export function MemoryPage() {
                     disabled={busy}
                     className="whitespace-nowrap rounded-md border border-border px-4 py-2 text-sm text-text-primary hover:bg-bg-muted disabled:opacity-50"
                 >
+                    {/* i18n: user-facing */}
                     {t('召回', 'Recall')}
                 </button>
             </div>
@@ -142,13 +151,16 @@ export function MemoryPage() {
                 ) : error ? (
                     <ErrorState
                         message={(error as Error).message}
+                        // i18n: user-facing
                         retryLabel={t('重试', 'Retry')}
                         onRetry={manualRetry}
                         retrying={attempt}
                     />
                 ) : entries.length === 0 ? (
                     <EmptyState
+                        // i18n: user-facing
                         title={t('暂无记忆', 'no memories yet')}
+                        // i18n: user-facing
                         description={t('存入第一条记忆', 'store your first memory')}
                     />
                 ) : (
@@ -159,6 +171,7 @@ export function MemoryPage() {
                         columns={[
                             {
                                 key: 'content',
+                                // i18n: user-facing
                                 header: t('内容', 'Content'),
                                 render: (e) => (
                                     <span className="line-clamp-2 text-sm">{e.content}</span>
@@ -166,21 +179,25 @@ export function MemoryPage() {
                             },
                             {
                                 key: 'scope',
+                                // i18n: user-facing
                                 header: t('范围', 'Scope'),
                                 render: (e) => e.scope,
                             },
                             {
                                 key: 'tier',
+                                // i18n: user-facing
                                 header: t('层级', 'Tier'),
                                 render: (e) => e.tier,
                             },
                             {
                                 key: 'importance',
+                                // i18n: user-facing
                                 header: t('重要性', 'Importance'),
                                 render: (e) => String(e.importance),
                             },
                             {
                                 key: 'created_at',
+                                // i18n: user-facing
                                 header: t('时间', 'Created'),
                                 render: (e) =>
                                     e.created_at ? formatRelativeTime(e.created_at * 1000) : '-',
@@ -194,6 +211,7 @@ export function MemoryPage() {
                                         onClick={() => remove(e.id)}
                                         className="text-xs text-error hover:underline"
                                     >
+                                        {/* i18n: user-facing */}
                                         {t('删除', 'Delete')}
                                     </button>
                                 ),
@@ -204,26 +222,34 @@ export function MemoryPage() {
             </div>
             <Modal
                 open={showStore}
+                // i18n: user-facing
                 title={t('存入记忆', 'Store memory')}
                 onClose={() => setShowStore(false)}
+                // i18n: user-facing
                 footer={<SubmitButton label={t('存入', 'Store')} onAction={store} />}
             >
+                {/* i18n: user-facing */}
                 <FormField label={t('内容', 'Content')} required>
                     <Textarea value={content} onChange={setContent} rows={4} />
                 </FormField>
+                {/* i18n: user-facing */}
                 <FormField label={t('范围', 'Scope')}>
                     <TextInput value={scope} onChange={setScope} />
                 </FormField>
+                {/* i18n: user-facing */}
                 <FormField label={t('层级', 'Tier')}>
                     <SelectInput value={tier} onChange={setTier} options={tierOptions} />
                 </FormField>
+                {/* i18n: user-facing */}
                 <FormField label={t('标签', 'Tags')}>
                     <TextInput value={tags} onChange={setTags} />
                 </FormField>
+                {/* i18n: user-facing */}
                 <FormField label={t('重要性 (1-10)', 'Importance (1-10)')}>
                     <TextInput value={importance} onChange={setImportance} type="number" />
                 </FormField>
             </Modal>
+            {/* i18n: user-facing */}
             {busy ? <StatusBadge status="running" label={t('召回中…', 'recalling…')} /> : null}
         </div>
     );

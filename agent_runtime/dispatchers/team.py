@@ -308,8 +308,8 @@ class TeamDispatcher(SubDispatcher):
         input_text = params.get("input", "")
         team = params.get("team", "default")
 
-        # M1-3: launch phase 跟踪. active=执行中, finished=正常完成.
-        # 崩溃时残留 active → 启动 reconcile 标记 reconciled.
+        # M1-3: launch phase tracking. active=executing, finished=completed normally.
+        # Crashes leave active behind -> startup reconcile marks them reconciled.
         self._daemon.store.set_team_launch_phase(team, "active")
 
         def build(spec):

@@ -19,7 +19,7 @@ class SubAgentTool(BaseTool):
     name = "subagent_spawn"
     description = (
         "Spawn an isolated subagent to complete a subtask and return its final "
-        "report text. 支持通过已注册模板复用命名专家 agent。"
+        "report text. Supports reusing named expert agents via registered templates."
     )
     readonly = False
     parameters = {

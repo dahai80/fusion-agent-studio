@@ -1,4 +1,4 @@
-"""Tests for issue #125 — 声明式智能体包工具级配置 (tool config) 支持."""
+"""Tests for issue #125 — declarative agent-package tool-level config support."""
 
 from __future__ import annotations
 

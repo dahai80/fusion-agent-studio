@@ -691,6 +691,7 @@ describe('WorkflowCanvasPage NL builder (#568)', () => {
                 return { templates: [{ name: 'rag-qa', description: 'd', source: 'builtin' }] };
             if (method === 'graph.nl_plan') {
                 return {
+                    // i18n: user-facing
                     reply: '已创建流程',
                     ops: [
                         { op: 'add_node', id: 'nl_review', type: 'llm', label: 'Review', config: {} },
@@ -704,18 +705,22 @@ describe('WorkflowCanvasPage NL builder (#568)', () => {
         const user = userEvent.setup();
         await openNlPanel(user);
 
+        // i18n: user-facing
         await user.type(screen.getByPlaceholderText('Describe the flow in one line…'), '搭一个审查流程');
         await user.click(screen.getByRole('button', { name: 'Plan' }));
 
         const planCall = seen.find((c) => c.method === 'graph.nl_plan');
         expect(planCall).toBeTruthy();
         const params = planCall!.params as { prompt: string; catalog: Array<{ type: string }>; templates: unknown[] };
+        // i18n: user-facing
         expect(params.prompt).toBe('搭一个审查流程');
         expect(params.catalog.map((c) => c.type)).toContain('human_input');
         expect(params.templates).toHaveLength(1);
 
         // reply surfaced; ops applied (second mutation enables the undo stack)
+        // i18n: user-facing
         expect(await screen.findByText('已创建流程')).toBeInTheDocument();
+        // i18n: user-facing
         await user.type(screen.getByPlaceholderText('Describe the flow in one line…'), '再加一个 end 节点');
         rpcMock.mockImplementation(async (method: string) => {
             if (method === 'budget.status') return { remaining: 800, max_tokens: 1000 };
@@ -738,12 +743,14 @@ describe('WorkflowCanvasPage NL builder (#568)', () => {
         nlRpcs((method) => {
             if (method === 'flow.template_list') return { templates: [] };
             if (method === 'graph.nl_plan')
+                // i18n: user-facing
                 return { reply: '清空', ops: [{ op: 'remove_node', id: 'llm_1' }] };
             throw new Error(`unexpected rpc: ${method}`);
         });
         const user = userEvent.setup();
         await openNlPanel(user);
 
+        // i18n: user-facing
         await user.type(screen.getByPlaceholderText('Describe the flow in one line…'), '删掉 llm 节点');
         await user.click(screen.getByRole('button', { name: 'Plan' }));
 
@@ -761,6 +768,7 @@ describe('WorkflowCanvasPage NL builder (#568)', () => {
                 return { reply: 'done', ops: [{ op: 'add_node', id: 'n2', type: 'end', label: 'E2', config: {} }] };
             throw new Error(`unexpected rpc: ${method}`);
         });
+        // i18n: user-facing
         await user.click(screen.getByRole('button', { name: '确认' }));
         await user.type(screen.getByPlaceholderText('Describe the flow in one line…'), 'second');
         await user.click(screen.getByRole('button', { name: 'Plan' }));
@@ -782,6 +790,7 @@ describe('WorkflowCanvasPage NL builder (#568)', () => {
         const user = userEvent.setup();
         await openNlPanel(user);
 
+        // i18n: user-facing
         await user.type(screen.getByPlaceholderText('Describe the flow in one line…'), '用一个不存在的节点');
         await user.click(screen.getByRole('button', { name: 'Plan' }));
 

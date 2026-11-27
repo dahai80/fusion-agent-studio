@@ -39,9 +39,10 @@ if TYPE_CHECKING:
 from ._runtime_checkpoint import _CheckpointMixin
 from ._runtime_dynamic_tools import _DynamicToolsMixin
 
-# 审计 0826 P2-4 god-object 拆分: 模块级 helper/常量/logger 迁至 _runtime_helpers,
-# mixin 模块从该叶子模块导入以避免循环依赖. 此处重新导出保持向后兼容
-# (外部 `from .runtime import _env_flag` 仍可用).
+# Audit 0826 P2-4 god-object split: module-level helpers/constants/logger moved
+# to _runtime_helpers, mixin modules import from that leaf module to avoid
+# circular deps. Re-exported here for backward compatibility
+# (external `from .runtime import _env_flag` still works).
 from ._runtime_helpers import (  # noqa: F401
     _MAX_RETRY_CONTEXT_MESSAGES,
     _MAX_TOOL_CALL_CHAIN,
@@ -82,8 +83,9 @@ class AgentRuntime(_SafetyApprovalMixin, _CheckpointMixin, _DynamicToolsMixin, _
     Integrates debugger, variables, structured output, prompt templates,
     sub-graph execution, and streaming support.
 
-    审计 0826 P2-4: 方法组按 mixin 拆分 (_SafetyApprovalMixin/_CheckpointMixin/
-    _DynamicToolsMixin/_NodeExecutorsMixin), 方法体原样搬运, 公共接口不变.
+    Audit 0826 P2-4: method groups split into mixins (_SafetyApprovalMixin/
+    _CheckpointMixin/_DynamicToolsMixin/_NodeExecutorsMixin), method bodies moved
+    as-is, public interface unchanged.
     """
 
     def __init__(
@@ -117,8 +119,8 @@ class AgentRuntime(_SafetyApprovalMixin, _CheckpointMixin, _DynamicToolsMixin, _
         self.auto_checkpoint = auto_checkpoint
         self.memory_engine = memory_engine
         self.artifact_manager = artifact_manager
-        # C13: 结构化遥测引擎 (span/counter/latency). 运行时插桩
-        # graph.execute/llm.call/tool.call span, end_span 增计数+延迟.
+        # C13: structured telemetry engine (span/counter/latency). Instruments
+        # graph.execute/llm.call/tool.call spans; end_span adds counter+latency.
         self.telemetry_engine = telemetry_engine
         self.compactor = None
         # N1: hook engine wiring point. Backing attr + property below —
@@ -126,18 +128,21 @@ class AgentRuntime(_SafetyApprovalMixin, _CheckpointMixin, _DynamicToolsMixin, _
         # late daemon wiring (daemon_server._get_hooks) stays in sync.
         self._hooks_engine = None
         self._tool_call_chain_count = 0
-        # 审计 P3-1: 连续 checkpoint 失败计数迁 per-exec ctx.checkpoint_fail_count
-        # (原 singleton, 并发执行互踩致阈值误判). 见 _save_checkpoint.
+        # Audit P3-1: consecutive checkpoint failure count moved to per-exec
+        # ctx.checkpoint_fail_count (was a singleton; concurrent executions clobbered
+        # each other and misjudged the threshold). See _save_checkpoint.
         self._safety_futures: dict[str, asyncio.Future[bool]] = {}
-        # 审计 P1-21/R-4: _safety_timeout 原硬编码 60.0, headless/CI 无人工审批
-        # 必挂满 60s. 读 FUSION_SAFETY_TIMEOUT env (秒), 默认 60.
+        # Audit P1-21/R-4: _safety_timeout was hardcoded 60.0; headless/CI with no
+        # human approval always stalled the full 60s. Read FUSION_SAFETY_TIMEOUT env
+        # (seconds), default 60.
         try:
             self._safety_timeout = float(os.environ.get("FUSION_SAFETY_TIMEOUT", "60"))
         except ValueError:
             self._safety_timeout = 60.0
-        # 审计 A-1 Tier1: exec_id -> {action_id/plan_id} 反向索引. future 创建时
-        # 记录归属 exec, exec 结束/异常时 reap 该 exec 残留 future (timeout 路径
-        # 异常 skip pop 的兜底). 不清别 exec 的 future (并发安全).
+        # Audit A-1 Tier1: exec_id -> {action_id/plan_id} reverse index. Records the
+        # owning exec at future creation; reaps futures left over by that exec when the
+        # exec ends/raises (safety net for the exception path that skips pop). Does not
+        # clear other execs' futures (concurrency-safe).
         self._exec_future_keys: dict[str, set[str]] = {}
         self.tool_configs: dict[str, dict[str, Any]] = {}
         # C6 plan-as-mode: when True, write tools are gated off (read-only
@@ -178,10 +183,11 @@ class AgentRuntime(_SafetyApprovalMixin, _CheckpointMixin, _DynamicToolsMixin, _
         #   (ctx, node, tool_result, frame_b64, frame_w, frame_h) -> str
         # Returns "" on pass, an error message on fail. Set via SDK; None = off.
         self.post_action_assertion_fn: Any = None
-        # 审计 E-16/P0-4: 子图递归深度计数器. 无上限 -> 含子图循环引用 (A 子图
-        # 指向 B, B 指向 A, 含无意构建) 触发无限递归 RecursionError 栈溢出崩溃
-        # 整个 runtime 进程. 顶层执行 depth=0, 每进一层子图 +1, 超 _MAX_SUB_GRAPH_DEPTH
-        # (默认 8, FUSION_SUB_GRAPH_MAX_DEPTH 调) 挡并报错.
+        # Audit E-16/P0-4: sub-graph recursion depth counter. Uncapped -> a sub-graph
+        # cycle (A points to B, B points to A, even if built unintentionally) triggers
+        # unbounded recursion and a RecursionError stack overflow crashes the whole
+        # runtime process. Top-level execution depth=0, +1 per sub-graph level; over
+        # _MAX_SUB_GRAPH_DEPTH (default 8, FUSION_SUB_GRAPH_MAX_DEPTH) blocks with error.
         self._sub_graph_depth: int = 0
         # Read-only tools allowed during plan_mode. Write tools are blocked.
         self._plan_readonly_tools: set[str] = {
@@ -193,9 +199,10 @@ class AgentRuntime(_SafetyApprovalMixin, _CheckpointMixin, _DynamicToolsMixin, _
             "text_process",
             "exit_plan_mode",
         }
-        # 审计 D-5: register_tool/unregister_tool 是写操作 (注册工具 + 经
-        # tool.register_python RPC 可 exec 源码), 不属于只读探索. 已移出
-        # _plan_readonly_tools, plan_mode 只读期一并被挡, 与其他写工具一致.
+        # Audit D-5: register_tool/unregister_tool are write operations (registering
+        # tools + tool.register_python RPC can exec source), not read-only exploration.
+        # Moved out of _plan_readonly_tools; blocked during the plan_mode read-only
+        # phase, consistent with other write tools.
         # Issue #149: optional per-node model unload to lower peak memory on
         # multi-model workflow chains. Default OFF to preserve model reuse
         # across consecutive same-model nodes. Env:
@@ -203,10 +210,12 @@ class AgentRuntime(_SafetyApprovalMixin, _CheckpointMixin, _DynamicToolsMixin, _
         self.unload_model_after_node = _env_flag(
             "FUSION_AGENT_UNLOAD_MODEL_AFTER_NODE", default=False
         )
-        # 审计 P0-3: token_budget dead-wire 根治. 所有 execute_graph 调用点不传
-        # token_budget -> 预算永不生效. 不在 11 处调用点散写 getattr, 改在
-        # runtime 实例存 _default_token_budget, execute_graph 未显式传时回退之.
-        # daemon budget.set 写此属性; 子 runtime 在 _execute_sub_graph 复制父值.
+        # Audit P0-3: token_budget dead-wire fix. No execute_graph call site passed
+        # token_budget -> the budget never took effect. Instead of sprinkling getattr
+        # across 11 call sites, store _default_token_budget on the runtime instance and
+        # fall back to it when execute_graph is not given one explicitly.
+        # daemon budget.set writes this attribute; sub-runtimes copy the parent value
+        # in _execute_sub_graph.
         self._default_token_budget: TokenBudget | None = None
 
         if llm_gateway:
@@ -256,9 +265,10 @@ class AgentRuntime(_SafetyApprovalMixin, _CheckpointMixin, _DynamicToolsMixin, _
         # readonly set may grow (dynamic/plugin tools) — funnel re-reads via
         # callable so late registrations are honored.
         _ro = _ro_names()
-        # #482: PersonaScopedFunnel 包一层 — ctx.persona_declarations 有内容时
-        # 先过 persona gate (结构化 rules deny / memory_scope 改写 / skills),
-        # 其余行为与裸 ToolFunnel 一致. 单一 choke point, 6 个 admit 调用点全覆盖.
+        # #482: wrap with PersonaScopedFunnel — when ctx.persona_declarations has
+        # content, pass through the persona gate first (structured rules deny /
+        # memory_scope rewrite / skills); otherwise behaves like the bare ToolFunnel.
+        # Single choke point covering all 6 admit call sites.
         # #5 AC4 (fusion-harness): PipelineScopedFunnel — every admit runs the
         # kernel ToolPipeline (five-stage segmented admission); the funnel
         # chain (hooks -> permission -> safety -> budget) is the pipeline's
@@ -359,15 +369,16 @@ class AgentRuntime(_SafetyApprovalMixin, _CheckpointMixin, _DynamicToolsMixin, _
         logger.info("funnel audit logger wired")
 
     def set_tool_configs(self, definition: Any) -> None:
-        # 声明式工具配置注入 (#125): 从 AgentDefinition.tools[].config 构建
-        # tool_name -> config dict 映射, 工具执行时作为默认参数合并.
+        # Declarative tool config injection (#125): build a tool_name -> config dict map
+        # from AgentDefinition.tools[].config, merged as default args at execution time.
         self.tool_configs = self.build_tool_configs(definition)
         logger.info("set_tool_configs: %d tools with config", len(self.tool_configs))
 
     @staticmethod
     def build_tool_configs(definition: Any) -> dict[str, dict[str, Any]]:
-        # 审计 P0-1/P1-1: 提取 config 构建为静态方法, 供 daemon per-exec 注入 ctx
-        # 避免写 singleton rt.tool_configs (并发 agent X 配置覆盖 Y).
+        # Audit P0-1/P1-1: extract config building into a static method so daemon per-exec
+        # injection targets ctx instead of writing the singleton rt.tool_configs
+        # (concurrent agent X config would overwrite Y).
         configs: dict[str, dict[str, Any]] = {}
         tools = getattr(definition, "tools", None) or []
         for tc in tools:
@@ -380,8 +391,10 @@ class AgentRuntime(_SafetyApprovalMixin, _CheckpointMixin, _DynamicToolsMixin, _
     def _merge_tool_config_defaults(
         self, tool_name: str, args: dict, ctx: AgentContext | None = None
     ) -> dict:
-        # 把 manifest 声明的 tool.config 作为默认参数合并; 调用方显式传参优先.
-        # 审计 P0-1/P1-1: 优先读 per-exec ctx.tool_configs (隔离), 无则回退 singleton.
+        # Merge tool.config declared in the manifest as default args; explicit caller
+        # args win.
+        # Audit P0-1/P1-1: prefer per-exec ctx.tool_configs (isolated), fall back to
+        # the singleton when absent.
         cfg = None
         if ctx is not None:
             per_exec = getattr(ctx, "tool_configs", None)
@@ -411,7 +424,7 @@ class AgentRuntime(_SafetyApprovalMixin, _CheckpointMixin, _DynamicToolsMixin, _
         max_iterations: int | None = None,
         run_budget: "RunBudget | dict | None" = None,
     ) -> AsyncIterator[AgentEvent]:
-        # 审计 P1-18: max_iterations 调用点覆盖 (per-agent). None=用 runtime 默认.
+        # Audit P1-18: max_iterations call-site override (per-agent). None = runtime default.
         async for event in self._run_with_trajectory(
             graph,
             initial_input,
@@ -500,8 +513,9 @@ class AgentRuntime(_SafetyApprovalMixin, _CheckpointMixin, _DynamicToolsMixin, _
             logger.warning("observability hook error event=%s err=%s", event, e)
 
     def _resolve_persona_declarations(self, ctx: AgentContext) -> None:
-        # #482: per-exec 解析 persona declarations. 失败 fail-open (声明层
-        # 只能收紧不能放大攻击面, 解析报错不应弄挂执行).
+        # #482: resolve persona declarations per-exec. Fail open on error (the
+        # declaration layer can only tighten, never widen the attack surface; a parse
+        # error must not break execution).
         try:
             agent_id = getattr(ctx, "agent_id", "") or ctx.metadata.get("agent_id", "")
             if not agent_id:
@@ -535,8 +549,9 @@ class AgentRuntime(_SafetyApprovalMixin, _CheckpointMixin, _DynamicToolsMixin, _
         show_thinking: bool | None = None,
         run_budget: "RunBudget | dict | None" = None,
     ) -> AsyncIterator[AgentEvent]:
-        # 审计 P0-3: 调用点未传 token_budget 时回退 runtime 实例默认预算.
-        # 单点根治 dead-wire, 覆盖全部调用点 (daemon/api/orchestrator/sub-graph).
+        # Audit P0-3: fall back to the runtime instance default budget when the call site
+        # does not pass token_budget. Single-point dead-wire fix covering all call sites
+        # (daemon/api/orchestrator/sub-graph).
         if token_budget is None:
             token_budget = self._default_token_budget
         # N8: funnels share the effective budget (tool + LLM admission gates).
@@ -567,8 +582,8 @@ class AgentRuntime(_SafetyApprovalMixin, _CheckpointMixin, _DynamicToolsMixin, _
         # graph-level budget cap. Explicit caller graph_id wins.
         if not getattr(ctx, "graph_id", ""):
             ctx.graph_id = getattr(graph, "id", "") or ""
-        # #482: 集中解析 persona declarations (per-ctx, 审计 A-1 模式) —
-        # execute_graph / execute_graph_stream / daemon / api 全走这里, 单点.
+        # #482: resolve persona declarations centrally (per-ctx, audit A-1 pattern) —
+        # execute_graph / execute_graph_stream / daemon / api all route here. Single point.
         self._resolve_persona_declarations(ctx)
         # #4 AC4 (fusion-harness): durable append-only session event log —
         # one JSONL per session, replayable after crash/restart. Lives on
@@ -595,7 +610,8 @@ class AgentRuntime(_SafetyApprovalMixin, _CheckpointMixin, _DynamicToolsMixin, _
             graph.name,
             stream,
         )
-        # C13: 结构化遥测 — graph.execute span. trace_id 复用 trajectory 关联.
+        # C13: structured telemetry — graph.execute span. trace_id reused
+        # for trajectory correlation.
         tele_span = None
         if self.telemetry_engine is not None:
             try:
@@ -745,11 +761,13 @@ class AgentRuntime(_SafetyApprovalMixin, _CheckpointMixin, _DynamicToolsMixin, _
                 except Exception as e:
                     logger.warning("runtime review summary failed: %s", e)
             try:
-                # 审计 P1-9/P0-1: 统一用 ctx (context or AgentContext()), 不再 context or ctx.
-                # 之前传 context 给 inner 致轨迹-ctx 与执行-ctx 是两个对象 (context=None 时双建),
-                # reaper/telemetry 用 ctx 而执行用另一 ctx, 状态断裂. 现统一.
+                # Audit P1-9/P0-1: use ctx uniformly (context or AgentContext()),
+                # no longer context or ctx. Passing context to inner made the
+                # trajectory-ctx and execution-ctx two separate objects (both created
+                # when context=None); reaper/telemetry used one while execution used
+                # the other, splitting state. Now unified.
                 ctx_ref = ctx
-                # 审计 A-1 Tier1: 清本 exec 残留 future (兜底异常路径).
+                # Audit A-1 Tier1: clear this exec's leftover futures (exception-path safety net).
                 try:
                     self._reap_exec_futures(ctx_ref.session_id)
                 except Exception as e:
@@ -795,23 +813,25 @@ class AgentRuntime(_SafetyApprovalMixin, _CheckpointMixin, _DynamicToolsMixin, _
     ) -> AsyncIterator[AgentEvent]:
         ctx = context or AgentContext()
         ctx.started_at = time.time()
-        # 审计 P1-18: per-agent max_iterations 覆盖. None/0 用 runtime 默认.
+        # Audit P1-18: per-agent max_iterations override. None/0 uses the runtime default.
         ctx.max_iterations = max_iterations if max_iterations else self.max_iterations
-        # 审计 A-1: per-exec 状态迁 ctx, 不在 singleton 实例上 reset.
-        # _tool_call_chain_count per-exec -> ctx (见 Tier 2).
+        # Audit A-1: per-exec state moved to ctx, no reset on the singleton instance.
+        # _tool_call_chain_count per-exec -> ctx (see Tier 2).
         ctx.tool_call_chain_count = 0
-        # 审计 A-1 Tier1: 跨 RPC future 注册表 keyed by globally-unique
-        # action_id/plan_id, 并发安全本自带. 原代码 .clear() 会清掉并发
-        # 执行 A 在途的 approval future (B 一启动把 A 的挂死). 移除 clear,
-        # future 自身 pop 自清 (resolve/timeout/complete). exec 级 reaper
-        # 守卫异常路径残留 (见 _register_exec_future/_reap_exec_futures).
+        # Audit A-1 Tier1: cross-RPC future registry keyed by globally-unique
+        # action_id/plan_id, inherently concurrency-safe. The original .clear() would
+        # wipe exec A's in-flight approval futures (exec B's start killed A's pending
+        # ones). Removed clear; futures pop themselves (resolve/timeout/complete). An
+        # exec-level reaper guards leftovers from the exception path
+        # (see _register_exec_future/_reap_exec_futures).
         exec_id = ctx.session_id
         self._exec_future_keys.setdefault(exec_id, set())
         # C6: honor graph-level plan_mode flag at dispatch entry.
-        # 审计 A-1 Tier2: plan_mode per-exec -> ctx, 不写 singleton.
-        # graph.plan_mode True -> 强制只读 (子图也逃不掉). False 且 context
-        # 由调用方提供 (子 runtime/并行分支) -> 继承调用方 ctx.plan_mode
-        # (父只读期子分支也只读). False 且无 context (顶层 exec) -> 默认 False.
+        # Audit A-1 Tier2: plan_mode per-exec -> ctx, not written to the singleton.
+        # graph.plan_mode True -> force read-only (sub-graphs cannot escape it). False
+        # and context provided by the caller (sub-runtime/parallel branch) -> inherit
+        # the caller's ctx.plan_mode (child branches read-only while the parent is).
+        # False and no context (top-level exec) -> default False.
         if getattr(graph, "plan_mode", False):
             ctx.plan_mode = True
             logger.info("Graph %s entered plan_mode (read-only explore)", graph.id)
@@ -824,13 +844,14 @@ class AgentRuntime(_SafetyApprovalMixin, _CheckpointMixin, _DynamicToolsMixin, _
         if _cp:
             ctx.metadata["confirmation_policy"] = _cp
             logger.info("Graph %s confirmation policy active: %s", graph.id, _cp)
-        # 审计 A-1/A-2 Tier3: variables per-exec. ctx.variables 为空时从
-        # runtime seed (self.variables) 快照 copy — 隔离不共享, 并发/sub
-        # 互不污染. sub runtime 把 sub_vars 传进 ctor (self.variables=sub_vars),
-        # 子 dispatch 再 copy 进 sub_ctx, 父 self.variables 全程不被写.
+        # Audit A-1/A-2 Tier3: variables per-exec. When ctx.variables is empty,
+        # snapshot-copy from the runtime seed (self.variables) — isolated, not shared;
+        # concurrent/sub runs never pollute each other. The sub runtime passes sub_vars
+        # into its ctor (self.variables=sub_vars), sub dispatch copies into sub_ctx;
+        # parent self.variables is never written.
         self._seed_ctx_variables(ctx)
 
-        # #240: trigger_id 从 variables 透传到运行日志 (fusion-event 跨进程可追溯).
+        # #240: thread trigger_id from variables into run logs (cross-process via fusion-event).
         _trig_id = ctx.variables.get("trigger_id") if ctx.variables else ""
         if _trig_id:
             logger.info("execute_graph %s trigger_id=%s", graph.id, _trig_id)
@@ -1035,9 +1056,11 @@ class AgentRuntime(_SafetyApprovalMixin, _CheckpointMixin, _DynamicToolsMixin, _
                                         "reason": "token_budget_pruning",
                                     },
                                 )
-                                # 审计修复: compact() 同步返回 list[dict] (compactor.py:74),
-                                # 不能 await (TypeError 'list' object can't be awaited), 且
-                                # 须赋回 ctx.messages (原丢弃结果致压缩未生效). 对齐 L742 用法.
+                                # Audit fix: compact() returns list[dict] synchronously
+                                # (compactor.py:74); do not await it (TypeError 'list' object
+                                # can't be awaited), and it must be assigned back to
+                                # ctx.messages (dropping the result silently skipped
+                                # compaction). Aligned with the L742 usage.
                                 ctx.messages = self.compactor.compact(ctx.messages)
                                 yield AgentEvent(
                                     type=AgentEventType.THINK,
@@ -1064,17 +1087,19 @@ class AgentRuntime(_SafetyApprovalMixin, _CheckpointMixin, _DynamicToolsMixin, _
                             ctx.finished_at = time.time()
                             return
 
-                    # Agent Loop: 内生多轮工具回灌 (loop_mode=="agent")
-                    # 末条为 tool 结果 => stop_reason=tool_use, 回灌 LLM 继续推理
+                    # Agent Loop: native multi-turn tool feedback (loop_mode=="agent");
+                    # last message is a tool result => stop_reason=tool_use, feed the
+                    # tool result back to the LLM to keep reasoning
                     if node.loop_mode == "agent":
                         max_iter = node.max_loop_iterations or 25
                         for loop_i in range(max_iter):
                             last_msg = ctx.messages[-1] if ctx.messages else {}
                             if last_msg.get("role") != "tool":
                                 break
-                            # 审计 P1-10/R-5: 内生 agent loop 独立计数器 loop_i, 不累加
-                            # ctx.iteration_count -> is_max_iterations_reached 盲区, 无上限
-                            # 防护. 每轮累加会话级计数, 达 max 即停.
+                            # Audit P1-10/R-5: the native agent loop uses its own counter loop_i,
+                            # not ctx.iteration_count -> is_max_iterations_reached blind spot, no
+                            # upper-bound protection. Accumulate the session-level counter each
+                            # turn; stop when max is reached.
                             ctx.iteration_count += 1
                             if ctx.is_max_iterations_reached():
                                 logger.warning(
@@ -1085,7 +1110,7 @@ class AgentRuntime(_SafetyApprovalMixin, _CheckpointMixin, _DynamicToolsMixin, _
                                 if not ctx.stop_reason:
                                     ctx.stop_reason = "max_iterations"
                                 break
-                            # Compaction 接入点 (M2): 超阈值先压缩再回灌
+                            # Compaction hook point (M2): compact above threshold before feedback
                             if self.compactor is not None:
                                 level = self.compactor.should_compact(ctx.messages)
                                 if level != "none":
@@ -1112,7 +1137,7 @@ class AgentRuntime(_SafetyApprovalMixin, _CheckpointMixin, _DynamicToolsMixin, _
                                     # N11 #350: compaction count feeds SLO baselines.
                                     if self.telemetry_engine is not None:
                                         self.telemetry_engine.record_slo("compaction")
-                            # Hooks 接入点 (M3)
+                            # Hooks integration point (M3)
                             ctx.tool_call_chain_count = 0
                             logger.info(
                                 "agent loop iter=%d/%d node=%s msgs=%d",
@@ -1321,10 +1346,11 @@ class AgentRuntime(_SafetyApprovalMixin, _CheckpointMixin, _DynamicToolsMixin, _
                     return
 
                 else:
-                    # 审计 L-1: 未知 node.type 原本无 else 分支 — 不匹配任何
-                    # elif 时静默跳过, current_node_id 不更新, while 循环空转
-                    # 至 max_iterations 才报错, 既浪费又误导 (报 "max iterations"
-                    # 而非 "unknown node type"). 现显式报错并终止.
+                    # Audit L-1: unknown node.type previously had no else branch — when it
+                    # matched no elif it was silently skipped, current_node_id never updated,
+                    # and the while loop spun until max_iterations before erroring — wasteful
+                    # and misleading (reporting "max iterations" instead of "unknown node
+                    # type"). Now fails explicitly and terminates.
                     ctx.error = (
                         f"Unknown node type '{node.type}' on node '{node.label}' "
                         f"(id={current_node_id})"
@@ -1534,12 +1560,13 @@ class AgentRuntime(_SafetyApprovalMixin, _CheckpointMixin, _DynamicToolsMixin, _
             logger.warning("skill tools init failed: %s", e)
 
     def _register_exec_future(self, exec_id: str, key: str) -> None:
-        # 审计 A-1 Tier1: future 创建时登记归属 exec_id, 供 reap 索引.
+        # Audit A-1 Tier1: record the owning exec_id at future creation for reap indexing.
         self._exec_future_keys.setdefault(exec_id, set()).add(key)
 
     def _reap_exec_futures(self, exec_id: str) -> None:
-        # 审计 A-1 Tier1: exec 结束/异常时清本 exec 残留 future (timeout 路径
-        # 异常 skip pop 的兜底). 仅清本 exec 注册的 key, 不动并发别 exec.
+        # Audit A-1 Tier1: clear this exec's leftover futures when the exec ends/raises
+        # (safety net for timeout paths that skip pop). Only clears keys registered by
+        # this exec; never touches other concurrent execs.
         keys = self._exec_future_keys.pop(exec_id, None)
         if not keys:
             return
@@ -1554,9 +1581,10 @@ class AgentRuntime(_SafetyApprovalMixin, _CheckpointMixin, _DynamicToolsMixin, _
             logger.warning("A-1 reaped %d stranded futures for exec_id=%s", reaped, exec_id)
 
     def _seed_ctx_variables(self, ctx: AgentContext) -> None:
-        # 审计 A-1/A-2 Tier3: ctx.variables 播种. dispatch 入口 + 直接调用
-        # 节点 handler (测试/并行分支) 共用. None 时从 runtime seed
-        # (self.variables) 快照 copy — 隔离不共享. 已播种 (None check) 跳过.
+        # Audit A-1/A-2 Tier3: ctx.variables seeding. Shared by the dispatch entry and
+        # direct node handler calls (tests/parallel branches). When None, snapshot-copy
+        # from the runtime seed (self.variables) — isolated, not shared. Skip when
+        # already seeded (None check).
         if ctx.variables is None:
             ctx.variables = VariableManager()
             ctx.variables.load_from(self.variables.to_dict())

@@ -35,8 +35,8 @@ class _FakeResp:
 
 
 class _FakeAsyncClient:
-    # 替换 httpx.AsyncClient: 记录请求 url, 返回预设响应.
-    # 闭合 issue #225 池取数逻辑, 不依赖真实 MLX 运行.
+    # Replaces httpx.AsyncClient: records request URLs and returns preset responses.
+    # Closes issue #225 pool-fetch logic, no real MLX runtime needed.
     responses: dict[str, _FakeResp] = {}
     requested: list[str] = []
 
@@ -65,7 +65,8 @@ def _seed_fake_httpx(monkeypatch, models_payload, stats_payload):
     _FakeAsyncClient.requested = []
     import httpx as _real_httpx
 
-    # _fetch_mlx_pool_state 内 `import httpx` 拿到的是模块对象; patch AsyncClient 属性.
+    # Inside _fetch_mlx_pool_state `import httpx` yields the module object; patch the
+    # AsyncClient attribute.
     monkeypatch.setattr(_real_httpx, "AsyncClient", _FakeAsyncClient)
 
 
@@ -177,7 +178,7 @@ async def _rpc_call(socket_path, method, params=None, msg_id=1):
 class TestIssue225MlxPoolState:
     @pytest.mark.asyncio
     async def test_mlx_status_has_pool_key_not_running(self, daemon):
-        # MLX 未运行 (daemon fixture 无 _mlx_process) -> pool 必为 None.
+        # MLX not running (daemon fixture has no _mlx_process) -> pool must be None.
         resp = await _rpc_call(daemon.socket_path, "mlx.status")
         result = resp["result"]
         assert "pool" in result
@@ -186,18 +187,18 @@ class TestIssue225MlxPoolState:
 
     @pytest.mark.asyncio
     async def test_mlx_pool_rpc_registered_and_shape(self, daemon):
-        # mlx.pool RPC 存在且返回 {running, pool} 结构.
+        # mlx.pool RPC exists and returns a {running, pool} structure.
         resp = await _rpc_call(daemon.socket_path, "mlx.pool")
         assert resp["jsonrpc"] == "2.0"
         result = resp["result"]
         assert "running" in result
         assert "pool" in result
-        # 未运行时 pool=None, 不抛错 (RPC 路由可达).
+        # When not running pool=None, no exception (RPC route reachable).
         assert result["pool"] is None
 
     @pytest.mark.asyncio
     async def test_fetch_pool_state_merges_models_and_stats(self, monkeypatch):
-        # 直接单元测 _fetch_mlx_pool_state: 合并 /admin/api/models + /admin/api/stats.
+        # Direct unit test of _fetch_mlx_pool_state: merges /admin/api/models + /admin/api/stats.
         _seed_fake_httpx(monkeypatch, _sample_models_payload(), _sample_stats_payload())
         d = DaemonServer(
             socket_path="/tmp/_nonexistent_pool.sock",
@@ -208,19 +209,19 @@ class TestIssue225MlxPoolState:
         )
         pool = await d._fetch_mlx_pool_state()
         assert pool is not None
-        assert pool["loaded_count"] == 1  # 只有 qwen-2.5 loaded=True
-        assert len(pool["loaded"]) == 2  # 全部 registered 模型都列出
+        assert pool["loaded_count"] == 1  # only qwen-2.5 is loaded=True
+        assert len(pool["loaded"]) == 2  # all registered models are listed
 
         by_id = {e["id"]: e for e in pool["loaded"]}
         qwen = by_id["qwen-2.5"]
-        # /admin/api/models 来源字段.
+        # Fields sourced from /admin/api/models.
         assert qwen["loaded"] is True
         assert qwen["last_used"] == 1740000000.0  # LRU timestamp
         assert qwen["pinned"] is False
         assert qwen["estimated_size"] == 4000000000
         assert qwen["actual_size"] == 4200000000
         assert qwen["engine_type"] == "batched"
-        # /admin/api/stats 来源字段 (合并).
+        # Fields sourced from /admin/api/stats (merged).
         assert qwen["active_requests"] == 1
         assert qwen["waiting_requests"] == 2
         assert qwen["idle_seconds"] == 3.0
@@ -231,22 +232,22 @@ class TestIssue225MlxPoolState:
         bge = by_id["bge-m3"]
         assert bge["loaded"] is False
         assert bge["pinned"] is True
-        # bge-m3 不在 stats active_models.models (未加载) -> 合并字段不存在.
+        # bge-m3 is not in stats active_models.models (not loaded) -> merged fields absent.
         assert "active_requests" not in bge
 
-        # 内存水位.
+        # Memory water level.
         mem = pool["memory"]
         assert mem["model_memory_used"] == 4200000000
         assert mem["model_memory_max"] == 113000000000
         assert mem["pressure_level"] == "ok"
         assert mem["current_bytes"] == 4200000000
 
-        # lease refcount 上游未暴露 -> 标记待 fusion-mlx#647.
+        # lease refcount not exposed upstream -> flagged pending fusion-mlx#647.
         assert pool["pending_upstream"] == ["lease_refcount"]
 
     @pytest.mark.asyncio
     async def test_fetch_pool_state_resilient_to_admin_401(self, monkeypatch):
-        # admin 鉴权失败 (401) -> pool 不抛错, 返回能取到的部分 + warning.
+        # Admin auth failure (401) -> pool does not raise, returns the retrievable parts + warning.
         import httpx as _real_httpx
 
         _FakeAsyncClient.responses = {
@@ -263,7 +264,8 @@ class TestIssue225MlxPoolState:
             store_path=":memory:",
         )
         pool = await d._fetch_mlx_pool_state()
-        # 两端点都失败但仍返回结构 (loaded 空, memory 空), 不返回 None (None 表示连接失败).
+        # Both endpoints fail but a structure is still returned (loaded empty, memory
+        # empty), not None (None means connection failure).
         assert pool is not None
         assert pool["loaded"] == []
         assert pool["loaded_count"] == 0
@@ -271,7 +273,7 @@ class TestIssue225MlxPoolState:
 
     @pytest.mark.asyncio
     async def test_fetch_pool_state_partial_stats_failure(self, monkeypatch):
-        # models 成功 + stats 404 -> loaded 仍有 models, memory 空, 不崩.
+        # models succeeds + stats 404 -> loaded still has models, memory empty, no crash.
         import httpx as _real_httpx
 
         _FakeAsyncClient.responses = {
@@ -290,7 +292,7 @@ class TestIssue225MlxPoolState:
         pool = await d._fetch_mlx_pool_state()
         assert pool is not None
         assert len(pool["loaded"]) == 2
-        # stats 失败 -> 合并字段缺, 但 /admin/api/models 基础字段在.
+        # stats fails -> merged fields missing, but /admin/api/models base fields are present.
         by_id = {e["id"]: e for e in pool["loaded"]}
         assert by_id["qwen-2.5"]["loaded"] is True
         assert "active_requests" not in by_id["qwen-2.5"]
@@ -298,7 +300,7 @@ class TestIssue225MlxPoolState:
 
     @pytest.mark.asyncio
     async def test_resolve_mlx_server_root_direct_port(self, monkeypatch):
-        # 默认直连 11434; FUSION_MLX_DIRECT_PORT 可覆盖.
+        # Defaults to direct 11434; FUSION_MLX_DIRECT_PORT can override.
         d = DaemonServer(
             socket_path="/tmp/_nonexistent_root.sock",
             ws_port=0,

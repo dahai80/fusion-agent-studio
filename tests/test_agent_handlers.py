@@ -343,7 +343,7 @@ class TestAgentSkills:
 
     @pytest.mark.asyncio
     async def test_skill_execute_terminal_step_captures(self, daemon, monkeypatch):
-        # #152: terminal step 用 TerminalTool 跑命令, capture_to 写变量供后续 step 插值.
+        # #152: terminal steps run via TerminalTool; capture_to saves output for interpolation.
         created = await _run(daemon, "agent.create", {"name": "SkillTerm"})
         agent_id = created["agent_id"]
         await _run(
@@ -399,13 +399,13 @@ class TestAgentSkills:
         assert term_step["status"] == "completed"
         assert "hello-from-fetch" in term_step["output"]
         assert term_step["capture_to"] == "fetch_output"
-        # generate step 的 prompt 应被插值替换 capture 变量.
+        # generate step prompt should be interpolated with captured variables.
         assert "hello-from-fetch" in seen_prompts[0]
         assert "{fetch_output}" not in seen_prompts[0]
 
     @pytest.mark.asyncio
     async def test_skill_execute_terminal_missing_command(self, daemon, monkeypatch):
-        # terminal step 缺 command 应报 error 并终止后续 step.
+        # terminal step missing command should return an error and stop later steps.
         created = await _run(daemon, "agent.create", {"name": "SkillTermErr"})
         agent_id = created["agent_id"]
         await _run(
@@ -449,7 +449,7 @@ class TestAgentSkills:
 
     @pytest.mark.asyncio
     async def test_skill_execute_terminal_step_interpolates_capture(self, daemon, monkeypatch):
-        # #156: terminal step 的 command 应插值前序 capture_to 变量 (terminal→terminal).
+        # #156: terminal step command interpolates prior capture_to variables (terminal->terminal).
         created = await _run(daemon, "agent.create", {"name": "SkillTermInterp"})
         agent_id = created["agent_id"]
         await _run(
@@ -505,7 +505,7 @@ class TestAgentSkills:
 
     @pytest.mark.asyncio
     async def test_skill_execute_generate_step_capture_to(self, daemon, monkeypatch):
-        # #156: generate step 支持 capture_to, 输出可供后续 terminal step 插值 (generate→terminal).
+        # #156: generate step supports capture_to; output feeds later terminal step interpolation.
         created = await _run(daemon, "agent.create", {"name": "SkillGenCapture"})
         agent_id = created["agent_id"]
         await _run(

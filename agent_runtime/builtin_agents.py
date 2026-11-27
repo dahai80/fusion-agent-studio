@@ -39,8 +39,8 @@ GOVERNANCE_STEWARD_DESCRIPTION = (
     "in-acceptance verification, G5 rollout sign-off) via the approval "
     "gateway, decision webhooks and the issue label state machine. "
     "decided_by=owner, requester != reviewer (no self-approval), "
-    "loopback :11442. 多仓库治理管家：按 G1-G5 门模型驱动五个试点仓库的"
-    "审批网关、决策 webhook 与 issue 标签状态机。"
+    "loopback :11442. 多仓库治理管家：按 G1-G5 门模型驱动五个试点仓库的"  # i18n: user-facing
+    "审批网关、决策 webhook 与 issue 标签状态机。"  # i18n: user-facing
 )
 
 BUILTIN_AGENTS = [

@@ -1,10 +1,15 @@
-"""审计 0825 Bundle3 回归 — A-1 per-exec runtime state + A-2 sub-runtime 隔离.
+"""Audit 0825 Bundle3 regression — A-1 per-exec runtime state + A-2 sub-runtime
+isolation.
 
-A-1: AgentRuntime 进程级单例; 执行态写实例属性, 并发图互踩.
-  Tier1: _safety_futures/_plan_futures 跨 RPC 注册表 keyed by uuid, 移除 .clear().
+A-1: AgentRuntime was a process-level singleton; execution state written to
+instance attributes let concurrent graphs stomp each other.
+  Tier1: _safety_futures/_plan_futures cross-RPC registries keyed by uuid,
+  .clear() removed.
   Tier2: plan_mode/_tool_call_chain_count per-exec -> ctx.
-  Tier3: variables per-exec -> ctx (A-2: sub-runtime 不共享父变量).
-A-2: 子 runtime 写 input_mapping 污染父 singleton -> 改写 ctx.variables + copy.
+  Tier3: variables per-exec -> ctx (A-2: sub-runtime does not share parent
+  variables).
+A-2: sub-runtime input_mapping writes polluted the parent singleton -> rewritten
+to ctx.variables + copy.
 """
 
 from __future__ import annotations
@@ -64,7 +69,8 @@ def _two_node_graph(gid: str) -> AgentGraph:
 class TestA1Tier1FuturesNotCleared:
     @pytest.mark.asyncio
     async def test_safety_future_survives_concurrent_exec_start(self):
-        # Graph A 注册一个 safety future (模拟待审批). Graph B 启动不应 clear 它.
+        # Graph A registers a safety future (simulating pending approval). Graph B
+        # starting must not clear it.
         runtime = _make_runtime()
         runtime._safety_futures["A-action-xyz"] = asyncio.get_event_loop().create_future()
         ctx_b = AgentContext()
@@ -92,7 +98,8 @@ class TestA1Tier1FuturesNotCleared:
 class TestA1Tier2PerExecState:
     @pytest.mark.asyncio
     async def test_plan_mode_independent_across_execs(self):
-        # A 进 plan_mode (只读), B 普通. B 启动后 A 的 ctx.plan_mode 不变.
+        # A enters plan_mode (read-only), B normal. After B starts, A's ctx.plan_mode
+        # is unchanged.
         runtime = _make_runtime()
         ctx_a = AgentContext()
         ctx_a.plan_mode = True
@@ -103,7 +110,7 @@ class TestA1Tier2PerExecState:
 
     @pytest.mark.asyncio
     async def test_tool_call_chain_count_independent(self):
-        # A 跑中 chain_count=3, B 启动归零自己的 ctx, 不动 A.
+        # A mid-run chain_count=3; B start zeroes only its own ctx, leaving A alone.
         runtime = _make_runtime()
         ctx_a = AgentContext()
         ctx_a.tool_call_chain_count = 3
@@ -120,25 +127,27 @@ class TestA1Tier2PerExecState:
 class TestA1Tier3VariablesIsolation:
     @pytest.mark.asyncio
     async def test_variables_not_shared_across_execs(self):
-        # A 在 runtime.variables 种 declared var, B 启动后 ctx.variables 是 copy.
-        # B 执行中写 ctx.variables 不应回流 runtime.variables (singleton seed 干净).
+        # A seeds a declared var in runtime.variables; after B starts, ctx.variables
+        # is a copy. Writes to ctx.variables during B's run must not flow back into
+        # runtime.variables (clean singleton seed).
         runtime = _make_runtime()
         runtime.variables.set("declared", "seed-val")
         ctx_b = AgentContext()
         async for _ in runtime.execute_graph(_two_node_graph("B"), "go", context=ctx_b):
             pass
-        # B 的 ctx 拿到了 seed 的 copy.
+        # B's ctx got a copy of the seed.
         assert ctx_b.variables.get("declared") == "seed-val"
-        # B 写自己的 ctx 变量.
+        # B writes its own ctx variable.
         ctx_b.variables.set("b_only", "b-set")
-        # singleton seed 不被 B 的执行污染.
+        # The singleton seed is not polluted by B's execution.
         assert runtime.variables.get("b_only") == "", "B's ctx var bled to singleton"
         assert runtime.variables.get("declared") == "seed-val"
 
     @pytest.mark.asyncio
     async def test_sub_runtime_does_not_pollute_parent_singleton(self):
-        # A-2 核心: 子图 input_mapping 解析写父 ctx.variables (非 singleton),
-        # 子 runtime 的变量变更不回流父 singleton self.variables.
+        # A-2 core: sub-graph input_mapping resolution writes the parent
+        # ctx.variables (not the singleton); the sub-runtime's variable changes do
+        # not flow back to the parent singleton self.variables.
         runtime = _make_runtime()
         runtime.variables.set("parent_val", "P")
         sub_g = _two_node_graph("sub")
@@ -165,14 +174,16 @@ class TestA1Tier3VariablesIsolation:
         ctx = AgentContext()
         async for _ in runtime.execute_graph(parent_g, "go", context=ctx):
             pass
-        # 父 singleton 不被子图 input_mapping 污染.
+        # The parent singleton is not polluted by the sub-graph input_mapping.
         assert runtime.variables.get("parent_val") == "P"
-        # 父 ctx 拿到 input_mapping 解析 (sub_var=input 写父 ctx).
-        # (input_mapping {parent_val: input} -> sub_input=P, 不写父 ctx 额外 var)
+        # The parent ctx receives the input_mapping resolution (sub_var=input is
+        # written to the parent ctx).
+        # (input_mapping {parent_val: input} -> sub_input=P, no extra var written to
+        # the parent ctx)
 
     @pytest.mark.asyncio
     async def test_sub_runtime_output_writes_parent_ctx_not_singleton(self):
-        # output_mapping 回写父 ctx.variables, 不回流 singleton.
+        # output_mapping writes back to the parent ctx.variables, not the singleton.
         runtime = _make_runtime()
         sub_g = _two_node_graph("sub")
         sub_json = sub_g.to_json()
@@ -198,9 +209,9 @@ class TestA1Tier3VariablesIsolation:
         ctx = AgentContext()
         async for _ in runtime.execute_graph(parent_g, "go", context=ctx):
             pass
-        # output_mapping 回写父 ctx (sub_result 不存在 -> 默认 "").
+        # output_mapping writes back to parent ctx (sub_result missing -> default "").
         assert ctx.variables.get("parent_back") == ""
-        # singleton 不被回写.
+        # The singleton is not written back to.
         assert runtime.variables.get("parent_back") == ""
 
 
@@ -227,7 +238,7 @@ class TestA1Reaper:
         runtime._safety_futures["b-key"] = fut_b
         runtime._register_exec_future("exec-A", "a-key")
         runtime._register_exec_future("exec-B", "b-key")
-        # reap A 不应动 B.
+        # Reaping A must not touch B.
         runtime._reap_exec_futures("exec-A")
         assert fut_a.cancelled()
         assert not fut_b.cancelled()

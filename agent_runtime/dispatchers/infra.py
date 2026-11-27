@@ -16,8 +16,9 @@ logger = logging.getLogger(__name__)
 
 
 class InfraDispatcher(SubDispatcher):
-    # 审计 P2/dim1: alert.acknowledge 原为 no-op 空返 {acknowledged:True} 未真正
-    # 标记. 现 lazy 持已确认 alert_id 集合, alert.list 据此标 acknowledged 状态.
+    # Audit P2/dim1: alert.acknowledge was a no-op that just returned
+    # {acknowledged:True} without really marking anything. Now lazily holds the
+    # set of acknowledged alert_ids; alert.list uses it to mark acknowledged.
     _acknowledged_alerts: set[str] = set()
 
     def get_handlers(self) -> dict[str, Callable]:
@@ -341,10 +342,11 @@ class InfraDispatcher(SubDispatcher):
             }
         return {"status": "ok", "triggered": job_id}
 
-    # ── Task handlers (#141 priority 1: task.* 持久化) ──
+    # ── Task handlers (#141 priority 1: task.* persistence) ──
 
     async def _handle_task_submit(self, params: dict) -> dict:
-        # 提交通用 Task. trigger=immediate/cron/run_at; cron 同步注册 cron job 关联.
+        # Submit a generic Task. trigger=immediate/cron/run_at; cron also
+        # registers the linked cron job.
         from ..task_store import TRIGGER_CRON, Task
 
         store = self._daemon._get_task_store()
@@ -371,10 +373,11 @@ class InfraDispatcher(SubDispatcher):
             owner_agent=str(params.get("owner_agent", "") or ""),
         )
         task = store.submit(task)
-        # #238: 幂等去重命中 -> 回写 deduped=True, caller 知是旧 task 非新建.
+        # #238: idempotent dedup hit -> write back deduped=True so the caller
+        # knows this is the old task, not a new one.
         deduped = getattr(store, "last_submit_deduped", False)
-        # cron 触发: 同步注册 cron job, 回写 cron_job_id 关联.
-        # #238: 去重命中(旧 task) 不重复注册 cron, 避免重复 job.
+        # cron trigger: register the cron job, write back cron_job_id linkage.
+        # #238: dedup hits (old task) skip cron re-registration to avoid dup jobs.
         if trigger == TRIGGER_CRON and task.cron_expression and task.graph_id and not deduped:
             try:
                 from ..triggers import CronJob
@@ -395,7 +398,8 @@ class InfraDispatcher(SubDispatcher):
                 logger.info("task %s linked cron job %s", task.task_id, job.id)
             except Exception as exc:
                 logger.warning("task %s cron register failed: %s", task.task_id, exc)
-        # run_at 触发 (#141 priority-3): 一次性定时, 注册 one-shot cron job 回写 cron_job_id.
+        # run_at trigger (#141 priority-3): one-shot timer, registers a one-shot
+        # cron job and writes back cron_job_id.
         elif trigger == "run_at" and task.run_at > 0 and task.graph_id and not deduped:
             try:
                 cm = self._daemon._get_cron_manager()
@@ -414,7 +418,8 @@ class InfraDispatcher(SubDispatcher):
                 )
             except Exception as exc:
                 logger.warning("task %s run_at register failed: %s", task.task_id, exc)
-        # #238: deduped 标志透传到 task dict, 区分新建 vs 幂等命中.
+        # #238: pass the deduped flag through to the task dict to tell new
+        # submits from idempotent hits.
         task_dict = task.to_dict()
         task_dict["deduped"] = deduped
         # #319: broadcast task.created on manual submit (cron path already does).
@@ -506,8 +511,8 @@ class InfraDispatcher(SubDispatcher):
         return {"status": "ok", "task": task.to_dict() if task else None}
 
     async def _handle_task_health(self, params: dict) -> dict:
-        # #239: 队列深度聚合, 供 fusion-event 反向背压 (D-10).
-        # pending_tasks = 未被 worker 取走的待触发; running_tasks = 执行中.
+        # #239: queue depth aggregation for fusion-event backpressure (D-10).
+        # pending_tasks = triggered but not picked up by a worker; running_tasks = executing.
         from ..task_store import (
             TASK_STATUS_PENDING,
             TASK_STATUS_RUNNING,
@@ -634,7 +639,7 @@ class InfraDispatcher(SubDispatcher):
         if not ok:
             return {"status": "error", "message": f"Task not cancelable: {task_id}"}
         task = store.get(task_id)
-        # cron 关联的 job 一并注销.
+        # Unregister the linked cron job too.
         if task and task.cron_job_id:
             try:
                 cm = self._daemon._get_cron_manager()
@@ -656,7 +661,7 @@ class InfraDispatcher(SubDispatcher):
         store = self._daemon._get_task_store()
         task_id = params.get("task_id", "")
         task = store.get(task_id)
-        # cron 关联的 job 一并注销.
+        # Unregister the linked cron job too.
         if task and task.cron_job_id:
             try:
                 cm = self._daemon._get_cron_manager()
@@ -688,17 +693,19 @@ class InfraDispatcher(SubDispatcher):
         )
         return {"status": "ok", "added": True, "artifact_ids": task.artifact_ids if task else []}
 
-    # ── Project handlers (#141 priority 2: 多 Task 聚合容器/看板) ──
+    # ── Project handlers (#141 priority 2: multi-task aggregation containers / boards) ──
 
     async def _handle_project_list(self, params: dict) -> dict:
-        # 聚合所有 project_id 及其任务数/状态分布; project 即 task.project_id 标签分组.
+        # Aggregate all project_ids with their task counts/status distribution;
+        # a project is just the task.project_id label grouping.
         store = self._daemon._get_task_store()
         projects = store.projects()
         logger.info("project.list -> %d projects", len(projects))
         return {"projects": projects, "total": len(projects)}
 
     async def _handle_project_tasks(self, params: dict) -> dict:
-        # 单 project 下任务列表(可选 status 过滤), 供前端 TaskBoardView 看板渲染.
+        # Task list under one project (optional status filter) for the frontend
+        # TaskBoardView board rendering.
         store = self._daemon._get_task_store()
         project_id = params.get("project_id", "")
         if not project_id:
@@ -760,7 +767,7 @@ class InfraDispatcher(SubDispatcher):
 
     async def _handle_alert_list(self, params: dict) -> dict:
         alerts = []
-        # 审计 P2/dim1: 已确认 alert 据 _acknowledged_alerts 标 acknowledged 状态.
+        # Audit P2/dim1: mark acknowledged status from _acknowledged_alerts.
         ack = self._acknowledged_alerts
         try:
             budget_handler = self._daemon._handle_budget_status({})
@@ -809,7 +816,8 @@ class InfraDispatcher(SubDispatcher):
 
     async def _handle_alert_acknowledge(self, params: dict) -> dict:
         alert_id = params.get("alert_id", "")
-        # 审计 P2/dim1: 真正持久化确认状态 (原 no-op), alert.list 据此标 acknowledged.
+        # Audit P2/dim1: actually persist the acknowledged state (was a no-op);
+        # alert.list uses it to mark acknowledged.
         if alert_id:
             self._acknowledged_alerts.add(alert_id)
         logger.info(

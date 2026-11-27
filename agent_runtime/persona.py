@@ -68,8 +68,9 @@ _ALL_FRONTMATTER_RE = re.compile(r"^---\s*\n(.*?)\n---\s*(?:\n|$)", re.DOTALL | 
 
 
 def _strip_frontmatter_blocks(md: str) -> str:
-    # #482: 移除全部 frontmatter 块 (shard 拼接后非首块也要剥掉).
-    # 块内解析不出任何 key 才保留原文 (避免误吃正文里的 --- 分隔线).
+    # #482: remove all frontmatter blocks (non-first blocks must also be
+    # stripped after shard concatenation). A block is only kept verbatim when
+    # no key parses out of it (avoids eating --- separators in the body).
     def _repl(m):
         return "" if _parse_meta_block(m.group(1)) else m.group(0)
 
@@ -79,8 +80,9 @@ def _strip_frontmatter_blocks(md: str) -> str:
 def parse_declarations(md: str) -> dict:
     # N16 #390: rules fragments / memory_scope / skills declarations carried
     # in persona frontmatter and surfaced to the runtime.
-    # #482: shard layout — load_layer 拼接 agent.md + persona/*.md 后,
-    # 声明可能分布在多个 frontmatter 块, 全部扫描合并.
+    # #482: shard layout — after load_layer concatenates agent.md +
+    # persona/*.md, declarations may live in multiple frontmatter blocks;
+    # scan and merge all of them.
     rules: list[str] = []
     skills: list[str] = []
     memory_scope = ""
@@ -129,9 +131,10 @@ def _layer_dir(layer: str, name: str = "") -> Path:
 
 
 def load_layer(layer: str, name: str = "") -> str:
-    # #482: shard layout — agent.md 入口 + persona/*.md 碎片 (sorted 确定性
-    # 顺序) + rules/*.md (一文件一条 rule, 取首个非空行). 单 agent.md 布局
-    # 向后兼容 (无 shard/rule 目录时行为与旧版一致).
+    # #482: shard layout — agent.md entry + persona/*.md shards (sorted,
+    # deterministic order) + rules/*.md (one rule per file, take the first
+    # non-empty line). The single agent.md layout stays backward compatible
+    # (behavior matches the old version when no shard/rule dirs exist).
     if not _LAYER_RE.match(layer):
         raise ValueError(f"unknown persona layer: {layer}")
     d = _layer_dir(layer, name)
@@ -225,7 +228,8 @@ def write_layer_file(layer: str, name: str, path: str, content: str) -> Path:
 def parse_sections(md: str) -> dict[str, str]:
     if not md:
         return {}
-    # #482: shard 拼接后正文里可能残留非首 frontmatter 块, 全部剥掉再切节.
+    # #482: after shard concatenation the body may retain non-first
+    # frontmatter blocks; strip them all before splitting sections.
     md = _strip_frontmatter_blocks(md)
     out: dict[str, str] = {}
     matches = list(_SECTION_RE.finditer(md))

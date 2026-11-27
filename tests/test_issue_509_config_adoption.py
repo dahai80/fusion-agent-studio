@@ -26,8 +26,8 @@ _KEY_ENV_VARS = (
 
 @pytest.fixture
 def clean_keys(monkeypatch, tmp_path):
-    # HOME 隔离: gateway_admin_key/resolve_api_key 会读 ~/.fusion-mlx/settings.json,
-    # 且 gateway.reconfigure RPC 会持久写 FUSION_GATEWAY_URL (进程级污染)。
+    # HOME isolation: gateway_admin_key/resolve_api_key read ~/.fusion-mlx/settings.json,
+    # and the gateway.reconfigure RPC persists FUSION_GATEWAY_URL (process-level pollution).
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
     for k in _KEY_ENV_VARS:
         monkeypatch.delenv(k, raising=False)

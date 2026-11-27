@@ -1,11 +1,14 @@
-"""审计 0825 Bundle4 回归 — P1 资源管控 + 调度.
+"""Audit 0825 Bundle4 regression — P1 resource governance + scheduling.
 
-R-10 chat_stream usage 透传 (client StreamChunk + gateway yield + runtime capture + token_budget).
-R-9  LLM 并发信号量 (FUSION_LLM_CONCURRENCY 限实际 HTTP 调用并发).
-R-2  cron 并行扇出 + 单作业超时 + retry 达上限 disabled (不 reset).
-3M-5 cron UTC + zoneinfo (DST 间隙由 tz-aware datetime 处理).
-R-3  task_store TTL reaper + opt-in 懒载.
-3M-4 工作流并发背压 + 真取消 (_active_tasks 注册 current_task, cancel_run task.cancel()).
+R-10 chat_stream usage passthrough (client StreamChunk + gateway yield + runtime
+capture + token_budget).
+R-9  LLM concurrency semaphore (FUSION_LLM_CONCURRENCY caps actual HTTP call
+concurrency).
+R-2  cron parallel fan-out + per-job timeout + retry exhaustion disables (no reset).
+3M-5 cron UTC + zoneinfo (DST gaps handled by tz-aware datetime).
+R-3  task_store TTL reaper + opt-in lazy load.
+3M-4 workflow concurrency backpressure + real cancellation (_active_tasks
+registers current_task, cancel_run task.cancel()).
 """
 
 from __future__ import annotations
@@ -32,7 +35,7 @@ from agent_runtime.workflow_engine import WorkflowEngine, WorkflowStatus
 from server.fusion_mlx_client import StreamChunk
 
 
-# R-10 占位
+# R-10 placeholder
 class TestR10StreamUsage:
     def test_stream_chunk_carries_usage(self):
         chunk = StreamChunk(usage={"prompt_tokens": 10, "completion_tokens": 5})
@@ -69,7 +72,7 @@ class TestR10StreamUsage:
         assert agg["total"] == 14
 
 
-# R-9 占位
+# R-9 placeholder
 class TestR9LlmConcurrency:
     @pytest.mark.asyncio
     async def test_semaphore_caps_concurrent_calls(self, monkeypatch):
@@ -96,7 +99,8 @@ class TestR9LlmConcurrency:
         gw._llm_concurrency_limit = 4
         gw._llm_semaphore = None
         gw.set_default_client(client)
-        # 用 _call_default_client 直接验证限流 (绕过 model 路由).
+        # Verify rate limiting directly via _call_default_client (bypassing model
+        # routing).
         tasks = [
             gw._call_default_client(messages=[{"role": "user", "content": "x"}]) for _ in range(12)
         ]
@@ -111,7 +115,7 @@ class TestR9LlmConcurrency:
         assert gw._get_llm_semaphore() is None
 
 
-# R-2 cron 并行扇出 + 单作业超时 + retry 达上限 disabled
+# R-2 cron parallel fan-out + per-job timeout + retry exhaustion disables
 class TestR2CronParallel:
     @pytest.mark.asyncio
     async def test_due_jobs_run_concurrently(self, tmp_path):
@@ -136,7 +140,8 @@ class TestR2CronParallel:
         await asyncio.gather(*[cm._run_single_job(j) for j in list(cm._jobs.values())])
         assert len(start_times) == 3
         spread = max(start_times) - min(start_times)
-        # 并行: 三个应近同时开始, 间隔远小于 0.3s 作业耗时.
+        # Parallel: the three should start nearly simultaneously, spread far below
+        # the 0.3s job duration.
         assert spread < 0.15, f"jobs not parallel, spread={spread:.3f}s"
         cm.close()
 
@@ -160,7 +165,7 @@ class TestR2CronParallel:
         cm._jobs[job.id] = job
         cm._handlers[job.id] = hang_handler
         await cm._run_single_job(job)
-        # 超时后 retry 达上限 -> disabled, 执行记录 saved.
+        # After timeout, retries exhausted -> disabled, execution record saved.
         assert job.enabled is False, "retry-exhausted job should be disabled, not reset"
         assert job.retry_count == 0, "max_retries=0 means no increment, immediate disable"
         cm.close()
@@ -184,7 +189,8 @@ class TestR2CronParallel:
         cm._jobs[job.id] = job
         cm._handlers[job.id] = fail_handler
         await cm._run_single_job(job)
-        # 原bug: retry_count 达上限后 reset=0 -> 无限重试. 修: disabled 不 reset.
+        # Original bug: retry_count reset to 0 after hitting the cap -> infinite
+        # retries. Fix: disabled without reset.
         assert job.enabled is False, "job must be disabled after exhausting retries"
         assert job.retry_count == 2, "retry_count must NOT reset to 0 (infinite-retry bug)"
         cm.close()
@@ -271,7 +277,7 @@ class TestR3TaskTtl:
         assert reaped == 2, f"should reap 2 old done/failed, got {reaped}"
         assert "old_done" not in ts._tasks
         assert "old_fail" not in ts._tasks
-        # fresh done + 在途 (running/pending) 不删.
+        # Fresh done + in-flight (running/pending) are not deleted.
         assert "fresh_done" in ts._tasks
         assert "running" in ts._tasks
         assert "pending" in ts._tasks
@@ -294,11 +300,11 @@ class TestR3TaskTtl:
         ts.close()
 
     def test_lazy_load_no_preload(self, tmp_path, monkeypatch):
-        # 先用 eager 模式写入一个任务.
+        # First write one task in eager mode.
         eager = TaskStore(db_path=str(tmp_path / "tasks.db"))
         eager.submit(Task(title="seed", status=TASK_STATUS_COMPLETED))
         eager.close()
-        # 懒载模式启动不预载, get 按需查 DB.
+        # Lazy-load mode does not preload at startup; get queries the DB on demand.
         monkeypatch.setenv("FUSION_TASK_LAZY_LOAD", "1")
         lazy = TaskStore(db_path=str(tmp_path / "tasks.db"))
         assert len(lazy._tasks) == 0, "lazy-load must not preload into _tasks"
@@ -307,7 +313,7 @@ class TestR3TaskTtl:
         lazy.close()
 
 
-# 3M-4 工作流并发背压 + 真取消
+# 3M-4 workflow concurrency backpressure + real cancellation
 class Test3M4WorkflowCancel:
     @pytest.mark.asyncio
     async def test_active_tasks_populated_and_cleared(self, tmp_path):
@@ -320,13 +326,13 @@ class Test3M4WorkflowCancel:
         )
         assert len(we._active_tasks) == 0
         run = await we.execute_workflow(wf.id, "hello")
-        # 执行完后应清理.
+        # Should be cleaned up after execution.
         assert run.id not in we._active_tasks
         assert run.status == WorkflowStatus.COMPLETED
 
     @pytest.mark.asyncio
     async def test_cancel_run_cancels_inflight_task(self, monkeypatch):
-        # 限并发=1 + phase 阻塞在事件上, cancel_run 中途取消.
+        # Concurrency=1 + phase blocked on an event, so cancel_run cancels mid-run.
         monkeypatch.setenv("FUSION_WORKFLOW_CONCURRENCY", "1")
         we = WorkflowEngine()
         we._workflow_concurrency_limit = 1
@@ -347,13 +353,13 @@ class Test3M4WorkflowCancel:
         )
 
         run_task = asyncio.create_task(we.execute_workflow(wf.id, "x"))
-        # 等 run 注册进 _runs (active task 已写入).
+        # Wait for the run to register in _runs (active task already written).
         for _ in range(100):
             if we._runs:
                 break
             await asyncio.sleep(0.01)
         run_id = next(iter(we._runs))
-        # 确认活跃 task 已注册.
+        # Confirm the active task is registered.
         assert run_id in we._active_tasks, "active task must be registered for cancel"
         we.cancel_run(run_id)
         run = await run_task

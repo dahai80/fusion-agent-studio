@@ -34,6 +34,7 @@ export function EvalsPage() {
     const t = useT();
     return (
         <div>
+            {/* i18n: user-facing */}
             <PageHeader title={t('评测', 'Evals')} />
             <div className="pt-3">
                 <EvalRunSection />
@@ -55,6 +56,7 @@ function EvalRunSection() {
 
     const runEval = async (datasetPath: string) => {
         if (!graphId.trim()) {
+            // i18n: user-facing
             setRunError(t('需要 graph_id', 'graph_id required'));
             return;
         }
@@ -68,6 +70,7 @@ function EvalRunSection() {
                 limit: limit.trim() ? Number(limit.trim()) : undefined,
             });
             setReport(res);
+            // i18n: user-facing
             sdk.toast.show({ level: 'success', message: t('评测完成', 'eval finished') });
         } catch (e) {
             setRunError((e as Error).message || 'eval failed');
@@ -88,6 +91,7 @@ function EvalRunSection() {
             <div className="px-4">
                 <ErrorState
                     message={(error as Error).message || 'load failed'}
+                    // i18n: user-facing
                     retryLabel={t('重试', 'Retry')}
                     onRetry={manualRetry}
                 />
@@ -98,8 +102,10 @@ function EvalRunSection() {
         return (
             <div className="px-4">
                 <EmptyState
+                    // i18n: user-facing
                     title={t('暂无评测数据集', 'no eval datasets')}
                     description={t(
+                        // i18n: user-facing
                         '在 studio_home()/evals/ 放置 *.yaml 数据集，或从评审包生成',
                         'drop *.yaml datasets into studio_home()/evals/ or derive one from a reviewer pack'
                     )}
@@ -118,6 +124,7 @@ function EvalRunSection() {
                     </FormField>
                 </div>
                 <div className="w-32">
+                    {/* i18n: user-facing */}
                     <FormField label={t('用例上限', 'Case limit')}>
                         <TextInput value={limit} onChange={setLimit} placeholder="20" />
                     </FormField>
@@ -127,7 +134,9 @@ function EvalRunSection() {
                 <table className="w-full text-left text-xs">
                     <thead className="text-text-secondary">
                         <tr>
+                            {/* i18n: user-facing */}
                             <th className="py-1.5 pr-3">{t('数据集', 'Dataset')}</th>
+                            {/* i18n: user-facing */}
                             <th className="py-1.5 pr-3">{t('用例数', 'Cases')}</th>
                             <th className="py-1.5" />
                         </tr>
@@ -149,6 +158,7 @@ function EvalRunSection() {
                                             onClick={() => void runEval(path)}
                                             className="rounded-md border border-border px-3 py-1 text-text-primary hover:bg-bg-muted disabled:opacity-50"
                                         >
+                                            {/* i18n: user-facing */}
                                             {busy ? t('运行中…', 'running…') : t('运行', 'Run')}
                                         </button>
                                     </td>
@@ -166,6 +176,7 @@ function EvalRunSection() {
                 >
                     <div className="mb-2 flex items-center gap-3">
                         <span className="font-medium text-text-primary">
+                            {/* i18n: user-facing */}
                             {t('通过率', 'Pass rate')}
                         </span>
                         <span data-testid="eval-pass-rate" className="font-mono">

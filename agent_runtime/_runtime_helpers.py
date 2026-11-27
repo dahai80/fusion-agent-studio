@@ -29,7 +29,8 @@ def _env_flag(name: str, default: bool = False) -> bool:
 
 
 def _max_sub_graph_depth() -> int:
-    # 审计 E-16: 子图递归深度上限. 默认 8, FUSION_SUB_GRAPH_MAX_DEPTH 调.
+    # Audit E-16: sub-graph recursion depth cap. Default 8, tune via
+    # FUSION_SUB_GRAPH_MAX_DEPTH.
     raw = os.environ.get("FUSION_SUB_GRAPH_MAX_DEPTH", "").strip()
     try:
         val = int(raw) if raw else 8
@@ -39,9 +40,12 @@ def _max_sub_graph_depth() -> int:
 
 
 def _parallel_branch_concurrency() -> int:
-    # 审计 P3-3: 并行节点分支并发上限. 0 = 不限 (回退 gather 全并发).
-    # 默认 0 保持向后兼容; 生产设 FUSION_PARALLEL_BRANCH_CONCURRENCY=N 节流,
-    # 避免宽 fan-out 瞬时打爆 LLM/工具后端 (LLM 调用另由 P1-4 信号量兜底).
+    # Audit P3-3: parallel-node branch concurrency cap. 0 = unlimited
+    # (fall back to full-concurrency gather).
+    # Default 0 keeps backward compatibility; set
+    # FUSION_PARALLEL_BRANCH_CONCURRENCY=N in production to throttle and avoid wide
+    # fan-outs instantly saturating LLM/tool backends (LLM calls are separately
+    # bounded by the P1-4 semaphore).
     raw = os.environ.get("FUSION_PARALLEL_BRANCH_CONCURRENCY", "").strip()
     try:
         return max(0, int(raw))
@@ -156,8 +160,8 @@ class ConditionEngine:
             return variables.get(var_name, 0)
         if raw.startswith('"') or raw.startswith("'"):
             return raw[1:-1]
-        # #212: bool 字面量归一 (大小写不敏感) -> Python bool, 否则裸 "true" 串
-        # 与工具输出的 Python bool 比较永远判假.
+        # #212: normalize bool literals (case-insensitive) -> Python bool, otherwise
+        # a bare "true" string compared against a tool's Python bool is always False.
         low = raw.lower()
         if low == "true":
             return True
@@ -184,9 +188,11 @@ class ConditionEngine:
 
     @staticmethod
     def _coerce_pair(left: Any, right: Any) -> tuple[Any, Any]:
-        # #212: 跨类型比较归一. 工具输出 Python bool/int, condition 字面量可能
-        # 是 "true"/"5" 字符串 -> 严格相等永远假. 归一两边同类型再比.
-        # bool 先于 int (bool 是 int 子类), 避免被 int 分支吞掉.
+        # #212: cross-type comparison normalization. Tools output Python bool/int,
+        # while condition literals may be "true"/"5" strings -> strict equality is
+        # always False. Normalize both sides to the same type before comparing.
+        # bool before int (bool is an int subclass) so the int branch does not
+        # swallow it.
         if isinstance(left, bool) or isinstance(right, bool):
             if isinstance(left, bool) and isinstance(right, bool):
                 return left, right
@@ -203,7 +209,7 @@ class ConditionEngine:
                 if ll == "false":
                     return False, right
             return left, right
-        # 数字串 vs 数字: "5" == 5, "5" >= 3
+        # Numeric string vs number: "5" == 5, "5" >= 3
         if isinstance(left, (int, float)) and isinstance(right, str):
             try:
                 return left, float(right) if "." in right else int(right)
@@ -217,7 +223,8 @@ class ConditionEngine:
         return left, right
 
     def _compare(self, left: Any, op: str, right: Any) -> str:
-        # #212: 先归一再比, 避免跨类型严格相等静默判假.
+        # #212: normalize before comparing to avoid cross-type strict equality
+        # silently evaluating False.
         left, right = self._coerce_pair(left, right)
         # #294: debug-trace resolved types so graph authors can inspect what
         # each side actually evaluated to (aids bareword/quoting questions).

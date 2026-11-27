@@ -91,6 +91,7 @@ describe('ReviewPage (#549)', () => {
         await userEvent.type(artifact, 'design doc body');
         await userEvent.click(
             screen.getByRole('button', {
+                // i18n: user-facing
                 name: /并行运行选中的评审包|Run selected packs in parallel/i,
             })
         );

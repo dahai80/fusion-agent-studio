@@ -447,7 +447,7 @@ class TestCanvasSourceParity:
     def test_canvas_has_edge_label_and_grouping(self):
         source = (ROOT / "web" / "src" / "pages" / "studio" / "WorkflowCanvasPage.tsx").read_text()
         assert "groupSelected" in source
-        assert "Branch label" in source or "分支标签" in source
+        assert "Branch label" in source or "分支标签" in source  # i18n: user-facing
         assert "extent: 'parent' as const" in source
 
     def test_workflows_page_has_orchestrations(self):

@@ -94,7 +94,10 @@ def client(monkeypatch, tmp_path):
 
 
 def test_compose_first_turn(client):
-    r = client.post("/v1/agents-platform/compose", json={"ask": "帮我做一个对账智能体"})
+    r = client.post(
+        "/v1/agents-platform/compose",
+        json={"ask": "帮我做一个对账智能体"},  # i18n: user-facing
+    )
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["ok"] is True
@@ -108,7 +111,7 @@ def test_compose_first_turn(client):
     user = gw.calls[0]["messages"][-1]["content"]
     assert "convert a one-sentence agent request" in system
     assert "Current document:" not in user
-    assert user == "帮我做一个对账智能体"
+    assert user == "帮我做一个对账智能体"  # i18n: user-facing
 
 
 def test_compose_refinement_turn_carries_current_doc(client):
@@ -120,7 +123,8 @@ def test_compose_refinement_turn_carries_current_doc(client):
         "tools": ["agent.list"],
     }
     r = client.post(
-        "/v1/agents-platform/compose", json={"ask": "加上 Excel 导出", "current_doc": current}
+        "/v1/agents-platform/compose",
+        json={"ask": "加上 Excel 导出", "current_doc": current},  # i18n: user-facing
     )
     assert r.status_code == 200, r.text
     body = r.json()
@@ -137,7 +141,7 @@ def test_compose_refinement_turn_carries_current_doc(client):
     assert "refine an existing agent-authoring YAML" in system
     assert "Current document:" in user
     assert "You reconcile." in user
-    assert "Instruction: 加上 Excel 导出" in user
+    assert "Instruction: 加上 Excel 导出" in user  # i18n: user-facing
 
 
 def test_compose_refinement_bad_model_output_is_honest(client):
@@ -149,7 +153,10 @@ def test_compose_refinement_bad_model_output_is_honest(client):
     api_server._daemon._gateway.chat = bad_chat
     r = client.post(
         "/v1/agents-platform/compose",
-        json={"ask": "改一下", "current_doc": {"name": "x", "system": "s", "tools": []}},
+        json={
+            "ask": "改一下",  # i18n: user-facing
+            "current_doc": {"name": "x", "system": "s", "tools": []},
+        },
     )
     body = r.json()
     assert body["ok"] is False

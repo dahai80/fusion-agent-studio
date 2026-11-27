@@ -15,32 +15,32 @@ STYLES_INDEX = "styles_index.json"
 BUILTIN_STYLES = [
     {
         "id": "formal-report",
-        "name": "正式商业报告",
-        "suffix": "请以正式商业报告风格输出，使用结构化标题、数据引用和结论摘要。语言严谨专业。",
+        "name": "正式商业报告",  # i18n: user-facing
+        "suffix": "请以正式商业报告风格输出，使用结构化标题、数据引用和结论摘要。语言严谨专业。",  # i18n: user-facing
         "output_format": "markdown",
     },
     {
         "id": "technical-doc",
-        "name": "技术文档",
-        "suffix": "请以技术文档风格输出，包含代码示例、参数说明和架构图描述。语言精确简洁。",
+        "name": "技术文档",  # i18n: user-facing
+        "suffix": "请以技术文档风格输出，包含代码示例、参数说明和架构图描述。语言精确简洁。",  # i18n: user-facing
         "output_format": "markdown",
     },
     {
         "id": "creative-writing",
-        "name": "创意写作",
-        "suffix": "请以创意写作风格输出，注重表达力、叙事节奏和语言美感。自由发挥。",
+        "name": "创意写作",  # i18n: user-facing
+        "suffix": "请以创意写作风格输出，注重表达力、叙事节奏和语言美感。自由发挥。",  # i18n: user-facing
         "output_format": "plain",
     },
     {
         "id": "json-structured",
-        "name": "JSON结构化输出",
-        "suffix": "请以JSON格式输出，确保结构清晰、字段命名规范、值类型一致。",
+        "name": "JSON结构化输出",  # i18n: user-facing
+        "suffix": "请以JSON格式输出，确保结构清晰、字段命名规范、值类型一致。",  # i18n: user-facing
         "output_format": "json",
     },
     {
         "id": "concise-summary",
-        "name": "精简摘要",
-        "suffix": "请以精简摘要风格输出，控制在200字以内，突出核心结论和关键数据。",
+        "name": "精简摘要",  # i18n: user-facing
+        "suffix": "请以精简摘要风格输出，控制在200字以内，突出核心结论和关键数据。",  # i18n: user-facing
         "output_format": "plain",
     },
 ]

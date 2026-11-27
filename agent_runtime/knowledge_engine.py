@@ -27,15 +27,17 @@ DEFAULT_DB_PATH = str(studio_home() / "knowledge.db")
 EMBEDDING_DIM = 64
 RRF_K = 60
 
-# #251 RAG → fusion-store HNSW 迁移. 环境门控:
-# FUSION_RAG_BACKEND=fusion_store 启用 fusion_store 向量后端 (HNSW),
-# 默认空 → 沿用 sqlite-vec (现网行为不变). FTS5 全文检索始终留在 SQLite
-# (fusion-store §1.3 不做全文). 向量结果与 FTS5 经 RRF 融合.
+# #251 RAG -> fusion-store HNSW migration. Env gating:
+# FUSION_RAG_BACKEND=fusion_store enables the fusion_store vector backend (HNSW),
+# default empty -> keep sqlite-vec (production behavior unchanged). FTS5 full-text
+# search always stays in SQLite (fusion-store §1.3 has no full-text). Vector results
+# and FTS5 are fused via RRF.
 DEFAULT_STORE_DIR = str(studio_home() / "knowledge.fs")
 
 
 def _backend_from_env() -> str:
-    # #251: __init__ 时读 env (非模块导入时), 使测试可临时 setenv 切后端.
+    # #251: read env at __init__ (not at module import), so tests can temporarily
+    # setenv to switch backends.
     return os.environ.get("FUSION_RAG_BACKEND", "").strip().lower()
 
 
@@ -48,10 +50,13 @@ def _fusion_store_available() -> bool:
         return False
 
 
-# #251 fusion_store 用整数 id 且不支持单向量删除/更新 (DuplicateVector on reinsert).
-# SQLite 仍是内容 + FTS5 + 字符串 id 的 SSOT. 本类维护 str_id -> int fs_id 反向映射,
-# 向量侧 append-only. 重新 ingest 同 str_id 分配新 fs_id (旧向量孤儿, 仅记日志),
-# delete 丢弃映射 (向量孤儿). 单向量删除是上游缺失 — 已提 issue, 此处降级.
+# #251 fusion_store uses integer ids and does not support single-vector
+# delete/update (DuplicateVector on reinsert). SQLite remains the SSOT for
+# content + FTS5 + string ids. This class maintains a str_id -> int fs_id reverse
+# map; the vector side is append-only. Re-ingesting the same str_id allocates a
+# new fs_id (old vectors become orphans, logged only); delete drops the mapping
+# (orphan vectors). Single-vector deletion is an upstream gap — issue filed,
+# degraded here.
 class _FusionStoreBackend:
     def __init__(self, store_dir: str, embedding_dim: int):
         import fusion_store
@@ -60,15 +65,16 @@ class _FusionStoreBackend:
         self._np = np
         self._fs = fusion_store
         Path(store_dir).mkdir(parents=True, exist_ok=True)
-        # dim=Some → 新建/复用同维库. 单写者: 每进程一路径一 Store.
-        # 已存在的 store 须 dim=None reopen (spec §3.2: Some→create, None→reopen).
+        # dim=Some -> create/reuse a store of the same dim. Single writer: one
+        # Store per process per path.
+        # An existing store must be reopened with dim=None (spec §3.2: Some->create, None->reopen).
         store_path = os.path.join(store_dir, "vectors.fs")
         if os.path.exists(store_path):
             self._store = fusion_store.Store.open(store_path, dim=None)
         else:
             self._store = fusion_store.Store.open(store_path, dim=embedding_dim)
         self._dim = self._store.vector_dim()
-        # fs_id 单调计数器持久化在 store KV, 跨重启不回卷.
+        # fs_id monotonic counter persisted in store KV, never rewinds across restarts.
         raw = self._store.get_kv(b"next_fs_id")
         self._next_id = int(raw) if raw else 0
         logger.info(
@@ -102,8 +108,8 @@ class _FusionStoreBackend:
             self.checkpoint()
         except Exception as e:
             logger.warning("FusionStoreBackend checkpoint on close failed: %s", e)
-        # 释放 heed LMDB 环境句柄 (spec: reopen after del). 不 del 则同进程同路径
-        # 重开抛 Heed(EnvAlreadyOpened).
+        # Release the heed LMDB env handle (spec: reopen after del). Without del,
+        # reopening the same path in the same process raises Heed(EnvAlreadyOpened).
         self._store = None
         import gc
 
@@ -180,15 +186,17 @@ class KnowledgeEngine:
         self.embedding_fn = embedding_fn
         self._vec_available = False
         self._fs_backend = None
-        # 审计 A-6/3M-3: 跨线程共享单连接无锁 (仅 WAL 无锁仍竞态).
-        # RLock 串行化所有连接操作 (reentrant: _search_hybrid 调 _search_fts/_search_vector).
+        # Audit A-6/3M-3: a single connection shared across threads without a lock
+        # is still racy (WAL alone does not remove the race).
+        # RLock serializes all connection operations (reentrant: _search_hybrid calls _search_fts/_search_vector).
         self._write_lock = threading.RLock()
         Path(db_path).parent.mkdir(parents=True, exist_ok=True)
         self._conn = self._open_db()
         self._init_schema()
-        # #251: 向量后端选择. 注入优先 (测试 mock), 其次 env 门控 fusion_store.
-        # 若 fusion_store 启用且可用, 覆盖 sqlite-vec 的向量检索路径; _vec_available 仍记
-        # sqlite-vec 状态, 但检索经 _fs_backend 走.
+        # #251: vector backend selection. Injection wins (test mocks), then env-gated
+        # fusion_store. When fusion_store is enabled and available, it overrides the
+        # sqlite-vec vector search path; _vec_available still tracks sqlite-vec status,
+        # but search goes through _fs_backend.
         if vector_backend is not None:
             self._fs_backend = vector_backend
             self.embedding_dim = self._fs_backend.dim()
@@ -252,8 +260,10 @@ class KnowledgeEngine:
                 """)
             except sqlite3.OperationalError:
                 logger.debug("FTS5 table already exists")
-            # #251: str_id -> fs_id 反向映射. gen 记第几次 ingest (同一 str_id 重 ingest 加 1).
-            # 检索命中后取最大 gen 的 fs_id (最新向量), 旧 gen 孤儿向量忽略.
+            # #251: str_id -> fs_id reverse map. gen records the ingest round
+            # (re-ingesting the same str_id increments it).
+            # On retrieval, take the fs_id with the max gen (latest vector); ignore
+            # orphan vectors from older gens.
             self._conn.execute("""
                 CREATE TABLE IF NOT EXISTS knowledge_vec_map (
                     str_id TEXT NOT NULL,
@@ -306,8 +316,9 @@ class KnowledgeEngine:
                 )
             except sqlite3.OperationalError:
                 logger.debug("FTS insert skipped for %s", entry.id)
-            # #251: fusion_store 后端插入. append-only 整数 fs_id + 反向映射.
-            # 同 str_id 重 ingest → gen+1, 新 fs_id; 旧 fs_id 向量孤儿 (无删除 API).
+            # #251: fusion_store backend insert. Append-only integer fs_id + reverse map.
+            # Re-ingest of the same str_id -> gen+1, new fs_id; old fs_id vectors are
+            # orphans (no delete API).
             if self._fs_backend is not None:
                 try:
                     fs_id = self._fs_backend.insert(entry.embedding)
@@ -331,7 +342,8 @@ class KnowledgeEngine:
                 self._conn.execute("DELETE FROM knowledge_fts WHERE id=?", (entry_id,))
             except sqlite3.OperationalError:
                 pass
-            # #251: 丢弃 str_id->fs_id 映射. fusion_store 无单向量删除, 向量孤儿 (记日志).
+            # #251: drop the str_id->fs_id mapping. fusion_store has no single-vector
+            # delete; vectors become orphans (logged).
             if self._fs_backend is not None:
                 self._conn.execute("DELETE FROM knowledge_vec_map WHERE str_id=?", (entry_id,))
             cursor = self._conn.execute("DELETE FROM knowledge_entries WHERE id=?", (entry_id,))
@@ -375,7 +387,8 @@ class KnowledgeEngine:
             logger.warning("Vector search unavailable, falling back to FTS5")
             return self._search_fts(query, scope, limit)
         q_emb = self._get_embedding(query)
-        # #251: fusion_store 后端路径. HNSW knn → fs_id → str_id → 内容条目 (scope 过滤).
+        # #251: fusion_store backend path. HNSW knn -> fs_id -> str_id -> content
+        # entries (scope filtered).
         if self._fs_backend is not None:
             return self._search_vector_fs(q_emb, scope, limit)
         q_blob = self._encode_embedding(q_emb)
@@ -396,13 +409,13 @@ class KnowledgeEngine:
         return [self._row_to_entry(r) for r in rows]
 
     def _search_vector_fs(self, q_emb: list[float], scope: str, limit: int) -> list[KnowledgeEntry]:
-        # 拉比 limit 多的候选 (scope 过滤后裁剪), 因为 knn 不过滤 scope.
+        # Fetch more candidates than limit (trimmed after scope filtering), because knn does not filter scope.
         raw_k = limit * 4 if scope else limit
         hits = self._fs_backend.search_knn(q_emb, top_k=raw_k)
         if not hits:
             return []
         fs_ids = [fs_id for fs_id, _ in hits]
-        # fs_id -> str_id (取每 str_id 最新 gen 的 fs_id, 即若旧 gen 命中则跳过).
+        # fs_id -> str_id (take each str_id's latest-gen fs_id, i.e. skip old-gen hits).
         placeholders = ",".join("?" for _ in fs_ids)
         sql = f"""
             SELECT m.str_id, m.fs_id, m.gen,
@@ -416,7 +429,7 @@ class KnowledgeEngine:
         with self._write_lock:
             rows = self._conn.execute(sql, fs_ids).fetchall()
         fs_to_str = {row[1]: row[0] for row in rows}
-        # 按 knn 距离排序取 str_id, 去重 (同 str_id 多 gen 只留最新).
+        # Take str_ids in knn-distance order, deduped (keep only the latest gen per str_id).
         seen = set()
         ordered_str_ids = []
         for fs_id, _ in hits:
@@ -439,7 +452,7 @@ class KnowledgeEngine:
         with self._write_lock:
             frows = self._conn.execute(fetch_sql, fetch_params).fetchall()
         id_to_entry = {r[0]: self._row_to_entry(r) for r in frows}
-        # 保持 knn 排序 (hits 顺序), 仅保留命中条目.
+        # Preserve knn order (hits order), keep only entries that were found.
         out = [id_to_entry[sid] for sid in ordered_str_ids if sid in id_to_entry]
         return out[:limit]
 
@@ -525,7 +538,7 @@ class KnowledgeEngine:
         return list(struct.unpack(f"{count}f", blob))
 
     def close(self):
-        # #251: fusion_store 关闭前 checkpoint 落盘快照 (崩溃恢复).
+        # #251: checkpoint the fusion_store snapshot to disk before closing (crash recovery).
         if self._fs_backend is not None:
             try:
                 self._fs_backend.close()

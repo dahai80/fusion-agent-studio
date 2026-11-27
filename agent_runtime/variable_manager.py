@@ -64,9 +64,11 @@ class VariableManager:
     def interpolate(self, template: str) -> str:
         """Replace {{ variable.name }} placeholders with actual values.
 
-        #211: 复杂类型 (dict/list/bool/None) 产合法 JSON 串, 非 Python repr.
-        str(dict) = 单引号 repr, 下游 json.loads 崩; json.dumps 双引号合法.
-        标量 (str/int/float) 保持 str() 原样, 避免字符串被多余引号包裹.
+        #211: complex types (dict/list/bool/None) produce valid JSON strings, not
+        Python repr. str(dict) = single-quoted repr, downstream json.loads breaks;
+        json.dumps emits valid double-quoted JSON.
+        Scalars (str/int/float) stay as-is via str(), avoiding strings being
+        wrapped in extra quotes.
         """
 
         def replacer(match):
