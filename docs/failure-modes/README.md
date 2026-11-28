@@ -2,7 +2,7 @@
 doc_id: fusion-agent-studio/guide/failure-modes
 product: fusion-agent-studio
 class: core
-entry: maintainer
+entry: developer
 doc_type: guide
 title: {zh: 失效模式库（FAIL 闭环沉淀流程）, en: Failure Modes Library (FAIL close-out flow)}
 audience: maintainer
