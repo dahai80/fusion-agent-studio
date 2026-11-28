@@ -1,3 +1,19 @@
+---
+doc_id: fusion-agent-studio/guide/failure-modes
+product: fusion-agent-studio
+class: core
+entry: maintainer
+doc_type: guide
+title: {zh: 失效模式库（FAIL 闭环沉淀流程）, en: Failure Modes Library (FAIL close-out flow)}
+audience: maintainer
+status: stable
+version: 1.0.0
+updated: 2026-11-28
+owner: @dahai80
+source_of_truth:
+  - docs/failure-modes/README.md
+---
+
 # Failure Modes Library
 
 Institutional source: `insight/fusion-claude-insight-1102.md` §6.3 step 1
